@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.38
--- Folder: Master_Farmer_Grindbot_v1.3.38
+-- Version: 1.6.2
+-- Folder: Master_Farmer_Grindbot_v1.6.2
 -- ============================================================================
 
 ---@type color
@@ -51,8 +51,8 @@ local CLASS_IDS = {
 }
 
 local MODE_LABELS = { "Grind", "Quest", "Path" }
-local REGION_LABELS = { "Eastern Kingdoms", "Kalimdor", "Outland", "Custom" }
-local REGION_KEYS = { "ek", "kalimdor", "outland", "custom" }
+local REGION_LABELS = { "Eastern Kingdoms", "Kalimdor", "Outland", "Alliance 1-60 w/Vendoring", "Custom" }
+local REGION_KEYS = { "ek", "kalimdor", "outland", "ally160", "custom" }
 local EMPTY_PATH = "(select Grinding first)"
 local EMPTY_QUEST = "(select Quest first)"
 
@@ -211,6 +211,16 @@ menu:checkbox("mfg_potions", true, {
     label = "Use Potions",
     tab = "healing",
 })
+menu:checkbox("mfg_quest_debug", false, {
+    label = "Log quest dialog steps",
+    tab = "healing",
+    tooltip = "Prints each step of a quest accept or hand-in, every reward choice considered, how it was rated, and which one was taken.",
+})
+menu:checkbox("mfg_rest_debug", false, {
+    label = "Log why resting is blocked",
+    tab = "healing",
+    tooltip = "Prints the one gate that is currently stopping the bot from eating or drinking - combat, swimming, movement, an empty bag, or the client refusing the item. Once per second, only when it changes.",
+})
 menu:slider_int("mfg_hp_pot", 10, 60, 35, {
     label = "Health Potion %",
     tab = "healing",
@@ -276,6 +286,11 @@ menu:combobox("mfg_quest", 1, { "(no starter quests)" }, {
     skip_draw = true,
     tooltip = "Starter quests from quest/data for the loaded race. Pick one to inspect start/end NPCs.",
 })
+menu:checkbox("mfg_skip_trivial", true, {
+    label = "Skip Grey Quests",
+    tab = "quest",
+    tooltip = "Skip a quest the NPC reports as trivial (grey). Grey quests award almost no experience, so running them costs more time than they return.",
+})
 menu:checkbox("mfg_quest_force", false, {
     label = "Use Selected Quest",
     tab = "quest",
@@ -308,6 +323,11 @@ menu:checkbox("mfg_sell_green", false, {
 menu:slider_int("mfg_bag_free", 1, 10, 1, {
     label = "Vendor at Free Slots",
     tab = "vendor",
+})
+menu:checkbox("mfg_vendor_each_lap", true, {
+    label = "Vendor Every Lap",
+    tab = "vendor",
+    tooltip = "On an Alliance 1-60 w/Vendoring loop that names a merchant, sell and repair once per completed lap. Those routes begin and end at their vendor, so the stop costs no extra travel. Routes with no vendor in their notes are unaffected.",
 })
 menu:slider_int("mfg_repair_pct", 5, 50, 10, {
     label = "Repair at Durability %",
@@ -371,6 +391,11 @@ local aliases = {
     player_detect = "mfg_player_detect",
     eat_drink = "mfg_eat_drink",
     potions = "mfg_potions",
+    rest_debug = "mfg_rest_debug",
+    quest_debug = "mfg_quest_debug",
+    skip_trivial = "mfg_skip_trivial",
+    train = "mfg_train",
+    vendor_each_lap = "mfg_vendor_each_lap",
     random_path = "mfg_random_path",
     fight_back = "mfg_fight_back",
     untapped = "mfg_untapped",
@@ -391,6 +416,83 @@ local aliases = {
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",
     show_gui = "mfg_show_gui",
+    -- Hunter / Warlock / Shaman / Rogue rotations
+    aspect_hawk = "mfg_aspect_hawk",
+    trueshot = "mfg_trueshot",
+    hunter_pet = "mfg_hunter_pet",
+    mend_pet = "mfg_mend_pet",
+    hunters_mark = "mfg_hunters_mark",
+    serpent_sting = "mfg_serpent_sting",
+    arcane_shot = "mfg_arcane_shot",
+    steady_shot = "mfg_steady_shot",
+    multi_shot = "mfg_multi_shot",
+    concussive = "mfg_concussive",
+    hunter_debug = "mfg_hunter_debug",
+    warlock_armour = "mfg_warlock_armour",
+    health_funnel = "mfg_health_funnel",
+    corruption = "mfg_corruption",
+    curse_agony = "mfg_curse_agony",
+    immolate = "mfg_immolate",
+    shadow_bolt = "mfg_shadow_bolt",
+    drain_life = "mfg_drain_life",
+    life_tap = "mfg_life_tap",
+    warlock_debug = "mfg_warlock_debug",
+    enhancement = "mfg_enhancement",
+    lightning_shield = "mfg_lightning_shield",
+    flame_shock = "mfg_flame_shock",
+    earth_shock = "mfg_earth_shock",
+    frost_shock = "mfg_frost_shock",
+    lightning_bolt = "mfg_lightning_bolt",
+    healing_wave = "mfg_healing_wave",
+    shaman_debug = "mfg_shaman_debug",
+    sinister_strike = "mfg_sinister_strike",
+    backstab = "mfg_backstab",
+    slice_dice = "mfg_slice_dice",
+    rupture = "mfg_rupture",
+    eviscerate = "mfg_eviscerate",
+    evasion = "mfg_evasion",
+    kick = "mfg_kick",
+    rogue_debug = "mfg_rogue_debug",
+    -- Supplies (supplies.lua)
+    buy_supplies = "mfg_buy_supplies",
+    vendor_debug = "mfg_vendor_debug",
+    -- Auto-equip (equip.lua)
+    auto_equip = "mfg_auto_equip",
+    equip_weapons = "mfg_equip_weapons",
+    equip_debug = "mfg_equip_debug",
+    -- Druid (rotations/druid.lua)
+    mark_of_wild = "mfg_mark_of_wild",
+    thorns = "mfg_thorns",
+    moonfire = "mfg_moonfire",
+    wrath = "mfg_wrath",
+    faerie_fire = "mfg_faerie_fire",
+    entangling = "mfg_entangling",
+    rejuvenation = "mfg_rejuvenation",
+    regrowth = "mfg_regrowth",
+    healing_touch = "mfg_healing_touch",
+    druid_debug = "mfg_druid_debug",
+    -- Paladin (rotations/paladin.lua)
+    blessing = "mfg_blessing",
+    seal = "mfg_seal",
+    judgement = "mfg_judgement",
+    crusader_strike = "mfg_crusader_strike",
+    hammer_wrath = "mfg_hammer_wrath",
+    consecration = "mfg_consecration",
+    flash_light = "mfg_flash_light",
+    holy_light = "mfg_holy_light",
+    paladin_debug = "mfg_paladin_debug",
+    -- Priest (rotations/priest.lua)
+    pw_fortitude = "mfg_pw_fortitude",
+    inner_fire = "mfg_inner_fire",
+    shadowform = "mfg_shadowform",
+    pw_shield = "mfg_pw_shield",
+    swp = "mfg_swp",
+    mind_blast = "mfg_mind_blast",
+    mind_flay = "mfg_mind_flay",
+    smite = "mfg_smite",
+    renew = "mfg_renew",
+    flash_heal = "mfg_flash_heal",
+    priest_debug = "mfg_priest_debug",
     ice_armor = "mfg_ice_armor",
     mage_armor = "mfg_mage_armor",
     molten_armor = "mfg_molten_armor",
@@ -424,6 +526,7 @@ local aliases = {
 local slider_aliases = {
     teleport_yards = "mfg_teleport_yards",
     player_yards = "mfg_player_yards",
+    train_reserve = "mfg_train_reserve",
     eat_hp = "mfg_eat_hp",
     drink_mana = "mfg_drink_mana",
     hp_pot = "mfg_hp_pot",
@@ -434,6 +537,27 @@ local slider_aliases = {
     path_combat_yards = "mfg_path_combat_yards",
     bag_free = "mfg_bag_free",
     repair_pct = "mfg_repair_pct",
+    -- class self-heal thresholds (rotations/*.lua read these via gui.slider)
+    pet_heal_pct = "mfg_pet_heal_pct",
+    warlock_heal_pct = "mfg_warlock_heal_pct",
+    shaman_heal_pct = "mfg_shaman_heal_pct",
+    combo_finish = "mfg_combo_finish",
+    evasion_pct = "mfg_evasion_pct",
+    food_target = "mfg_food_target",
+    drink_target = "mfg_drink_target",
+    priest_heal_pct = "mfg_priest_heal_pct",
+    druid_heal_pct = "mfg_druid_heal_pct",
+    paladin_heal_pct = "mfg_paladin_heal_pct",
+}
+
+-- Combobox ids read via gui.combo(). Kept separate from checkbox and slider
+-- aliases because gui.slider() only accepts numbers and gui.is_on() only
+-- booleans, so a dropdown routed through either silently returns the fallback.
+local combo_aliases = {
+    class = "mfg_class",
+    paladin_aura = "mfg_paladin_aura",
+    warlock_pet = "mfg_warlock_pet",
+    shaman_imbue = "mfg_shaman_imbue",
 }
 
 local function checkbox_element(key)
@@ -572,6 +696,17 @@ end
 
 function gui.slider(key, fallback)
     local id = slider_aliases[key] or key
+    local value = menu:get(id)
+    if type(value) == "number" then
+        return value
+    end
+    return fallback
+end
+
+--- Read a combobox as a 1-based index. Returns `fallback` when the element is
+--- missing or has not been resolved yet, so a caller never has to guard nil.
+function gui.combo(key, fallback)
+    local id = combo_aliases[key] or key
     local value = menu:get(id)
     if type(value) == "number" then
         return value
@@ -821,14 +956,14 @@ function gui.sync_profile_list(restore_selected)
     local loaded = armed_path
     if restore_selected == true and loaded and type(loaded.region) == "string" then
         local r = loaded.region
-        if r == "kalimdor" then
-            region = 2
-        elseif r == "outland" then
-            region = 3
-        elseif r == "custom" then
-            region = 4
-        elseif r == "ek" then
-            region = 1
+        -- Derived from REGION_KEYS rather than written out: the hand-written
+        -- version still said custom == 4 after a fifth region was inserted, so
+        -- restoring a saved custom path selected the wrong list.
+        for i = 1, #REGION_KEYS do
+            if REGION_KEYS[i] == r then
+                region = i
+                break
+            end
         end
         menu:set("mfg_path_region", region)
         key = REGION_KEYS[region]

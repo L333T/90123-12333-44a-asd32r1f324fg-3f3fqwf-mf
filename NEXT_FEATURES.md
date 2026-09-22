@@ -55,9 +55,21 @@ Nothing from the snippets maps 1:1. This is the reference for the whole port.
 | `GetWeaponEnchantInfo()` | — | **no equivalent** — see §5.3 |
 | `GetPetHappiness()` / `PetHasActionBar()` | — | **needs verification** — see §5.4 |
 
-`CheckBuff` takes localised *names* in the snippets (`rs["冰甲术"]`). This project
-matches on **spell ID lists**, which is correct and locale-proof. Every buff
-ported needs its full rank ID list, not a name.
+`CheckBuff` takes localised **names** in the snippets (`rs["Ice Armor"]`, keyed in
+Chinese in the original). This project matches on **spell ID lists**, which is
+correct and locale-proof. Every buff ported needs its full rank ID list, not a
+name — highest rank first, as in `rotations/mage.lua`:
+
+```lua
+local ice_armor = make({ 27124, 10220, 10219, 7320, 7302 }, true, false)
+```
+
+A wrong ID fails closed — `spellbook.lua` reports the spell as not learned — but
+it fails **silently**, so resolve IDs against the client rather than guessing.
+
+Every Chinese string in the source is translated in
+[`docs/SOURCE_TRANSLATION.md`](docs/SOURCE_TRANSLATION.md): spell keys, settings
+keys, comments and runtime messages. Use it as the bridge, not as code.
 
 ---
 
@@ -84,32 +96,43 @@ Follow `mage.buffs_ooc()` exactly: guard on `is_in_combat` and `is_mounted`,
 check `has_buff({ranks})`, cast with `cast_self_buff`, `return true` after one
 action so only one cast happens per tick.
 
-Ordered by effort, lowest first:
+Ordered by effort, lowest first. Ability names below are the translated source
+keys — see [`docs/SOURCE_TRANSLATION.md`](docs/SOURCE_TRANSLATION.md).
 
-**3.1 Priest** — Power Word: Fortitude, Shadowform. Two buffs, no pet, no
+**3.1 Priest** — *Power Word: Fortitude*, *Shadowform*. Two buffs, no pet, no
 consumables. Best first port; it validates the registration path end to end.
+Note the source casts Shadowform unconditionally if known — gate it behind a GUI
+toggle, since it locks out healing.
 
-**3.2 Druid** — Mark of the Wild, Thorns. Same shape as Priest.
+**3.2 Druid** — *Mark of the Wild*, *Thorns*. Same shape as Priest.
 
-**3.3 Paladin** — six mutually exclusive auras (Devotion, Concentration,
-Retribution, Frost/Shadow/Fire Resistance). Needs one GUI dropdown, not six
-toggles, because only one aura can be active. Model the GUI entry on the
-existing `ice_armor` / `mage_armor` toggles.
+**3.3 Paladin** — six auras: *Devotion*, *Concentration*, *Retribution*,
+*Frost Resistance*, *Shadow Resistance*, *Fire Resistance*. **Only one may be
+active at a time**, so this needs a single GUI dropdown, not six toggles — the
+source uses six independent booleans and will thrash between them if more than
+one is enabled. Do not replicate that.
 
-**3.4 Warlock** — armor spells (Fel Armor / Demon Armor / Demon Skin) are
-straightforward. Pet summoning is **not**: the snippet gates on
-`GetItemCount(soul shard)` and `PetHasActionBar()`, and serialises casts behind a
-20-second `Interact_Step` latch. Port armor first; defer summoning to Phase 3
-with the other pet work.
+**3.4 Warlock** — armor spells are straightforward: *Fel Armor* (TBC) supersedes
+*Demon Armor*, which supersedes *Demon Skin*; cast the best known one, and treat
+all three as one "armor" slot the way `mage.buffs_ooc` treats Ice/Frost Armor.
+Pet summoning is **not** straightforward: it gates on Soul Shard count and
+`PetHasActionBar()`, and serialises casts behind a 20-second latch. Port armor
+first; defer *Summon Imp / Voidwalker / Felhunter / Succubus / Felguard* to
+Phase 3 with the other pet work.
 
-**3.5 Shaman** — weapon imbues. **Blocked on §5.3** (no `GetWeaponEnchantInfo`
-equivalent). Port the non-weapon parts only, or solve §5.3 first.
+**3.5 Shaman** — weapon imbues: *Rockbiter*, *Flametongue*, *Frostbrand*,
+*Windfury*. **Blocked on §5.3** (no `GetWeaponEnchantInfo` equivalent). Note the
+source has a real bug here worth not copying: it tests `MainHand_Enchant` but
+then casts every enabled imbue in sequence without re-checking, so enabling two
+makes them overwrite each other every tick.
 
-**3.6 Rogue** — poison application. **Blocked on §5.3** for the same reason, and
-additionally needs `UseInventoryItem(16/17)` (main/off hand slots), which has no
-obvious equivalent. Lowest priority; verify the API exists before starting.
+**3.6 Rogue** — *Instant Poison* I–VII on main and off hand. **Blocked on §5.3**
+for the same reason, and additionally needs `UseInventoryItem(16/17)`
+(main/off-hand slots), which has no obvious equivalent. Lowest priority; confirm
+both APIs exist before starting.
 
-**3.7 Hunter** — largest job, see Phase 3.
+**3.7 Hunter** — *Call Pet*, *Revive Pet*, *Mend Pet*, *Feed Pet*,
+*Aspect of the Hawk*, *Trueshot Aura*. Largest job, see Phase 3.
 
 ---
 
@@ -170,10 +193,10 @@ before committing to 3.5/3.6.** If absent, a time-based fallback (re-apply every
 N minutes, tracked in `state`) is workable but inferior — it will waste
 reagents. Do not start those classes until this is settled.
 
-**5.4 Pet API.** `PetHasActionBar()`, `GetPetHappiness()`, pet health, and pet
-passive mode all drive the Hunter and Warlock pet logic. Nothing in this repo
-touches pets today. **Verify what the object manager exposes for pets** before
-scoping Phase 3.
+**5.4 Pet API. RESOLVED (v1.4.5).** `unit:get_pet`, `unit:is_pet`,
+`core.spell_book.get_pet_happiness` and the `core.input.set_pet_*` family all
+exist. Implemented as the shared `pets.lua`, used by both
+`rotations/hunter.lua` and `rotations/warlock.lua`.
 
 ---
 

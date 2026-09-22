@@ -3,8 +3,8 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.38
--- Folder: Master_Farmer_Grindbot_v1.3.38
+-- Version: 1.6.2
+-- Folder: Master_Farmer_Grindbot_v1.6.2
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
 
@@ -12,12 +12,33 @@
 local enums = require("common/enums")
 
 local mage = require("rotations/mage")
+local priest = require("rotations/priest")
+local druid = require("rotations/druid")
+local paladin = require("rotations/paladin")
+local hunter = require("rotations/hunter")
+local warlock = require("rotations/warlock")
+local shaman = require("rotations/shaman")
+local rogue = require("rotations/rogue")
 local targeting = require("targeting")
 
 local by_class = {}
-if mage and mage.class_id then
-    by_class[mage.class_id()] = mage
+local function register(mod)
+    if mod and type(mod.class_id) == "function" then
+        local ok, id = pcall(mod.class_id)
+        if ok and id ~= nil then
+            by_class[id] = mod
+        end
+    end
 end
+
+register(mage)
+register(priest)
+register(druid)
+register(paladin)
+register(hunter)
+register(warlock)
+register(shaman)
+register(rogue)
 
 local rotation = {}
 local last_action = "Idle"
@@ -78,12 +99,22 @@ function rotation.active(player)
 end
 
 function rotation.register_gui(menu)
-    if mage and type(mage.register_gui) == "function" then
-        mage.register_gui(menu)
+    for _, mod in pairs(by_class) do
+        if type(mod.register_gui) == "function" then
+            pcall(mod.register_gui, menu)
+        end
     end
 end
 
 function rotation.buffs_ooc(player)
+    -- Buff casts cancel eating and drinking exactly like combat casts do.
+    local ok_h, healing = pcall(require, "healing")
+    if ok_h and healing and type(healing.is_resting) == "function" then
+        if healing.is_resting() == true then
+            return false
+        end
+    end
+
     local mod = rotation.active(player)
     if not mod or type(mod.buffs_ooc) ~= "function" then
         return false
@@ -103,6 +134,17 @@ function rotation.combat_range(player)
 end
 
 function rotation.tick(player, target, ctx)
+    -- Nothing in the combat routine may fire during a rest: every cast and
+    -- the auto-attack start below cancels eating or drinking. main.lua already
+    -- returns before this, but a grind or quest engine calling rotation.tick
+    -- directly would bypass that. Lazy require - healing requires rotation.
+    local ok_h, healing = pcall(require, "healing")
+    if ok_h and healing and type(healing.is_resting) == "function" then
+        if healing.is_resting() == true then
+            return false
+        end
+    end
+
     local mod = rotation.active(player)
     if not mod or type(mod.tick) ~= "function" then
         return false

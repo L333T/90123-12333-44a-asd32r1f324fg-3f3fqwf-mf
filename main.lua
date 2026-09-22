@@ -3,14 +3,14 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.38
--- Folder: Master_Farmer_Grindbot_v1.3.38
+-- Version: 1.6.2
+-- Folder: Master_Farmer_Grindbot_v1.6.2
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
 -- pauses only. Nothing else in the plugin issues a movement command.
 -- No FB_Nexus. No NavLib.
--- Tick: teleport -> death -> loot -> heal -> buffs -> vendor -> grind XOR quest (Start gated)
+-- Tick: teleport -> death -> heal -> loot -> buffs -> train -> vendor -> equip -> grind XOR quest (Start gated)
 -- ============================================================================
 
 local PLUGIN_MODULES = {
@@ -32,7 +32,20 @@ local PLUGIN_MODULES = {
     "death",
     "healing",
     "vendor",
+    "supplies",
+    "equip",
+    "trainer",
     "config",
+    -- The path INDEXES. These were missing, and the effect was invisible and
+    -- very confusing: a reload reused the previous session's grind/catalog
+    -- table, so a newly added route list never appeared in the menu however
+    -- many times the plugin was reloaded. They are index tables of a few
+    -- kilobytes, so dropping them costs nothing.
+    "grind/catalog",
+    "grind/paths/catalog",
+    "grind/paths/ally160/catalog",
+    "path_catalog",
+    "data/paths/catalog",
 }
 
 for i = 1, #PLUGIN_MODULES do
@@ -105,9 +118,23 @@ local rotation = load_mod("rotation")
 local death = load_mod("death")
 local healing = load_mod("healing")
 local vendor = load_mod("vendor")
+local equip = load_mod("equip")
+local trainer = load_mod("trainer")
+local supplies = load_mod("supplies")
 local loader = load_mod("loader")
 local path_runner = load_mod("path_runner")
 local modes = load_mod("modes")
+
+if gui and supplies and type(supplies.register_gui) == "function" then
+    pcall(supplies.register_gui, gui.get_menu())
+end
+
+if gui and trainer and type(trainer.register_gui) == "function" then
+    pcall(trainer.register_gui, gui.get_menu())
+end
+if gui and equip and type(equip.register_gui) == "function" then
+    pcall(equip.register_gui, gui.get_menu())
+end
 
 if gui and rotation and type(rotation.register_gui) == "function" then
     pcall(function()
@@ -518,10 +545,15 @@ local function on_update()
     if death.tick(player) then
         return
     end
-    if loot and loot.tick(player) then
+    -- Rest outranks looting. Looting used to come first, and because
+    -- loot.tick returns true on every tick while a lootable corpse is in
+    -- range, healing.tick was never reached - the bot would sit at 30% mana
+    -- working through corpses and never drink. Resting also hard-locks
+    -- movement, so loot.tick below cannot walk off mid-drink.
+    if healing.tick(player) then
         return
     end
-    if healing.tick(player) then
+    if loot and loot.tick(player) then
         return
     end
     if rotation.buffs_ooc(player) then
@@ -532,7 +564,20 @@ local function on_update()
         return
     end
 
+    -- Ahead of the vendor trip on purpose: both want the gossip frame, and
+    -- selecting the trainer option replaces whatever is open. Training is the
+    -- rarer opportunity, and vendor.tick re-opens the merchant by itself.
+    if trainer and type(trainer.tick) == "function" and trainer.tick(player) then
+        return
+    end
     if vendor and vendor.tick(player) then
+        return
+    end
+
+    -- After vendor on purpose: equipping and selling are the same underlying
+    -- call (use_container_item), so this must be unreachable while a merchant
+    -- window is open or an upgrade gets sold instead of worn.
+    if equip and type(equip.tick) == "function" and equip.tick(player) then
         return
     end
 

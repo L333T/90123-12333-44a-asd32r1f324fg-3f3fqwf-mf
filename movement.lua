@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
 -- Version: 2.1.0
--- Folder: Master_Farmer_Grindbot_v1.3.38
+-- Folder: Master_Farmer_Grindbot_v1.6.2
 -- ============================================================================
 -- SINGLE-OWNER MOVEMENT STATE MACHINE
 --
@@ -104,6 +104,12 @@ movement.RESTRICT = K.RESTRICT
 -- POSITION
 -- ============================================================================
 movement.to_pos = U.to_pos
+
+--- Ground height under (x, y), falling back to hint_z when the lookup fails or
+--- lands on the wrong floor. Exported because callers that build their own
+--- candidate points - death.lua's safe-spot offsets, for one - otherwise place
+--- them at the source point's z and can end up inside terrain on a slope.
+movement.ground_z = U.ground_z
 
 -- ============================================================================
 -- BLACKLIST ZONES

@@ -3,12 +3,40 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.38
--- Folder: Master_Farmer_Grindbot_v1.3.38
+-- Version: 1.6.2
+-- Folder: Master_Farmer_Grindbot_v1.6.2
 -- ============================================================================
 
 local path_format = require("path_format")
-local ENTRIES = require("grind/paths/catalog")
+
+-- Both of these are INDEXES: id, label, module name and a few numbers per
+-- route, no waypoints. Together they are a few kilobytes, while the routes they
+-- point at hold well over nine thousand waypoints between them - which is why
+-- the module named by an entry is only required when that route is selected,
+-- and dropped again when another is (path_format.take_module).
+local ENTRIES = {}
+
+local function add_index(mod)
+    local ok, list = pcall(require, mod)
+    if not ok then
+        -- Saying nothing here produces an empty path menu and no clue why, so
+        -- this is loud on purpose.
+        core.log_warning("[Master Farmer - Grindbot] Path index " .. tostring(mod)
+            .. " failed to load: " .. tostring(list))
+        return
+    end
+    if type(list) ~= "table" then
+        core.log_warning("[Master Farmer - Grindbot] Path index " .. tostring(mod)
+            .. " is not a table.")
+        return
+    end
+    for i = 1, #list do
+        ENTRIES[#ENTRIES + 1] = list[i]
+    end
+end
+
+add_index("grind/paths/catalog")
+add_index("grind/paths/ally160/catalog")
 
 local novelist_paths = {}
 
@@ -101,6 +129,13 @@ local function finish_path(raw, entry)
     path.mobs = raw.mobs
     path.merchant = raw.merchant
     path.repair = raw.repair
+    -- Set by the Alliance 1-60 w/Vendoring routes: visit the merchant once per
+    -- completed lap, not only when the bags fill or the gear breaks.
+    if type(raw.vendor_each_lap) == "boolean" then
+        path.vendor_each_lap = raw.vendor_each_lap
+    elseif type(entry.vendor_each_lap) == "boolean" then
+        path.vendor_each_lap = entry.vendor_each_lap
+    end
     return path
 end
 

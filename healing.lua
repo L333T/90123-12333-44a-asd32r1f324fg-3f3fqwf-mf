@@ -3,8 +3,8 @@
 -- Eat / drink / potions
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.2
--- Folder: Master_Farmer_Grindbot_v1.5.2
+-- Version: 1.6.0
+-- Folder: Master_Farmer_Grindbot_v1.6.0
 -- Out of combat: if HP or mana is 35% or lower, FORCE-pause combat and movement,
 -- then eat and/or drink until that resource is 100% before restarting.
 -- Combat still uses potions. Swimming cannot rest.

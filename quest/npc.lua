@@ -3,8 +3,8 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.2
--- Folder: Master_Farmer_Grindbot_v1.5.2
+-- Version: 1.6.0
+-- Folder: Master_Farmer_Grindbot_v1.6.0
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
 --   An NPC with quests shows either a GOSSIP frame (get_gossip_*_quests, keyed
@@ -19,6 +19,13 @@
 --   the other, which meant a quest offering a choice of rewards could never be
 --   handed in: complete_quest() is refused while a choice is pending, and the
 --   follow-up passed index 0, which is the "no choice" sentinel.
+--
+-- GREY QUESTS ARE SKIPPED, NOT DECLINED (1.6.0)
+--   A gossip row carries is_trivial, which is the client's own answer to "is
+--   this grey for me". When it is, the quest goes into the same skip bag the
+--   GUI's manual skip uses and the engine moves on to the next one. It is not
+--   declined: decline_quest dismisses the offer for this frame only, so the
+--   bot would walk back and be offered the same quest on the next pass.
 --
 -- GOSSIP quest_id IS NOT A QUEST ID ON TBC (1.5.2)
 --   On Classic Era and TBC Classic the legacy client sends no quest id with a
@@ -251,6 +258,56 @@ local function gossip_row(list, quest_id, quest_name)
     return nil
 end
 
+--- Is this quest grey for us?
+---
+--- is_trivial is the client's own verdict but only appears on a gossip row, so
+--- a greeting-frame NPC falls back to the quest level that frame reports. The
+--- gap is deliberately conservative: TBC greys a quest around five levels below
+--- the character, and skipping one that still pays is worse than running one
+--- that does not.
+local TRIVIAL_GAP = 5
+
+local function is_trivial_quest(player, quest_id, quest_name)
+    if gui.is_on("skip_trivial") ~= true then
+        return false
+    end
+
+    if gossip_open() then
+        local list = safe(function() return core.quests.get_gossip_available_quests() end)
+        if type(list) == "table" and #list > 0 then
+            local row = gossip_row(list, quest_id, quest_name)
+            if row then
+                return row.is_trivial == true
+            end
+        end
+        return false
+    end
+
+    -- Greeting frame: no is_trivial, but it does report the quest level.
+    local titles = frame_titles(function(i) return core.quests.get_available_title(i) end)
+    local idx = index_of_title(titles, quest_name)
+    if not idx then
+        return false
+    end
+    local qlevel = safe(function() return core.quests.get_available_level(idx) end)
+    local plevel = safe(function() return player:get_level() end)
+    if type(qlevel) ~= "number" or type(plevel) ~= "number" or qlevel <= 0 then
+        return false
+    end
+    return (plevel - qlevel) >= TRIVIAL_GAP
+end
+
+--- Put the quest in the same bag the GUI's manual skip uses, so `pick` in
+--- quest/engine.lua moves on to the next one.
+local function mark_skipped(quest_id, quest_name)
+    if type(state.quest.skipped) ~= "table" then
+        state.quest.skipped = {}
+    end
+    state.quest.skipped[quest_id] = true
+    core.log(string.format(
+        "[Master Farmer - Grindbot] Skipping grey quest %s.", tostring(quest_name or quest_id)))
+end
+
 --- Select `quest_id` at the NPC, whichever frame it is showing.
 local function select_quest(quest_id, quest_name, kind)
     local gossip_list, gossip_pick, frame_title, frame_pick
@@ -397,6 +454,11 @@ function npc.accept(player, quest_id, quest_name, npc_id)
     end
 
     if dlg.stage == "select" then
+        if is_trivial_quest(player, quest_id, quest_name) then
+            mark_skipped(quest_id, quest_name)
+            dlg.stage = "done"
+            return
+        end
         select_quest(quest_id, quest_name, "available")
         dlg_to("accept", now)
         return

@@ -3,8 +3,8 @@
 -- Priest grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.2
--- Folder: Master_Farmer_Grindbot_v1.5.2
+-- Version: 1.6.0
+-- Folder: Master_Farmer_Grindbot_v1.6.0
 -- ============================================================================
 -- Ported from the reference grindbot's Buff_Check Priest branch, which kept
 -- only Power Word: Fortitude and Shadowform. That is not enough to level with,

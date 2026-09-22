@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.2
--- Folder: Master_Farmer_Grindbot_v1.5.2
+-- Version: 1.6.0
+-- Folder: Master_Farmer_Grindbot_v1.6.0
 -- ============================================================================
 
 ---@type color
@@ -286,6 +286,11 @@ menu:combobox("mfg_quest", 1, { "(no starter quests)" }, {
     skip_draw = true,
     tooltip = "Starter quests from quest/data for the loaded race. Pick one to inspect start/end NPCs.",
 })
+menu:checkbox("mfg_skip_trivial", true, {
+    label = "Skip Grey Quests",
+    tab = "quest",
+    tooltip = "Skip a quest the NPC reports as trivial (grey). Grey quests award almost no experience, so running them costs more time than they return.",
+})
 menu:checkbox("mfg_quest_force", false, {
     label = "Use Selected Quest",
     tab = "quest",
@@ -383,6 +388,8 @@ local aliases = {
     potions = "mfg_potions",
     rest_debug = "mfg_rest_debug",
     quest_debug = "mfg_quest_debug",
+    skip_trivial = "mfg_skip_trivial",
+    train = "mfg_train",
     random_path = "mfg_random_path",
     fight_back = "mfg_fight_back",
     untapped = "mfg_untapped",
@@ -513,6 +520,7 @@ local aliases = {
 local slider_aliases = {
     teleport_yards = "mfg_teleport_yards",
     player_yards = "mfg_player_yards",
+    train_reserve = "mfg_train_reserve",
     eat_hp = "mfg_eat_hp",
     drink_mana = "mfg_drink_mana",
     hp_pot = "mfg_hp_pot",

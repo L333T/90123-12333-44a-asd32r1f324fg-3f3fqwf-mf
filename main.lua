@@ -3,14 +3,14 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.2
--- Folder: Master_Farmer_Grindbot_v1.5.2
+-- Version: 1.6.0
+-- Folder: Master_Farmer_Grindbot_v1.6.0
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
 -- pauses only. Nothing else in the plugin issues a movement command.
 -- No FB_Nexus. No NavLib.
--- Tick: teleport -> death -> heal -> loot -> buffs -> vendor -> equip -> grind XOR quest (Start gated)
+-- Tick: teleport -> death -> heal -> loot -> buffs -> train -> vendor -> equip -> grind XOR quest (Start gated)
 -- ============================================================================
 
 local PLUGIN_MODULES = {
@@ -34,6 +34,7 @@ local PLUGIN_MODULES = {
     "vendor",
     "supplies",
     "equip",
+    "trainer",
     "config",
 }
 
@@ -108,6 +109,7 @@ local death = load_mod("death")
 local healing = load_mod("healing")
 local vendor = load_mod("vendor")
 local equip = load_mod("equip")
+local trainer = load_mod("trainer")
 local supplies = load_mod("supplies")
 local loader = load_mod("loader")
 local path_runner = load_mod("path_runner")
@@ -117,6 +119,9 @@ if gui and supplies and type(supplies.register_gui) == "function" then
     pcall(supplies.register_gui, gui.get_menu())
 end
 
+if gui and trainer and type(trainer.register_gui) == "function" then
+    pcall(trainer.register_gui, gui.get_menu())
+end
 if gui and equip and type(equip.register_gui) == "function" then
     pcall(equip.register_gui, gui.get_menu())
 end
@@ -549,6 +554,12 @@ local function on_update()
         return
     end
 
+    -- Ahead of the vendor trip on purpose: both want the gossip frame, and
+    -- selecting the trainer option replaces whatever is open. Training is the
+    -- rarer opportunity, and vendor.tick re-opens the merchant by itself.
+    if trainer and type(trainer.tick) == "function" and trainer.tick(player) then
+        return
+    end
     if vendor and vendor.tick(player) then
         return
     end

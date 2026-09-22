@@ -3,9 +3,9 @@
 return {
     version = "1.3.38",
     count   = 66,
-    bytes   = 669940,
+    bytes   = 668846,
     files = {
-        { path = "config.lua",                                         hash = "9812c238", size = 2517 },
+        { path = "config.lua",                                         hash = "06ddc225", size = 1423 },
         { path = "death.lua",                                          hash = "c598ae52", size = 6516 },
         { path = "grind.lua",                                          hash = "f7fd253a", size = 109 },
         { path = "gui.lua",                                            hash = "faec3676", size = 53707 },

@@ -3,8 +3,8 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.2
--- Folder: Master_Farmer_Grindbot_v1.6.2
+-- Version: 1.6.3
+-- Folder: Master_Farmer_Grindbot_v1.6.3
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
 --   There is no trainer location data in this project. The zone tables carry a

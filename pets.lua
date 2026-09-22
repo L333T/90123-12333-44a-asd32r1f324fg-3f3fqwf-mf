@@ -3,8 +3,8 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.2
--- Folder: Master_Farmer_Grindbot_v1.6.2
+-- Version: 1.6.3
+-- Folder: Master_Farmer_Grindbot_v1.6.3
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /
 -- attack / stance, differing only in spell ids and in whether summoning costs a
@@ -149,7 +149,10 @@ function pets.attack(player, target)
 
     last_attack = now
     pcall(function() core.input.set_pet_defensive() end)
-    pcall(function() core.input.pet_attack() end)
+    -- core.input.pet_attack(target) takes the target. It was being called with
+    -- no argument, inside a pcall, so the pet was never actually sent in and
+    -- nothing said so - it only fought what hit it first.
+    pcall(function() core.input.pet_attack(target) end)
     return true
 end
 

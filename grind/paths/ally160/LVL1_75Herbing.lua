@@ -3,8 +3,8 @@
 -- Elwynn Herb 1-75
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.2
--- Folder: Master_Farmer_Grindbot_v1.6.2
+-- Version: 1.6.3
+-- Folder: Master_Farmer_Grindbot_v1.6.3
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : 1-75HerbLVLingElwynnForest

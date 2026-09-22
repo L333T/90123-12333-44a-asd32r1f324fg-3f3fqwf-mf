@@ -3,8 +3,8 @@
 -- Corpse loot after a kill (IZI: enemies_if, can_be_looted, has_loot, loot_object)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.2
--- Folder: Master_Farmer_Grindbot_v1.6.2
+-- Version: 1.6.3
+-- Folder: Master_Farmer_Grindbot_v1.6.3
 -- ============================================================================
 
 ---@type izi_api

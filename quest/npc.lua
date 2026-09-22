@@ -3,8 +3,8 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.37
--- Folder: Master_Farmer_Grindbot_v1.3.37
+-- Version: 1.3.38
+-- Folder: Master_Farmer_Grindbot_v1.3.38
 -- ============================================================================
 
 ---@type izi_api

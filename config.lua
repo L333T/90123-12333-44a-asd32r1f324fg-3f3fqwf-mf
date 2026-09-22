@@ -3,8 +3,8 @@
 -- Config accessors + KEY_MAP from Easy_Data Chinese keys (grind-core only)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.37
--- Folder: Master_Farmer_Grindbot_v1.3.37
+-- Version: 1.3.38
+-- Folder: Master_Farmer_Grindbot_v1.3.38
 -- ============================================================================
 
 local gui = require("gui")

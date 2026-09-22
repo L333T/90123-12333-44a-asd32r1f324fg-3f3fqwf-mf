@@ -3,8 +3,8 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.0
--- Folder: Master_Farmer_Grindbot_v1.5.0
+-- Version: 1.5.1
+-- Folder: Master_Farmer_Grindbot_v1.5.1
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
 
@@ -468,16 +468,16 @@ function quest.tick(player)
     if not on_it then
         leave_hunt()
         state.set_note("Quest", "Accept " .. (current.name or tostring(current.id)))
-        if npc.go_and_interact(player, current.start_npc, current.start) then
-            npc.accept(current.id, current.name)
+        if npc.at_npc(player, current.start_npc, current.start) then
+            npc.accept(player, current.id, current.name, current.start_npc)
         end
         return
     end
     if npc.is_complete(current.id) then
         leave_hunt()
         state.set_note("Quest", "Turn in " .. (current.name or tostring(current.id)))
-        if npc.go_and_interact(player, current.end_npc, current.finish) then
-            npc.turn_in(current.id, current.name)
+        if npc.at_npc(player, current.end_npc, current.finish) then
+            npc.turn_in(player, current.id, current.name, current.end_npc)
         end
         return
     end
@@ -487,7 +487,7 @@ function quest.tick(player)
     end
     leave_hunt()
     state.set_note("Quest", "Travel " .. (current.name or tostring(current.id)))
-    npc.go_and_interact(player, current.end_npc, current.finish)
+    npc.at_npc(player, current.end_npc, current.finish)
 end
 
 return quest

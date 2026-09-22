@@ -3,8 +3,8 @@
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.0
--- Folder: Master_Farmer_Grindbot_v1.5.0
+-- Version: 1.5.1
+-- Folder: Master_Farmer_Grindbot_v1.5.1
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
 --
@@ -26,11 +26,13 @@
 --      FINGER2 and TRINKET1, so it could not fill an empty finger 1 and would
 --      compare against the wrong trinket.
 --
---   3. Weapons are OFF by default. Choosing a weapon needs class proficiency
---      data (can this class use a staff? a 2H axe?) which this API does not
---      expose. Equipping an unusable weapon fails harmlessly, but equipping a
---      *usable but wrong* one - a 2H axe on a Mage - silently wrecks the
---      rotation. Left behind a toggle until proficiencies are available.
+--   3. Weapons are OFF by default here. The proficiency data that was missing
+--      is now supplied by CLASS_WEAPONS below, keyed on the numeric
+--      subclass_id that quest_item_info exposes, and equip.usable_by applies
+--      it - the quest reward picker relies on exactly that. equip.tick keeps
+--      the toggle off all the same: knowing a Mage MAY hold a one-handed
+--      sword does not make swapping its staff for one a good idea, and that
+--      judgement needs stat weights this API still does not expose.
 --
 --   4. It never downgrades. See `better_than` for how the comparison degrades
 --      when the API does not expose an item level.
@@ -133,8 +135,67 @@ local CLASS_ARMOUR = {
     [enums.class_id.PALADIN] = 4,
 }
 
+-- ----------------------------------------------------------------------------
+-- NUMERIC ITEM CLASSES
+-- ----------------------------------------------------------------------------
+-- quest_item_info carries class_id / subclass_id, which are numbers and so
+-- survive a non-English client. item_sub_type is a localised string and only
+-- works on an English one, so the numeric path is tried first everywhere below.
+local ITEM_CLASS = { ARMOR = 4, WEAPON = 2 }
+
+local ARMOR_SUB = { MISC = 0, CLOTH = 1, LEATHER = 2, MAIL = 3, PLATE = 4,
+                    SHIELD = 6, LIBRAM = 7, IDOL = 8, TOTEM = 9 }
+
+local ARMOUR_RANK_BY_SUB = {
+    [ARMOR_SUB.CLOTH] = 1, [ARMOR_SUB.LEATHER] = 2,
+    [ARMOR_SUB.MAIL] = 3, [ARMOR_SUB.PLATE] = 4,
+}
+
+local W = { AXE1 = 0, AXE2 = 1, BOW = 2, GUN = 3, MACE1 = 4, MACE2 = 5,
+            POLEARM = 6, SWORD1 = 7, SWORD2 = 8, STAFF = 10, FIST = 13,
+            MISC = 14, DAGGER = 15, THROWN = 16, CROSSBOW = 18, WAND = 19,
+            FISHING = 20 }
+
+-- What each class may train in TBC, ignoring talents. Closes header note 3:
+-- the proficiency data the API does not expose is static and well known, so a
+-- table is the honest way to supply it rather than guessing from the name.
+local CLASS_WEAPONS = {
+    [enums.class_id.WARRIOR] = { [W.AXE1]=1,[W.AXE2]=1,[W.MACE1]=1,[W.MACE2]=1,[W.SWORD1]=1,[W.SWORD2]=1,
+                                 [W.POLEARM]=1,[W.STAFF]=1,[W.DAGGER]=1,[W.FIST]=1,
+                                 [W.BOW]=1,[W.GUN]=1,[W.CROSSBOW]=1,[W.THROWN]=1 },
+    [enums.class_id.PALADIN] = { [W.AXE1]=1,[W.AXE2]=1,[W.MACE1]=1,[W.MACE2]=1,[W.SWORD1]=1,[W.SWORD2]=1,
+                                 [W.POLEARM]=1 },
+    [enums.class_id.HUNTER]  = { [W.AXE1]=1,[W.AXE2]=1,[W.SWORD1]=1,[W.SWORD2]=1,[W.POLEARM]=1,
+                                 [W.STAFF]=1,[W.DAGGER]=1,[W.FIST]=1,
+                                 [W.BOW]=1,[W.GUN]=1,[W.CROSSBOW]=1,[W.THROWN]=1 },
+    [enums.class_id.ROGUE]   = { [W.DAGGER]=1,[W.SWORD1]=1,[W.MACE1]=1,[W.FIST]=1,[W.AXE1]=1,
+                                 [W.BOW]=1,[W.GUN]=1,[W.CROSSBOW]=1,[W.THROWN]=1 },
+    [enums.class_id.PRIEST]  = { [W.MACE1]=1,[W.DAGGER]=1,[W.STAFF]=1,[W.WAND]=1 },
+    [enums.class_id.SHAMAN]  = { [W.AXE1]=1,[W.AXE2]=1,[W.MACE1]=1,[W.MACE2]=1,[W.STAFF]=1,
+                                 [W.DAGGER]=1,[W.FIST]=1 },
+    [enums.class_id.MAGE]    = { [W.SWORD1]=1,[W.DAGGER]=1,[W.STAFF]=1,[W.WAND]=1 },
+    [enums.class_id.WARLOCK] = { [W.SWORD1]=1,[W.DAGGER]=1,[W.STAFF]=1,[W.WAND]=1 },
+    [enums.class_id.DRUID]   = { [W.MACE1]=1,[W.MACE2]=1,[W.STAFF]=1,[W.DAGGER]=1,[W.FIST]=1,[W.POLEARM]=1 },
+}
+
+-- Shields, and the class-specific relic subclasses.
+local CLASS_SHIELD = {
+    [enums.class_id.WARRIOR] = true, [enums.class_id.PALADIN] = true,
+    [enums.class_id.SHAMAN]  = true,
+}
+local CLASS_RELIC = {
+    [enums.class_id.PALADIN] = ARMOR_SUB.LIBRAM,
+    [enums.class_id.DRUID]   = ARMOR_SUB.IDOL,
+    [enums.class_id.SHAMAN]  = ARMOR_SUB.TOTEM,
+}
+
 --- Armour rank of an item, or nil when it is not armour we gate on.
+--- Numeric subclass first, localised name only as a fallback.
 local function armour_rank(info)
+    if type(info.class_id) == "number" and info.class_id == ITEM_CLASS.ARMOR
+        and type(info.subclass_id) == "number" then
+        return ARMOUR_RANK_BY_SUB[info.subclass_id]
+    end
     local sub = info.item_sub_type
     if type(sub) ~= "string" then
         return nil
@@ -417,6 +478,148 @@ end
 
 --- Force the next tick to rescan. Call after looting so an upgrade is picked up
 --- without waiting out the scan gap.
+-- ----------------------------------------------------------------------------
+-- SHARED RATING  (used by the quest reward picker)
+-- ----------------------------------------------------------------------------
+--- Item info for an item id OR an item link. Quest rewards only ever hand out
+--- links, and core.quests.get_item_info takes integer|string.
+function equip.info_of(id_or_link)
+    if type(id_or_link) == "number" then
+        return item_info(id_or_link)
+    end
+    if type(id_or_link) ~= "string" or id_or_link == "" then
+        return nil
+    end
+    local info = safe(function() return core.quests.get_item_info(id_or_link) end)
+    if type(info) ~= "table" then
+        return nil
+    end
+    return info
+end
+
+--- Can this character actually equip and use `info`?
+---
+--- Returns (usable, slots, why). `slots` is the candidate inventory slot list
+--- when the item is equippable, nil otherwise. `why` explains a refusal and is
+--- meant for the debug log.
+function equip.usable_by(player, info)
+    if type(info) ~= "table" then
+        return false, nil, "no item info"
+    end
+
+    local loc = info.equip_loc
+    if type(loc) ~= "string" or loc == "" or loc == "INVTYPE_NON_EQUIP" then
+        return false, nil, "not equippable"
+    end
+    local slots = LOC_SLOTS[loc] or WEAPON_SLOTS[loc]
+    if loc == "INVTYPE_RELIC" then
+        slots = { SLOT.RANGED }
+    end
+    if not slots then
+        return false, nil, "unknown equip location " .. loc
+    end
+
+    local lvl = safe(function() return player:get_level() end)
+    local req = required_level(info)
+    if type(lvl) == "number" and type(req) == "number" and req > lvl then
+        return false, slots, string.format("needs level %d, character is %d", req, lvl)
+    end
+
+    local class_id = safe(function() return player:get_class() end)
+
+    -- Armour: the class may wear its own weight and anything lighter.
+    local rank = armour_rank(info)
+    if rank then
+        local max_rank = CLASS_ARMOUR[class_id]
+        if max_rank and rank > max_rank then
+            return false, slots, "armour too heavy for this class"
+        end
+        return true, slots, nil
+    end
+
+    local cls, sub = info.class_id, info.subclass_id
+    if type(cls) == "number" and type(sub) == "number" then
+        if cls == ITEM_CLASS.WEAPON then
+            local allowed = CLASS_WEAPONS[class_id]
+            if allowed and not allowed[sub] then
+                return false, slots, "class cannot use this weapon type"
+            end
+            return true, slots, nil
+        end
+        if cls == ITEM_CLASS.ARMOR then
+            if sub == ARMOR_SUB.SHIELD then
+                if not CLASS_SHIELD[class_id] then
+                    return false, slots, "class cannot use shields"
+                end
+                return true, slots, nil
+            end
+            if sub == ARMOR_SUB.LIBRAM or sub == ARMOR_SUB.IDOL or sub == ARMOR_SUB.TOTEM then
+                if CLASS_RELIC[class_id] ~= sub then
+                    return false, slots, "relic belongs to another class"
+                end
+                return true, slots, nil
+            end
+            -- ARMOR_SUB.MISC: rings, necks, trinkets, cloaks. Anyone may wear them.
+            return true, slots, nil
+        end
+    end
+
+    -- No numeric class data: it is equippable and nothing says otherwise.
+    return true, slots, nil
+end
+
+--- Rate a candidate for the quest reward picker.
+---
+--- tier 3  a usable upgrade over what is worn
+--- tier 2  usable, but not better than what is worn
+--- tier 1  not equippable at all - a bag, a consumable, a stack of reagents
+--- tier 0  equippable but this class cannot use it
+---
+--- Ties inside a tier break on item level, then quality, then vendor price, so
+--- "best usable item" means the strongest thing the character can actually
+--- wear, and only falls back to raw value when nothing is wearable.
+function equip.rate(player, info)
+    if type(info) ~= "table" then
+        return nil
+    end
+    local usable, slots, why = equip.usable_by(player, info)
+    local tier, reason
+
+    if not slots then
+        tier, reason = 1, why or "not equippable"
+    elseif not usable then
+        tier, reason = 0, why or "unusable"
+    else
+        local cur_slot = pick_slot(player, slots)
+        local cur = cur_slot and equipped_info(player, cur_slot) or nil
+        local better, note = better_than(info, cur)
+        if better then
+            tier, reason = 3, note or "upgrade"
+        else
+            tier, reason = 2, "usable, not an upgrade"
+        end
+    end
+
+    return {
+        tier = tier,
+        reason = reason,
+        item_level = item_level(info) or 0,
+        quality = quality_of(info) or 0,
+        sell_price = (type(info.sell_price) == "number" and info.sell_price) or 0,
+        name = info.name,
+    }
+end
+
+--- True when `a` is a strictly better reward than `b`.
+function equip.rating_beats(a, b)
+    if not b then return a ~= nil end
+    if not a then return false end
+    if a.tier ~= b.tier then return a.tier > b.tier end
+    if a.item_level ~= b.item_level then return a.item_level > b.item_level end
+    if a.quality ~= b.quality then return a.quality > b.quality end
+    return a.sell_price > b.sell_price
+end
+
 function equip.invalidate()
     last_scan = 0
 end

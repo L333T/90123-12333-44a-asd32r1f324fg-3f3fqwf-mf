@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.0
--- Folder: Master_Farmer_Grindbot_v1.5.0
+-- Version: 1.5.1
+-- Folder: Master_Farmer_Grindbot_v1.5.1
 -- ============================================================================
 
 ---@type color
@@ -211,6 +211,11 @@ menu:checkbox("mfg_potions", true, {
     label = "Use Potions",
     tab = "healing",
 })
+menu:checkbox("mfg_quest_debug", false, {
+    label = "Log quest dialog steps",
+    tab = "healing",
+    tooltip = "Prints each step of a quest accept or hand-in, every reward choice considered, how it was rated, and which one was taken.",
+})
 menu:checkbox("mfg_rest_debug", false, {
     label = "Log why resting is blocked",
     tab = "healing",
@@ -377,6 +382,7 @@ local aliases = {
     eat_drink = "mfg_eat_drink",
     potions = "mfg_potions",
     rest_debug = "mfg_rest_debug",
+    quest_debug = "mfg_quest_debug",
     random_path = "mfg_random_path",
     fight_back = "mfg_fight_back",
     untapped = "mfg_untapped",

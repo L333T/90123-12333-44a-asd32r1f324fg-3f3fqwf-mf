@@ -3,8 +3,8 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.0
--- Folder: Master_Farmer_Grindbot_v1.5.0
+-- Version: 1.5.1
+-- Folder: Master_Farmer_Grindbot_v1.5.1
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
 --   An NPC with quests shows either a GOSSIP frame (get_gossip_*_quests, keyed
@@ -20,6 +20,17 @@
 --   handed in: complete_quest() is refused while a choice is pending, and the
 --   follow-up passed index 0, which is the "no choice" sentinel.
 --
+-- INTERACTING IS NOT FREE (1.5.1)
+--   go_and_interact re-issued interact_with_object every 1.2s for as long as
+--   the bot stood at the NPC, and the dialog steps only ran on the tick that
+--   fired. Re-interacting TEARS DOWN the open frame and opens a fresh one, so
+--   the reward frame never lived long enough for get_quest_item_link to see a
+--   choice - the hand-in fell through to complete_quest every time and a quest
+--   with a reward choice could never finish. Walking to the NPC (npc.at_npc)
+--   and driving the dialog (npc.accept / npc.turn_in) are now separate, and
+--   the dialog is a state machine that interacts ONCE and then leaves the
+--   frame alone while it reads it.
+--
 -- ESCORTS NEED A SECOND YES
 --   accept_quest() is not enough for an auto-accept / escort quest; the client
 --   raises a confirmation popup that confirm_accept_quest() answers.
@@ -28,6 +39,7 @@
 ---@type izi_api
 local izi = require("common/izi_sdk")
 
+local gui = require("gui")
 local movement = require("movement")
 local targeting = require("targeting")
 local state = require("state")
@@ -128,7 +140,10 @@ function npc.name_of(player, npc_id)
     return nil
 end
 
-function npc.go_and_interact(player, npc_id, dest)
+--- Walk to `npc_id`. Returns true once the bot is standing at it - every tick,
+--- and WITHOUT interacting. The dialog state machines below decide when to
+--- interact, because re-interacting closes whatever frame they are reading.
+function npc.at_npc(player, npc_id, dest)
     local unit = targeting.find_npc(player, npc_id, 80)
     if unit then
         local d = safe(function() return player:distance_to(unit) end) or 99
@@ -138,153 +153,303 @@ function npc.go_and_interact(player, npc_id, dest)
             return false
         end
         movement.nav_stop()
-        if izi.now() < state.quest.interact_until then
-            return false
-        end
-        state.quest.interact_until = izi.now() + 1.2
-        pcall(function()
-            core.input.interact_with_object(unit)
-        end)
         return true
     end
     if dest then
-        if movement.arrived(dest, 4) then
-            return false
+        if not movement.arrived(dest, 4) then
+            movement.nav_to(dest)
         end
-        movement.nav_to(dest)
     end
     return false
 end
 
---- Accept `quest_id`, whichever frame the NPC is showing.
---- `quest_name` is the title from the quest data, used only to disambiguate a
---- greeting frame that lists more than one quest.
-function npc.accept(quest_id, quest_name)
-    local selected = false
+--- Open the NPC's dialog. Called once per state-machine attempt, never on a
+--- timer: every call replaces the frame that is currently open.
+local function interact_once(player, npc_id)
+    local unit = targeting.find_npc(player, npc_id, 10)
+    if not unit then
+        return false
+    end
+    state.quest.interact_until = izi.now() + 1.2
+    pcall(function()
+        core.input.interact_with_object(unit)
+    end)
+    return true
+end
+
+-- ----------------------------------------------------------------------------
+-- DIALOG STATE MACHINE
+-- ----------------------------------------------------------------------------
+-- Each step gets its own tick. The client needs a frame or two to open a
+-- window, and every step here reads a window the previous step opened.
+local STEP_GAP    = 0.5   -- seconds between steps
+local FRAME_WAIT  = 2.0   -- how long to let the reward frame appear
+local RETRY_GAP   = 8.0   -- restart a stalled dialog after this
+local MAX_TRIES   = 3
+
+local dlg = { key = nil, stage = nil, t = -1e9, tries = 0, picked = nil }
+
+local function dlg_reset(key)
+    dlg.key, dlg.stage, dlg.t, dlg.tries, dlg.picked = key, "interact", -1e9, 0, nil
+end
+
+local function dlg_to(stage, now)
+    dlg.stage, dlg.t = stage, now
+end
+
+local function quest_debug(fmt, ...)
+    if gui.is_on("quest_debug") ~= true then
+        return
+    end
+    core.log("[Master Farmer - Grindbot] quest: " .. string.format(fmt, ...))
+end
+
+--- Select `quest_id` at the NPC, whichever frame it is showing.
+local function select_quest(quest_id, quest_name, kind)
+    local gossip_list, gossip_pick, frame_title, frame_pick
+    if kind == "available" then
+        gossip_list = function() return core.quests.get_gossip_available_quests() end
+        gossip_pick = function(id) core.quests.select_gossip_available_quest(id) end
+        frame_title = function(i) return core.quests.get_available_title(i) end
+        frame_pick  = function(i) core.quests.select_available_quest(i) end
+    else
+        gossip_list = function() return core.quests.get_gossip_active_quests() end
+        gossip_pick = function(id) core.quests.select_gossip_active_quest(id) end
+        frame_title = function(i) return core.quests.get_active_title(i) end
+        frame_pick  = function(i) core.quests.select_active_quest(i) end
+    end
 
     if gossip_open() then
-        local list = safe(function() return core.quests.get_gossip_available_quests() end)
+        local list = safe(gossip_list)
         if type(list) == "table" then
             for i = 1, #list do
                 if list[i].quest_id == quest_id then
-                    pcall(function()
-                        core.quests.select_gossip_available_quest(quest_id)
-                    end)
-                    selected = true
-                    break
+                    pcall(function() gossip_pick(quest_id) end)
+                    quest_debug("selected %s quest %d in the gossip frame", kind, quest_id)
+                    return true
                 end
             end
         end
+        -- The list did not come back but the frame is open: ask by id anyway.
+        pcall(function() gossip_pick(quest_id) end)
+        quest_debug("asked the gossip frame for %s quest %d by id", kind, quest_id)
+        return true
     end
 
-    -- No gossip frame, or the quest was not in it: this is the quest greeting
-    -- frame, which is keyed by index rather than by quest id.
-    if not selected then
-        local titles = frame_titles(function(i) return core.quests.get_available_title(i) end)
-        local idx = index_of_title(titles, quest_name)
-        if idx then
-            pcall(function() core.quests.select_available_quest(idx) end)
-            selected = true
-        elseif next(titles) ~= nil then
-            warn_once("avail:" .. tostring(quest_id),
-                "Quest %s is not one of the %d quests this NPC is offering by that name - "
-                .. "the quest data name may not match the client's locale.",
-                tostring(quest_name or quest_id), #titles)
-        end
+    local titles = frame_titles(frame_title)
+    local idx = index_of_title(titles, quest_name)
+    if idx then
+        pcall(function() frame_pick(idx) end)
+        quest_debug("selected %s quest at greeting-frame index %d (%s)", kind, idx, tostring(titles[idx]))
+        return true
     end
-
-    pcall(function()
-        core.quests.accept_quest()
-    end)
-    -- Escort and other auto-accept quests raise a second confirmation popup;
-    -- without this they sit on screen and the bot never starts them.
-    pcall(function()
-        core.quests.confirm_accept_quest()
-    end)
+    if next(titles) ~= nil then
+        warn_once(kind .. ":" .. tostring(quest_id),
+            "Quest %s is not among the quests this NPC lists by that name - "
+            .. "the quest data name may not match the client's locale.",
+            tostring(quest_name or quest_id))
+        return false
+    end
+    -- No list at all: the quest detail frame is already up.
+    return true
 end
 
---- Reward choice index to take, or nil when the quest offers no choice.
----
---- get_quest_item_link("choice", i) returns "" past the last choice, so the
---- list ends itself. When there is a choice the most valuable one is taken -
---- something has to be picked, and vendor price is the only ranking that means
---- anything to a grind bot.
+-- ----------------------------------------------------------------------------
+-- REWARD CHOICE
+-- ----------------------------------------------------------------------------
 local MAX_REWARD_CHOICES = 10
 
-local function best_reward_choice()
-    local best_idx, best_value = nil, -1
+--- The reward choices currently on offer, as { index, link } pairs.
+--- An index past the last choice returns "", which ends the list.
+local function reward_choices()
+    local out = {}
     for i = 1, MAX_REWARD_CHOICES do
         local link = safe(function() return core.quests.get_quest_item_link("choice", i) end)
         if type(link) ~= "string" or link == "" then
             break
         end
-        local value = 0
-        local info = safe(function() return core.quests.get_item_info(link) end)
-        if type(info) == "table" and type(info.sell_price) == "number" then
-            value = info.sell_price
-        end
-        if value > best_value then
-            best_idx, best_value = i, value
-        end
+        out[#out + 1] = { index = i, link = link }
     end
-    return best_idx
+    return out
 end
 
---- Hand in `quest_id`, whichever frame the NPC is showing.
-function npc.turn_in(quest_id, quest_name)
-    local selected = false
+--- Best choice index for this character, or nil when nothing is on offer.
+---
+--- Ranked by equip.rate: a usable upgrade beats a usable item, which beats
+--- something not equippable at all, which beats an item this class cannot use.
+--- Vendor price only breaks ties. Picking blind - which is what index 0 did -
+--- routinely took a plate chest on a Mage.
+local function best_choice(player)
+    local choices = reward_choices()
+    if #choices == 0 then
+        return nil, 0
+    end
 
-    if gossip_open() then
-        local list = safe(function() return core.quests.get_gossip_active_quests() end)
-        if type(list) == "table" then
-            for i = 1, #list do
-                if list[i].quest_id == quest_id then
-                    pcall(function()
-                        core.quests.select_gossip_active_quest(quest_id)
-                    end)
-                    selected = true
-                    break
-                end
+    local ok_equip, equip = pcall(require, "equip")
+    local best_idx, best_rating, best_name = nil, nil, nil
+
+    for i = 1, #choices do
+        local c = choices[i]
+        local rating, name
+        if ok_equip and equip and type(equip.info_of) == "function" then
+            local info = equip.info_of(c.link)
+            if info then
+                rating = equip.rate(player, info)
+                name = info.name or c.link
             end
         end
-        if not selected then
-            -- Older behaviour: ask for it by id even when the list did not come
-            -- back, which costs nothing and still works on most NPCs.
-            pcall(function()
-                core.quests.select_gossip_active_quest(quest_id)
-            end)
-            selected = true
+        if rating then
+            quest_debug("  choice %d: %s - tier %d (%s) ilvl %d q%d %dc",
+                c.index, tostring(name), rating.tier, tostring(rating.reason),
+                rating.item_level, rating.quality, rating.sell_price)
+            if equip.rating_beats(rating, best_rating) then
+                best_idx, best_rating, best_name = c.index, rating, name
+            end
+        elseif best_idx == nil then
+            -- No item info on this build: take the first rather than none.
+            best_idx, best_name = c.index, c.link
         end
     end
 
-    if not selected then
-        local titles = frame_titles(function(i) return core.quests.get_active_title(i) end)
-        local idx = index_of_title(titles, quest_name)
+    if best_idx then
+        quest_debug("taking choice %d (%s)", best_idx, tostring(best_name))
+    end
+    return best_idx, #choices
+end
+
+-- ----------------------------------------------------------------------------
+-- ACCEPT
+-- ----------------------------------------------------------------------------
+--- Accept `quest_id`. Call every tick while standing at the NPC.
+function npc.accept(player, quest_id, quest_name, npc_id)
+    local key = "accept:" .. tostring(quest_id)
+    if dlg.key ~= key then
+        dlg_reset(key)
+    end
+    local now = izi.now()
+    if (now - dlg.t) < STEP_GAP then
+        return
+    end
+
+    if dlg.stage == "interact" then
+        if dlg.tries >= MAX_TRIES then
+            return
+        end
+        dlg.tries = dlg.tries + 1
+        interact_once(player, npc_id)
+        quest_debug("accept %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
+        dlg_to("select", now)
+        return
+    end
+
+    if dlg.stage == "select" then
+        select_quest(quest_id, quest_name, "available")
+        dlg_to("accept", now)
+        return
+    end
+
+    if dlg.stage == "accept" then
+        pcall(function() core.quests.accept_quest() end)
+        -- Escort and other auto-accept quests raise a second confirmation
+        -- popup; without this they sit on screen and never start.
+        pcall(function() core.quests.confirm_accept_quest() end)
+        quest_debug("accept %s: accepted", tostring(quest_name or quest_id))
+        dlg_to("verify", now)
+        return
+    end
+
+    if dlg.stage == "verify" then
+        if safe(function() return core.quests.is_on_quest(quest_id) end) == true then
+            dlg.stage = "done"
+            return
+        end
+        if (now - dlg.t) >= RETRY_GAP then
+            quest_debug("accept %s: still not on the quest, retrying", tostring(quest_name or quest_id))
+            dlg_to("interact", now)
+        end
+    end
+end
+
+-- ----------------------------------------------------------------------------
+-- TURN IN
+-- ----------------------------------------------------------------------------
+--- Hand in `quest_id`. Call every tick while standing at the NPC.
+function npc.turn_in(player, quest_id, quest_name, npc_id)
+    local key = "turnin:" .. tostring(quest_id)
+    if dlg.key ~= key then
+        dlg_reset(key)
+    end
+    local now = izi.now()
+    if (now - dlg.t) < STEP_GAP then
+        return
+    end
+
+    if dlg.stage == "interact" then
+        if dlg.tries >= MAX_TRIES then
+            warn_once("turnin_giveup:" .. tostring(quest_id),
+                "Gave up handing in quest %s after %d attempts.",
+                tostring(quest_name or quest_id), MAX_TRIES)
+            return
+        end
+        dlg.tries = dlg.tries + 1
+        interact_once(player, npc_id)
+        quest_debug("turn in %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
+        dlg_to("select", now)
+        return
+    end
+
+    if dlg.stage == "select" then
+        select_quest(quest_id, quest_name, "active")
+        dlg_to("wait", now)
+        return
+    end
+
+    -- Wait for the reward frame. This is the step that never used to happen:
+    -- the choices were read in the same tick as the selection, before the
+    -- frame existed, so every quest looked as though it had no choice.
+    if dlg.stage == "wait" then
+        local idx, count = best_choice(player)
         if idx then
-            pcall(function() core.quests.select_active_quest(idx) end)
-        elseif next(titles) ~= nil then
-            warn_once("active:" .. tostring(quest_id),
-                "Quest %s is not among the %d quests this NPC will take back by that name - "
-                .. "the quest data name may not match the client's locale.",
-                tostring(quest_name or quest_id), #titles)
+            dlg.picked = idx
+            dlg_to("reward", now)
+            return
         end
+        if count > 0 then
+            return  -- choices are there but not rated yet; look again next tick
+        end
+        if (now - dlg.t) >= FRAME_WAIT then
+            quest_debug("turn in %s: no reward choice offered, completing", tostring(quest_name or quest_id))
+            pcall(function() core.quests.complete_quest() end)
+            dlg_to("verify", now)
+        end
+        return
     end
 
-    -- complete_quest and get_quest_reward are alternatives, never a sequence.
-    -- get_quest_reward(i) both picks choice i and completes the quest.
-    local choice = best_reward_choice()
-    if choice then
-        pcall(function()
-            core.quests.get_quest_reward(choice)
-        end)
-    else
-        pcall(function()
-            core.quests.complete_quest()
-        end)
+    if dlg.stage == "reward" then
+        local idx = dlg.picked
+        -- get_quest_reward SELECTS the choice and completes the quest.
+        -- complete_quest is not called as well: they are alternatives.
+        pcall(function() core.quests.get_quest_reward(idx) end)
+        quest_debug("turn in %s: took reward choice %d", tostring(quest_name or quest_id), idx or -1)
+        dlg_to("verify", now)
+        return
+    end
+
+    if dlg.stage == "verify" then
+        if safe(function() return core.quests.is_on_quest(quest_id) end) ~= true then
+            dlg.stage = "done"
+            quest_debug("turn in %s: complete", tostring(quest_name or quest_id))
+            return
+        end
+        if (now - dlg.t) >= RETRY_GAP then
+            quest_debug("turn in %s: still in the log, retrying", tostring(quest_name or quest_id))
+            dlg_to("interact", now)
+        end
     end
 end
 
 function npc.close()
+    dlg.key, dlg.stage = nil, nil
     pcall(function()
         core.quests.close_quest()
     end)

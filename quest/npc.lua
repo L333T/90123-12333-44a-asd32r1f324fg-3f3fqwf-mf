@@ -3,8 +3,8 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.1
--- Folder: Master_Farmer_Grindbot_v1.5.1
+-- Version: 1.5.2
+-- Folder: Master_Farmer_Grindbot_v1.5.2
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
 --   An NPC with quests shows either a GOSSIP frame (get_gossip_*_quests, keyed
@@ -19,6 +19,21 @@
 --   the other, which meant a quest offering a choice of rewards could never be
 --   handed in: complete_quest() is refused while a choice is pending, and the
 --   follow-up passed index 0, which is the "no choice" sentinel.
+--
+-- GOSSIP quest_id IS NOT A QUEST ID ON TBC (1.5.2)
+--   On Classic Era and TBC Classic the legacy client sends no quest id with a
+--   gossip list, so get_gossip_*_quests fills quest_id with the 1-BASED ROW
+--   INDEX instead. It looks like an id and it round-trips back to the matching
+--   selector, which is exactly what makes it dangerous: comparing it against a
+--   real quest id never matches, and passing a real quest id to the selector
+--   addresses a row that does not exist.
+--
+--   Both mistakes were here. The gossip path therefore never selected anything
+--   on TBC - it only ever worked when the quest detail frame happened to be up
+--   already. Quests are now matched on TITLE, and the opaque value from the
+--   same frame is handed straight back to the selector, which is correct on
+--   every version. Only the QUEST LOG carries a real quest id, so is_on_quest,
+--   is_quest_flagged_completed and get_quest_log_title keep using ids.
 --
 -- INTERACTING IS NOT FREE (1.5.1)
 --   go_and_interact re-issued interact_with_object every 1.2s for as long as
@@ -204,6 +219,38 @@ local function quest_debug(fmt, ...)
     core.log("[Master Farmer - Grindbot] quest: " .. string.format(fmt, ...))
 end
 
+--- Find a quest in a gossip list.
+---
+--- Title first, because on TBC the quest_id field is only a row index and can
+--- never equal a real quest id. The id comparison is kept for retail, where it
+--- is a real id and is the more reliable of the two.
+local function gossip_row(list, quest_id, quest_name)
+    if type(quest_name) == "string" and quest_name ~= "" then
+        for i = 1, #list do
+            if list[i].title == quest_name then
+                return list[i]
+            end
+        end
+        local lower = quest_name:lower()
+        for i = 1, #list do
+            if type(list[i].title) == "string" and list[i].title:lower() == lower then
+                return list[i]
+            end
+        end
+    end
+    -- Retail: quest_id really is the quest id.
+    for i = 1, #list do
+        if list[i].quest_id == quest_id then
+            return list[i]
+        end
+    end
+    -- One quest and nothing matched: it can only be this one.
+    if #list == 1 then
+        return list[1]
+    end
+    return nil
+end
+
 --- Select `quest_id` at the NPC, whichever frame it is showing.
 local function select_quest(quest_id, quest_name, kind)
     local gossip_list, gossip_pick, frame_title, frame_pick
@@ -221,18 +268,25 @@ local function select_quest(quest_id, quest_name, kind)
 
     if gossip_open() then
         local list = safe(gossip_list)
-        if type(list) == "table" then
-            for i = 1, #list do
-                if list[i].quest_id == quest_id then
-                    pcall(function() gossip_pick(quest_id) end)
-                    quest_debug("selected %s quest %d in the gossip frame", kind, quest_id)
-                    return true
-                end
+        if type(list) == "table" and #list > 0 then
+            local row = gossip_row(list, quest_id, quest_name)
+            if row then
+                -- `row.quest_id` is opaque: a real id on retail, the row index
+                -- on TBC. It is only valid in this frame, so it goes straight
+                -- back to the selector and is never stored or compared.
+                local handle = row.quest_id
+                pcall(function() gossip_pick(handle) end)
+                quest_debug("selected %s quest '%s' in the gossip frame (handle %s)",
+                    kind, tostring(row.title), tostring(handle))
+                return true
             end
+            -- A list came back and this quest is not in it. Selecting a row at
+            -- random would pick up the wrong quest, so do nothing.
+            quest_debug("%s quest '%s' is not in this NPC's gossip list of %d",
+                kind, tostring(quest_name or quest_id), #list)
+            return false
         end
-        -- The list did not come back but the frame is open: ask by id anyway.
-        pcall(function() gossip_pick(quest_id) end)
-        quest_debug("asked the gossip frame for %s quest %d by id", kind, quest_id)
+        -- Frame open but no list: a single-quest NPC goes straight to detail.
         return true
     end
 
@@ -456,7 +510,10 @@ function npc.close()
     gossip_close()
 end
 
-function npc.is_complete(quest_id)
+--- Is `quest_id` ready to hand in?
+--- `quest_name` is only needed for the gossip fallback, where TBC exposes no
+--- real quest id (see the header).
+function npc.is_complete(quest_id, quest_name)
     pcall(function()
         core.quests.expand_quest_header(0)
     end)
@@ -464,8 +521,14 @@ function npc.is_complete(quest_id)
     for i = 1, n do
         local entry = safe(function() return core.quests.get_quest_log_title(i) end)
         if type(entry) == "table" and entry.quest_id == quest_id then
-            if entry.is_complete == 1 then
+            -- Builds disagree on this field: the reference declares it as an
+            -- integer (1 complete, -1 failed) and the documentation as a
+            -- boolean. Accept either rather than pick a side.
+            if entry.is_complete == true or entry.is_complete == 1 then
                 return true
+            end
+            if entry.is_complete == -1 then
+                return false  -- failed, not completable
             end
             local boards = safe(function() return core.quests.get_num_quest_leader_boards(i) end) or 0
             if boards > 0 then
@@ -481,12 +544,14 @@ function npc.is_complete(quest_id)
             return false
         end
     end
+    -- Not in the log we could read. The NPC's own active list knows whether it
+    -- will take the quest back right now - matched on title, because the
+    -- quest_id in a gossip row is a row index on TBC.
     local gossip = safe(function() return core.quests.get_gossip_active_quests() end)
-    if type(gossip) == "table" then
-        for i = 1, #gossip do
-            if gossip[i].quest_id == quest_id and gossip[i].is_complete == true then
-                return true
-            end
+    if type(gossip) == "table" and #gossip > 0 then
+        local row = gossip_row(gossip, quest_id, quest_name)
+        if row and row.is_complete == true then
+            return true
         end
     end
     return false

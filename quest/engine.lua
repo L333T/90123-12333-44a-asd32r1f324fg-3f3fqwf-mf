@@ -3,8 +3,8 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.5.1
--- Folder: Master_Farmer_Grindbot_v1.5.1
+-- Version: 1.5.2
+-- Folder: Master_Farmer_Grindbot_v1.5.2
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
 
@@ -473,7 +473,7 @@ function quest.tick(player)
         end
         return
     end
-    if npc.is_complete(current.id) then
+    if npc.is_complete(current.id, current.name) then
         leave_hunt()
         state.set_note("Quest", "Turn in " .. (current.name or tostring(current.id)))
         if npc.at_npc(player, current.end_npc, current.finish) then

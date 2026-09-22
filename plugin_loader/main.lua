@@ -99,9 +99,27 @@ local last_report = 0
 --- version.lua, standing in for the bot's header.lua, which never ran.
 local function adopt_identity()
     local ok, identity = pcall(require, "version")
-    if not ok or type(identity) ~= "table" or type(identity.folder) ~= "string" then
-        core.log_warning(TAG .. " downloaded version.lua has no folder field - "
-            .. "the bot's reload guard will not be armed")
+
+    -- Be specific about which way this failed. The three causes need three
+    -- different fixes, and a single vague warning sent us guessing once already.
+    if not ok then
+        core.log_error(TAG .. " require('version') failed: " .. tostring(identity))
+        core.log_error(TAG .. " the host did not resolve a downloaded module. If the"
+            .. " log above says 'require wrapper', this is a loader bug; otherwise a"
+            .. " host plugin-scoped require is shadowing package.preload.")
+        return nil
+    end
+    if type(identity) ~= "table" then
+        core.log_error(TAG .. " require('version') returned a " .. type(identity)
+            .. ", expected a table")
+        return nil
+    end
+    if type(identity.folder) ~= "string" then
+        core.log_error(TAG .. " require('version') returned a table with no 'folder'"
+            .. " field (name=" .. tostring(identity.name) .. ", version="
+            .. tostring(identity.version) .. ")")
+        core.log_error(TAG .. " another plugin almost certainly has a module called"
+            .. " 'version' cached in package.loaded, and it shadowed ours.")
         return nil
     end
 

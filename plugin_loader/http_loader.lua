@@ -129,6 +129,26 @@ end
 -- ============================================================================
 -- INSTALL
 -- ============================================================================
+--- Does require() on this host ACTUALLY consult package.preload?
+---
+--- Testing `type(package.preload) == "table"` only proves the table exists. A
+--- host with its own plugin-scoped require can leave a perfectly normal
+--- package.preload sitting there and never look at it - in which case every
+--- module we "install" is unreachable, while the loader cheerfully reports
+--- success. So install a sentinel and try to require it for real.
+local function preload_reachable()
+    if type(package) ~= "table" or type(package.preload) ~= "table" then return false end
+    if type(require) ~= "function" then return false end
+
+    local probe = "__mfg_preload_probe__"
+    package.preload[probe] = function() return "MFG_PROBE_OK" end
+    local ok, v = pcall(require, probe)
+    package.preload[probe] = nil
+    if type(package.loaded) == "table" then package.loaded[probe] = nil end
+
+    return ok == true and v == "MFG_PROBE_OK"
+end
+
 local function install_modules()
     if installed then return true end
 
@@ -151,9 +171,15 @@ local function install_modules()
 
     M._chunks = chunks
 
-    if type(package) == "table" and type(package.preload) == "table" then
+    if preload_reachable() then
         for i = 1, #names do
-            package.preload[names[i]] = chunks[names[i]]
+            local name = names[i]
+            -- Clear any cached module of the same name FIRST. require() checks
+            -- package.loaded before package.preload, so a generic name like
+            -- "version" or "state" already cached by another plugin would
+            -- shadow ours permanently and we would silently read its table.
+            if type(package.loaded) == "table" then package.loaded[name] = nil end
+            package.preload[name] = chunks[name]
         end
         log("installed " .. #names .. " modules into package.preload")
     else
@@ -173,7 +199,8 @@ local function install_modules()
             mod_cache[name] = value
             return value
         end
-        log("installed " .. #names .. " modules via require wrapper")
+        log("installed " .. #names .. " modules via require wrapper "
+            .. "(this host does not honour package.preload)")
     end
 
     installed = true

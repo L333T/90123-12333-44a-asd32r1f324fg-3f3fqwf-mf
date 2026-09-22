@@ -72,6 +72,8 @@ API in a real Lua interpreter, not by reading it.
 | Duplicate deliveries no longer advance the counter | A module delivered twice could push `got` to `want` while another was still outstanding, installing an incomplete set. |
 | Retries are queued and re-issued from `pulse()` with a backoff | A code-0 transport failure can return instantly; inline retries burned the entire retry budget inside one frame without pausing. |
 | The bot's `folder` key is read from the downloaded `version.lua` | The old loader hardcoded it. It drifted to `1.3.39` while the repo said `1.3.38`, and a drifted key breaks `is_stale()` **silently** — the bot watches a counter nobody increments, so stale callbacks survive reloads and stack. |
+| `require()` is probed with a sentinel before trusting `package.preload` | Testing that `package.preload` *exists* does not prove `require` *consults* it. A host with its own plugin-scoped require leaves a normal-looking `package.preload` untouched — so every module "installed" was unreachable while the loader reported success. Now a sentinel module is installed and required for real; if it does not resolve, the require wrapper is used instead. |
+| `package.loaded[name]` is cleared before installing each module | `require` checks `package.loaded` *before* `package.preload`. A generic name like `version` or `state` already cached by another plugin shadowed ours permanently, and we silently read that plugin's table instead. |
 | 408 added to the retryable set; `^%a+://` rejected in manifest paths | Request Timeout is retryable; an absolute URL in a manifest entry would otherwise escape `base_url`. |
 
 ## Expected log

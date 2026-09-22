@@ -3,8 +3,8 @@
 -- header.lua - load gate (local checks only)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.38
--- Folder: Master_Farmer_Grindbot_v1.3.38
+-- Version: 1.3.39
+-- Folder: Master_Farmer_Grindbot_v1.3.39
 -- ============================================================================
 -- This is the header for the THIN LOADER plugin, not for the plugin itself.
 -- Drop this folder into your Sylvanas plugins directory as its own plugin; it
@@ -33,8 +33,8 @@ local identity = {
     description = "Intelligent fully AFK WoW leveling bot",
     authors     = "BLIZZ - Anthonyk",
     author      = "BLIZZ - Anthonyk",
-    version     = "1.3.38",
-    folder      = "Master_Farmer_Grindbot_v1.3.38",
+    version     = "1.3.39",
+    folder      = "Master_Farmer_Grindbot_v1.3.39",
 }
 
 local plugin = {}

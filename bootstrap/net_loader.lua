@@ -357,12 +357,25 @@ end
 -- ============================================================================
 -- PUBLIC API
 -- ============================================================================
+-- Keys that may start as nil still have to be writable (base_url, headers).
+local CFG_KEYS = {
+    base_url    = true,
+    manifest    = true,
+    timeout     = true,
+    retries     = true,
+    max_bytes   = true,
+    verify_hash = true,
+    headers     = true,
+}
+
 --- Override any of: base_url, manifest, timeout, retries, max_bytes,
 --- verify_hash, headers.
 function M.configure(opts)
     if type(opts) ~= "table" then return end
     for k, v in pairs(opts) do
-        if cfg[k] ~= nil or k == "headers" then cfg[k] = v end
+        if CFG_KEYS[k] then
+            cfg[k] = v
+        end
     end
 end
 

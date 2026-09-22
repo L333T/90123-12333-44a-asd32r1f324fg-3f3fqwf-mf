@@ -48,8 +48,8 @@ local net = require("net_loader")
 -- A commit URL is immutable, so that mixed state is impossible.
 --
 -- To ship an update: push, run `git rev-parse HEAD`, paste the SHA here.
-local REPO = "L333T/90123-12333-44a-asd32r1f324fg-3f3fqwf-mf"
-local SHA  = "e072643382437e557519d6c6aab696f5014be0e8"
+local REPO = "L333T/1022003434-1123453-a1c4zz3456-1234-mf"
+local SHA  = "fd51ba60deacc652086fc1bd6cb2b09eddd67d83"
 
 local BASE = "https://raw.githubusercontent.com/" .. REPO .. "/" .. SHA .. "/"
 
@@ -63,7 +63,7 @@ local TAG = "[Master Farmer - Grindbot]"
 -- moves, and THIS load's callback goes quiet instead of racing the new one.
 _G.MasterFarmer_Grindbot = _G.MasterFarmer_Grindbot or {}
 local NS = _G.MasterFarmer_Grindbot
-local identity = NS._bootstrap_identity or { folder = "Master_Farmer_Grindbot_v1.3.38", version = "1.3.38" }
+local identity = NS._bootstrap_identity or { folder = "Master_Farmer_Grindbot_v1.3.39", version = "1.3.39" }
 
 NS._sessions = NS._sessions or {}
 if type(NS._sessions[identity.folder]) ~= "number" then

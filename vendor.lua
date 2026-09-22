@@ -3,8 +3,8 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.3
--- Folder: Master_Farmer_Grindbot_v1.4.3
+-- Version: 1.4.4
+-- Folder: Master_Farmer_Grindbot_v1.4.4
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
 -- ============================================================================
@@ -20,6 +20,7 @@ local vec3 = require("common/geometry/vector_3")
 
 local gui = require("gui")
 local state = require("state")
+local supplies = require("supplies")
 local targeting = require("targeting")
 local movement = require("movement")
 local rotation = require("rotation")
@@ -390,6 +391,7 @@ function vendor.tick(player)
             return false
         end
         state.vendor.active = true
+        supplies.reset()
         state.vendor.repaired = false
         state.vendor.sold = 0
         state.vendor.wait_npc = 0
@@ -420,6 +422,13 @@ function vendor.tick(player)
                 return true
             end
         end
+        -- Restock before repair: repair drains gold, and arriving with no food
+        -- is what forces the next trip. Buying first spends what is left over
+        -- after selling instead of after repairing.
+        if supplies.tick(player) then
+            return true
+        end
+
         if gui.is_on("repair") and not state.vendor.repaired then
             if safe(function() return core.inventory.can_merchant_repair() end) == true then
                 local cost = safe(function() return core.inventory.get_total_repair_cost() end) or 0

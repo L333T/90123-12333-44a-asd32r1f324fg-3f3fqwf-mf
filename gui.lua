@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.3
--- Folder: Master_Farmer_Grindbot_v1.4.3
+-- Version: 1.4.4
+-- Folder: Master_Farmer_Grindbot_v1.4.4
 -- ============================================================================
 
 ---@type color
@@ -391,6 +391,9 @@ local aliases = {
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",
     show_gui = "mfg_show_gui",
+    -- Supplies (supplies.lua)
+    buy_supplies = "mfg_buy_supplies",
+    vendor_debug = "mfg_vendor_debug",
     -- Auto-equip (equip.lua)
     auto_equip = "mfg_auto_equip",
     equip_weapons = "mfg_equip_weapons",
@@ -472,6 +475,8 @@ local slider_aliases = {
     bag_free = "mfg_bag_free",
     repair_pct = "mfg_repair_pct",
     -- class self-heal thresholds (rotations/*.lua read these via gui.slider)
+    food_target = "mfg_food_target",
+    drink_target = "mfg_drink_target",
     priest_heal_pct = "mfg_priest_heal_pct",
     druid_heal_pct = "mfg_druid_heal_pct",
     paladin_heal_pct = "mfg_paladin_heal_pct",

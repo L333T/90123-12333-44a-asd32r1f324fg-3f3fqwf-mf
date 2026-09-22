@@ -3,8 +3,8 @@
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.3
--- Folder: Master_Farmer_Grindbot_v1.4.3
+-- Version: 1.4.4
+-- Folder: Master_Farmer_Grindbot_v1.4.4
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
 --
@@ -34,6 +34,12 @@
 --
 --   4. It never downgrades. See `better_than` for how the comparison degrades
 --      when the API does not expose an item level.
+--
+--   5. It confirms the bind-on-equip prompt. Equipping a BoE item raises a
+--      "this will bind to you" dialog and the equip does not complete until it
+--      is answered. Without that step the bot re-issues the same equip forever
+--      and never wears the upgrade. core.game_ui.get_pending_equip_slot detects
+--      the prompt and core.input.equip_pending_item answers it.
 -- ============================================================================
 
 ---@type izi_api
@@ -377,6 +383,18 @@ function equip.tick(player)
     end
 
     local now = izi.now()
+
+    -- A bind-on-equip item raises a confirmation prompt and the equip stalls
+    -- until it is answered. Answer it before doing anything else, or every
+    -- later attempt queues behind a dialog that is never dismissed.
+    local pending = safe(function() return core.game_ui.get_pending_equip_slot() end)
+    if type(pending) == "number" and pending >= 0 then
+        state.set_note("Equip", "Confirming bind-on-equip")
+        pcall(function() core.input.equip_pending_item(pending) end)
+        last_act = now
+        return true
+    end
+
     if (now - last_act) < ACT_GAP then
         return true          -- an equip is still landing; hold the cascade
     end

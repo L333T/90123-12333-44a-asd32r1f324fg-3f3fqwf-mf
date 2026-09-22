@@ -3,8 +3,8 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.3
--- Folder: Master_Farmer_Grindbot_v1.4.3
+-- Version: 1.4.4
+-- Folder: Master_Farmer_Grindbot_v1.4.4
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
@@ -32,6 +32,7 @@ local PLUGIN_MODULES = {
     "death",
     "healing",
     "vendor",
+    "supplies",
     "equip",
     "config",
 }
@@ -107,9 +108,14 @@ local death = load_mod("death")
 local healing = load_mod("healing")
 local vendor = load_mod("vendor")
 local equip = load_mod("equip")
+local supplies = load_mod("supplies")
 local loader = load_mod("loader")
 local path_runner = load_mod("path_runner")
 local modes = load_mod("modes")
+
+if gui and supplies and type(supplies.register_gui) == "function" then
+    pcall(supplies.register_gui, gui.get_menu())
+end
 
 if gui and equip and type(equip.register_gui) == "function" then
     pcall(equip.register_gui, gui.get_menu())

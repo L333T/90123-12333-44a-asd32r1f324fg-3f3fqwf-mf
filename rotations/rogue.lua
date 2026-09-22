@@ -3,8 +3,8 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.2
--- Folder: Master_Farmer_Grindbot_v1.6.2
+-- Version: 1.7.0
+-- Folder: Master_Farmer_Grindbot_v1.7.0
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
 --   Applying a poison is a two-step interaction: use the poison, which puts it
@@ -130,8 +130,12 @@ end
 
 --- Combo points on the current target. Without this the finisher logic is
 --- guesswork, so a build that cannot report it simply never finishes.
+---
+--- combo_points_current is the documented name; get_combo_points_target also
+--- exists and is kept as a fallback. get_combo_points(target), which this used
+--- to try first, exists on neither - every call threw and was swallowed.
 local function combo_points(player, target)
-    local n = safe(function() return player:get_combo_points(target) end)
+    local n = safe(function() return player:combo_points_current() end)
     if type(n) == "number" then return n end
     n = safe(function() return player:get_combo_points_target() end)
     if type(n) == "number" then return n end

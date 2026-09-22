@@ -27,7 +27,17 @@ SKIP_SUFFIX = (".bak", ".pre_rewrite.bak", ".monolith.bak", ".orig", ".rej")
 
 # The manifest cannot list itself, and net_loader.lua cannot bootstrap itself:
 # both must already be on disk before the first request goes out.
-SKIP_FILES = {"manifest.lua", "net_loader.lua"}
+SKIP_FILES = {
+    "manifest.lua", "net_loader.lua",
+    # Unreachable from main.lua: leveling_paths has no caller, and the only
+    # thing that required data/_zones_raw was leveling_paths. _zones_raw is
+    # also the one file that pulls ALL FOUR race zone tables at once, where
+    # grind/zone_lookup loads just the race being played - so shipping it
+    # would put ~38 KB of zone data into package.preload for nothing.
+    # Verified with a transitive require trace from main.lua before removing.
+    "leveling_paths.lua",
+    "data/_zones_raw.lua",
+}
 
 
 def version_of(root):

@@ -3,8 +3,8 @@
 -- Druid grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.2
--- Folder: Master_Farmer_Grindbot_v1.6.2
+-- Version: 1.7.0
+-- Folder: Master_Farmer_Grindbot_v1.7.0
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and
 -- Thorns - with no rotation at all. This adds a balance (caster) filler.
@@ -123,8 +123,17 @@ local function health_pct(unit)
     if pct then
         return pct
     end
-    local cur = safe(function() return unit:health_current() end)
-    local mx = safe(function() return unit:health_max() end)
+    -- unit:health_current() does not exist on this API. The working names are
+    -- get_health_percentage (which health_pct above aliases) and the
+    -- get_health / get_max_health pair, so the fallback uses those. Before
+    -- 1.6.3 every step of this fallback threw, and a health_pct that ever
+    -- failed would have left the unit looking permanently at full health.
+    local pct = as_pct(safe(function() return unit:get_health_percentage() end))
+    if pct then
+        return pct
+    end
+    local cur = safe(function() return unit:get_health() end)
+    local mx = safe(function() return unit:get_max_health() end)
     if type(cur) == "number" and type(mx) == "number" and mx > 0 then
         return (cur / mx) * 100
     end

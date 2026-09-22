@@ -3,8 +3,8 @@
 -- Corpse loot after a kill (IZI: enemies_if, can_be_looted, has_loot, loot_object)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.6
--- Folder: Master_Farmer_Grindbot_v1.4.6
+-- Version: 1.4.7
+-- Folder: Master_Farmer_Grindbot_v1.4.7
 -- ============================================================================
 
 ---@type izi_api
@@ -190,6 +190,18 @@ local function pick_corpse(player, mine_only)
 end
 
 function loot.tick(player)
+    -- Defence in depth for the cascade order in main.lua. Walking to a corpse
+    -- cancels eating and drinking, so looting never runs during a rest even if
+    -- that ordering is changed later. Required lazily: healing.lua requires
+    -- rotation, so a top-level require here would close a cycle.
+    do
+        local ok_h, healing = pcall(require, "healing")
+        if ok_h and healing and type(healing.is_resting) == "function" then
+            if healing.is_resting() == true then
+                return false
+            end
+        end
+    end
     if not gui or not gui.is_on("loot") then
         return false
     end

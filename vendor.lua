@@ -3,8 +3,8 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.6
--- Folder: Master_Farmer_Grindbot_v1.4.6
+-- Version: 1.4.7
+-- Folder: Master_Farmer_Grindbot_v1.4.7
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
 -- ============================================================================

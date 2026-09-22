@@ -3,8 +3,8 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.6
--- Folder: Master_Farmer_Grindbot_v1.4.6
+-- Version: 1.4.7
+-- Folder: Master_Farmer_Grindbot_v1.4.7
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
 
@@ -107,6 +107,14 @@ function rotation.register_gui(menu)
 end
 
 function rotation.buffs_ooc(player)
+    -- Buff casts cancel eating and drinking exactly like combat casts do.
+    local ok_h, healing = pcall(require, "healing")
+    if ok_h and healing and type(healing.is_resting) == "function" then
+        if healing.is_resting() == true then
+            return false
+        end
+    end
+
     local mod = rotation.active(player)
     if not mod or type(mod.buffs_ooc) ~= "function" then
         return false
@@ -126,6 +134,17 @@ function rotation.combat_range(player)
 end
 
 function rotation.tick(player, target, ctx)
+    -- Nothing in the combat routine may fire during a rest: every cast and
+    -- the auto-attack start below cancels eating or drinking. main.lua already
+    -- returns before this, but a grind or quest engine calling rotation.tick
+    -- directly would bypass that. Lazy require - healing requires rotation.
+    local ok_h, healing = pcall(require, "healing")
+    if ok_h and healing and type(healing.is_resting) == "function" then
+        if healing.is_resting() == true then
+            return false
+        end
+    end
+
     local mod = rotation.active(player)
     if not mod or type(mod.tick) ~= "function" then
         return false

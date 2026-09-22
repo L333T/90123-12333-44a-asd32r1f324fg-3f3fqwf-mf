@@ -3,14 +3,14 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.6
--- Folder: Master_Farmer_Grindbot_v1.4.6
+-- Version: 1.4.7
+-- Folder: Master_Farmer_Grindbot_v1.4.7
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
 -- pauses only. Nothing else in the plugin issues a movement command.
 -- No FB_Nexus. No NavLib.
--- Tick: teleport -> death -> loot -> heal -> buffs -> vendor -> equip -> grind XOR quest (Start gated)
+-- Tick: teleport -> death -> heal -> loot -> buffs -> vendor -> equip -> grind XOR quest (Start gated)
 -- ============================================================================
 
 local PLUGIN_MODULES = {
@@ -530,10 +530,15 @@ local function on_update()
     if death.tick(player) then
         return
     end
-    if loot and loot.tick(player) then
+    -- Rest outranks looting. Looting used to come first, and because
+    -- loot.tick returns true on every tick while a lootable corpse is in
+    -- range, healing.tick was never reached - the bot would sit at 30% mana
+    -- working through corpses and never drink. Resting also hard-locks
+    -- movement, so loot.tick below cannot walk off mid-drink.
+    if healing.tick(player) then
         return
     end
-    if healing.tick(player) then
+    if loot and loot.tick(player) then
         return
     end
     if rotation.buffs_ooc(player) then

@@ -17,3 +17,10 @@ Canonical fields live in `version.lua`. `header.lua`, the GUI title, and the loa
 ## Revert
 
 Disable the newer plugin in Sylvanas and enable the older `Master_Farmer_Grindbot_vX.Y.Z` folder.
+
+## History
+
+| Version | Change |
+| --- | --- |
+| 1.3.38 | movement.lua split into movement/*; HTTP plugin_loader added. Preserved as tag `working-v1.3.38`. |
+| 1.4.1 | Priest rotation added and registered. death.lua: killer blacklist, level-gap threat filter, ground-snapped safe-spot candidates. movement.ground_z exported. rotation.lua registry generalised. |

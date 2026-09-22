@@ -3,8 +3,8 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.38
--- Folder: Master_Farmer_Grindbot_v1.3.38
+-- Version: 1.4.1
+-- Folder: Master_Farmer_Grindbot_v1.4.1
 -- ============================================================================
 
 ---@type izi_api

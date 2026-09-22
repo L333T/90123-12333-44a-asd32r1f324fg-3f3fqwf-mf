@@ -3,8 +3,8 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.38
--- Folder: Master_Farmer_Grindbot_v1.3.38
+-- Version: 1.4.1
+-- Folder: Master_Farmer_Grindbot_v1.4.1
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
 
@@ -12,12 +12,21 @@
 local enums = require("common/enums")
 
 local mage = require("rotations/mage")
+local priest = require("rotations/priest")
 local targeting = require("targeting")
 
 local by_class = {}
-if mage and mage.class_id then
-    by_class[mage.class_id()] = mage
+local function register(mod)
+    if mod and type(mod.class_id) == "function" then
+        local ok, id = pcall(mod.class_id)
+        if ok and id ~= nil then
+            by_class[id] = mod
+        end
+    end
 end
+
+register(mage)
+register(priest)
 
 local rotation = {}
 local last_action = "Idle"
@@ -78,8 +87,10 @@ function rotation.active(player)
 end
 
 function rotation.register_gui(menu)
-    if mage and type(mage.register_gui) == "function" then
-        mage.register_gui(menu)
+    for _, mod in pairs(by_class) do
+        if type(mod.register_gui) == "function" then
+            pcall(mod.register_gui, menu)
+        end
     end
 end
 

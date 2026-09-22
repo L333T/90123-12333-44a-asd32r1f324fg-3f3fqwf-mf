@@ -347,7 +347,7 @@ end
 -- is already needed for the modules. It must return:
 --
 --   return {
---       version = "1.3.38",
+--       version = "1.4.1",
 --       files = {
 --           { path = "movement/const.lua", hash = "9d8613aa", size = 4785 },
 --           ...

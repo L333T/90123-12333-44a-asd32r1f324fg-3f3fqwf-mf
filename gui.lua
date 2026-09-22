@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.3.38
--- Folder: Master_Farmer_Grindbot_v1.3.38
+-- Version: 1.4.1
+-- Folder: Master_Farmer_Grindbot_v1.4.1
 -- ============================================================================
 
 ---@type color
@@ -391,6 +391,19 @@ local aliases = {
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",
     show_gui = "mfg_show_gui",
+    -- Priest (rotations/priest.lua)
+    pw_fortitude = "mfg_pw_fortitude",
+    inner_fire = "mfg_inner_fire",
+    shadowform = "mfg_shadowform",
+    pw_shield = "mfg_pw_shield",
+    swp = "mfg_swp",
+    mind_blast = "mfg_mind_blast",
+    mind_flay = "mfg_mind_flay",
+    smite = "mfg_smite",
+    renew = "mfg_renew",
+    flash_heal = "mfg_flash_heal",
+    priest_heal_pct = "mfg_priest_heal_pct",
+    priest_debug = "mfg_priest_debug",
     ice_armor = "mfg_ice_armor",
     mage_armor = "mfg_mage_armor",
     molten_armor = "mfg_molten_armor",

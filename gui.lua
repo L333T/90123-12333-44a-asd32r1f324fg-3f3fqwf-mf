@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.8
--- Folder: Master_Farmer_Grindbot_v1.4.8
+-- Version: 1.4.9
+-- Folder: Master_Farmer_Grindbot_v1.4.9
 -- ============================================================================
 
 ---@type color
@@ -211,6 +211,11 @@ menu:checkbox("mfg_potions", true, {
     label = "Use Potions",
     tab = "healing",
 })
+menu:checkbox("mfg_rest_debug", false, {
+    label = "Log why resting is blocked",
+    tab = "healing",
+    tooltip = "Prints the one gate that is currently stopping the bot from eating or drinking - combat, swimming, movement, an empty bag, or the client refusing the item. Once per second, only when it changes.",
+})
 menu:slider_int("mfg_hp_pot", 10, 60, 35, {
     label = "Health Potion %",
     tab = "healing",
@@ -371,6 +376,7 @@ local aliases = {
     player_detect = "mfg_player_detect",
     eat_drink = "mfg_eat_drink",
     potions = "mfg_potions",
+    rest_debug = "mfg_rest_debug",
     random_path = "mfg_random_path",
     fight_back = "mfg_fight_back",
     untapped = "mfg_untapped",

@@ -4,8 +4,8 @@
 -- ============================================================================
 -- Purpose: TBC + IZI gate. Not class-locked. Start is gated by rotation registry.
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.8
--- Folder: Master_Farmer_Grindbot_v1.4.8
+-- Version: 1.4.9
+-- Folder: Master_Farmer_Grindbot_v1.4.9
 -- ============================================================================
 
 local identity = require("version")

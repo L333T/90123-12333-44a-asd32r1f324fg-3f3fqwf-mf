@@ -3,8 +3,8 @@
 -- Eat / drink / potions
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.8
--- Folder: Master_Farmer_Grindbot_v1.4.8
+-- Version: 1.4.9
+-- Folder: Master_Farmer_Grindbot_v1.4.9
 -- Out of combat: if HP or mana is 35% or lower, FORCE-pause combat and movement,
 -- then eat and/or drink until that resource is 100% before restarting.
 -- Combat still uses potions. Swimming cannot rest.
@@ -54,6 +54,17 @@ local USE_COMMIT = 5.0
 -- Worst-case bound per rest session if aura detection is broken entirely.
 local MAX_USES = 8
 
+-- Gates use_self_safe applies by default, and why one of them is turned off.
+--
+-- use_self_safe refuses while the global cooldown is running. Food and drink
+-- do not trigger or respect the GCD in TBC, so that gate is simply wrong for a
+-- consumable - and it bites constantly, because a rest is entered the moment a
+-- kill finishes, while the rotation's last cast still has the GCD spinning.
+--
+-- The other gates (usable, cooldown, moving, mounted, casting, channelling)
+-- are left on: halt_for_rest has already stopped the bot, and they are real.
+local USE_OPTS = { skip_gcd = true }
+
 local food_state  = { last = -1e9, uses = 0, pending = false, warned = false }
 local drink_state = { last = -1e9, uses = 0, pending = false, warned = false }
 local rest_eat = false
@@ -63,6 +74,36 @@ local miss_logged = false
 local item_by_id = {}
 local path_runner_mod = nil
 
+-- ----------------------------------------------------------------------------
+-- DIAGNOSTIC
+-- ----------------------------------------------------------------------------
+-- Every gate below this point can stop a rest, and most of them were silent.
+-- mfg_rest_debug names the one that is actually holding, once per second and
+-- only when it changes, so a stalled rest can be read straight off the log
+-- instead of guessed at.
+local dbg_last_msg, dbg_last_t = nil, -1e9
+
+local function rest_debug(fmt, ...)
+    if gui.is_on("rest_debug") ~= true then
+        return
+    end
+    local msg = select("#", ...) > 0 and string.format(fmt, ...) or fmt
+    local t = 0
+    local ok, now = pcall(function() return izi.now() end)
+    if ok and type(now) == "number" then t = now end
+    if msg == dbg_last_msg and (t - dbg_last_t) < 1.0 then
+        return
+    end
+    dbg_last_msg, dbg_last_t = msg, t
+    core.log("[Master Farmer - Grindbot] rest: " .. msg)
+end
+
+local function pcall_item(id)
+    local ok, item = pcall(function() return izi.item(id) end)
+    if ok then return item end
+    return nil
+end
+
 local function item_of(id)
     if type(id) ~= "number" then
         return nil
@@ -71,26 +112,11 @@ local function item_of(id)
     if cached then
         return cached
     end
-    local item = izi.item(id)
+    local item = pcall_item(id)
     if item then
         item_by_id[id] = item
     end
     return item
-end
-
-for i = 1, #FOOD_ITEM_RANK do
-    local id = FOOD_ITEM_RANK[i]
-    local item = izi.item(id)
-    if item then
-        item_by_id[id] = item
-    end
-end
-for i = 1, #WATER_ITEM_RANK do
-    local id = WATER_ITEM_RANK[i]
-    local item = izi.item(id)
-    if item then
-        item_by_id[id] = item
-    end
 end
 
 local function safe(fn)
@@ -100,6 +126,22 @@ local function safe(fn)
     end
     return nil
 end
+
+-- Prewarm the item cache. Every call is guarded: this runs at module load over
+-- ~250 ids, and an unguarded throw on any one of them would abort the whole
+-- chunk. main.lua bails out entirely when `healing` is missing, so one bad id
+-- would take the whole bot down rather than just one food.
+local function prewarm(list)
+    for i = 1, #list do
+        local id = list[i]
+        local item = safe(function() return izi.item(id) end)
+        if item then
+            item_by_id[id] = item
+        end
+    end
+end
+prewarm(FOOD_ITEM_RANK)
+prewarm(WATER_ITEM_RANK)
 
 local function as_percent(value, current, maximum)
     if type(value) == "number" then
@@ -189,26 +231,46 @@ local function has_usable(ids)
     return false
 end
 
+--- Use the best consumable in `ids`.
+---
+--- Returns (true) on success, or (false, reason) so the caller can say what
+--- went wrong. Before 1.4.9 a refused use returned a bare false and the bot sat
+--- in the rest state consuming nothing and logging nothing, for ever - which is
+--- indistinguishable from "eating and drinking do not run at all".
 local function use_first(ids)
     if type(ids) ~= "table" then
-        return false
+        return false, "no id list"
     end
+    local held = 0
+    local refused = nil
     for i = 1, #ids do
         local item = item_of(ids[i])
         if item then
             local count = safe(function() return item:count() end) or 0
             local ready = safe(function() return item:cooldown_up() end) == true
             if count > 0 and ready then
+                held = held + 1
                 local ok = safe(function()
-                    return item:use_self_safe("Consume")
+                    return item:use_self_safe("Consume", USE_OPTS)
                 end)
+                if ok ~= true then
+                    -- The guarded call still said no. By this point the bot is
+                    -- stationary, unmounted, out of combat and not swimming, so
+                    -- the remaining guards have nothing left to protect - try
+                    -- the plain use rather than stall the whole rest.
+                    ok = safe(function() return item:use_self("Consume") end)
+                end
                 if ok == true then
                     return true
                 end
+                refused = refused or (safe(function() return item:name() end) or ids[i])
             end
         end
     end
-    return false
+    if held > 0 then
+        return false, string.format("%s is in the bags but the client refused to use it", tostring(refused))
+    end
+    return false, "nothing usable in the bags"
 end
 
 local function get_path_runner()
@@ -280,6 +342,7 @@ local function end_kind(st)
     st.uses = 0
     st.pending = false
     st.warned = false
+    st.use_failed = nil
 end
 
 local function reset_use_state()
@@ -365,12 +428,23 @@ local function consume_one(st, kind, ids, aura_up, now, aura_list)
         return false
     end
 
-    if use_first(ids) then
+    local ok, why = use_first(ids)
+    if ok then
         st.last = now
         st.uses = st.uses + 1
         st.pending = true
+        rest_debug("used one %s (use %d this rest)", kind, st.uses)
         return true
     end
+
+    -- Nothing was consumed and nothing is on cooldown or committed, so the rest
+    -- is stalled. Say so - once per rest, naming the reason.
+    if st.use_failed ~= why then
+        st.use_failed = why
+        core.log_warning(string.format(
+            "[Master Farmer - Grindbot] Tried to use %s and nothing happened: %s.", kind, tostring(why)))
+    end
+    rest_debug("%s blocked - %s", kind, tostring(why))
     return false
 end
 
@@ -384,6 +458,7 @@ function healing.tick(player)
         return false
     end
     if gui.is_on("eat_drink") ~= true then
+        rest_debug("Eat / drink is switched off in the menu")
         clear_rest()
         return false
     end
@@ -399,6 +474,7 @@ function healing.tick(player)
     latch_rest(hp, mana, has_mana)
 
     if safe(function() return player:is_in_combat() end) == true then
+        rest_debug("in combat - HP %.0f MP %.0f - resting is suppressed until it ends", hp, mana)
         resting = false
         if movement and type(movement.set_resting) == "function" then
             movement.set_resting(false)
@@ -414,6 +490,7 @@ function healing.tick(player)
         return false
     end
     if safe(function() return core.character.is_swimming() end) == true then
+        rest_debug("swimming - cannot sit down to eat or drink")
         clear_rest()
         return false
     end
@@ -439,6 +516,8 @@ function healing.tick(player)
     end
 
     if rest_eat ~= true and rest_drink ~= true then
+        rest_debug("no rest needed - HP %.0f (eat at %.0f) MP %.0f (drink at %.0f)",
+            hp, start_pct("eat_hp"), mana, has_mana and start_pct("drink_mana") or 0)
         if resting then
             -- Belt and braces. Every latch drop above already resets its own
             -- budget; this catches any future path that forgets to.
@@ -452,16 +531,20 @@ function healing.tick(player)
     end
 
     resting = true
+    rest_debug("resting - HP %.0f MP %.0f - eat=%s drink=%s - %d food / %d water ids known",
+        hp, mana, tostring(rest_eat), tostring(rest_drink), #foods, #waters)
     halt_for_rest(player)
     state.set_note("Rest", string.format("Eating / drinking  HP %.0f  MP %.0f", hp, mana))
 
     if safe(function() return player:is_mounted() end) == true then
+        rest_debug("mounted - dismounting first")
         pcall(function()
             core.input.dismount()
         end)
         return true
     end
     if is_moving_now(player) then
+        rest_debug("still moving - waiting for the character to stop")
         return true
     end
 

@@ -22,7 +22,7 @@ import sys
 import zlib
 
 # Never shipped: local backups, tooling, VCS, editor droppings.
-SKIP_DIRS = {".git", ".bak_pre_movement2", "__pycache__", ".vscode", ".idea", "dist"}
+SKIP_DIRS = {".git", ".bak_pre_movement2", "__pycache__", ".vscode", ".idea", "dist", "bootstrap"}
 SKIP_SUFFIX = (".bak", ".pre_rewrite.bak", ".monolith.bak", ".orig", ".rej")
 
 # The manifest cannot list itself, and net_loader.lua cannot bootstrap itself:

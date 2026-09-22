@@ -8,8 +8,8 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.0
--- Folder: Master_Farmer_Grindbot_v1.6.0
+-- Version: 1.6.1
+-- Folder: Master_Farmer_Grindbot_v1.6.1
 -- ============================================================================
 
 ---@type izi_api
@@ -234,6 +234,8 @@ function path_runner.start(path, opts)
         path = normalized,
         index = 1,
         loop = loop,
+        laps = 0,
+        lap_pending = 0,
         wait_until = 0,
         wait_armed = false,
         action_i = 1,
@@ -527,6 +529,8 @@ function path_runner.tick(player)
         if session.loop then
             session.index = 1
             reset_hold(session)
+            session.laps = (session.laps or 0) + 1
+            session.lap_pending = (session.lap_pending or 0) + 1
             core.log("[Master Farmer - Grindbot] Path loop restart: " .. tostring(path.name))
         else
             state.set_note("Path", "Complete")
@@ -609,6 +613,8 @@ function path_runner.tick(player)
     if session.index > n then
         if session.loop then
             session.index = 1
+            session.laps = (session.laps or 0) + 1
+            session.lap_pending = (session.lap_pending or 0) + 1
             core.log("[Master Farmer - Grindbot] Path loop restart: " .. tostring(path.name))
             return true
         end
@@ -620,6 +626,24 @@ function path_runner.tick(player)
 
     issue_move(waypoints, session.index)
     state.set_note("Path", string.format("%s  %d/%d", path.name, session.index, n))
+    return true
+end
+
+--- Laps completed since the path started.
+function path_runner.laps()
+    return (session and session.laps) or 0
+end
+
+--- True once per completed lap, and only once: the caller consumes the lap.
+---
+--- A flag rather than a comparison against a remembered count, because the
+--- consumer (the vendor trip) runs for many ticks after the lap ends and must
+--- not re-trigger itself when it finishes.
+function path_runner.take_lap()
+    if not session or (session.lap_pending or 0) <= 0 then
+        return false
+    end
+    session.lap_pending = session.lap_pending - 1
     return true
 end
 

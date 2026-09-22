@@ -3,8 +3,8 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.0
--- Folder: Master_Farmer_Grindbot_v1.6.0
+-- Version: 1.6.1
+-- Folder: Master_Farmer_Grindbot_v1.6.1
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
 

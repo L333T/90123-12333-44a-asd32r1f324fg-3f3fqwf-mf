@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.0
--- Folder: Master_Farmer_Grindbot_v1.6.0
+-- Version: 1.6.1
+-- Folder: Master_Farmer_Grindbot_v1.6.1
 -- ============================================================================
 
 ---@type color
@@ -51,8 +51,8 @@ local CLASS_IDS = {
 }
 
 local MODE_LABELS = { "Grind", "Quest", "Path" }
-local REGION_LABELS = { "Eastern Kingdoms", "Kalimdor", "Outland", "Custom" }
-local REGION_KEYS = { "ek", "kalimdor", "outland", "custom" }
+local REGION_LABELS = { "Eastern Kingdoms", "Kalimdor", "Outland", "Alliance 1-60 w/Vendoring", "Custom" }
+local REGION_KEYS = { "ek", "kalimdor", "outland", "ally160", "custom" }
 local EMPTY_PATH = "(select Grinding first)"
 local EMPTY_QUEST = "(select Quest first)"
 
@@ -324,6 +324,11 @@ menu:slider_int("mfg_bag_free", 1, 10, 1, {
     label = "Vendor at Free Slots",
     tab = "vendor",
 })
+menu:checkbox("mfg_vendor_each_lap", true, {
+    label = "Vendor Every Lap",
+    tab = "vendor",
+    tooltip = "On an Alliance 1-60 w/Vendoring loop that names a merchant, sell and repair once per completed lap. Those routes begin and end at their vendor, so the stop costs no extra travel. Routes with no vendor in their notes are unaffected.",
+})
 menu:slider_int("mfg_repair_pct", 5, 50, 10, {
     label = "Repair at Durability %",
     tab = "vendor",
@@ -390,6 +395,7 @@ local aliases = {
     quest_debug = "mfg_quest_debug",
     skip_trivial = "mfg_skip_trivial",
     train = "mfg_train",
+    vendor_each_lap = "mfg_vendor_each_lap",
     random_path = "mfg_random_path",
     fight_back = "mfg_fight_back",
     untapped = "mfg_untapped",

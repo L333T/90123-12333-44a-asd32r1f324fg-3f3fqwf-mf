@@ -3,8 +3,8 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.1
--- Folder: Master_Farmer_Grindbot_v1.4.1
+-- Version: 1.4.2
+-- Folder: Master_Farmer_Grindbot_v1.4.2
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
 
@@ -13,6 +13,8 @@ local enums = require("common/enums")
 
 local mage = require("rotations/mage")
 local priest = require("rotations/priest")
+local druid = require("rotations/druid")
+local paladin = require("rotations/paladin")
 local targeting = require("targeting")
 
 local by_class = {}
@@ -27,6 +29,8 @@ end
 
 register(mage)
 register(priest)
+register(druid)
+register(paladin)
 
 local rotation = {}
 local last_action = "Idle"

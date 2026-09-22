@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.1
--- Folder: Master_Farmer_Grindbot_v1.4.1
+-- Version: 1.4.2
+-- Folder: Master_Farmer_Grindbot_v1.4.2
 -- ============================================================================
 
 ---@type color
@@ -391,6 +391,27 @@ local aliases = {
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",
     show_gui = "mfg_show_gui",
+    -- Druid (rotations/druid.lua)
+    mark_of_wild = "mfg_mark_of_wild",
+    thorns = "mfg_thorns",
+    moonfire = "mfg_moonfire",
+    wrath = "mfg_wrath",
+    faerie_fire = "mfg_faerie_fire",
+    entangling = "mfg_entangling",
+    rejuvenation = "mfg_rejuvenation",
+    regrowth = "mfg_regrowth",
+    healing_touch = "mfg_healing_touch",
+    druid_debug = "mfg_druid_debug",
+    -- Paladin (rotations/paladin.lua)
+    blessing = "mfg_blessing",
+    seal = "mfg_seal",
+    judgement = "mfg_judgement",
+    crusader_strike = "mfg_crusader_strike",
+    hammer_wrath = "mfg_hammer_wrath",
+    consecration = "mfg_consecration",
+    flash_light = "mfg_flash_light",
+    holy_light = "mfg_holy_light",
+    paladin_debug = "mfg_paladin_debug",
     -- Priest (rotations/priest.lua)
     pw_fortitude = "mfg_pw_fortitude",
     inner_fire = "mfg_inner_fire",
@@ -402,7 +423,6 @@ local aliases = {
     smite = "mfg_smite",
     renew = "mfg_renew",
     flash_heal = "mfg_flash_heal",
-    priest_heal_pct = "mfg_priest_heal_pct",
     priest_debug = "mfg_priest_debug",
     ice_armor = "mfg_ice_armor",
     mage_armor = "mfg_mage_armor",
@@ -447,6 +467,18 @@ local slider_aliases = {
     path_combat_yards = "mfg_path_combat_yards",
     bag_free = "mfg_bag_free",
     repair_pct = "mfg_repair_pct",
+    -- class self-heal thresholds (rotations/*.lua read these via gui.slider)
+    priest_heal_pct = "mfg_priest_heal_pct",
+    druid_heal_pct = "mfg_druid_heal_pct",
+    paladin_heal_pct = "mfg_paladin_heal_pct",
+}
+
+-- Combobox ids read via gui.combo(). Kept separate from checkbox and slider
+-- aliases because gui.slider() only accepts numbers and gui.is_on() only
+-- booleans, so a dropdown routed through either silently returns the fallback.
+local combo_aliases = {
+    class = "mfg_class",
+    paladin_aura = "mfg_paladin_aura",
 }
 
 local function checkbox_element(key)
@@ -585,6 +617,17 @@ end
 
 function gui.slider(key, fallback)
     local id = slider_aliases[key] or key
+    local value = menu:get(id)
+    if type(value) == "number" then
+        return value
+    end
+    return fallback
+end
+
+--- Read a combobox as a 1-based index. Returns `fallback` when the element is
+--- missing or has not been resolved yet, so a caller never has to guard nil.
+function gui.combo(key, fallback)
+    local id = combo_aliases[key] or key
     local value = menu:get(id)
     if type(value) == "number" then
         return value

@@ -3,8 +3,8 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.1
--- Folder: Master_Farmer_Grindbot_v1.6.1
+-- Version: 1.6.2
+-- Folder: Master_Farmer_Grindbot_v1.6.2
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
@@ -36,6 +36,16 @@ local PLUGIN_MODULES = {
     "equip",
     "trainer",
     "config",
+    -- The path INDEXES. These were missing, and the effect was invisible and
+    -- very confusing: a reload reused the previous session's grind/catalog
+    -- table, so a newly added route list never appeared in the menu however
+    -- many times the plugin was reloaded. They are index tables of a few
+    -- kilobytes, so dropping them costs nothing.
+    "grind/catalog",
+    "grind/paths/catalog",
+    "grind/paths/ally160/catalog",
+    "path_catalog",
+    "data/paths/catalog",
 }
 
 for i = 1, #PLUGIN_MODULES do

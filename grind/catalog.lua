@@ -3,8 +3,8 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.1
--- Folder: Master_Farmer_Grindbot_v1.6.1
+-- Version: 1.6.2
+-- Folder: Master_Farmer_Grindbot_v1.6.2
 -- ============================================================================
 
 local path_format = require("path_format")
@@ -18,7 +18,16 @@ local ENTRIES = {}
 
 local function add_index(mod)
     local ok, list = pcall(require, mod)
-    if not ok or type(list) ~= "table" then
+    if not ok then
+        -- Saying nothing here produces an empty path menu and no clue why, so
+        -- this is loud on purpose.
+        core.log_warning("[Master Farmer - Grindbot] Path index " .. tostring(mod)
+            .. " failed to load: " .. tostring(list))
+        return
+    end
+    if type(list) ~= "table" then
+        core.log_warning("[Master Farmer - Grindbot] Path index " .. tostring(mod)
+            .. " is not a table.")
         return
     end
     for i = 1, #list do

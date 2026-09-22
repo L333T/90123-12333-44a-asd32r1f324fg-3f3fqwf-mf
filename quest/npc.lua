@@ -3,8 +3,8 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.1
--- Folder: Master_Farmer_Grindbot_v1.6.1
+-- Version: 1.6.2
+-- Folder: Master_Farmer_Grindbot_v1.6.2
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
 --   An NPC with quests shows either a GOSSIP frame (get_gossip_*_quests, keyed

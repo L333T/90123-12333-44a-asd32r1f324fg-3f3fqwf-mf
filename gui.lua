@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.1
--- Folder: Master_Farmer_Grindbot_v1.6.1
+-- Version: 1.6.2
+-- Folder: Master_Farmer_Grindbot_v1.6.2
 -- ============================================================================
 
 ---@type color
@@ -956,14 +956,14 @@ function gui.sync_profile_list(restore_selected)
     local loaded = armed_path
     if restore_selected == true and loaded and type(loaded.region) == "string" then
         local r = loaded.region
-        if r == "kalimdor" then
-            region = 2
-        elseif r == "outland" then
-            region = 3
-        elseif r == "custom" then
-            region = 4
-        elseif r == "ek" then
-            region = 1
+        -- Derived from REGION_KEYS rather than written out: the hand-written
+        -- version still said custom == 4 after a fifth region was inserted, so
+        -- restoring a saved custom path selected the wrong list.
+        for i = 1, #REGION_KEYS do
+            if REGION_KEYS[i] == r then
+                region = i
+                break
+            end
         end
         menu:set("mfg_path_region", region)
         key = REGION_KEYS[region]

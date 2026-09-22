@@ -3,8 +3,8 @@
 -- Path profiles — save / load / play PathTool JSON from scripts_data
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.9
--- Folder: Master_Farmer_Grindbot_v1.4.9
+-- Version: 1.5.0
+-- Folder: Master_Farmer_Grindbot_v1.5.0
 -- Files live in scripts_data/mfg_profiles/*.json (do not prefix scripts_data/).
 -- ============================================================================
 

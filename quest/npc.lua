@@ -3,8 +3,26 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.9
--- Folder: Master_Farmer_Grindbot_v1.4.9
+-- Version: 1.5.0
+-- Folder: Master_Farmer_Grindbot_v1.5.0
+-- ============================================================================
+-- TWO FRAMES, NOT ONE
+--   An NPC with quests shows either a GOSSIP frame (get_gossip_*_quests, keyed
+--   by quest id) or a QUEST GREETING frame (get_available_title / get_active_
+--   title, keyed by a 1-based INDEX). Only the gossip path existed before, so a
+--   greeting-frame NPC fell through to a bare accept_quest() with nothing
+--   selected and the bot stalled. Both paths are handled here.
+--
+-- COMPLETE vs GET_QUEST_REWARD ARE ALTERNATIVES
+--   complete_quest() is for a quest with no reward choice. get_quest_reward(i)
+--   SELECTS choice i AND completes the quest. They were being called one after
+--   the other, which meant a quest offering a choice of rewards could never be
+--   handed in: complete_quest() is refused while a choice is pending, and the
+--   follow-up passed index 0, which is the "no choice" sentinel.
+--
+-- ESCORTS NEED A SECOND YES
+--   accept_quest() is not enough for an auto-accept / escort quest; the client
+--   raises a confirmation popup that confirm_accept_quest() answers.
 -- ============================================================================
 
 ---@type izi_api
@@ -22,6 +40,57 @@ local function safe(fn)
         return result
     end
     return nil
+end
+
+-- Walk an indexed NPC-frame list until the titles run out. There is no
+-- get_num_* for these, and an index past the end returns an empty string.
+local MAX_FRAME_QUESTS = 32
+
+local function frame_titles(getter)
+    local out = {}
+    for i = 1, MAX_FRAME_QUESTS do
+        local title = safe(function() return getter(i) end)
+        if type(title) ~= "string" or title == "" then
+            break
+        end
+        out[i] = title
+    end
+    return out
+end
+
+--- Index of `want` in `titles`, or nil.
+---
+--- Quest names in the data files are English and the client may not be, so an
+--- exact match is tried first, then a case-insensitive one. A single-entry list
+--- needs no match at all - there is only one thing it can be, which keeps the
+--- common case working in every locale.
+local function index_of_title(titles, want)
+    local n = 0
+    for _ in pairs(titles) do n = n + 1 end
+    if n == 0 then
+        return nil
+    end
+    if n == 1 then
+        return 1
+    end
+    if type(want) ~= "string" or want == "" then
+        return nil
+    end
+    for i, t in pairs(titles) do
+        if t == want then return i end
+    end
+    local lower = want:lower()
+    for i, t in pairs(titles) do
+        if t:lower() == lower then return i end
+    end
+    return nil
+end
+
+local warned_frame = {}
+local function warn_once(key, fmt, ...)
+    if warned_frame[key] then return end
+    warned_frame[key] = true
+    core.log_warning(string.format("[Master Farmer - Grindbot] " .. fmt, ...))
 end
 
 local function gossip_open()
@@ -87,7 +156,12 @@ function npc.go_and_interact(player, npc_id, dest)
     return false
 end
 
-function npc.accept(quest_id)
+--- Accept `quest_id`, whichever frame the NPC is showing.
+--- `quest_name` is the title from the quest data, used only to disambiguate a
+--- greeting frame that lists more than one quest.
+function npc.accept(quest_id, quest_name)
+    local selected = false
+
     if gossip_open() then
         local list = safe(function() return core.quests.get_gossip_available_quests() end)
         if type(list) == "table" then
@@ -96,28 +170,118 @@ function npc.accept(quest_id)
                     pcall(function()
                         core.quests.select_gossip_available_quest(quest_id)
                     end)
+                    selected = true
                     break
                 end
             end
         end
     end
+
+    -- No gossip frame, or the quest was not in it: this is the quest greeting
+    -- frame, which is keyed by index rather than by quest id.
+    if not selected then
+        local titles = frame_titles(function(i) return core.quests.get_available_title(i) end)
+        local idx = index_of_title(titles, quest_name)
+        if idx then
+            pcall(function() core.quests.select_available_quest(idx) end)
+            selected = true
+        elseif next(titles) ~= nil then
+            warn_once("avail:" .. tostring(quest_id),
+                "Quest %s is not one of the %d quests this NPC is offering by that name - "
+                .. "the quest data name may not match the client's locale.",
+                tostring(quest_name or quest_id), #titles)
+        end
+    end
+
     pcall(function()
         core.quests.accept_quest()
     end)
+    -- Escort and other auto-accept quests raise a second confirmation popup;
+    -- without this they sit on screen and the bot never starts them.
+    pcall(function()
+        core.quests.confirm_accept_quest()
+    end)
 end
 
-function npc.turn_in(quest_id)
+--- Reward choice index to take, or nil when the quest offers no choice.
+---
+--- get_quest_item_link("choice", i) returns "" past the last choice, so the
+--- list ends itself. When there is a choice the most valuable one is taken -
+--- something has to be picked, and vendor price is the only ranking that means
+--- anything to a grind bot.
+local MAX_REWARD_CHOICES = 10
+
+local function best_reward_choice()
+    local best_idx, best_value = nil, -1
+    for i = 1, MAX_REWARD_CHOICES do
+        local link = safe(function() return core.quests.get_quest_item_link("choice", i) end)
+        if type(link) ~= "string" or link == "" then
+            break
+        end
+        local value = 0
+        local info = safe(function() return core.quests.get_item_info(link) end)
+        if type(info) == "table" and type(info.sell_price) == "number" then
+            value = info.sell_price
+        end
+        if value > best_value then
+            best_idx, best_value = i, value
+        end
+    end
+    return best_idx
+end
+
+--- Hand in `quest_id`, whichever frame the NPC is showing.
+function npc.turn_in(quest_id, quest_name)
+    local selected = false
+
     if gossip_open() then
+        local list = safe(function() return core.quests.get_gossip_active_quests() end)
+        if type(list) == "table" then
+            for i = 1, #list do
+                if list[i].quest_id == quest_id then
+                    pcall(function()
+                        core.quests.select_gossip_active_quest(quest_id)
+                    end)
+                    selected = true
+                    break
+                end
+            end
+        end
+        if not selected then
+            -- Older behaviour: ask for it by id even when the list did not come
+            -- back, which costs nothing and still works on most NPCs.
+            pcall(function()
+                core.quests.select_gossip_active_quest(quest_id)
+            end)
+            selected = true
+        end
+    end
+
+    if not selected then
+        local titles = frame_titles(function(i) return core.quests.get_active_title(i) end)
+        local idx = index_of_title(titles, quest_name)
+        if idx then
+            pcall(function() core.quests.select_active_quest(idx) end)
+        elseif next(titles) ~= nil then
+            warn_once("active:" .. tostring(quest_id),
+                "Quest %s is not among the %d quests this NPC will take back by that name - "
+                .. "the quest data name may not match the client's locale.",
+                tostring(quest_name or quest_id), #titles)
+        end
+    end
+
+    -- complete_quest and get_quest_reward are alternatives, never a sequence.
+    -- get_quest_reward(i) both picks choice i and completes the quest.
+    local choice = best_reward_choice()
+    if choice then
         pcall(function()
-            core.quests.select_gossip_active_quest(quest_id)
+            core.quests.get_quest_reward(choice)
+        end)
+    else
+        pcall(function()
+            core.quests.complete_quest()
         end)
     end
-    pcall(function()
-        core.quests.complete_quest()
-    end)
-    pcall(function()
-        core.quests.get_quest_reward(0)
-    end)
 end
 
 function npc.close()

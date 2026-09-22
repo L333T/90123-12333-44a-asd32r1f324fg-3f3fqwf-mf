@@ -3,8 +3,8 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.9
--- Folder: Master_Farmer_Grindbot_v1.4.9
+-- Version: 1.5.0
+-- Folder: Master_Farmer_Grindbot_v1.5.0
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
 
@@ -469,7 +469,7 @@ function quest.tick(player)
         leave_hunt()
         state.set_note("Quest", "Accept " .. (current.name or tostring(current.id)))
         if npc.go_and_interact(player, current.start_npc, current.start) then
-            npc.accept(current.id)
+            npc.accept(current.id, current.name)
         end
         return
     end
@@ -477,7 +477,7 @@ function quest.tick(player)
         leave_hunt()
         state.set_note("Quest", "Turn in " .. (current.name or tostring(current.id)))
         if npc.go_and_interact(player, current.end_npc, current.finish) then
-            npc.turn_in(current.id)
+            npc.turn_in(current.id, current.name)
         end
         return
     end

@@ -3,8 +3,8 @@
 -- Elwynn Forest 6-9 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.3
--- Folder: Master_Farmer_Grindbot_v1.6.3
+-- Version: 1.7.0
+-- Folder: Master_Farmer_Grindbot_v1.7.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : lvl6_9ElwynnForstALLY

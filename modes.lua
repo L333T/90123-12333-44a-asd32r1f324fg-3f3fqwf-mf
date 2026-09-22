@@ -3,8 +3,8 @@
 -- Grind vs Quest mode helpers
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.3
--- Folder: Master_Farmer_Grindbot_v1.6.3
+-- Version: 1.7.0
+-- Folder: Master_Farmer_Grindbot_v1.7.0
 -- ============================================================================
 
 -- ASSUMPTIONS: Classic / TBC race ids from the client (enums has no race table).

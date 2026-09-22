@@ -3,8 +3,8 @@
 -- Duskwood 20-24 Wolves/Spiders (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.6.3
--- Folder: Master_Farmer_Grindbot_v1.6.3
+-- Version: 1.7.0
+-- Folder: Master_Farmer_Grindbot_v1.7.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL20_24DuskwoodVendorsWestfall
@@ -638,6 +638,6 @@ return {
         { x = -10672.6787, y = 1007.7329, z = 33.8598 },
         { x = -10665.8389, y = 1006.4502, z = 32.987 },
         { x = -10659.8545, y = 1002.7892, z = 32.8693 },
-        { x = -10657.7031, y = 997.0505, z = 32.8728 },
+        { x = -10657.7031, y = 997.0505, z = 32.8728, wait = 2, actions = { { type = "spell", id = 102 }, { type = "wait", sec = 2 } } },
     },
 }

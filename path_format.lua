@@ -3,8 +3,8 @@
 -- PathTool format — { name, map_id, loop, waypoints[{x,y,z,wait,combo,actions}] }
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.5
--- Folder: Master_Farmer_Grindbot_v1.4.5
+-- Version: 1.4.6
+-- Folder: Master_Farmer_Grindbot_v1.4.6
 -- ============================================================================
 
 local path_format = {}

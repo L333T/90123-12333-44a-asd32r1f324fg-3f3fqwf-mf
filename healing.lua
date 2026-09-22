@@ -3,11 +3,28 @@
 -- Eat / drink / potions
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.5
--- Folder: Master_Farmer_Grindbot_v1.4.5
+-- Version: 1.4.6
+-- Folder: Master_Farmer_Grindbot_v1.4.6
 -- Out of combat: if HP or mana is 35% or lower, FORCE-pause combat and movement,
 -- then eat and/or drink until that resource is 100% before restarting.
 -- Combat still uses potions. Swimming cannot rest.
+--
+-- ONE ITEM AT A TIME
+--   A consumable is used, then nothing else of that kind is used until either
+--   its aura drops or the resource is full. Two things make that reliable:
+--
+--   * A COMMIT WINDOW. There is a round trip between using the item and the
+--     aura appearing. Without a wait the next tick sees "no aura" and consumes
+--     a second one, so each use commits for USE_COMMIT seconds no matter what
+--     the aura says.
+--
+--   * SEPARATE TIMERS for food and drink. They used to share one, so eating
+--     delayed drinking and vice versa - and in TBC both auras can run at once.
+--
+--   If the commit window passes and the aura still has not appeared, the aura
+--   id list is wrong for that item and the old code would quietly eat the whole
+--   stack, one every 1.5s. That now logs once, names the item, and stops at
+--   MAX_USES instead of draining the bags.
 -- ============================================================================
 
 ---@type izi_api
@@ -28,7 +45,17 @@ local WATER_ITEM_RANK = consumables.WATER_ITEM_IDS
 
 local REST_START = 35
 local REST_DONE = 100
-local last_use = 0
+
+-- Seconds a use is committed for before another of the same kind is considered.
+-- Covers the delay between using the item and its aura becoming visible.
+-- Measured against the worst case, not the typical one: a 3s window still
+-- double-consumed when the aura took 4.5s to register.
+local USE_COMMIT = 5.0
+-- Worst-case bound per rest session if aura detection is broken entirely.
+local MAX_USES = 8
+
+local food_state  = { last = -1e9, uses = 0, pending = false, warned = false }
+local drink_state = { last = -1e9, uses = 0, pending = false, warned = false }
 local rest_eat = false
 local rest_drink = false
 local resting = false
@@ -176,7 +203,6 @@ local function use_first(ids)
                     return item:use_self_safe("Consume")
                 end)
                 if ok == true then
-                    last_use = izi.now()
                     return true
                 end
             end
@@ -242,10 +268,16 @@ local function halt_for_rest(player)
     end
 end
 
+local function reset_use_state()
+    food_state.uses, food_state.pending = 0, false
+    drink_state.uses, drink_state.pending = 0, false
+end
+
 local function clear_rest()
     rest_eat = false
     rest_drink = false
     resting = false
+    reset_use_state()
     if movement and type(movement.set_resting) == "function" then
         movement.set_resting(false)
     end
@@ -280,6 +312,50 @@ local function latch_rest(hp, mana, has_mana)
     elseif resource_full(mana) then
         rest_drink = false
     end
+end
+
+--- Use exactly one consumable of this kind, then leave it alone.
+---
+--- Order matters. The aura check comes first so a working consumable is never
+--- stacked; the commit window comes second so a consumable that is working but
+--- has not registered yet is not stacked either. Only when both say "nothing is
+--- happening" does another get used.
+local function consume_one(st, kind, ids, aura_up, now, aura_list)
+    -- 1. It is working. Leave it.
+    if aura_up == true then
+        st.pending = false
+        st.warned = false
+        return false
+    end
+
+    -- 2. Used recently. The aura may simply not have landed yet.
+    if (now - st.last) < USE_COMMIT then
+        return false
+    end
+
+    -- 3. Committed, waited, and still no aura: the aura ids do not cover this
+    --    item. Say so once - silently working through the whole stack at one
+    --    item per tick is what this guard exists to prevent.
+    if st.pending and not st.warned then
+        st.warned = true
+        core.log_warning(string.format(
+            "[Master Farmer - Grindbot] Used %s but no %s aura appeared within %.1fs. "
+            .. "consumables.%s is probably missing this item's aura id - "
+            .. "capping at %d uses this rest instead of consuming the stack.",
+            kind, kind, USE_COMMIT, aura_list, MAX_USES))
+    end
+
+    if st.uses >= MAX_USES then
+        return false
+    end
+
+    if use_first(ids) then
+        st.last = now
+        st.uses = st.uses + 1
+        st.pending = true
+        return true
+    end
+    return false
 end
 
 function healing.is_resting()
@@ -367,15 +443,12 @@ function healing.tick(player)
     end
 
     local now = izi.now()
-    if (now - last_use) < 1.5 then
-        return true
-    end
 
-    if rest_eat and hp < REST_DONE and not eating then
-        use_first(foods)
+    if rest_eat and hp < REST_DONE then
+        consume_one(food_state, "food", foods, eating, now, "FOOD_AURA_IDS")
     end
-    if rest_drink and mana < REST_DONE and not drinking then
-        use_first(waters)
+    if rest_drink and mana < REST_DONE then
+        consume_one(drink_state, "drink", waters, drinking, now, "DRINK_AURA_IDS")
     end
     return true
 end

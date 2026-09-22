@@ -3,8 +3,8 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.5
--- Folder: Master_Farmer_Grindbot_v1.4.5
+-- Version: 1.4.6
+-- Folder: Master_Farmer_Grindbot_v1.4.6
 -- ============================================================================
 
 ---@type izi_api

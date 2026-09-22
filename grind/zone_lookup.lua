@@ -3,8 +3,8 @@
 -- Grind zone lookup by race + level
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.4
--- Folder: Master_Farmer_Grindbot_v1.4.4
+-- Version: 1.4.5
+-- Folder: Master_Farmer_Grindbot_v1.4.5
 -- ============================================================================
 
 local modes = require("modes")

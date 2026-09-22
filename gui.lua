@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.4
--- Folder: Master_Farmer_Grindbot_v1.4.4
+-- Version: 1.4.5
+-- Folder: Master_Farmer_Grindbot_v1.4.5
 -- ============================================================================
 
 ---@type color
@@ -391,6 +391,43 @@ local aliases = {
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",
     show_gui = "mfg_show_gui",
+    -- Hunter / Warlock / Shaman / Rogue rotations
+    aspect_hawk = "mfg_aspect_hawk",
+    trueshot = "mfg_trueshot",
+    hunter_pet = "mfg_hunter_pet",
+    mend_pet = "mfg_mend_pet",
+    hunters_mark = "mfg_hunters_mark",
+    serpent_sting = "mfg_serpent_sting",
+    arcane_shot = "mfg_arcane_shot",
+    steady_shot = "mfg_steady_shot",
+    multi_shot = "mfg_multi_shot",
+    concussive = "mfg_concussive",
+    hunter_debug = "mfg_hunter_debug",
+    warlock_armour = "mfg_warlock_armour",
+    health_funnel = "mfg_health_funnel",
+    corruption = "mfg_corruption",
+    curse_agony = "mfg_curse_agony",
+    immolate = "mfg_immolate",
+    shadow_bolt = "mfg_shadow_bolt",
+    drain_life = "mfg_drain_life",
+    life_tap = "mfg_life_tap",
+    warlock_debug = "mfg_warlock_debug",
+    enhancement = "mfg_enhancement",
+    lightning_shield = "mfg_lightning_shield",
+    flame_shock = "mfg_flame_shock",
+    earth_shock = "mfg_earth_shock",
+    frost_shock = "mfg_frost_shock",
+    lightning_bolt = "mfg_lightning_bolt",
+    healing_wave = "mfg_healing_wave",
+    shaman_debug = "mfg_shaman_debug",
+    sinister_strike = "mfg_sinister_strike",
+    backstab = "mfg_backstab",
+    slice_dice = "mfg_slice_dice",
+    rupture = "mfg_rupture",
+    eviscerate = "mfg_eviscerate",
+    evasion = "mfg_evasion",
+    kick = "mfg_kick",
+    rogue_debug = "mfg_rogue_debug",
     -- Supplies (supplies.lua)
     buy_supplies = "mfg_buy_supplies",
     vendor_debug = "mfg_vendor_debug",
@@ -475,6 +512,11 @@ local slider_aliases = {
     bag_free = "mfg_bag_free",
     repair_pct = "mfg_repair_pct",
     -- class self-heal thresholds (rotations/*.lua read these via gui.slider)
+    pet_heal_pct = "mfg_pet_heal_pct",
+    warlock_heal_pct = "mfg_warlock_heal_pct",
+    shaman_heal_pct = "mfg_shaman_heal_pct",
+    combo_finish = "mfg_combo_finish",
+    evasion_pct = "mfg_evasion_pct",
     food_target = "mfg_food_target",
     drink_target = "mfg_drink_target",
     priest_heal_pct = "mfg_priest_heal_pct",
@@ -488,6 +530,8 @@ local slider_aliases = {
 local combo_aliases = {
     class = "mfg_class",
     paladin_aura = "mfg_paladin_aura",
+    warlock_pet = "mfg_warlock_pet",
+    shaman_imbue = "mfg_shaman_imbue",
 }
 
 local function checkbox_element(key)

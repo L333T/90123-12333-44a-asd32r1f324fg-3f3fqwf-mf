@@ -193,10 +193,10 @@ before committing to 3.5/3.6.** If absent, a time-based fallback (re-apply every
 N minutes, tracked in `state`) is workable but inferior — it will waste
 reagents. Do not start those classes until this is settled.
 
-**5.4 Pet API.** `PetHasActionBar()`, `GetPetHappiness()`, pet health, and pet
-passive mode all drive the Hunter and Warlock pet logic. Nothing in this repo
-touches pets today. **Verify what the object manager exposes for pets** before
-scoping Phase 3.
+**5.4 Pet API. RESOLVED (v1.4.5).** `unit:get_pet`, `unit:is_pet`,
+`core.spell_book.get_pet_happiness` and the `core.input.set_pet_*` family all
+exist. Implemented as the shared `pets.lua`, used by both
+`rotations/hunter.lua` and `rotations/warlock.lua`.
 
 ---
 

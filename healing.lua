@@ -3,8 +3,8 @@
 -- Eat / drink / potions
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.7
--- Folder: Master_Farmer_Grindbot_v1.4.7
+-- Version: 1.4.8
+-- Folder: Master_Farmer_Grindbot_v1.4.8
 -- Out of combat: if HP or mana is 35% or lower, FORCE-pause combat and movement,
 -- then eat and/or drink until that resource is 100% before restarting.
 -- Combat still uses potions. Swimming cannot rest.
@@ -268,9 +268,23 @@ local function halt_for_rest(player)
     end
 end
 
+--- One rest of this kind is over: clear its per-rest use budget.
+---
+--- MAX_USES caps how many consumables a SINGLE rest may burn while waiting for
+--- an aura to appear. It is not a lifetime allowance, so it has to be cleared
+--- every time the latch drops - on reaching full, on running out of food, and
+--- on a hard reset. Before 1.4.8 only the hard reset cleared it, so the counter
+--- accumulated across rests and the bot stopped eating and drinking for good
+--- after eight consumables.
+local function end_kind(st)
+    st.uses = 0
+    st.pending = false
+    st.warned = false
+end
+
 local function reset_use_state()
-    food_state.uses, food_state.pending = 0, false
-    drink_state.uses, drink_state.pending = 0, false
+    end_kind(food_state)
+    end_kind(drink_state)
 end
 
 local function clear_rest()
@@ -305,11 +319,13 @@ local function latch_rest(hp, mana, has_mana)
     if hp <= start_pct("eat_hp") then
         rest_eat = true
     elseif resource_full(hp) then
+        if rest_eat == true then end_kind(food_state) end
         rest_eat = false
     end
     if has_mana == true and mana <= start_pct("drink_mana") then
         rest_drink = true
     elseif resource_full(mana) then
+        if rest_drink == true then end_kind(drink_state) end
         rest_drink = false
     end
 end
@@ -403,6 +419,7 @@ function healing.tick(player)
     end
 
     if rest_eat == true and eating ~= true and hp < REST_DONE and has_usable(foods) ~= true then
+        end_kind(food_state)
         rest_eat = false
         if miss_logged ~= true then
             miss_logged = true
@@ -410,6 +427,7 @@ function healing.tick(player)
         end
     end
     if rest_drink == true and drinking ~= true and mana < REST_DONE and has_usable(waters) ~= true then
+        end_kind(drink_state)
         rest_drink = false
         if miss_logged ~= true then
             miss_logged = true
@@ -421,8 +439,13 @@ function healing.tick(player)
     end
 
     if rest_eat ~= true and rest_drink ~= true then
-        if resting and movement and type(movement.set_resting) == "function" then
-            movement.set_resting(false)
+        if resting then
+            -- Belt and braces. Every latch drop above already resets its own
+            -- budget; this catches any future path that forgets to.
+            reset_use_state()
+            if movement and type(movement.set_resting) == "function" then
+                movement.set_resting(false)
+            end
         end
         resting = false
         return false

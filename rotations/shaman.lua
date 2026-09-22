@@ -3,8 +3,8 @@
 -- Shaman grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.7
--- Folder: Master_Farmer_Grindbot_v1.4.7
+-- Version: 1.4.8
+-- Folder: Master_Farmer_Grindbot_v1.4.8
 -- ============================================================================
 -- WEAPON IMBUES - THE BUG NOT COPIED
 --   The reference bot tests MainHand_Enchant once, then casts EVERY enabled

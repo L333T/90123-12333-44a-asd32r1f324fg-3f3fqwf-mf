@@ -3,8 +3,8 @@
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.7
--- Folder: Master_Farmer_Grindbot_v1.4.7
+-- Version: 1.4.8
+-- Folder: Master_Farmer_Grindbot_v1.4.8
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
 --

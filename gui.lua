@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.2
--- Folder: Master_Farmer_Grindbot_v1.4.2
+-- Version: 1.4.3
+-- Folder: Master_Farmer_Grindbot_v1.4.3
 -- ============================================================================
 
 ---@type color
@@ -391,6 +391,10 @@ local aliases = {
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",
     show_gui = "mfg_show_gui",
+    -- Auto-equip (equip.lua)
+    auto_equip = "mfg_auto_equip",
+    equip_weapons = "mfg_equip_weapons",
+    equip_debug = "mfg_equip_debug",
     -- Druid (rotations/druid.lua)
     mark_of_wild = "mfg_mark_of_wild",
     thorns = "mfg_thorns",

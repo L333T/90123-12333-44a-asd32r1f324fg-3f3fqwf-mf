@@ -3,14 +3,14 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.4.2
--- Folder: Master_Farmer_Grindbot_v1.4.2
+-- Version: 1.4.3
+-- Folder: Master_Farmer_Grindbot_v1.4.3
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
 -- pauses only. Nothing else in the plugin issues a movement command.
 -- No FB_Nexus. No NavLib.
--- Tick: teleport -> death -> loot -> heal -> buffs -> vendor -> grind XOR quest (Start gated)
+-- Tick: teleport -> death -> loot -> heal -> buffs -> vendor -> equip -> grind XOR quest (Start gated)
 -- ============================================================================
 
 local PLUGIN_MODULES = {
@@ -32,6 +32,7 @@ local PLUGIN_MODULES = {
     "death",
     "healing",
     "vendor",
+    "equip",
     "config",
 }
 
@@ -105,9 +106,14 @@ local rotation = load_mod("rotation")
 local death = load_mod("death")
 local healing = load_mod("healing")
 local vendor = load_mod("vendor")
+local equip = load_mod("equip")
 local loader = load_mod("loader")
 local path_runner = load_mod("path_runner")
 local modes = load_mod("modes")
+
+if gui and equip and type(equip.register_gui) == "function" then
+    pcall(equip.register_gui, gui.get_menu())
+end
 
 if gui and rotation and type(rotation.register_gui) == "function" then
     pcall(function()
@@ -533,6 +539,13 @@ local function on_update()
     end
 
     if vendor and vendor.tick(player) then
+        return
+    end
+
+    -- After vendor on purpose: equipping and selling are the same underlying
+    -- call (use_container_item), so this must be unreachable while a merchant
+    -- window is open or an upgrade gets sold instead of worn.
+    if equip and type(equip.tick) == "function" and equip.tick(player) then
         return
     end
 

@@ -3,8 +3,8 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
 
@@ -106,7 +106,7 @@ end
 
 local function npc_line(player, npc_id)
     if type(npc_id) ~= "number" or npc_id <= 0 then
-        return "—"
+        return "-"
     end
     local name = npc.name_of(player, npc_id)
     if type(name) == "string" and name ~= "" then
@@ -412,7 +412,7 @@ function quest.snapshot(player)
     if selected and selected.id and on_it then
         complete = npc.is_complete(selected.id, selected.name) == true
     end
-    local phase = "—"
+    local phase = "-"
     if selected then
         if skipped_id(selected.id) then
             phase = "Skipped"

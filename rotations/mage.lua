@@ -3,8 +3,8 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
 -- ============================================================================
@@ -26,6 +26,8 @@ local spell_prediction = require("common/modules/spell_prediction")
 
 local consumables = require("data/consumables")
 local gui = require("gui")
+local resting = require("resting")
+local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 local targeting = require("targeting")
@@ -94,7 +96,6 @@ local frost_nova = make({ 27088, 10230, 6131, 865, 122 }, false, true)
 local ice_lance = make({ 30455 })
 local blast_wave = make({ 11113 })
 local dragons_breath = make({ 33043, 33041, 31661 })
-local ice_barrier = make({ 33405, 27134, 13033, 13032, 13031, 11426 }, true, false)
 local ICE_BARRIER_IDS = { 33405, 27134, 13033, 13032, 13031, 11426 }
 local mana_shield = make({ 27131, 10193, 10192, 10191, 8495, 8494, 1463 }, true, false)
 local ice_armor = make({ 27124, 10220, 10219, 7320, 7302 }, true, false)
@@ -128,7 +129,6 @@ spellbook.define({
     ice_lance = 30455,
     blast_wave = 11113,
     dragons_breath = 31661,
-    ice_barrier = 11426,
     mana_shield = 1463,
     ice_armor = 7302,
     frost_armor = 168,
@@ -271,28 +271,6 @@ local function cast_self_buff(spell, player, label)
         return true
     end
     return false
-end
-
-local function try_ice_barrier(player)
-    if gui.is_on("ice_barrier") ~= true or not player then
-        return false
-    end
-    if not ice_barrier then
-        ice_barrier = make(ICE_BARRIER_IDS, true, false)
-    end
-    if not ice_barrier then
-        return false
-    end
-    if not shield_down(player, ICE_BARRIER_IDS) then
-        return false
-    end
-    local cd_up = safe(function()
-        return ice_barrier:cooldown_up()
-    end)
-    if cd_up == false then
-        return false
-    end
-    return cast_self_buff(ice_barrier, player, "Ice Barrier")
 end
 
 local function spell_pause_sec(spell, fallback)
@@ -790,6 +768,14 @@ end
 --- Rules the combat movement controller applies for this class (§17).
 --- It decides WHEN to reposition (range bands, prediction, hysteresis); this
 --- only answers WHETHER backing out of melee is the right play right now.
+--- How far out to look for something to fight.
+---
+--- A caster opens from where it is already standing, so a wide
+--- scan costs nothing and gives the rotation time to start a cast.
+function mage.scan_range(player)
+    return 35
+end
+
 function mage.combat_profile()
     return {
         name         = "mage",
@@ -817,21 +803,9 @@ function mage.register_gui(menu)
     local function opt(label, spell)
         return { label = label, tab = "class", class_id = class_id, spell = spell }
     end
-    menu:checkbox("mfg_mage_wand", true, {
-        label = "Use Wand",
-        tab = "class",
-        class_id = class_id,
-        tooltip = "When mana is below 5% and a wand is equipped, pause spells and auto-attack with Wand or Melee.",
-    })
     menu:checkbox("mfg_ice_armor", true, opt("Ice / Frost Armor", { ice_armor, frost_armor }))
     menu:checkbox("mfg_mage_armor", false, opt("Mage Armor", mage_armor))
     menu:checkbox("mfg_molten_armor", false, opt("Molten Armor", molten_armor))
-    menu:checkbox("mfg_ice_barrier", true, {
-        label = "Ice Barrier",
-        tab = "class",
-        class_id = class_id,
-        tooltip = "Keep Ice Barrier up in combat and out of combat when the checkbox is on.",
-    })
     menu:checkbox("mfg_mana_shield", false, opt("Mana Shield", mana_shield))
     menu:checkbox("mfg_icy_veins", true, opt("Icy Veins", icy_veins))
     menu:checkbox("mfg_presence_of_mind", true, opt("Presence of Mind", presence_of_mind))
@@ -858,14 +832,14 @@ function mage.buffs_ooc(player)
     if not player then
         return false
     end
+    if racials.ooc(player) then
+        return true
+    end
     if safe(function() return player:is_in_combat() end) == true then
         return false
     end
     if safe(function() return player:is_mounted() end) == true then
         return false
-    end
-    if try_ice_barrier(player) then
-        return true
     end
     if gui.is_on("ice_armor") then
         local has_armor = safe(function() return player:has_buff(ARMOR_ANY) end) == true
@@ -958,11 +932,25 @@ function mage.buffs_ooc(player)
     return false
 end
 
+-- ----------------------------------------------------------------------------
+-- RESTING
+-- ----------------------------------------------------------------------------
+--- Sit down and eat or drink. The thresholds are this class's to choose; the
+--- machinery lives in resting.lua so a fix lands once rather than nine times.
+function mage.rest(player)
+    return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
+end
+
 function mage.tick(player, target, ctx)
     if not player or not target then
         return false
     end
     ctx = ctx or {}
+    -- Racials first: they are short cooldowns that only pay off while the
+    -- fight is live, and none of them cost a global.
+    if racials.tick(player, target, ctx) then
+        return true
+    end
     local no_move = ctx.no_move == true
     local now = izi.now()
     local dist = safe(function() return player:distance_to(target) end) or 99
@@ -1002,9 +990,6 @@ function mage.tick(player, target, ctx)
         return target:has_debuff({ 27088, 10230, 6131, 865, 122, 33395 })
     end) == true
 
-    if try_ice_barrier(player) then
-        return true
-    end
 
     if learned(evocation) and mana <= 20 then
         if safe(function() return player:has_buff({ 12051 }) end) ~= true then
@@ -1075,13 +1060,6 @@ function mage.tick(player, target, ctx)
         if movement_mod and type(movement_mod.face) == "function" then
             movement_mod.face(target)
         end
-    end
-
-    if targeting and type(targeting.should_use_wand) == "function" and targeting.should_use_wand(player) then
-        cancel_sequences()
-        targeting.start_auto_attack(player, target)
-        rotation_note("Wand / melee")
-        return true
     end
 
     if gui.is_on("blizzard") and pack >= 2 and dist < 35 and learned(blizzard) then

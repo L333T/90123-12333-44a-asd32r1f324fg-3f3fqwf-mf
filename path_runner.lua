@@ -8,8 +8,8 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- ============================================================================
 
 ---@type izi_api
@@ -271,7 +271,7 @@ function path_runner.start(path, opts)
         local current = safe(function() return core.get_map_id() end)
         if type(current) == "number" and current ~= 0 and current ~= map_id then
             session.map_warned = true
-            core.log("[Master Farmer - Grindbot] Path map_id " .. tostring(map_id) .. " (current " .. tostring(current) .. ") — running world coords anyway.")
+            core.log("[Master Farmer - Grindbot] Path map_id " .. tostring(map_id) .. " (current " .. tostring(current) .. ") - running world coords anyway.")
         end
     end
     core.log(string.format(
@@ -512,7 +512,7 @@ function path_runner.tick(player)
                     session.index = skip_blocked(waypoints, 1)
                     reset_hold(session)
                     movement.clear_fail()
-                    core.log_warning("[Master Farmer - Grindbot] Path start not on navmesh — skipping to waypoint " .. tostring(session.index))
+                    core.log_warning("[Master Farmer - Grindbot] Path start not on navmesh - skipping to waypoint " .. tostring(session.index))
                     return true
                 end
                 state.set_note("Path", "Travel to start  " .. tostring(path.name))
@@ -553,7 +553,7 @@ function path_runner.tick(player)
         if movement.last_fail_offmesh() then
             if not session.prefer_direct then
                 session.prefer_direct = true
-                core.log("[Master Farmer - Grindbot] Path navmesh miss — walking recorded points directly.")
+                core.log("[Master Farmer - Grindbot] Path navmesh miss - walking recorded points directly.")
                 pcall(function()
                     movement.nav_stop()
                 end)

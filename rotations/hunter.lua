@@ -3,8 +3,8 @@
 -- Hunter grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Warlock.
 --
@@ -28,6 +28,8 @@ local izi = require("common/izi_sdk")
 local enums = require("common/enums")
 
 local gui = require("gui")
+local resting = require("resting")
+local racials = require("racials")
 local pets = require("pets")
 local state = require("state")
 local spellbook = require("spellbook")
@@ -152,6 +154,14 @@ function hunter.combat_range(player) return 34 end
 -- caster here, being closed on is a DPS problem rather than a survival one, and
 -- the pet is holding threat anyway - so this retreats whenever something is in
 -- melee, with no profile condition to satisfy.
+--- How far out to look for something to fight.
+---
+--- A hunter pulls at range and has a pet to hold what it pulls,
+--- so it wants the same warning a caster does.
+function hunter.scan_range(player)
+    return 35
+end
+
 function hunter.combat_profile()
     return {
         name         = "hunter",
@@ -195,6 +205,9 @@ end
 -- ----------------------------------------------------------------------------
 function hunter.buffs_ooc(player)
     if not player then return false end
+    if racials.ooc(player) then
+        return true
+    end
     debug_dump()
     if safe(function() return player:is_in_combat() end) == true then return false end
     if safe(function() return player:is_mounted() end) == true then return false end
@@ -229,9 +242,24 @@ end
 -- ----------------------------------------------------------------------------
 -- COMBAT
 -- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- RESTING
+-- ----------------------------------------------------------------------------
+--- Sit down and eat or drink. The thresholds are this class's to choose; the
+--- machinery lives in resting.lua so a fix lands once rather than nine times.
+function hunter.rest(player)
+    return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
+end
+
 function hunter.tick(player, target, ctx)
     if not player or not target then return false end
     ctx = ctx or {}
+
+    -- Racials first: short cooldowns that only pay off while the fight is
+    -- live, and none of them cost a global.
+    if racials.tick(player, target, ctx) then
+        return true
+    end
 
     pets.attack(player, target)
 

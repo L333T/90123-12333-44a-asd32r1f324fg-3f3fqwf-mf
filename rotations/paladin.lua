@@ -3,8 +3,8 @@
 -- Paladin grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- ============================================================================
 -- WHY THE AURA IS A DROPDOWN AND NOT SIX CHECKBOXES
 --   The reference grindbot exposes six independent booleans - Devotion, Frost
@@ -28,6 +28,8 @@ local izi = require("common/izi_sdk")
 local enums = require("common/enums")
 
 local gui = require("gui")
+local resting = require("resting")
+local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 
@@ -256,6 +258,14 @@ end
 
 -- A paladin has no ranged filler worth kiting for and heavy armour to stand in.
 -- Retreating mid-fight is a straight damage loss, so this never asks for it.
+--- How far out to look for something to fight.
+---
+--- Melee has to walk into contact and then stand still, so a wide
+--- scan only drags extra mobs into a fight it cannot kite out of.
+function paladin.scan_range(player)
+    return 20
+end
+
 function paladin.combat_profile()
     return {
         name         = "paladin",
@@ -315,6 +325,9 @@ end
 function paladin.buffs_ooc(player)
     if not player then
         return false
+    end
+    if racials.ooc(player) then
+        return true
     end
     debug_dump()
     if safe(function() return player:is_in_combat() end) == true then
@@ -386,11 +399,25 @@ local function try_survival(player)
     return false
 end
 
+-- ----------------------------------------------------------------------------
+-- RESTING
+-- ----------------------------------------------------------------------------
+--- Sit down and eat or drink. The thresholds are this class's to choose; the
+--- machinery lives in resting.lua so a fix lands once rather than nine times.
+function paladin.rest(player)
+    return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
+end
+
 function paladin.tick(player, target, ctx)
     if not player or not target then
         return false
     end
     ctx = ctx or {}
+    -- Racials first: they are short cooldowns that only pay off while the
+    -- fight is live, and none of them cost a global.
+    if racials.tick(player, target, ctx) then
+        return true
+    end
 
     if try_survival(player) then
         return true

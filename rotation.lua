@@ -3,8 +3,8 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
 
@@ -73,6 +73,53 @@ local function sync_profile(mod)
         end
     end
     movement.clear_combat_profile()
+end
+
+-- ----------------------------------------------------------------------------
+-- RESTING AND SCANNING - both are the class's to decide
+-- ----------------------------------------------------------------------------
+--- Sit down and eat or drink, using the active class's thresholds.
+---
+--- A class that defines rest() owns the decision. Anything that does not falls
+--- back to the shared default, so an unsupported class still eats.
+function rotation.rest(player)
+    if not player then
+        return false
+    end
+    local mod = rotation.active(player)
+    if mod and type(mod.rest) == "function" then
+        local ok, acted = pcall(mod.rest, player)
+        if ok then
+            return acted == true
+        end
+    end
+    local ok, resting = pcall(require, "resting")
+    if ok and resting and type(resting.tick) == "function" then
+        return resting.tick(player, nil) == true
+    end
+    return false
+end
+
+--- Is the bot sitting down right now?
+function rotation.is_resting()
+    local ok, resting = pcall(require, "resting")
+    if ok and resting and type(resting.is_resting) == "function" then
+        return resting.is_resting() == true
+    end
+    return false
+end
+
+--- How far out this class looks for something to fight. Melee scans tighter
+--- than a caster: see the note on each rotation's scan_range.
+function rotation.scan_range(player)
+    local mod = player and rotation.active(player) or nil
+    if mod and type(mod.scan_range) == "function" then
+        local ok, yards = pcall(mod.scan_range, player)
+        if ok and type(yards) == "number" and yards >= 5 then
+            return yards
+        end
+    end
+    return 30
 end
 
 function rotation.supported(class_id)

@@ -47,19 +47,42 @@ local net = require("http_loader")
 -- ============================================================================
 -- SOURCE
 -- ============================================================================
--- Pinned to a commit, not a branch, deliberately. raw.githubusercontent caches
--- branch URLs for a few minutes and does not invalidate every path at the same
--- instant, so a branch URL can serve a fresh manifest.lua beside a stale cached
--- module; the hash check then fails and the whole load aborts - intermittently,
--- only for a few minutes after each push. A commit URL is immutable.
+-- THE LOADER FOLLOWS THE BRANCH. IT IS NOT PINNED ANY MORE.  (2.0.1)
 --
--- To ship an update:  python make_manifest.py && git add -A && git commit
---                     && git push && git rev-parse HEAD
--- then paste that SHA below.
-local REPO = "L333T/90123-12333-44a-asd32r1f324fg-3f3fqwf-mf"
-local SHA  = "e072643382437e557519d6c6aab696f5014be0e8"
+--   It used to hold a hardcoded commit SHA, which meant every new version
+--   needed this file re-uploaded as well. When that did not happen the plugin
+--   silently kept loading the old commit - it had been serving v1.3.38 while
+--   the repository was 29 commits further on, and every reported "nothing has
+--   changed" was that, not the change failing.
+--
+--   The reason it was pinned is still real: raw.githubusercontent caches
+--   branch URLs for a few minutes and does not invalidate every path at the
+--   same instant, so fetching by branch can hand back a fresh manifest.lua
+--   beside a stale cached module, the hash check fails, and the load aborts.
+--
+--   So the branch is resolved to a commit FIRST, and every file is then
+--   fetched from that immutable commit URL. One request buys both properties:
+--   always current, and a consistent snapshot.
+--
+--   GitHub answers a commit lookup with the bare 40-character SHA when asked
+--   for the sha media type, so no JSON parsing is involved.
+local REPO   = "L333T/90123-12333-44a-asd32r1f324fg-3f3fqwf-mf"
+local BRANCH = "dev"
 
-local BASE = "https://raw.githubusercontent.com/" .. REPO .. "/" .. SHA .. "/"
+-- Used only when the branch cannot be resolved - no network, API rate limit,
+-- GitHub down. Loading a known-good older build beats loading nothing, and the
+-- log says plainly that it happened.
+local FALLBACK_SHA = "e072643382437e557519d6c6aab696f5014be0e8"
+
+local REF_URL = "https://api.github.com/repos/" .. REPO .. "/commits/" .. BRANCH
+
+local function base_for(sha)
+    return "https://raw.githubusercontent.com/" .. REPO .. "/" .. sha .. "/"
+end
+
+-- Resolved at load time by resolve_branch below.
+local SHA = nil
+local BASE = nil
 
 -- Optional. Only needed if the repo is private; the token then ships inside
 -- this file, so scope it read-only to this one repo.
@@ -162,11 +185,83 @@ local function hand_off()
 end
 
 -- ============================================================================
+-- BRANCH RESOLUTION
+-- ============================================================================
+-- Asks GitHub which commit the branch points at, once, before anything is
+-- downloaded. Asynchronous like every other request here, so the update tick
+-- waits on `resolve_state` rather than blocking.
+local resolve_state = "idle"      -- idle | asking | done | failed
+
+local function resolve_branch(done)
+    if resolve_state ~= "idle" then
+        return
+    end
+    resolve_state = "asking"
+
+    -- The sha media type returns the bare commit id as the body. A User-Agent
+    -- is required by the GitHub API and the request is rejected without one.
+    local headers = {
+        ["Accept"] = "application/vnd.github.sha",
+        ["User-Agent"] = "MasterFarmer-Grindbot",
+    }
+    if type(HEADERS) == "table" then
+        for k, v in pairs(HEADERS) do
+            headers[k] = v
+        end
+    end
+
+    local ok = pcall(function()
+        core.http_get(REF_URL, headers, function(http_code, _, body)
+            local code = tonumber(http_code) or 0
+            local sha = nil
+            if code == 200 and type(body) == "string" then
+                sha = body:match("^%s*(%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x"
+                    .. "%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x)%s*$")
+            end
+
+            if sha then
+                SHA = sha
+                BASE = base_for(sha)
+                resolve_state = "done"
+                core.log(string.format("%s %s@%s resolves to %s", TAG, REPO, BRANCH, sha:sub(1, 8)))
+            else
+                SHA = FALLBACK_SHA
+                BASE = base_for(FALLBACK_SHA)
+                resolve_state = "failed"
+                core.log_warning(string.format(
+                    "%s could not resolve %s@%s (http %s); falling back to the pinned commit %s. "
+                    .. "The plugin will load, but it will be whatever that commit was.",
+                    TAG, REPO, BRANCH, tostring(http_code), FALLBACK_SHA:sub(1, 8)))
+            end
+            done()
+        end)
+    end)
+
+    if not ok then
+        SHA = FALLBACK_SHA
+        BASE = base_for(FALLBACK_SHA)
+        resolve_state = "failed"
+        core.log_warning(TAG .. " branch lookup could not be sent; using the pinned commit.")
+        done()
+    end
+end
+
+-- ============================================================================
 -- PER-FRAME
 -- ============================================================================
 local function on_update()
     if is_stale() then return end
     if handed_off then return end        -- the bot drives itself from here
+
+    -- Resolve the branch before anything else. The callback re-enters this
+    -- function on a later tick with BASE set.
+    if resolve_state == "idle" then
+        resolve_branch(function() end)
+        return
+    end
+    if resolve_state == "asking" then
+        return
+    end
 
     if not started then
         started = true
@@ -177,7 +272,7 @@ local function on_update()
             verify_hash = true,
             headers     = HEADERS,
         })
-        core.log(string.format("%s loading from %s @ %s", TAG, REPO, SHA:sub(1, 8)))
+        core.log(string.format("%s loading %s@%s from commit %s", TAG, REPO, BRANCH, SHA:sub(1, 8)))
 
         local ok = net.start(function(loaded, why)
             if is_stale() then return end
@@ -185,8 +280,9 @@ local function on_update()
                 hand_off()
             else
                 core.log_error(TAG .. " load failed: " .. tostring(why))
-                core.log_error(TAG .. " check REPO and SHA in main.lua, and that "
-                    .. "the commit is pushed and manifest.lua matches it")
+                core.log_error(TAG .. " the commit resolved fine, so check that "
+                    .. "manifest.lua was regenerated and pushed with the rest of "
+                    .. "the files on " .. BRANCH)
                 handed_off = true        -- stop ticking; nothing more to try
             end
         end)

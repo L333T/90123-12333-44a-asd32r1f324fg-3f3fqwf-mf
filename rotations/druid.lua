@@ -3,8 +3,8 @@
 -- Druid grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and
 -- Thorns - with no rotation at all. This adds a balance (caster) filler.
@@ -30,6 +30,8 @@ local izi = require("common/izi_sdk")
 local enums = require("common/enums")
 
 local gui = require("gui")
+local resting = require("resting")
+local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 
@@ -222,6 +224,20 @@ end
 -- Entangling Roots is a real root, so unlike the Priest this class CAN kite.
 -- Retreat only in the window where the target is actually held, otherwise
 -- walking away just donates free melee swings.
+--- How far out to look for something to fight.
+---
+--- Melee has to walk into contact and then stand still, so a wide scan just
+--- drags extra mobs into a fight it cannot kite out of. At range the pull
+--- starts from where the bot is already standing, so the extra warning is
+--- free. This class does both, so the scan follows the same toggle its
+--- combat range does.
+function druid.scan_range(player)
+    if gui.is_on("cat_form") then
+        return 20
+    end
+    return 35
+end
+
 function druid.combat_profile()
     return {
         name         = "druid",
@@ -280,6 +296,9 @@ function druid.buffs_ooc(player)
     if not player then
         return false
     end
+    if racials.ooc(player) then
+        return true
+    end
     debug_dump()
     if safe(function() return player:is_in_combat() end) == true then
         return false
@@ -337,11 +356,25 @@ local function try_survival(player)
     return false
 end
 
+-- ----------------------------------------------------------------------------
+-- RESTING
+-- ----------------------------------------------------------------------------
+--- Sit down and eat or drink. The thresholds are this class's to choose; the
+--- machinery lives in resting.lua so a fix lands once rather than nine times.
+function druid.rest(player)
+    return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
+end
+
 function druid.tick(player, target, ctx)
     if not player or not target then
         return false
     end
     ctx = ctx or {}
+    -- Racials first: they are short cooldowns that only pay off while the
+    -- fight is live, and none of them cost a global.
+    if racials.tick(player, target, ctx) then
+        return true
+    end
 
     if try_survival(player) then
         return true

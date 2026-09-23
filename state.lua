@@ -3,8 +3,8 @@
 -- Shared runtime state (no leaked globals)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- ============================================================================
 
 local state = {
@@ -64,13 +64,6 @@ state.vendor = {
     lack_gold = 0,
     wait_npc = 0,
     tries = 0,
-}
-
-state.teleport = {
-    x = 0,
-    y = 0,
-    z = 0,
-    alarm_until = 0,
 }
 
 function state.set_note(head, text)

@@ -3,8 +3,8 @@
 -- Alliance 1-60 w/Vendoring - path index
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 1.9.2
+-- Folder: Master_Farmer_Grindbot_v1.9.2
 -- ============================================================================
 -- Index only. Every entry names a module that is required on demand and
 -- dropped again when another is picked - see path_format.take_module. The
@@ -16,6 +16,7 @@
 return {
     {
         id = "Humanlvl1_4",
+        faction = "alliance",
         label = "Human 1-4",
         module = "grind/paths/ally160/Humanlvl1_4",
         region = "ally160",
@@ -31,6 +32,7 @@ return {
     },
     {
         id = "LVL1_6GnomeDwarfVendor",
+        faction = "alliance",
         label = "Gnome/Dwarf 1-6 (Vendor)",
         module = "grind/paths/ally160/LVL1_6GnomeDwarfVendor",
         region = "ally160",
@@ -46,6 +48,7 @@ return {
     },
     {
         id = "LVL1_75Herbing",
+        faction = "alliance",
         label = "Elwynn Herb 1-75",
         module = "grind/paths/ally160/LVL1_75Herbing",
         region = "ally160",
@@ -60,6 +63,7 @@ return {
     },
     {
         id = "Northshirelvl4_6",
+        faction = "alliance",
         label = "Northshire 4-6",
         module = "grind/paths/ally160/Northshirelvl4_6",
         region = "ally160",
@@ -75,6 +79,7 @@ return {
     },
     {
         id = "ElwynnForstLVL6_9",
+        faction = "alliance",
         label = "Elwynn Forest 6-9 (Vendor)",
         module = "grind/paths/ally160/ElwynnForstLVL6_9",
         region = "ally160",
@@ -90,6 +95,7 @@ return {
     },
     {
         id = "LVL6_9GnomedwarfVendor",
+        faction = "alliance",
         label = "Gnome/Dwarf 6-9",
         module = "grind/paths/ally160/LVL6_9GnomedwarfVendor",
         region = "ally160",
@@ -104,6 +110,7 @@ return {
     },
     {
         id = "NorthsireVendor_to_GoldshireVendor",
+        faction = "alliance",
         label = "Northshire Vendor -> Goldshire Vendor",
         module = "grind/paths/ally160/NorthsireVendor_to_GoldshireVendor",
         region = "ally160",
@@ -119,6 +126,7 @@ return {
     },
     {
         id = "LVL8_11GnomeDwafVendor",
+        faction = "alliance",
         label = "Gnome/Dwarf 8-11 (Vendor)",
         module = "grind/paths/ally160/LVL8_11GnomeDwafVendor",
         region = "ally160",
@@ -134,6 +142,7 @@ return {
     },
     {
         id = "ElwynnLVL9_12",
+        faction = "alliance",
         label = "Elwynn Forest 9-12 (Vendor)",
         module = "grind/paths/ally160/ElwynnLVL9_12",
         region = "ally160",
@@ -149,6 +158,7 @@ return {
     },
     {
         id = "LVL11_14LochhModan",
+        faction = "alliance",
         label = "Loch Modan 11-14 (Vendor)",
         module = "grind/paths/ally160/LVL11_14LochhModan",
         region = "ally160",
@@ -164,6 +174,7 @@ return {
     },
     {
         id = "WestFallLVL12_14",
+        faction = "alliance",
         label = "Westfall 12-14",
         module = "grind/paths/ally160/WestFallLVL12_14",
         region = "ally160",
@@ -178,6 +189,7 @@ return {
     },
     {
         id = "Westfall12_14VendorRoute",
+        faction = "alliance",
         label = "Westfall 12-14 Vendor Route",
         module = "grind/paths/ally160/Westfall12_14VendorRoute",
         region = "ally160",
@@ -192,6 +204,7 @@ return {
     },
     {
         id = "LVL13_17LochModanVendor",
+        faction = "alliance",
         label = "Loch Modan 13-17 (Vendor)",
         module = "grind/paths/ally160/LVL13_17LochModanVendor",
         region = "ally160",
@@ -207,6 +220,7 @@ return {
     },
     {
         id = "LVL14_16EasywithVendorWestfall",
+        faction = "alliance",
         label = "Westfall 14-16 Easy (Vendor)",
         module = "grind/paths/ally160/LVL14_16EasywithVendorWestfall",
         region = "ally160",
@@ -222,6 +236,7 @@ return {
     },
     {
         id = "WestfallLVL14_16HARD",
+        faction = "alliance",
         label = "Westfall 14-16 Hard",
         module = "grind/paths/ally160/WestfallLVL14_16HARD",
         region = "ally160",
@@ -236,6 +251,7 @@ return {
     },
     {
         id = "WestFallLVL16_20Bandits",
+        faction = "alliance",
         label = "Westfall 16-20 Bandits",
         module = "grind/paths/ally160/WestFallLVL16_20Bandits",
         region = "ally160",
@@ -250,6 +266,7 @@ return {
     },
     {
         id = "LVL17_20LochModanTroggsHard",
+        faction = "alliance",
         label = "Loch Modan 17-20 Troggs Hard",
         module = "grind/paths/ally160/LVL17_20LochModanTroggsHard",
         region = "ally160",
@@ -265,6 +282,7 @@ return {
     },
     {
         id = "P20_24WolfsSpidersVendorsinWestfall",
+        faction = "alliance",
         label = "Duskwood 20-24 Wolves/Spiders (Vendor)",
         module = "grind/paths/ally160/P20_24WolfsSpidersVendorsinWestfall",
         region = "ally160",
@@ -280,6 +298,7 @@ return {
     },
     {
         id = "LVL21_26WetlandsVendor",
+        faction = "alliance",
         label = "Wetlands 21-26 (Vendor)",
         module = "grind/paths/ally160/LVL21_26WetlandsVendor",
         region = "ally160",
@@ -295,6 +314,7 @@ return {
     },
     {
         id = "LVL24_26DuskwoodNOVENDOR",
+        faction = "alliance",
         label = "Duskwood 24-26",
         module = "grind/paths/ally160/LVL24_26DuskwoodNOVENDOR",
         region = "ally160",
@@ -309,6 +329,7 @@ return {
     },
     {
         id = "LVL24_27WetlandsHard",
+        faction = "alliance",
         label = "Wetlands 24-27 Hard",
         module = "grind/paths/ally160/LVL24_27WetlandsHard",
         region = "ally160",
@@ -323,6 +344,7 @@ return {
     },
     {
         id = "DuskwoodworgenLVL24_27",
+        faction = "alliance",
         label = "Duskwood 26-28 Worgen (Vendor)",
         module = "grind/paths/ally160/DuskwoodworgenLVL24_27",
         region = "ally160",
@@ -338,6 +360,7 @@ return {
     },
     {
         id = "LVL30_35ArathiHighlandsVendor",
+        faction = "alliance",
         label = "Arathi Highlands 30-35 (Vendor)",
         module = "grind/paths/ally160/LVL30_35ArathiHighlandsVendor",
         region = "ally160",
@@ -353,6 +376,7 @@ return {
     },
     {
         id = "LVL35_38ArathiHighlands",
+        faction = "alliance",
         label = "Arathi Highlands 35-38",
         module = "grind/paths/ally160/LVL35_38ArathiHighlands",
         region = "ally160",
@@ -367,6 +391,7 @@ return {
     },
     {
         id = "LVL35_39STVRebalCamp",
+        faction = "alliance",
         label = "STV 35-39 Rebel Camp",
         module = "grind/paths/ally160/LVL35_39STVRebalCamp",
         region = "ally160",
@@ -381,6 +406,7 @@ return {
     },
     {
         id = "LVL39_43STVSouth",
+        faction = "alliance",
         label = "STV 39-43 South",
         module = "grind/paths/ally160/LVL39_43STVSouth",
         region = "ally160",
@@ -395,6 +421,7 @@ return {
     },
     {
         id = "LVL42_45Hinterlands",
+        faction = "alliance",
         label = "Hinterlands 42-45",
         module = "grind/paths/ally160/LVL42_45Hinterlands",
         region = "ally160",

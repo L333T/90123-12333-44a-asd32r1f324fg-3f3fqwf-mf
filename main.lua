@@ -3,14 +3,14 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
 -- pauses only. Nothing else in the plugin issues a movement command.
 -- No FB_Nexus. No NavLib.
--- Tick: teleport -> death -> heal -> loot -> buffs -> train -> vendor -> equip -> grind XOR quest (Start gated)
+-- Tick: death -> rest -> loot -> buffs -> train -> vendor -> equip -> grind XOR quest (Start gated)
 -- ============================================================================
 
 local PLUGIN_MODULES = {
@@ -35,6 +35,11 @@ local PLUGIN_MODULES = {
     "supplies",
     "equip",
     "trainer",
+    "resting",
+    "racials",
+    "data/racials",
+    "data/factions",
+    "events",
     "config",
     -- The path INDEXES. These were missing, and the effect was invisible and
     -- very confusing: a reload reused the previous session's grind/catalog
@@ -93,7 +98,7 @@ end
 
 local gui = load_mod("gui")
 if not gui then
-    core.log_error("[Master Farmer - Grindbot] GUI module failed — window will not appear.")
+    core.log_error("[Master Farmer - Grindbot] GUI module failed - window will not appear.")
 else
     core.register_on_render_window_callback(function()
         if is_stale() then
@@ -120,6 +125,15 @@ local healing = load_mod("healing")
 local vendor = load_mod("vendor")
 local equip = load_mod("equip")
 local trainer = load_mod("trainer")
+
+-- Game events. Registered once per SESSION, not once per load: the callback
+-- cap is per plugin and this file re-runs on every hot reload. events.install
+-- keeps the guard on the shared namespace and refreshes the handler table, so
+-- a reload picks up new handler code without registering a second callback.
+local events = load_mod("events")
+if events and type(events.install) == "function" then
+    pcall(events.install)
+end
 local supplies = load_mod("supplies")
 local loader = load_mod("loader")
 local path_runner = load_mod("path_runner")
@@ -136,6 +150,10 @@ if gui and equip and type(equip.register_gui) == "function" then
     pcall(equip.register_gui, gui.get_menu())
 end
 
+local racials = load_mod("racials")
+if gui and racials and type(racials.register_gui) == "function" then
+    pcall(racials.register_gui, gui.get_menu())
+end
 if gui and rotation and type(rotation.register_gui) == "function" then
     pcall(function()
         rotation.register_gui(gui.get_menu())
@@ -168,25 +186,6 @@ local function pause_path_for_combat()
     end
 end
 
-local function path_scan_range()
-    local yards = 50
-    if gui and type(gui.slider) == "function" then
-        yards = gui.slider("path_combat_yards", 50)
-    end
-    local current = path_runner.current_path and path_runner.current_path() or nil
-    local pull = current and tonumber(current.pull)
-    if type(pull) == "number" and pull > yards then
-        yards = pull
-    end
-    if type(yards) ~= "number" or yards < 10 then
-        yards = 50
-    end
-    if yards > 80 then
-        yards = 80
-    end
-    return yards
-end
-
 local function rotation_yards(player)
     local yards = 30
     if rotation and type(rotation.combat_range) == "function" then
@@ -194,6 +193,33 @@ local function rotation_yards(player)
     end
     if type(yards) ~= "number" or yards < 5 then
         yards = 30
+    end
+    return yards
+end
+
+--- How far out to look for something to fight.
+---
+--- The class decides: melee scans tighter than a caster, because melee has to
+--- close the distance and then stand still, and every extra mob inside the
+--- scan is one more thing arriving during that. The path may ask for a wider
+--- scan through its `pull` value, and that still wins - a route author who
+--- says "pull from 50 yards here" knows the terrain better than the class
+--- default does.
+local function scan_yards(player)
+    local yards = 30
+    if rotation and type(rotation.scan_range) == "function" then
+        local ok, n = pcall(rotation.scan_range, player)
+        if ok and type(n) == "number" and n >= 5 then
+            yards = n
+        end
+    end
+    local current = path_runner.current_path and path_runner.current_path() or nil
+    local pull = current and tonumber(current.pull)
+    if type(pull) == "number" and pull > yards then
+        yards = pull
+    end
+    if yards > 80 then
+        yards = 80
     end
     return yards
 end
@@ -308,7 +334,10 @@ local function path_handle_combat(player)
         return false
     end
 
-    local range = path_scan_range()
+    -- The class sets the scan; combat_range is a floor, because a scan
+    -- narrower than the range the rotation actually fights at would mean
+    -- walking past things it could already hit.
+    local range = scan_yards(player)
     local yards = rotation_yards(player)
     if range < yards then
         range = yards
@@ -399,11 +428,11 @@ local function tick_rotation_only(player)
     end
     local target = safe(function() return player:get_target() end)
     if not target or safe(function() return target:is_valid() end) ~= true then
-        state.set_note("Rotation", "Rotation Only — select a target")
+        state.set_note("Rotation", "Rotation Only - select a target")
         return
     end
     if safe(function() return target:is_dead_or_ghost() end) == true or safe(function() return target:is_dead() end) == true then
-        state.set_note("Rotation", "Rotation Only — target dead")
+        state.set_note("Rotation", "Rotation Only - target dead")
         return
     end
     pcall(function()
@@ -411,7 +440,7 @@ local function tick_rotation_only(player)
     end)
     local pack = {}
     if targeting then
-        pack = targeting.combat_scan(player, gui.slider("path_combat_yards", 30))
+        pack = targeting.combat_scan(player, scan_yards(player))
     end
     state.set_note("Rotation", "Rotation Only")
     rotation.tick(player, target, { enemies = pack, no_move = true })
@@ -433,45 +462,6 @@ local function player_is_busy(player)
     if safe(function() return player:is_channeling() end) == true then
         return true
     end
-    return false
-end
-
-local function teleport_halt(player, pos)
-    if not gui or not state or not movement or not death then
-        return false
-    end
-    if not gui.is_on("teleport") or not pos then
-        state.teleport.x = pos and pos.x or 0
-        state.teleport.y = pos and pos.y or 0
-        state.teleport.z = pos and pos.z or 0
-        return false
-    end
-    if state.teleport.x == 0 and state.teleport.y == 0 and state.teleport.z == 0 then
-        state.teleport.x = pos.x
-        state.teleport.y = pos.y
-        state.teleport.z = pos.z
-        return false
-    end
-    local dx = pos.x - state.teleport.x
-    local dy = pos.y - state.teleport.y
-    local dz = pos.z - state.teleport.z
-    local d = math.sqrt(dx * dx + dy * dy + dz * dz)
-    local limit = gui.slider("teleport_yards", 80)
-    if d > limit and not death.is_down(player) then
-        if state.teleport.alarm_until == 0 then
-            state.teleport.alarm_until = izi.now() + 90
-            core.log_warning("[Master Farmer - Grindbot] Teleport detected — pausing 90s")
-        end
-        if izi.now() < state.teleport.alarm_until then
-            movement.nav_stop()
-            state.set_note("Teleport", "Paused after large move")
-            return true
-        end
-        state.teleport.alarm_until = 0
-    end
-    state.teleport.x = pos.x
-    state.teleport.y = pos.y
-    state.teleport.z = pos.z
     return false
 end
 
@@ -538,10 +528,6 @@ local function on_update()
         return
     end
 
-    local pos = state.cached_pos
-    if teleport_halt(player, pos) then
-        return
-    end
     if death.tick(player) then
         return
     end

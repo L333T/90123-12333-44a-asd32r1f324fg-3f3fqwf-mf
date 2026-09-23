@@ -3,8 +3,8 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 1.8.0
+-- Folder: Master_Farmer_Grindbot_v1.8.0
 -- ============================================================================
 
 ---@type izi_api
@@ -389,19 +389,6 @@ function targeting.has_wand_equipped(player)
     return false
 end
 
-function targeting.should_use_wand(player)
-    if not player then
-        return false
-    end
-    if gui.is_on("mage_wand") ~= true then
-        return false
-    end
-    if mana_percent(player) >= WAND_MANA then
-        return false
-    end
-    return targeting.has_wand_equipped(player)
-end
-
 local function is_attacking(player)
     return safe(function()
         return auto_attack:is_auto_attacking(player)
@@ -474,9 +461,6 @@ function targeting.start_auto_attack(player, unit)
     end
     if same ~= true then
         start_attack_type(unit, types.MELEE)
-    end
-    if targeting.should_use_wand(player) then
-        start_wand_or_melee(player, unit, types)
     end
     return true
 end

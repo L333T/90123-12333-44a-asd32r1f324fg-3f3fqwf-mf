@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 1.8.0
+-- Folder: Master_Farmer_Grindbot_v1.8.0
 -- ============================================================================
 
 ---@type color
@@ -92,14 +92,6 @@ menu:checkbox("mfg_enable", false, {
     skip_draw = true,
     tooltip = "Internal run flag. Set by Start after Grind or Quest and a profile are chosen.",
 })
-menu:checkbox("mfg_teleport", true, {
-    label = "Teleport Detect",
-    tab = "general",
-})
-menu:slider_int("mfg_teleport_yards", 20, 200, 80, {
-    label = "Teleport Distance (yd)",
-    tab = "general",
-})
 menu:checkbox("mfg_player_detect", false, {
     label = "Player Detect (pause pulls)",
     tab = "general",
@@ -174,11 +166,6 @@ menu:checkbox("mfg_path_combat", true, {
     label = "Attack Along Path",
     tab = "path",
     tooltip = "Auto-target the closest PvE mob in rotation range and fight from the loaded path (10-yard leash). Starts melee auto-attack so any class swings when the mob is in melee.",
-})
-menu:slider_int("mfg_path_combat_yards", 10, 60, 50, {
-    label = "Path Combat Range",
-    tab = "path",
-    tooltip = "Yards to scan for PvE mobs while traveling. Novelist profiles also use their R50 pull range when larger.",
 })
 menu:checkbox("mfg_draw_path", true, {
     label = "Draw Loaded Path",
@@ -387,7 +374,6 @@ local keybinds = {
 
 local aliases = {
     enable = "mfg_enable",
-    teleport = "mfg_teleport",
     player_detect = "mfg_player_detect",
     eat_drink = "mfg_eat_drink",
     potions = "mfg_potions",
@@ -524,7 +510,6 @@ local aliases = {
 }
 
 local slider_aliases = {
-    teleport_yards = "mfg_teleport_yards",
     player_yards = "mfg_player_yards",
     train_reserve = "mfg_train_reserve",
     eat_hp = "mfg_eat_hp",
@@ -534,7 +519,6 @@ local slider_aliases = {
     max_kill = "mfg_max_kill",
     fight_back_hp = "mfg_fight_back_hp",
     fight_back_yards = "mfg_fight_back_yards",
-    path_combat_yards = "mfg_path_combat_yards",
     bag_free = "mfg_bag_free",
     repair_pct = "mfg_repair_pct",
     -- class self-heal thresholds (rotations/*.lua read these via gui.slider)
@@ -1017,6 +1001,14 @@ function gui.sync_player(player)
     pcall(function()
         class_id = player:get_class()
     end)
+    -- The race drives which racial toggles appear on the Class tab.
+    local race_id = nil
+    pcall(function()
+        race_id = player:get_race_id()
+    end)
+    if type(race_id) == "number" then
+        menu:set_player_race(race_id)
+    end
     if not class_id then
         return
     end

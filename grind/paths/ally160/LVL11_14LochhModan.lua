@@ -3,8 +3,8 @@
 -- Loch Modan 11-14 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 1.8.0
+-- Folder: Master_Farmer_Grindbot_v1.8.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL11_13LochModanVendor

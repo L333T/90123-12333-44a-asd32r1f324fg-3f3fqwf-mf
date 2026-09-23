@@ -3,8 +3,8 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 1.8.0
+-- Folder: Master_Farmer_Grindbot_v1.8.0
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
 --   Applying a poison is a two-step interaction: use the poison, which puts it
@@ -37,6 +37,8 @@ local izi = require("common/izi_sdk")
 local enums = require("common/enums")
 
 local gui = require("gui")
+local resting = require("resting")
+local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 
@@ -167,6 +169,14 @@ function rogue.combat_range(player) return 5 end
 
 -- Pure melee with no ranged filler: stepping out is a flat DPS loss and the
 -- target simply follows. Never retreats.
+--- How far out to look for something to fight.
+---
+--- Melee has to walk into contact and then stand still, so a wide
+--- scan only drags extra mobs into a fight it cannot kite out of.
+function rogue.scan_range(player)
+    return 20
+end
+
 function rogue.combat_profile()
     return {
         name = "rogue", melee_danger = 0, melee_safe = 0,
@@ -204,6 +214,9 @@ end
 -- ----------------------------------------------------------------------------
 function rogue.buffs_ooc(player)
     if not player then return false end
+    if racials.ooc(player) then
+        return true
+    end
     debug_dump(player)
     -- Nothing to maintain out of combat: Slice and Dice needs combo points and
     -- poisons cannot be applied (see header). Kept so the interface is complete.
@@ -213,9 +226,24 @@ end
 -- ----------------------------------------------------------------------------
 -- COMBAT
 -- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- RESTING
+-- ----------------------------------------------------------------------------
+--- Sit down and eat or drink. The thresholds are this class's to choose; the
+--- machinery lives in resting.lua so a fix lands once rather than nine times.
+function rogue.rest(player)
+    return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
+end
+
 function rogue.tick(player, target, ctx)
     if not player or not target then return false end
     ctx = ctx or {}
+
+    -- Racials first: short cooldowns that only pay off while the fight is
+    -- live, and none of them cost a global.
+    if racials.tick(player, target, ctx) then
+        return true
+    end
 
     local hp = health_pct(player)
     if gui.is_on("evasion") and learned(evasion) then

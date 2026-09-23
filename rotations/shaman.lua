@@ -3,8 +3,8 @@
 -- Shaman grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 1.8.0
+-- Folder: Master_Farmer_Grindbot_v1.8.0
 -- ============================================================================
 -- WEAPON IMBUES - THE BUG NOT COPIED
 --   The reference bot tests MainHand_Enchant once, then casts EVERY enabled
@@ -27,6 +27,8 @@ local izi = require("common/izi_sdk")
 local enums = require("common/enums")
 
 local gui = require("gui")
+local resting = require("resting")
+local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 
@@ -176,6 +178,20 @@ function shaman.combat_range(player)
     return 30
 end
 
+--- How far out to look for something to fight.
+---
+--- Melee has to walk into contact and then stand still, so a wide scan just
+--- drags extra mobs into a fight it cannot kite out of. At range the pull
+--- starts from where the bot is already standing, so the extra warning is
+--- free. This class does both, so the scan follows the same toggle its
+--- combat range does.
+function shaman.scan_range(player)
+    if gui.is_on("enhancement") then
+        return 20
+    end
+    return 35
+end
+
 function shaman.combat_profile()
     local melee = gui.is_on("enhancement")
     return {
@@ -229,6 +245,9 @@ end
 -- ----------------------------------------------------------------------------
 function shaman.buffs_ooc(player)
     if not player then return false end
+    if racials.ooc(player) then
+        return true
+    end
     debug_dump(player)
     if safe(function() return player:is_in_combat() end) == true then return false end
     if safe(function() return player:is_mounted() end) == true then return false end
@@ -254,9 +273,24 @@ end
 -- ----------------------------------------------------------------------------
 -- COMBAT
 -- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- RESTING
+-- ----------------------------------------------------------------------------
+--- Sit down and eat or drink. The thresholds are this class's to choose; the
+--- machinery lives in resting.lua so a fix lands once rather than nine times.
+function shaman.rest(player)
+    return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
+end
+
 function shaman.tick(player, target, ctx)
     if not player or not target then return false end
     ctx = ctx or {}
+
+    -- Racials first: short cooldowns that only pay off while the fight is
+    -- live, and none of them cost a global.
+    if racials.tick(player, target, ctx) then
+        return true
+    end
 
     local hp = health_pct(player)
     local threshold = gui.slider("shaman_heal_pct", 50) or 50

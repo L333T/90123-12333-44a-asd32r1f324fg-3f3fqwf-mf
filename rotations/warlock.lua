@@ -3,8 +3,8 @@
 -- Warlock grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 1.8.0
+-- Folder: Master_Farmer_Grindbot_v1.8.0
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Hunter.
 --
@@ -30,6 +30,8 @@ local izi = require("common/izi_sdk")
 local enums = require("common/enums")
 
 local gui = require("gui")
+local resting = require("resting")
+local racials = require("racials")
 local pets = require("pets")
 local state = require("state")
 local spellbook = require("spellbook")
@@ -182,6 +184,14 @@ function warlock.combat_range(player) return 30 end
 -- The pet holds threat, so backing out is usually a loss of cast time for
 -- nothing. Retreat only when something is actually on US and the pet is not
 -- there to take it back.
+--- How far out to look for something to fight.
+---
+--- A caster opens from where it is already standing, so a wide
+--- scan costs nothing and gives the rotation time to start a cast.
+function warlock.scan_range(player)
+    return 35
+end
+
 function warlock.combat_profile()
     return {
         name         = "warlock",
@@ -250,6 +260,9 @@ end
 -- ----------------------------------------------------------------------------
 function warlock.buffs_ooc(player)
     if not player then return false end
+    if racials.ooc(player) then
+        return true
+    end
     debug_dump()
     if safe(function() return player:is_in_combat() end) == true then return false end
     if safe(function() return player:is_mounted() end) == true then return false end
@@ -285,9 +298,24 @@ end
 -- ----------------------------------------------------------------------------
 -- COMBAT
 -- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- RESTING
+-- ----------------------------------------------------------------------------
+--- Sit down and eat or drink. The thresholds are this class's to choose; the
+--- machinery lives in resting.lua so a fix lands once rather than nine times.
+function warlock.rest(player)
+    return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
+end
+
 function warlock.tick(player, target, ctx)
     if not player or not target then return false end
     ctx = ctx or {}
+
+    -- Racials first: short cooldowns that only pay off while the fight is
+    -- live, and none of them cost a global.
+    if racials.tick(player, target, ctx) then
+        return true
+    end
 
     pets.attack(player, target)
 

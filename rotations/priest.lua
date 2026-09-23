@@ -3,8 +3,8 @@
 -- Priest grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 1.8.0
+-- Folder: Master_Farmer_Grindbot_v1.8.0
 -- ============================================================================
 -- Ported from the reference grindbot's Buff_Check Priest branch, which kept
 -- only Power Word: Fortitude and Shadowform. That is not enough to level with,
@@ -31,6 +31,8 @@ local izi = require("common/izi_sdk")
 local enums = require("common/enums")
 
 local gui = require("gui")
+local resting = require("resting")
+local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 
@@ -254,6 +256,14 @@ end
 -- A priest has no reliable snare or root while levelling, so backing out of
 -- melee mid-fight just eats damage with no cast time gained. Retreat only when
 -- something is actually on us AND we are healthy enough to survive the walk.
+--- How far out to look for something to fight.
+---
+--- A caster opens from where it is already standing, so a wide
+--- scan costs nothing and gives the rotation time to start a cast.
+function priest.scan_range(player)
+    return 35
+end
+
 function priest.combat_profile()
     return {
         name         = "priest",
@@ -315,6 +325,9 @@ end
 function priest.buffs_ooc(player)
     if not player then
         return false
+    end
+    if racials.ooc(player) then
+        return true
     end
     debug_dump()
     if safe(function() return player:is_in_combat() end) == true then
@@ -400,11 +413,25 @@ local function try_survival(player)
     return false
 end
 
+-- ----------------------------------------------------------------------------
+-- RESTING
+-- ----------------------------------------------------------------------------
+--- Sit down and eat or drink. The thresholds are this class's to choose; the
+--- machinery lives in resting.lua so a fix lands once rather than nine times.
+function priest.rest(player)
+    return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
+end
+
 function priest.tick(player, target, ctx)
     if not player or not target then
         return false
     end
     ctx = ctx or {}
+    -- Racials first: they are short cooldowns that only pay off while the
+    -- fight is live, and none of them cost a global.
+    if racials.tick(player, target, ctx) then
+        return true
+    end
 
     if try_survival(player) then
         return true

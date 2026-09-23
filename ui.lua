@@ -5,8 +5,8 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.7.0
--- Folder: Master_Farmer_Grindbot_v1.7.0
+-- Version: 1.8.0
+-- Folder: Master_Farmer_Grindbot_v1.8.0
 -- ============================================================================
 
 ---@type color
@@ -652,6 +652,7 @@ local function store_element(self, kind, id, element, opts)
         on_click = opts.on_click,
         column = opts.column or 1,
         class_id = opts.class_id,
+        race_id = opts.race_id,
         spell = opts.spell,
         skip_draw = opts.skip_draw == true,
     }
@@ -761,6 +762,19 @@ function Menu:set_player_class(class_id)
     end
 end
 
+--- Racials are per race, so a racial control carries race_id the same way a
+--- class spell carries class_id. Without this every race's racials would show
+--- on every character.
+function Menu:set_player_race(race_id)
+    if type(race_id) == "number" then
+        self._player_race_id = race_id
+    end
+end
+
+function Menu:player_race()
+    return self._player_race_id
+end
+
 function Menu:player_class()
     return self._player_class_id
 end
@@ -774,6 +788,11 @@ function Menu:control_visible(record)
     end
     if type(record.class_id) == "number" then
         if self._player_class_id ~= record.class_id then
+            return false
+        end
+    end
+    if type(record.race_id) == "number" then
+        if self._player_race_id ~= record.race_id then
             return false
         end
     end

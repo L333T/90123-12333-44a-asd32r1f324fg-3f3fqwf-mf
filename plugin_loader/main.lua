@@ -80,7 +80,7 @@ local BRANCH = "main"
 -- Kept current deliberately. The previous value was a v1.3.38 commit, so on
 -- any lookup failure the plugin quietly dropped 29 versions instead of missing
 -- only the newest one.
-local FALLBACK_SHA = "227d6976d7738bbf6a51aaa576a6659f655364ae"
+local FALLBACK_SHA = "a8da92ce29eeb03013374e81696193dd6f3d9772"
 
 local REF_URL = "https://api.github.com/repos/" .. REPO .. "/commits/" .. BRANCH
 

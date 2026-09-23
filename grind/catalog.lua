@@ -3,8 +3,8 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.0
--- Folder: Master_Farmer_Grindbot_v1.9.0
+-- Version: 1.9.1
+-- Folder: Master_Farmer_Grindbot_v1.9.1
 -- ============================================================================
 
 local path_format = require("path_format")
@@ -133,19 +133,34 @@ function novelist_paths.entries_for_faction(key)
         key = factions.ALLIANCE
     end
     key = string.lower(key)
+
     local out, seen = {}, {}
-    for i = 1, #ENTRIES do
-        local entry = ENTRIES[i]
-        if factions.of_entry(entry) == key then
-            local id = entry.id
-            if type(id) ~= "string" or not seen[id] then
-                if type(id) == "string" then
-                    seen[id] = true
+    local function take(want_ally160)
+        for i = 1, #ENTRIES do
+            local entry = ENTRIES[i]
+            if factions.of_entry(entry) == key then
+                local from_ally160 = (entry.source == "ally160")
+                if from_ally160 == want_ally160 then
+                    local id = entry.id
+                    if type(id) ~= "string" or not seen[id] then
+                        if type(id) == "string" then
+                            seen[id] = true
+                        end
+                        out[#out + 1] = entry
+                    end
                 end
-                out[#out + 1] = entry
             end
         end
     end
+
+    -- ally160 first, and this ordering is load-bearing twice over. Eight of
+    -- those routes were converted from the same PathTool JSON as the original
+    -- Eastern Kingdoms eight and carry the same ids, so whichever is seen
+    -- first wins the deduplication - and only the ally160 copy knows about the
+    -- route's vendor. It is also the only one of the two catalogs that is
+    -- sorted by level, which is the order the menu wants.
+    take(true)
+    take(false)
     return out
 end
 

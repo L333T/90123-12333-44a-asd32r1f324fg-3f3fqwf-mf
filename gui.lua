@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.0
--- Folder: Master_Farmer_Grindbot_v1.9.0
+-- Version: 1.9.1
+-- Folder: Master_Farmer_Grindbot_v1.9.1
 -- ============================================================================
 
 ---@type color
@@ -745,15 +745,52 @@ function gui.faction_key()
     return factions.key_at(idx), idx
 end
 
+--- Point the selector at the character's own side, once.
+---
+--- It will NOT move you to a side that has no routes. Auto-selecting Horde on
+--- a Horde character is correct in principle and useless in practice while
+--- every shipped route is Alliance: the list goes empty and it looks as though
+--- the profiles have vanished. So a side with nothing in it is not selected,
+--- and the reason is logged once.
 function gui.sync_faction(player)
     if faction_synced or not player then
         return
     end
-    local key = factions.of_player(player)
+    local key, how = factions.of_player(player)
     if not key then
         return
     end
     faction_synced = true
+
+    local counts = {}
+    local ok, grind_catalog = pcall(require, "grind/catalog")
+    if ok and grind_catalog and type(grind_catalog.faction_counts) == "function" then
+        counts = grind_catalog.faction_counts() or {}
+    end
+
+    if (counts[key] or 0) <= 0 then
+        local fallback = nil
+        for i = 1, #factions.keys do
+            local k = factions.keys[i]
+            if (counts[k] or 0) > 0 then
+                fallback = k
+                break
+            end
+        end
+        core.log(string.format(
+            "[Master Farmer - Grindbot] Detected %s (%s), which has no grind routes. %s",
+            key, tostring(how),
+            fallback and ("Showing " .. fallback .. " routes instead.")
+                or "No routes are available for either side."))
+        if not fallback then
+            return
+        end
+        key = fallback
+    else
+        core.log(string.format("[Master Farmer - Grindbot] Faction: %s (from %s), %d routes.",
+            key, tostring(how), counts[key] or 0))
+    end
+
     local want = factions.index_of(key)
     if menu:get("mfg_faction") ~= want then
         menu:set("mfg_faction", want)
@@ -1548,10 +1585,16 @@ menu:on_tab("grinding", function(win, x, y, w, h)
         counts = grind_catalog.faction_counts() or {}
     end
     local mine = counts[key] or 0
+    -- Both sides are shown, not just the selected one, so an empty list reads
+    -- as "this side has none" rather than "the profiles are gone".
+    local other_key = (key == factions.ALLIANCE) and factions.HORDE or factions.ALLIANCE
+    local other = counts[other_key] or 0
     win:render_text(FONT_SMALL, vec2.new(x + 10, y2), faction_colour(key),
         string.format("%s  -  %d route%s", factions.labels[factions.index_of(key)],
             mine, mine == 1 and "" or "s"))
-    y2 = y2 + 20
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 18), mute,
+        string.format("%s has %d.", factions.labels[factions.index_of(other_key)], other))
+    y2 = y2 + 40
 
     -- A side with nothing in it says so, rather than showing an empty list.
     if mine == 0 then

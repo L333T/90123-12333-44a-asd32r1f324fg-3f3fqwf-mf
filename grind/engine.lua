@@ -3,8 +3,8 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.0
--- Folder: Master_Farmer_Grindbot_v1.9.0
+-- Version: 1.9.1
+-- Folder: Master_Farmer_Grindbot_v1.9.1
 -- ============================================================================
 
 ---@type izi_api
@@ -80,6 +80,14 @@ function grind.clear_profile()
     hunt = nil
 end
 
+--- Turn a loaded grind path into the zone shape the engine walks.
+---
+--- `mobs` is deliberately allowed to be nil. The zone tables name specific npc
+--- ids because they describe a camp; a PathTool route describes a LOOP through
+--- an area and should engage whatever is on it. targeting.id_wanted treats a
+--- nil or empty list as "any npc", and the level band, tap rules and
+--- reachability checks still apply - so a route with no mob list is not
+--- unfiltered, it is just not restricted to a hand-listed set.
 local function path_to_zone(path)
     if type(path) ~= "table" or type(path.waypoints) ~= "table" or #path.waypoints < 1 then
         return nil

@@ -3,8 +3,8 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.0
--- Folder: Master_Farmer_Grindbot_v1.9.0
+-- Version: 1.9.1
+-- Folder: Master_Farmer_Grindbot_v1.9.1
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /
 -- attack / stance, differing only in spell ids and in whether summoning costs a

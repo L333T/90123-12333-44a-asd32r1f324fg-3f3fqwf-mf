@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.8.1
--- Folder: Master_Farmer_Grindbot_v1.8.1
+-- Version: 1.9.0
+-- Folder: Master_Farmer_Grindbot_v1.9.0
 -- ============================================================================
 
 ---@type color
@@ -53,6 +53,8 @@ local CLASS_IDS = {
 local MODE_LABELS = { "Grind", "Quest", "Path" }
 local REGION_LABELS = { "Eastern Kingdoms", "Kalimdor", "Outland", "Alliance 1-60 w/Vendoring", "Custom" }
 local REGION_KEYS = { "ek", "kalimdor", "outland", "ally160", "custom" }
+
+local factions = require("data/factions")
 local EMPTY_PATH = "(select Grinding first)"
 local EMPTY_QUEST = "(select Quest first)"
 
@@ -79,6 +81,8 @@ local menu = ui.new({
     nav = "top",
     tabs = {
         { id = "general", label = "General" },
+        { id = "grinding", label = "Grinding" },
+        { id = "questing", label = "Questing" },
         { id = "class", label = "Class" },
         { id = "mode", label = "Mode" },
         { id = "healing", label = "Healing" },
@@ -118,15 +122,27 @@ menu:combobox("mfg_mode", 1, MODE_LABELS, {
     tooltip = "Legacy mode index. Use the Grinding / Quest checkboxes.",
 })
 
+-- These sit at the top of their own tab. A normal tab draws its registered
+-- controls first and its custom content underneath, so the enable is always
+-- the first thing on the page.
 menu:checkbox("mfg_use_grind", false, {
-    label = "Grinding",
-    tab = "mode",
-    tooltip = "Load grind paths after this is checked. Cannot run with Quest.",
+    label = "Enable Grinding",
+    tab = "grinding",
+    tooltip = "Turn grinding on, then pick a faction and a route below. Cannot run with Questing.",
 })
 menu:checkbox("mfg_use_quest", false, {
-    label = "Quest",
-    tab = "mode",
-    tooltip = "Load quest data after this is checked. Cannot run with Grinding.",
+    label = "Enable Questing",
+    tab = "questing",
+    tooltip = "Turn questing on, then pick a starter quest below. Cannot run with Grinding.",
+})
+
+-- Which side's routes to list. Defaults to the character's own faction the
+-- first time a player object is available, so the common case needs no click.
+menu:combobox("mfg_faction", 1, factions.labels, {
+    label = "Faction",
+    tab = "grinding",
+    skip_draw = true,
+    tooltip = "Alliance or Horde. The route list below shows only that side's profiles.",
 })
 menu:button("mfg_btn_start", {
     label = "Start",
@@ -139,12 +155,6 @@ menu:button("mfg_btn_start", {
     end,
 })
 
-menu:combobox("mfg_path_region", 1, REGION_LABELS, {
-    label = "Continent",
-    tab = "path",
-    skip_draw = true,
-    tooltip = "Filter grind and travel paths by Eastern Kingdoms, Kalimdor, Outland, or extra JSON you added under scripts_data/mfg_profiles.",
-})
 menu:combobox("mfg_path", 1, PATH_LABELS, {
     label = "Grind / Travel",
     tab = "path",
@@ -720,8 +730,42 @@ local last_path_key = ""
 local picker_cache = {}
 local picker_cache_key = ""
 
+--- The faction whose routes the Grinding tab is listing, and its index.
+---
+--- Defaults to the character's own side the first time a player object is
+--- available, so an Alliance character opens on Alliance routes without
+--- touching anything. After that the player's choice sticks.
+local faction_synced = false
+
+function gui.faction_key()
+    local idx = menu:get("mfg_faction")
+    if type(idx) ~= "number" or idx < 1 or idx > #factions.keys then
+        idx = 1
+    end
+    return factions.key_at(idx), idx
+end
+
+function gui.sync_faction(player)
+    if faction_synced or not player then
+        return
+    end
+    local key = factions.of_player(player)
+    if not key then
+        return
+    end
+    faction_synced = true
+    local want = factions.index_of(key)
+    if menu:get("mfg_faction") ~= want then
+        menu:set("mfg_faction", want)
+        picker_cache_key = ""
+        last_path_key = ""
+    end
+end
+
 function gui.region_key()
-    local idx = menu:get("mfg_path_region")
+    -- The Continent control is gone. Travel paths still index by region, so
+    -- this answers with the only region that has any, rather than nil.
+    local idx = 1
     if type(idx) ~= "number" or idx < 1 then
         idx = 1
     end
@@ -775,7 +819,7 @@ function gui.picker_entries()
             },
         }
     end
-    local key, region = gui.region_key()
+    local key, region = gui.faction_key()
     local cache_key = tostring(region) .. "|" .. tostring(key)
     if picker_cache_key == cache_key and type(picker_cache) == "table" and #picker_cache > 0 then
         return picker_cache, key, region
@@ -783,9 +827,9 @@ function gui.picker_entries()
     local ok, grind_catalog = pcall(require, "grind/catalog")
     local rows = {}
     if ok and grind_catalog then
-        local grind_labels = grind_catalog.labels_for_region(key)
+        local grind_labels = grind_catalog.labels_for_faction(key)
         local grind_ids = {}
-        local entries = grind_catalog.entries_for_region(key)
+        local entries = grind_catalog.entries_for_faction(key)
         for i = 1, #entries do
             grind_ids[i] = entries[i].id
         end
@@ -898,14 +942,14 @@ end
 
 function gui.load_grind_path()
     local row = gui.selected_picker()
-    local key = gui.region_key()
+    local key = gui.faction_key()
     path_source = "leveling"
     local index = row and row.index or 1
     local ok, grind_catalog = pcall(require, "grind/catalog")
     if not ok or not grind_catalog then
         return nil, "grind catalog not loaded"
     end
-    local path, err = grind_catalog.load_region(key, index)
+    local path, err = grind_catalog.load_faction(key, index)
     return arm_path(path, "grind"), err
 end
 
@@ -936,21 +980,12 @@ function gui.sync_profile_list(restore_selected)
         return
     end
     picker_cache_key = ""
-    local key, region = gui.region_key()
+    local key, region = gui.faction_key()
     local loaded = armed_path
-    if restore_selected == true and loaded and type(loaded.region) == "string" then
-        local r = loaded.region
-        -- Derived from REGION_KEYS rather than written out: the hand-written
-        -- version still said custom == 4 after a fifth region was inserted, so
-        -- restoring a saved custom path selected the wrong list.
-        for i = 1, #REGION_KEYS do
-            if REGION_KEYS[i] == r then
-                region = i
-                break
-            end
-        end
-        menu:set("mfg_path_region", region)
-        key = REGION_KEYS[region]
+    if restore_selected == true and loaded and type(loaded.faction) == "string" then
+        region = factions.index_of(string.lower(loaded.faction))
+        menu:set("mfg_faction", region)
+        key = factions.key_at(region)
         picker_cache_key = ""
     end
     local labels = gui.combo_labels()
@@ -1009,6 +1044,7 @@ function gui.sync_player(player)
     if type(race_id) == "number" then
         menu:set_player_race(race_id)
     end
+    gui.sync_faction(player)
     if not class_id then
         return
     end
@@ -1454,6 +1490,205 @@ menu:set_actions({
     },
 })
 
+-- ============================================================================
+-- GRINDING TAB
+-- ============================================================================
+-- The enable checkbox is a registered control, so the tab system draws it
+-- above everything here. Below it: which side, which route, and what that
+-- route actually is - in that order, because that is the order the questions
+-- get asked.
+local FACTION_TINT = {
+    alliance = { 96, 150, 235 },
+    horde    = { 200, 70, 62 },
+}
+
+local function faction_colour(key)
+    local c = FACTION_TINT[key] or FACTION_TINT.alliance
+    return color.new(c[1], c[2], c[3], 255)
+end
+
+menu:on_tab("grinding", function(win, x, y, w, h)
+    local gold = color.new(232, 222, 196, 255)
+    local mute = color.new(180, 170, 150, 255)
+    local ok_col = color.new(90, 210, 110, 255)
+    local warn = color.new(220, 176, 56, 255)
+
+    local field_w = w - 20
+    if field_w < 120 then
+        field_w = math.max(80, w - 8)
+    end
+
+    if not is_on("use_grind") then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 6), warn,
+            "Tick Enable Grinding to choose a route.")
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 26), mute,
+            "Grinding and Questing cannot run at the same time.")
+        return
+    end
+
+    gui.sync_faction(izi.me())
+
+    -- 1. which side
+    local key, fidx = gui.faction_key()
+    local new_f, y2 = menu:draw_dropdown(win, "mfg_tab_faction", x + 10, y + 4, field_w,
+        "Faction", factions.labels, fidx)
+    if new_f ~= fidx then
+        menu:set("mfg_faction", new_f)
+        menu:set("mfg_path", 1)
+        armed_path = nil
+        last_path_key = ""
+        picker_cache_key = ""
+        gui.sync_profile_list(false)
+        key = factions.key_at(new_f)
+    end
+
+    local counts = {}
+    local ok_cat, grind_catalog = pcall(require, "grind/catalog")
+    if ok_cat and grind_catalog and type(grind_catalog.faction_counts) == "function" then
+        counts = grind_catalog.faction_counts() or {}
+    end
+    local mine = counts[key] or 0
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y2), faction_colour(key),
+        string.format("%s  -  %d route%s", factions.labels[factions.index_of(key)],
+            mine, mine == 1 and "" or "s"))
+    y2 = y2 + 20
+
+    -- A side with nothing in it says so, rather than showing an empty list.
+    if mine == 0 then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y2), warn,
+            "No routes for this faction yet.")
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 18), mute,
+            "Every route shipped so far is an Alliance levelling route.")
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 36), mute,
+            "Drop a Horde profile into grind/paths and tag it faction = \"horde\".")
+        return
+    end
+
+    -- 2. which route
+    local labels = gui.combo_labels()
+    local pidx = gui.path_index()
+    local new_p, y3 = menu:draw_dropdown(win, "mfg_tab_path", x + 10, y2, field_w,
+        "Route", labels, pidx)
+    if new_p ~= pidx then
+        menu:set("mfg_path", new_p)
+        armed_path = nil
+    end
+
+    -- 3. what that route is
+    local row = gui.selected_picker()
+    local entry = nil
+    if ok_cat and grind_catalog and type(grind_catalog.entries_for_faction) == "function" then
+        local entries = grind_catalog.entries_for_faction(key)
+        entry = entries[(row and row.index) or 1]
+    end
+
+    if entry then
+        local levels = string.format("Levels %s-%s", tostring(entry.min or "?"), tostring(entry.max or "?"))
+        local wp = string.format("%d waypoints", tonumber(entry.count) or 0)
+        local loop = (entry.loop == true) and "loops" or "point to point"
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y3), gold, tostring(entry.label or entry.id))
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 18), mute,
+            levels .. "   " .. wp .. "   " .. loop)
+        local vendors = entry.vendors
+        if type(vendors) == "table" and #vendors > 0 then
+            local ids = {}
+            for i = 1, #vendors do
+                ids[i] = tostring(vendors[i])
+            end
+            win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 36), ok_col,
+                "Vendor on route: npc " .. table.concat(ids, ", "))
+        else
+            win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 36), mute,
+                "No vendor on this route - it will not sell or repair here.")
+        end
+        y3 = y3 + 58
+    else
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y3), warn, "Select a route.")
+        y3 = y3 + 20
+    end
+
+    local armed = armed_path
+    local ready = armed ~= nil
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y3),
+        ready and ok_col or warn,
+        ready and ("Loaded: " .. tostring(armed.name or armed.id)) or "Press Start to load and run this route.")
+end)
+
+-- ============================================================================
+-- QUESTING TAB
+-- ============================================================================
+menu:on_tab("questing", function(win, x, y, w, h)
+    local gold = color.new(232, 222, 196, 255)
+    local mute = color.new(180, 170, 150, 255)
+    local ok_col = color.new(90, 210, 110, 255)
+    local warn = color.new(220, 176, 56, 255)
+
+    local field_w = w - 20
+    if field_w < 120 then
+        field_w = math.max(80, w - 8)
+    end
+
+    if not is_on("use_quest") then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 6), warn,
+            "Tick Enable Questing to choose a starter quest.")
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 26), mute,
+            "Grinding and Questing cannot run at the same time.")
+        return
+    end
+
+    local ok, quest = pcall(require, "quest")
+    if not ok or type(quest) ~= "table" or type(quest.snapshot) ~= "function" then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 6), warn, "Quest engine not loaded.")
+        return
+    end
+
+    local info = quest.snapshot(izi.me())
+    if type(info) ~= "table" then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 6), mute, "Waiting for the player...")
+        return
+    end
+
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 4),
+        info.race_ok and gold or warn,
+        string.format("%s  -  %d starter quest%s",
+            tostring(info.race_label or "Unknown"), tonumber(info.count) or 0,
+            (tonumber(info.count) or 0) == 1 and "" or "s"))
+
+    if not info.race_ok or (tonumber(info.count) or 0) == 0 then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 24), mute,
+            "No starter quests for this race yet.")
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 42), mute,
+            "Human, Gnome, Troll and Undead are the races with quest data.")
+        return
+    end
+
+    local labels = info.labels
+    if type(labels) ~= "table" or #labels == 0 then
+        labels = { EMPTY_QUEST }
+    end
+    local qidx = gui.quest_index()
+    local new_q, y2 = menu:draw_dropdown(win, "mfg_tab_quest", x + 10, y + 24, field_w,
+        "Starter Quest", labels, qidx)
+    if new_q ~= qidx then
+        menu:set("mfg_quest", new_q)
+    end
+
+    local sel = info.selected
+    if type(sel) == "table" then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y2), gold,
+            tostring(sel.name or sel.id))
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 18), mute,
+            string.format("Levels %s-%s   quest id %s",
+                tostring(sel.min_level or "?"), tostring(sel.max_level or "?"), tostring(sel.id)))
+        win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 36),
+            info.skipped and warn or ok_col,
+            "Step: " .. tostring(info.phase or "-"))
+        y2 = y2 + 58
+    end
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y2), mute,
+        "Press Start to begin. The bot works the list in level order.")
+end)
+
 menu:on_tab("class", function(win, x, y, w, h)
     local class_id = menu:player_class()
     local idx = menu:get("mfg_class") or 7
@@ -1493,10 +1728,10 @@ menu:on_tab("mode", function(win, x, y, w, h)
     end
     local y2 = y + 32
     if mode == modes.GRIND then
-        local _, region_idx = gui.region_key()
-        local new_region, ny = menu:draw_dropdown(win, "mfg_dd_region", x + 10, y2, field_w, "Continent", REGION_LABELS, region_idx)
+        local _, region_idx = gui.faction_key()
+        local new_region, ny = menu:draw_dropdown(win, "mfg_dd_faction", x + 10, y2, field_w, "Faction", factions.labels, region_idx)
         if new_region ~= region_idx then
-            menu:set("mfg_path_region", new_region)
+            menu:set("mfg_faction", new_region)
             menu:set("mfg_path", 1)
             armed_path = nil
             last_path_key = ""
@@ -1568,10 +1803,10 @@ menu:on_tab("path", function(win, x, y, w, h)
     if field_w < 120 then
         field_w = math.max(80, w - 8)
     end
-    local _, region_idx = gui.region_key()
-    local new_region, y2 = menu:draw_dropdown(win, "mfg_dd_region", x + 10, y, field_w, "Continent", REGION_LABELS, region_idx)
+    local _, region_idx = gui.faction_key()
+    local new_region, y2 = menu:draw_dropdown(win, "mfg_dd_faction", x + 10, y, field_w, "Faction", factions.labels, region_idx)
     if new_region ~= region_idx then
-        menu:set("mfg_path_region", new_region)
+        menu:set("mfg_faction", new_region)
         menu:set("mfg_path", 1)
         armed_path = nil
         last_path_key = ""

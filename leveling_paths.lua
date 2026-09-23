@@ -3,8 +3,8 @@
 -- Leveling grind patrols by continent (from Grind_Information zones)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.8.1
--- Folder: Master_Farmer_Grindbot_v1.8.1
+-- Version: 1.9.0
+-- Folder: Master_Farmer_Grindbot_v1.9.0
 -- ============================================================================
 
 local path_format = require("path_format")

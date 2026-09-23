@@ -3,8 +3,8 @@
 -- Gnome/Dwarf 6-9
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.8.1
--- Folder: Master_Farmer_Grindbot_v1.8.1
+-- Version: 1.9.0
+-- Folder: Master_Farmer_Grindbot_v1.9.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL6_9GnomeDwarf

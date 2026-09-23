@@ -3,11 +3,12 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.8.1
--- Folder: Master_Farmer_Grindbot_v1.8.1
+-- Version: 1.9.0
+-- Folder: Master_Farmer_Grindbot_v1.9.0
 -- ============================================================================
 
 local path_format = require("path_format")
+local factions = require("data/factions")
 
 -- Both of these are INDEXES: id, label, module name and a few numbers per
 -- route, no waypoints. Together they are a few kilobytes, while the routes they
@@ -118,6 +119,56 @@ function novelist_paths.entries_for_region(key)
     return collect(key)
 end
 
+-- ----------------------------------------------------------------------------
+-- FACTION
+-- ----------------------------------------------------------------------------
+--- Every grind route for one side, in the order the catalog lists them.
+---
+--- This replaced the Continent filter. Continent was the wrong axis: all the
+--- routes that exist are Eastern Kingdoms, so three of the four choices were
+--- always empty, while the one thing a player actually needs to pick - which
+--- side they are levelling - was not offered at all.
+function novelist_paths.entries_for_faction(key)
+    if type(key) ~= "string" or key == "" then
+        key = factions.ALLIANCE
+    end
+    key = string.lower(key)
+    local out, seen = {}, {}
+    for i = 1, #ENTRIES do
+        local entry = ENTRIES[i]
+        if factions.of_entry(entry) == key then
+            local id = entry.id
+            if type(id) ~= "string" or not seen[id] then
+                if type(id) == "string" then
+                    seen[id] = true
+                end
+                out[#out + 1] = entry
+            end
+        end
+    end
+    return out
+end
+
+function novelist_paths.labels_for_faction(key)
+    local entries = novelist_paths.entries_for_faction(key)
+    local labels = {}
+    for i = 1, #entries do
+        labels[i] = entries[i].label or entries[i].id or ("Grind " .. i)
+    end
+    return labels
+end
+
+--- How many routes each side has. Used by the tab to say so plainly rather
+--- than showing an empty list with no explanation.
+function novelist_paths.faction_counts()
+    local out = {}
+    for i = 1, #factions.keys do
+        local key = factions.keys[i]
+        out[key] = #novelist_paths.entries_for_faction(key)
+    end
+    return out
+end
+
 function novelist_paths.labels_for_region(key)
     local entries = novelist_paths.entries_for_region(key)
     local labels = {}
@@ -168,6 +219,7 @@ local function finish_path(raw, entry)
     path.max = raw.max or entry.max
     path.region = raw.region or entry.region
     path.mobs = raw.mobs
+    path.faction = raw.faction or entry.faction or factions.ALLIANCE
     path.merchant = raw.merchant
     path.repair = raw.repair
     -- Set by the Alliance 1-60 w/Vendoring routes: visit the merchant once per
@@ -178,6 +230,23 @@ local function finish_path(raw, entry)
         path.vendor_each_lap = entry.vendor_each_lap
     end
     return path
+end
+
+--- Load the nth route of a faction.
+function novelist_paths.load_faction(key, index)
+    local entries = novelist_paths.entries_for_faction(key)
+    if type(index) ~= "number" or index < 1 then
+        index = 1
+    end
+    local entry = entries[index]
+    if not entry or type(entry.module) ~= "string" then
+        return nil, "unknown grind path"
+    end
+    local raw, err = path_format.take_module(entry.module)
+    if not raw or type(raw) ~= "table" then
+        return nil, err or "unknown grind path"
+    end
+    return finish_path(raw, entry)
 end
 
 function novelist_paths.load_region(key, index)

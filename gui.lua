@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.3
--- Folder: Master_Farmer_Grindbot_v1.9.3
+-- Version: 2.0.0
+-- Folder: Master_Farmer_Grindbot_v2.0.0
 -- ============================================================================
 
 ---@type color
@@ -366,6 +366,61 @@ menu:add_popup({
     x = 870,
     y = 76,
 })
+-- The profile picker.
+--
+-- A dropdown was the wrong widget for this. It shows 18 rows at most, scrolls
+-- inside a 30px field, and gives no room for the level range or whether a route
+-- has a vendor - the three things you choose on. A popup can list every route
+-- at once with that detail on the row.
+--
+-- Height is computed from the route count rather than fixed, so the window is
+-- the size of its contents: PROFILE_ROW per route, plus the header and the
+-- footer line, capped so it cannot grow taller than a screen.
+local PROFILE_ROW = 24
+local PROFILE_HEAD = 58
+local PROFILE_FOOT = 30
+local PROFILE_MAX_H = 900
+
+--- Height that shows every route of the LARGEST faction without scrolling.
+---
+--- Sized from the catalog at creation, not from the current selection: the
+--- popup's height is fixed when it is registered, and sizing it to whichever
+--- faction happened to be active would leave the other one scrolling. The cap
+--- is a screen-height guard, not a row budget.
+local function profile_popup_height()
+    local n = 0
+    local ok, grind_catalog = pcall(require, "grind/catalog")
+    if ok and grind_catalog and type(grind_catalog.faction_counts) == "function" then
+        local counts = grind_catalog.faction_counts() or {}
+        for _, c in pairs(counts) do
+            if type(c) == "number" and c > n then
+                n = c
+            end
+        end
+    end
+    if n < 1 then
+        n = 1
+    end
+    local h = PROFILE_HEAD + (n * PROFILE_ROW) + PROFILE_FOOT
+    if h > PROFILE_MAX_H then
+        h = PROFILE_MAX_H
+    end
+    return h
+end
+
+menu:add_popup({
+    id = "profiles",
+    title = "Choose a Grind Profile",
+    tab = "profiles",
+    w = 520,
+    h = profile_popup_height(),
+    x = 720,
+    y = 40,
+    on_open = function()
+        gui.sync_profile_list(true)
+    end,
+})
+
 menu:add_popup({
     id = "grind",
     title = "Grind",
@@ -828,9 +883,9 @@ end
 local function add_picker_rows(rows, kind, source, labels, ids)
     for i = 1, #labels do
         local raw = labels[i]
-        local prefix = "Travel — "
+        local prefix = "Travel - "
         if kind == "grind" then
-            prefix = "Grind — "
+            prefix = "Grind - "
         end
         rows[#rows + 1] = {
             kind = kind,
@@ -1404,7 +1459,7 @@ function gui.sync_activity()
             picker_cache_key = ""
             gui.sync_profile_list(false)
             menu:set("mfg_mode", 1)
-            state.set_note("Mode", "Grinding — choose a profile, then Start")
+            state.set_note("Mode", "Grinding - choose a profile, then Start")
         end
         return
     end
@@ -1416,7 +1471,7 @@ function gui.sync_activity()
             armed_path = nil
             loader.ensure_quest()
             menu:set("mfg_mode", 2)
-            state.set_note("Mode", "Quest — choose a profile, then Start")
+            state.set_note("Mode", "Quest - choose a profile, then Start")
         end
         return
     end
@@ -1460,9 +1515,9 @@ local function class_status()
     local idx = menu:get("mfg_class") or 7
     local name = CLASS_LABELS[idx] or "?"
     if ok and rotation and rotation.supported(CLASS_IDS[idx]) then
-        return name .. " — ready"
+        return name .. " - ready"
     end
-    return name .. " — no rotation yet"
+    return name .. " - no rotation yet"
 end
 
 local function mode_status()
@@ -1493,7 +1548,7 @@ menu:set_status({
     {
         label = "Note",
         value = function()
-            return state.note ~= "" and state.note or "—"
+            return state.note ~= "" and state.note or "-"
         end,
     },
     {
@@ -1503,11 +1558,11 @@ menu:set_status({
         value = function()
             local ok, movement = pcall(require, "movement")
             if not ok or not movement then
-                return "—"
+                return "-"
             end
             local okd, snap = pcall(movement.debug_snapshot)
             if not okd or type(snap) ~= "table" then
-                return "—"
+                return "-"
             end
             local text = tostring(snap.state) .. " / " .. tostring(snap.owner)
             if snap.restriction then
@@ -1534,7 +1589,7 @@ menu:set_status({
             if ok and rotation and type(rotation.last_action) == "function" then
                 return rotation.last_action()
             end
-            return state.last_action or "—"
+            return state.last_action or "-"
         end,
     },
 })
@@ -1577,22 +1632,109 @@ local function faction_colour(key)
     return color.new(c[1], c[2], c[3], 255)
 end
 
+-- ============================================================================
+-- PROFILE PICKER POPUP
+-- ============================================================================
+menu:on_tab("profiles", function(win, x, y, w, h)
+    local gold = color.new(232, 222, 196, 255)
+    local mute = color.new(180, 170, 150, 255)
+    local ok_col = color.new(90, 210, 110, 255)
+    local warn = color.new(220, 176, 56, 255)
+    local sel_col = color.new(96, 150, 235, 255)
+
+    local key = gui.faction_key()
+    local entries = {}
+    local ok, grind_catalog = pcall(require, "grind/catalog")
+    if ok and grind_catalog and type(grind_catalog.entries_for_faction) == "function" then
+        entries = grind_catalog.entries_for_faction(key)
+    end
+
+    if #entries == 0 then
+        win:render_text(FONT_SMALL, vec2.new(x + 12, y + 8), warn,
+            "No routes for this faction.")
+        win:render_text(FONT_SMALL, vec2.new(x + 12, y + 28), mute,
+            "Switch faction on the Grinding tab.")
+        return
+    end
+
+    local chosen = gui.path_index()
+    local row_h = PROFILE_ROW
+    local row_y = y + 4
+
+    for i = 1, #entries do
+        local e = entries[i]
+        local is_sel = (i == chosen)
+        local rmin = vec2.new(x + 6, row_y)
+        local rmax = vec2.new(x + w - 6, row_y + row_h - 2)
+
+        -- The selected row gets a plate; the rest get one only on hover, so
+        -- the list reads as a list rather than as 27 buttons.
+        local hover = false
+        pcall(function()
+            hover = win:is_mouse_hovering_rect(rmin, rmax) == true
+        end)
+        if is_sel then
+            pcall(function()
+                win:render_rect_filled(rmin, rmax, color.new(46, 62, 92, 210), 3.0)
+            end)
+        elseif hover then
+            pcall(function()
+                win:render_rect_filled(rmin, rmax, color.new(40, 40, 48, 160), 3.0)
+            end)
+        end
+
+        local clicked_row = false
+        pcall(function()
+            clicked_row = win:is_rect_clicked(rmin, rmax) == true
+        end)
+        if clicked_row then
+            gui.set_path_index(i)
+            armed_path = nil
+            menu:close_popup("profiles")
+        end
+
+        -- One row, three columns, fixed x positions so they line up down the
+        -- list instead of drifting with the label length.
+        local levels = string.format("%s-%s", tostring(e.min or "?"), tostring(e.max or "?"))
+        local label = tostring(e.label or e.id or "?")
+        win:render_text(FONT_SMALL, vec2.new(x + 14, row_y + 5),
+            is_sel and sel_col or gold, label)
+        win:render_text(FONT_SMALL, vec2.new(x + w - 150, row_y + 5), mute, levels)
+        local has_vendor = type(e.vendors) == "table" and #e.vendors > 0
+        win:render_text(FONT_SMALL, vec2.new(x + w - 92, row_y + 5),
+            has_vendor and ok_col or mute, has_vendor and "vendor" or "no vendor")
+
+        row_y = row_y + row_h
+    end
+
+    win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 6), mute,
+        string.format("%d routes - click one to load it.", #entries))
+end)
+
 menu:on_tab("grinding", function(win, x, y, w, h)
     local gold = color.new(232, 222, 196, 255)
     local mute = color.new(180, 170, 150, 255)
     local ok_col = color.new(90, 210, 110, 255)
     local warn = color.new(220, 176, 56, 255)
 
-    local field_w = w - 20
+    -- One grid for the whole page. Every row is placed from LEFT and LINE
+    -- rather than by adding ad-hoc offsets, which is what left the uneven gaps.
+    local LEFT = x + 12
+    local LINE = 18
+    local field_w = w - 24
     if field_w < 120 then
-        field_w = math.max(80, w - 8)
+        field_w = math.max(80, w - 12)
+    end
+    local cy = y + 4
+
+    local function text(col, str)
+        win:render_text(FONT_SMALL, vec2.new(LEFT, cy), col, str)
+        cy = cy + LINE
     end
 
     if not is_on("use_grind") then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 6), warn,
-            "Tick Enable Grinding to choose a route.")
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 26), mute,
-            "Grinding and Questing cannot run at the same time.")
+        text(warn, "Tick Enable Grinding to choose a route.")
+        text(mute, "Grinding and Questing cannot run at the same time.")
         return
     end
 
@@ -1600,7 +1742,7 @@ menu:on_tab("grinding", function(win, x, y, w, h)
 
     -- 1. which side
     local key, fidx = gui.faction_key()
-    local new_f, y2 = menu:draw_dropdown(win, "mfg_tab_faction", x + 10, y + 4, field_w,
+    local new_f, after = menu:draw_dropdown(win, "mfg_tab_faction", LEFT, cy, field_w,
         "Faction", factions.labels, fidx)
     if new_f ~= fidx then
         menu:set("mfg_faction", new_f)
@@ -1611,6 +1753,7 @@ menu:on_tab("grinding", function(win, x, y, w, h)
         gui.sync_profile_list(false)
         key = factions.key_at(new_f)
     end
+    cy = after + 6
 
     local counts = {}
     local ok_cat, grind_catalog = pcall(require, "grind/catalog")
@@ -1618,76 +1761,81 @@ menu:on_tab("grinding", function(win, x, y, w, h)
         counts = grind_catalog.faction_counts() or {}
     end
     local mine = counts[key] or 0
-    -- Both sides are shown, not just the selected one, so an empty list reads
-    -- as "this side has none" rather than "the profiles are gone".
     local other_key = (key == factions.ALLIANCE) and factions.HORDE or factions.ALLIANCE
     local other = counts[other_key] or 0
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2), faction_colour(key),
-        string.format("%s  -  %d route%s", factions.labels[factions.index_of(key)],
-            mine, mine == 1 and "" or "s"))
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 18), mute,
-        string.format("%s has %d.", factions.labels[factions.index_of(other_key)], other))
-    y2 = y2 + 40
 
-    -- A side with nothing in it says so, rather than showing an empty list.
+    text(faction_colour(key), string.format("%s - %d route%s",
+        factions.labels[factions.index_of(key)], mine, mine == 1 and "" or "s"))
+    text(mute, string.format("%s has %d.",
+        factions.labels[factions.index_of(other_key)], other))
+    cy = cy + 4
+
     if mine == 0 then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y2), warn,
-            "No routes for this faction yet.")
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 18), mute,
-            "Every route shipped so far is an Alliance levelling route.")
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 36), mute,
-            "Drop a Horde profile into grind/paths and tag it faction = \"horde\".")
+        text(warn, "No routes for this faction yet.")
+        text(mute, "Every route shipped so far is an Alliance levelling route.")
+        text(mute, "Add one under grind/paths tagged faction = \"horde\".")
         return
     end
 
-    -- 2. which route
-    local labels = gui.combo_labels()
-    local pidx = gui.path_index()
-    local new_p, y3 = menu:draw_dropdown(win, "mfg_tab_path", x + 10, y2, field_w,
-        "Route", labels, pidx)
-    if new_p ~= pidx then
-        gui.set_path_index(new_p)
-        armed_path = nil
-    end
-
-    -- 3. what that route is
-    local row = gui.selected_picker()
+    -- 2. which route - a button, because the list is 27 long and each entry
+    --    carries a level range and a vendor flag that no dropdown row can show.
     local entry = nil
     if ok_cat and grind_catalog and type(grind_catalog.entries_for_faction) == "function" then
         local entries = grind_catalog.entries_for_faction(key)
-        entry = entries[(row and row.index) or 1]
+        entry = entries[gui.path_index()]
     end
 
+    local bmin = vec2.new(LEFT, cy)
+    local bmax = vec2.new(LEFT + field_w, cy + 30)
+    local hover = false
+    pcall(function()
+        hover = win:is_mouse_hovering_rect(bmin, bmax) == true
+    end)
+    pcall(function()
+        win:render_rect_filled(bmin, bmax,
+            hover and color.new(52, 58, 72, 235) or color.new(38, 40, 48, 220), 4.0)
+    end)
+    pcall(function()
+        win:render_rect(bmin, bmax, color.new(96, 150, 235, hover and 255 or 150), 4.0, 1.0)
+    end)
+    local btn_text = entry and tostring(entry.label or entry.id) or "Choose a route..."
+    win:render_text(FONT_SMALL, vec2.new(LEFT + 10, cy + 8), gold, btn_text)
+    win:render_text(FONT_SMALL, vec2.new(LEFT + field_w - 58, cy + 8), mute, "change")
+
+    local pressed = false
+    pcall(function()
+        pressed = win:is_rect_clicked(bmin, bmax) == true
+    end)
+    if pressed then
+        menu:open_popup("profiles")
+    end
+    cy = cy + 38
+
+    -- 3. what that route is
     if entry then
-        local levels = string.format("Levels %s-%s", tostring(entry.min or "?"), tostring(entry.max or "?"))
-        local wp = string.format("%d waypoints", tonumber(entry.count) or 0)
-        local loop = (entry.loop == true) and "loops" or "point to point"
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y3), gold, tostring(entry.label or entry.id))
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 18), mute,
-            levels .. "   " .. wp .. "   " .. loop)
+        text(mute, string.format("Levels %s-%s   %d waypoints   %s",
+            tostring(entry.min or "?"), tostring(entry.max or "?"),
+            tonumber(entry.count) or 0,
+            (entry.loop == true) and "loops" or "point to point"))
         local vendors = entry.vendors
         if type(vendors) == "table" and #vendors > 0 then
             local ids = {}
             for i = 1, #vendors do
                 ids[i] = tostring(vendors[i])
             end
-            win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 36), ok_col,
-                "Vendor on route: npc " .. table.concat(ids, ", "))
+            text(ok_col, "Vendor on route: npc " .. table.concat(ids, ", "))
         else
-            win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 36), mute,
-                "No vendor on this route - it will not sell or repair here.")
+            text(mute, "No vendor on this route - it will not sell or repair here.")
         end
-        y3 = y3 + 58
     else
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y3), warn, "Select a route.")
-        y3 = y3 + 20
+        text(warn, "No route selected.")
     end
+    cy = cy + 4
 
     local armed = armed_path
-    local ready = armed ~= nil
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y3),
-        ready and ok_col or warn,
-        ready and ("Loaded: " .. tostring(armed.name or armed.id)) or "Press Start to load and run this route.")
+    text(armed and ok_col or warn,
+        armed and ("Loaded: " .. tostring(armed.name or armed.id))
+            or "Press Start to load and run this route.")
 end)
 
 -- ============================================================================
@@ -1776,7 +1924,7 @@ menu:on_tab("class", function(win, x, y, w, h)
     end
     local ok, rotation = pcall(require, "rotation")
     local ready = ok and rotation and rotation.supported(class_id) == true
-    local line = name .. (ready and "  —  rotation loaded" or "  —  no rotation for this class")
+    local line = name .. (ready and "  -  rotation loaded" or "  -  no rotation for this class")
     local col = ready and color.new(90, 210, 110, 255) or color.new(220, 176, 56, 255)
     win:render_text(FONT_SMALL, vec2.new(x + 10, yy), col, line)
     if not spellbook.ready() then
@@ -1906,12 +2054,12 @@ menu:on_tab("path", function(win, x, y, w, h)
         end
     end
     local loaded = armed_path
-    local name = "—"
+    local name = "-"
     local count = 0
     local map_id = 0
     local ready = loaded ~= nil
     if loaded then
-        name = loaded.name or loaded.id or "—"
+        name = loaded.name or loaded.id or "-"
         count = loaded.waypoints and #loaded.waypoints or 0
         map_id = loaded.map_id or 0
     end
@@ -1920,7 +2068,7 @@ menu:on_tab("path", function(win, x, y, w, h)
         status = path_runner.status_text()
     end
     win:render_text(FONT_SMALL, vec2.new(x + 10, y3), color.new(232, 222, 196, 255), string.format("%s   wp:%d   map:%s", tostring(name), count, tostring(map_id)))
-    local ready_text = ready and ("Ready for Play — " .. tostring(name)) or "Select a path, then press Load."
+    local ready_text = ready and ("Ready for Play - " .. tostring(name)) or "Select a path, then press Load."
     local ready_col = ready and color.new(90, 210, 110, 255) or color.new(180, 170, 150, 255)
     win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 18), ready_col, ready_text)
     win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 36), color.new(180, 170, 150, 255), "Status: " .. tostring(status))
@@ -1946,7 +2094,7 @@ menu:on_tab("path", function(win, x, y, w, h)
         local path, err = gui.load_selected_path()
         if path then
             preview_path(path)
-            state.set_note("Path", "Loaded " .. tostring(path.name) .. " — ready for Play")
+            state.set_note("Path", "Loaded " .. tostring(path.name) .. " - ready for Play")
             core.log("[Master Farmer - Grindbot] Loaded path: " .. tostring(path.name))
         else
             state.set_note("Path", err or "load failed")
@@ -1984,14 +2132,14 @@ menu:on_tab("path", function(win, x, y, w, h)
             path_profiles.remember(path)
             preview_path(path)
             if gui.is_on("rotation_only") then
-                state.set_note("Path", "Rotation Only — movement off")
+                state.set_note("Path", "Rotation Only - movement off")
                 core.log("[Master Farmer - Grindbot] Rotation Only is on; Play does not move.")
             else
                 play_pending = true
                 state.set_note("Path", "Starting " .. tostring(path.name))
             end
         else
-            state.set_note("Path", err or "play failed — Load a path first")
+            state.set_note("Path", err or "play failed - Load a path first")
         end
     end
 end)
@@ -2013,12 +2161,12 @@ menu:on_tab("quest", function(win, x, y, w, h)
             count = 0,
             labels = { "(no starter quests)" },
             index = 1,
-            status = "—",
+            status = "-",
             note = state.note or "",
-            phase = "—",
-            start_name = "—",
-            end_name = "—",
-            hunt = "—",
+            phase = "-",
+            start_name = "-",
+            end_name = "-",
+            hunt = "-",
         }
     end
 
@@ -2032,8 +2180,8 @@ menu:on_tab("quest", function(win, x, y, w, h)
     local ok_col = color.new(90, 210, 110, 255)
 
     local race_line = info.race_ok
-        and string.format("%s — %d starter quests in quest/data/%s.lua", tostring(info.race_label), info.count or 0, tostring(info.race_key or "?"))
-        or (tostring(info.race_label) .. " — no starter quest data. Use Grind or Path.")
+        and string.format("%s - %d starter quests in quest/data/%s.lua", tostring(info.race_label), info.count or 0, tostring(info.race_key or "?"))
+        or (tostring(info.race_label) .. " - no starter quest data. Use Grind or Path.")
     win:render_text(FONT_SMALL, vec2.new(x + 10, y), info.race_ok and gold or mute, race_line)
 
     local labels = info.labels
@@ -2048,29 +2196,29 @@ menu:on_tab("quest", function(win, x, y, w, h)
     end
 
     local sel = info.selected
-    local name = "—"
-    local qid = "—"
-    local levels = "—"
+    local name = "-"
+    local qid = "-"
+    local levels = "-"
     if type(sel) == "table" then
-        name = sel.name or "—"
-        qid = tostring(sel.id or "—")
+        name = sel.name or "-"
+        qid = tostring(sel.id or "-")
         if sel.min_level and sel.max_level then
-            levels = string.format("%d–%d", sel.min_level, sel.max_level)
+            levels = string.format("%d-%d", sel.min_level, sel.max_level)
         end
     end
-    local map_line = info.map_id and ("map " .. tostring(info.map_id)) or "—"
+    local map_line = info.map_id and ("map " .. tostring(info.map_id)) or "-"
     local engine = info.current
-    local running = "—"
+    local running = "-"
     if type(engine) == "table" then
         running = string.format("%s (%d)", engine.name or "Quest", engine.id or 0)
     end
 
     win:render_text(FONT_SMALL, vec2.new(x + 10, y2), hi, "Selected: " .. tostring(name) .. "  id " .. qid)
     win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 18), gold, "Levels " .. levels .. "   " .. map_line)
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 36), gold, "Start NPC  " .. tostring(info.start_name or "—"))
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 54), gold, "End NPC    " .. tostring(info.end_name or "—"))
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 72), mute, tostring(info.hunt or "—"))
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 90), info.race_ok and ok_col or mute, "Step: " .. tostring(info.phase or "—"))
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 36), gold, "Start NPC  " .. tostring(info.start_name or "-"))
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 54), gold, "End NPC    " .. tostring(info.end_name or "-"))
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 72), mute, tostring(info.hunt or "-"))
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 90), info.race_ok and ok_col or mute, "Step: " .. tostring(info.phase or "-"))
     win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 108), mute, "Engine: " .. tostring(running) .. "   " .. tostring(info.note or ""))
 
     local gap = 10
@@ -2099,7 +2247,7 @@ end)
 menu:on_tab("vendor", function(win, x, y, w, h)
     local line = "Idle"
     if state.vendor and state.vendor.active then
-        line = "At vendor — " .. tostring(state.note or "")
+        line = "At vendor - " .. tostring(state.note or "")
     elseif state.note_head == "Vendor" then
         line = tostring(state.note or "")
     end

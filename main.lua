@@ -3,8 +3,8 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.3
--- Folder: Master_Farmer_Grindbot_v1.9.3
+-- Version: 2.0.0
+-- Folder: Master_Farmer_Grindbot_v2.0.0
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
@@ -98,7 +98,7 @@ end
 
 local gui = load_mod("gui")
 if not gui then
-    core.log_error("[Master Farmer - Grindbot] GUI module failed — window will not appear.")
+    core.log_error("[Master Farmer - Grindbot] GUI module failed - window will not appear.")
 else
     core.register_on_render_window_callback(function()
         if is_stale() then
@@ -428,11 +428,11 @@ local function tick_rotation_only(player)
     end
     local target = safe(function() return player:get_target() end)
     if not target or safe(function() return target:is_valid() end) ~= true then
-        state.set_note("Rotation", "Rotation Only — select a target")
+        state.set_note("Rotation", "Rotation Only - select a target")
         return
     end
     if safe(function() return target:is_dead_or_ghost() end) == true or safe(function() return target:is_dead() end) == true then
-        state.set_note("Rotation", "Rotation Only — target dead")
+        state.set_note("Rotation", "Rotation Only - target dead")
         return
     end
     pcall(function()

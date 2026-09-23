@@ -3,8 +3,8 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.8.0
--- Folder: Master_Farmer_Grindbot_v1.8.0
+-- Version: 1.8.1
+-- Folder: Master_Farmer_Grindbot_v1.8.1
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
 

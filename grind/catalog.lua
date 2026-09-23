@@ -3,8 +3,8 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.8.0
--- Folder: Master_Farmer_Grindbot_v1.8.0
+-- Version: 1.8.1
+-- Folder: Master_Farmer_Grindbot_v1.8.1
 -- ============================================================================
 
 local path_format = require("path_format")
@@ -50,6 +50,52 @@ local function region_of(entry)
     return "custom"
 end
 
+-- Regions that also show another region's routes.
+--
+-- Every Alliance 1-60 w/Vendoring route is in an Eastern Kingdoms zone -
+-- Elwynn, Westfall, Loch Modan, Duskwood, Wetlands, Arathi, STV, Hinterlands -
+-- so they belong under Eastern Kingdoms as well as under their own heading.
+-- The named list stays: it is the one place they appear grouped and in level
+-- order, which is how you pick one.
+local INCLUDES = {
+    ek = { "ally160" },
+}
+
+--- Entries for `key`, plus anything INCLUDES pulls in, deduplicated by id.
+---
+--- Deduplication matters here rather than being defensive: the original eight
+--- Eastern Kingdoms routes were converted from the same PathTool JSON as eight
+--- of the ally160 ones and carry the same ids. Without this they would each be
+--- listed twice under nearly identical labels. The ally160 copy wins, because
+--- it is the one that knows about the route's vendor.
+local function collect(key)
+    local out, seen = {}, {}
+
+    local function take(region_key)
+        for i = 1, #ENTRIES do
+            local entry = ENTRIES[i]
+            if region_of(entry) == region_key then
+                local id = entry.id
+                if type(id) ~= "string" or not seen[id] then
+                    if type(id) == "string" then
+                        seen[id] = true
+                    end
+                    out[#out + 1] = entry
+                end
+            end
+        end
+    end
+
+    local extra = INCLUDES[key]
+    if extra then
+        for i = 1, #extra do
+            take(extra[i])
+        end
+    end
+    take(key)
+    return out
+end
+
 function novelist_paths.count()
     return #ENTRIES
 end
@@ -62,19 +108,14 @@ function novelist_paths.entry(index)
 end
 
 function novelist_paths.entries_for_region(key)
-    local out = {}
     if key == "custom" then
+        local out = {}
         for i = 1, #ENTRIES do
             out[#out + 1] = ENTRIES[i]
         end
         return out
     end
-    for i = 1, #ENTRIES do
-        if region_of(ENTRIES[i]) == key then
-            out[#out + 1] = ENTRIES[i]
-        end
-    end
-    return out
+    return collect(key)
 end
 
 function novelist_paths.labels_for_region(key)

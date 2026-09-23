@@ -3,8 +3,8 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.1.0
--- Folder: Master_Farmer_Grindbot_v2.1.0
+-- Version: 2.2.0
+-- Folder: Master_Farmer_Grindbot_v2.2.0
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
 --   Applying a poison is a two-step interaction: use the poison, which puts it

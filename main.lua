@@ -3,8 +3,8 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.1.0
--- Folder: Master_Farmer_Grindbot_v2.1.0
+-- Version: 2.2.0
+-- Folder: Master_Farmer_Grindbot_v2.2.0
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
@@ -40,6 +40,8 @@ local PLUGIN_MODULES = {
     "data/racials",
     "data/factions",
     "events",
+    "buffs",
+    "data/spell_categories",
     "config",
     -- The path INDEXES. These were missing, and the effect was invisible and
     -- very confusing: a reload reused the previous session's grind/catalog
@@ -130,6 +132,7 @@ local trainer = load_mod("trainer")
 -- cap is per plugin and this file re-runs on every hot reload. events.install
 -- keeps the guard on the shared namespace and refreshes the handler table, so
 -- a reload picks up new handler code without registering a second callback.
+local buffs = load_mod("buffs")
 local events = load_mod("events")
 if events and type(events.install) == "function" then
     pcall(events.install)
@@ -540,6 +543,12 @@ local function on_update()
         return
     end
     if loot and loot.tick(player) then
+        return
+    end
+    -- Self-buff upkeep. Sits with the class buffs because it answers the
+    -- same question, and after healing.tick so a rest is never interrupted
+    -- to refresh something.
+    if buffs and type(buffs.tick) == "function" and buffs.tick(player) then
         return
     end
     if rotation.buffs_ooc(player) then

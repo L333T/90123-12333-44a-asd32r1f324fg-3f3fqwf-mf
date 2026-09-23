@@ -3,8 +3,8 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.1.0
--- Folder: Master_Farmer_Grindbot_v2.1.0
+-- Version: 2.2.0
+-- Folder: Master_Farmer_Grindbot_v2.2.0
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan every 2 seconds. DEFS are rank-1 IDs; highest matching ID wins.
 -- ============================================================================
@@ -32,7 +32,8 @@ local book_names = {}
 -- threw the rest away. Grouping it costs one pass and gives the GUI the thing
 -- it actually wants: one row per spell, at the best rank, rather than eleven
 -- rows of Frostbolt.
-local families = {}        -- array of { id, name, ranks = { id, ... } }
+local families = {}        -- array of { id, name, ranks = { id, ... }, category }
+local by_category = {}     -- category -> array of families
 local families_by_name = {}
 local defs = {}
 local resolved_name = {}
@@ -71,49 +72,83 @@ local function mark_id(id)
     end
 end
 
+-- ============================================================================
+-- COLLECT EVERY SPELL ID
+-- ============================================================================
+-- Recursive, and it takes numeric KEYS and numeric VALUES at every depth.
+--
+-- The previous version probed twelve entries, decided globally whether ids
+-- lived in the keys or the values, and then only looked one level down. On the
+-- three shapes core.spell_book.get_spells() can actually return that is not
+-- enough - measured against a stub, a mixed table lost half the book and a
+-- table nested by spell tab lost all of it. Whether the client groups by tab,
+-- returns a flat list, or returns a set, this finds the same ids.
+--
+-- `visited` guards against a cyclic table, which a recursive walk would
+-- otherwise follow for ever.
+local function collect_ids(value, out, visited)
+    if value == nil then
+        return
+    end
+
+    local t = type(value)
+    if t == "number" then
+        if value > 0 and value == math.floor(value) then
+            out[value] = true
+        end
+        return
+    end
+    if t ~= "table" then
+        return
+    end
+
+    visited = visited or {}
+    if visited[value] then
+        return
+    end
+    visited[value] = true
+
+    for k, v in pairs(value) do
+        if type(k) == "number" and k > 0 and k == math.floor(k) then
+            out[k] = true
+        end
+        collect_ids(v, out, visited)
+    end
+end
+
+--- Does the client agree this number is a spell?
+---
+--- The recursive walk cannot tell a spell id from an array index - a flat list
+--- of four spells has keys 1..4, and taking those produced four phantom
+--- entries. Rather than trying to out-guess the table shape, every candidate
+--- is put to the client: a name, or has_spell, or learned, or known. An id
+--- with no name but which the client confirms is still kept, because that was
+--- the other half of the original loss.
+local function is_real_spell(id)
+    if type(id) ~= "number" or id <= 0 then
+        return false
+    end
+    if spell_name(id) then
+        return true
+    end
+    if safe(function() return core.spell_book.has_spell(id) end) == true then
+        return true
+    end
+    if safe(function() return core.spell_book.is_spell_learned(id) end) == true then
+        return true
+    end
+    return safe(function() return core.spell_book.is_spell_known(id) end) == true
+end
+
+--- Every id in the book that the client confirms, sorted.
 local function extract_ids(raw)
+    local set = {}
+    collect_ids(raw, set, nil)
+
     local ids = {}
-    local seen = {}
-    if type(raw) ~= "table" then
-        return ids
-    end
-    local key_hits, val_hits, probes = 0, 0, 0
-    for k, v in pairs(raw) do
-        if probes >= 12 then
-            break
-        end
-        if type(k) == "number" and spell_name(k) then
-            key_hits = key_hits + 1
-        end
-        if type(v) == "number" and spell_name(v) then
-            val_hits = val_hits + 1
-        end
-        probes = probes + 1
-    end
-    local use_values = val_hits >= key_hits
-    local function add_id(id)
-        if type(id) == "number" and id > 0 and not seen[id] then
-            seen[id] = true
+    for id in pairs(set) do
+        if is_real_spell(id) then
             ids[#ids + 1] = id
-        end
-    end
-    for k, v in pairs(raw) do
-        if use_values then
-            add_id(v)
-        else
-            add_id(k)
-        end
-        if type(k) == "number" and type(v) == "string" then
-            add_id(k)
-        end
-        if type(v) == "number" and type(k) == "string" then
-            add_id(v)
-        end
-    end
-    if #ids == 0 then
-        for k, v in pairs(raw) do
-            add_id(k)
-            add_id(v)
         end
     end
     table.sort(ids)
@@ -147,16 +182,36 @@ end
 -- The highest id in a family is taken as the best rank. That is the same
 -- assumption rank_families already makes for defined keys, and it holds
 -- because Blizzard issues ascending ids per rank within a spell.
+--- Which category a family belongs to, via the registered rules.
+--- Nothing is guessed from the fact that a spell exists: a family with no
+--- matching rule lands in "other" and is still shown.
+local function classify(fam)
+    local ok, rules = pcall(require, "data/spell_categories")
+    if not ok or type(rules) ~= "table" or type(rules.category_of) ~= "function" then
+        return "other"
+    end
+    local cat = safe(function()
+        return rules.category_of(fam.id, fam.name)
+    end)
+    if type(cat) == "string" and cat ~= "" then
+        return cat
+    end
+    return "other"
+end
+
 local function group_families()
     families = {}
     families_by_name = {}
+    by_category = {}
 
     local by_key = {}
     local order = {}
 
     for i = 1, #book_ids do
         local id = book_ids[i]
-        local name = book_names[id] or spell_name(id)
+        -- An id the client will not name still gets a row, labelled by id.
+        -- Hiding it is how the list came up short against the spellbook.
+        local name = book_names[id] or spell_name(id) or ("Spell " .. tostring(id))
         if name then
             local base = safe(function()
                 return core.spell_book.get_base_spell_id(id)
@@ -189,13 +244,25 @@ local function group_families()
     for i = 1, #order do
         local fam = order[i]
         table.sort(fam.ranks)
+        fam.category = classify(fam)
         families[#families + 1] = fam
         families_by_name[fam.name] = fam
+        local bucket = by_category[fam.category]
+        if not bucket then
+            bucket = {}
+            by_category[fam.category] = bucket
+        end
+        bucket[#bucket + 1] = fam
     end
 
     table.sort(families, function(a, b)
         return a.name < b.name
     end)
+    for _, list in pairs(by_category) do
+        table.sort(list, function(a, b)
+            return a.name < b.name
+        end)
+    end
 end
 
 local function id_in_book(id)
@@ -451,6 +518,34 @@ end
 --- many distinct spells that collapsed to.
 function spellbook.counts()
     return book_count, #families
+end
+
+--- Families of one category, sorted by name.
+function spellbook.category(cat)
+    return by_category[cat] or {}
+end
+
+--- Every category that actually has spells in it, in the registry's order.
+function spellbook.categories()
+    local ok, rules = pcall(require, "data/spell_categories")
+    local order = (ok and type(rules) == "table" and rules.order) or { "other" }
+    local out = {}
+    for i = 1, #order do
+        local cat = order[i]
+        local list = by_category[cat]
+        if list and #list > 0 then
+            out[#out + 1] = { key = cat, label = (ok and rules.label and rules.label(cat)) or cat, spells = list }
+        end
+    end
+    local leftovers = by_category["other"]
+    local named = {}
+    for i = 1, #order do
+        named[order[i]] = true
+    end
+    if leftovers and #leftovers > 0 and not named["other"] then
+        out[#out + 1] = { key = "other", label = "Other", spells = leftovers }
+    end
+    return out
 end
 
 return spellbook

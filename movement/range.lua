@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.1.0
+-- Version: 2.2.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach

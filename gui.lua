@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.1.0
--- Folder: Master_Farmer_Grindbot_v2.1.0
+-- Version: 2.2.0
+-- Folder: Master_Farmer_Grindbot_v2.2.0
 -- ============================================================================
 
 ---@type color
@@ -1787,54 +1787,87 @@ menu:on_tab("spells", function(win, x, y, w, h)
     local mute = color.new(180, 170, 150, 255)
     local ok_col = color.new(90, 210, 110, 255)
     local warn = color.new(220, 176, 56, 255)
+    local head = color.new(96, 150, 235, 255)
 
     if not spellbook.ready() then
         win:render_text(FONT_SMALL, vec2.new(x + 12, y + 8), warn,
             string.format("Scanning the spellbook... %.1fs", spellbook.wait_left()))
-        win:render_text(FONT_SMALL, vec2.new(x + 12, y + 28), mute,
-            "The scan runs once, five seconds after load.")
         return
     end
 
-    local fams = spellbook.all_families and spellbook.all_families() or {}
-    if #fams == 0 then
+    local groups = spellbook.categories and spellbook.categories() or {}
+    if #groups == 0 then
         win:render_text(FONT_SMALL, vec2.new(x + 12, y + 8), warn, "No spells found.")
         return
     end
 
+    local ok_b, buffs = pcall(require, "buffs")
+    local ok_c, cats = pcall(require, "data/spell_categories")
+    local buff_key = (ok_c and cats and cats.BUFF) or "buff"
+
     local row_y = y + 4
-    local bottom = y + h - 26
+    local bottom = y + h - 24
     local shown = 0
 
-    for i = 1, #fams do
-        if row_y > bottom then
-            break
-        end
-        local fam = fams[i]
-        local n = (type(fam.ranks) == "table") and #fam.ranks or 1
+    for gi = 1, #groups do
+        if row_y > bottom then break end
+        local grp = groups[gi]
 
-        -- Mark the ones the loaded rotation actually drives, so the list
-        -- distinguishes "you know this" from "the bot uses this".
-        local used = spellbook.spell_known and spellbook.spell_known(fam.name) or false
-
-        win:render_text(FONT_SMALL, vec2.new(x + 14, row_y),
-            used and ok_col or gold, tostring(fam.name))
-        win:render_text(FONT_SMALL, vec2.new(x + w - 132, row_y), mute,
-            (n > 1) and string.format("%d ranks", n) or "1 rank")
-        win:render_text(FONT_SMALL, vec2.new(x + w - 66, row_y), mute,
-            tostring(fam.id))
-
+        -- Category heading, so the book reads as sections rather than one
+        -- alphabetical run.
+        win:render_text(FONT_SMALL, vec2.new(x + 10, row_y), head,
+            string.format("%s  (%d)", tostring(grp.label), #grp.spells))
         row_y = row_y + SPELL_ROW
-        shown = shown + 1
+
+        for si = 1, #grp.spells do
+            if row_y > bottom then break end
+            local fam = grp.spells[si]
+            local n = (type(fam.ranks) == "table") and #fam.ranks or 1
+
+            -- Buffs get a tick box; buffs.lua keeps the ticked ones up.
+            local is_buff = (grp.key == buff_key) and ok_b and buffs
+            if is_buff then
+                local on = buffs.is_enabled(fam.name)
+                local bmin = vec2.new(x + 16, row_y + 2)
+                local bmax = vec2.new(x + 28, row_y + 14)
+                pcall(function()
+                    win:render_rect_filled(bmin, bmax,
+                        on and color.new(90, 210, 110, 220) or color.new(38, 40, 48, 220), 2.0)
+                end)
+                pcall(function()
+                    win:render_rect(bmin, bmax, color.new(120, 130, 150, 220), 2.0, 1.0)
+                end)
+                local hit = false
+                pcall(function()
+                    hit = win:is_rect_clicked(vec2.new(x + 12, row_y), vec2.new(x + w - 10, row_y + 18)) == true
+                end)
+                if hit then
+                    buffs.toggle(fam.name)
+                end
+                win:render_text(FONT_SMALL, vec2.new(x + 34, row_y), on and ok_col or gold,
+                    tostring(fam.name))
+            else
+                win:render_text(FONT_SMALL, vec2.new(x + 22, row_y), gold, tostring(fam.name))
+            end
+
+            win:render_text(FONT_SMALL, vec2.new(x + w - 118, row_y), mute,
+                (n > 1) and string.format("%d ranks", n) or "1 rank")
+            win:render_text(FONT_SMALL, vec2.new(x + w - 60, row_y), mute, tostring(fam.id))
+
+            row_y = row_y + SPELL_ROW
+            shown = shown + 1
+        end
+        row_y = row_y + 4
     end
 
-    local ids, distinct = 0, #fams
+    local ids, distinct = 0, 0
     if spellbook.counts then
         ids, distinct = spellbook.counts()
     end
-    win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 4), mute,
-        string.format("%d of %d spells shown - %d ranks in the book.",
-            shown, #fams, ids))
+    local on_n = (ok_b and buffs and buffs.enabled_count and buffs.enabled_count()) or 0
+    win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 2), mute,
+        string.format("%d of %d spells shown, %d ranks in the book - %d buff%s kept up.",
+            shown, distinct, ids, on_n, on_n == 1 and "" or "s"))
 end)
 
 menu:on_tab("grinding", function(win, x, y, w, h)

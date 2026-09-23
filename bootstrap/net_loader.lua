@@ -334,7 +334,7 @@ end
 -- modules. It must `return` a table:
 --
 --   return {
---       version = "2.1.0",
+--       version = "2.2.0",
 --       files = {
 --           { path = "movement/const.lua",  hash = "1a2b3c4d" },
 --           { path = "movement/rt.lua",     hash = "5e6f7a8b" },

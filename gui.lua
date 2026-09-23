@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.0.0
--- Folder: Master_Farmer_Grindbot_v2.0.0
+-- Version: 2.0.1
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- ============================================================================
 
 ---@type color
@@ -1627,6 +1627,56 @@ local FACTION_TINT = {
     horde    = { 200, 70, 62 },
 }
 
+--- The route button. Draws the current route and opens the picker.
+---
+--- Every route chooser in the plugin is this, so there is exactly one way to
+--- pick a profile. A dropdown was the wrong widget for a 27-entry list - it
+--- caps at 18 rows inside a 30px field and has nowhere to show the level range
+--- or the vendor flag - and having one on the Mode tab and another on the
+--- Grinding tab meant two widgets disagreeing about what was selected.
+--- Returns the y below the button.
+local function draw_route_button(win, x, y, width, entry)
+    local gold = color.new(232, 222, 196, 255)
+    local mute = color.new(180, 170, 150, 255)
+    local bmin = vec2.new(x, y)
+    local bmax = vec2.new(x + width, y + 30)
+
+    local hover = false
+    pcall(function()
+        hover = win:is_mouse_hovering_rect(bmin, bmax) == true
+    end)
+    pcall(function()
+        win:render_rect_filled(bmin, bmax,
+            hover and color.new(52, 58, 72, 235) or color.new(38, 40, 48, 220), 4.0)
+    end)
+    pcall(function()
+        win:render_rect(bmin, bmax, color.new(96, 150, 235, hover and 255 or 150), 4.0, 1.0)
+    end)
+
+    local label = entry and tostring(entry.label or entry.id) or "Choose a route..."
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 8), gold, label)
+    win:render_text(FONT_SMALL, vec2.new(x + width - 58, y + 8), mute, "change")
+
+    local pressed = false
+    pcall(function()
+        pressed = win:is_rect_clicked(bmin, bmax) == true
+    end)
+    if pressed then
+        menu:open_popup("profiles")
+    end
+    return y + 36
+end
+
+--- The catalog entry currently chosen, or nil.
+local function current_route_entry()
+    local ok, grind_catalog = pcall(require, "grind/catalog")
+    if not ok or not grind_catalog or type(grind_catalog.entries_for_faction) ~= "function" then
+        return nil
+    end
+    local entries = grind_catalog.entries_for_faction(gui.faction_key())
+    return entries[gui.path_index()]
+end
+
 local function faction_colour(key)
     local c = FACTION_TINT[key] or FACTION_TINT.alliance
     return color.new(c[1], c[2], c[3], 255)
@@ -1785,31 +1835,7 @@ menu:on_tab("grinding", function(win, x, y, w, h)
         entry = entries[gui.path_index()]
     end
 
-    local bmin = vec2.new(LEFT, cy)
-    local bmax = vec2.new(LEFT + field_w, cy + 30)
-    local hover = false
-    pcall(function()
-        hover = win:is_mouse_hovering_rect(bmin, bmax) == true
-    end)
-    pcall(function()
-        win:render_rect_filled(bmin, bmax,
-            hover and color.new(52, 58, 72, 235) or color.new(38, 40, 48, 220), 4.0)
-    end)
-    pcall(function()
-        win:render_rect(bmin, bmax, color.new(96, 150, 235, hover and 255 or 150), 4.0, 1.0)
-    end)
-    local btn_text = entry and tostring(entry.label or entry.id) or "Choose a route..."
-    win:render_text(FONT_SMALL, vec2.new(LEFT + 10, cy + 8), gold, btn_text)
-    win:render_text(FONT_SMALL, vec2.new(LEFT + field_w - 58, cy + 8), mute, "change")
-
-    local pressed = false
-    pcall(function()
-        pressed = win:is_rect_clicked(bmin, bmax) == true
-    end)
-    if pressed then
-        menu:open_popup("profiles")
-    end
-    cy = cy + 38
+    cy = draw_route_button(win, LEFT, cy, field_w, entry) + 2
 
     -- 3. what that route is
     if entry then
@@ -1962,17 +1988,12 @@ menu:on_tab("mode", function(win, x, y, w, h)
             picker_cache_key = ""
             gui.sync_profile_list(false)
         end
-        local path_labels = gui.combo_labels()
-        local path_idx = gui.path_index()
-        local new_path, y3 = menu:draw_dropdown(win, "mfg_dd_path", x + 10, ny, field_w, "Grind profile", path_labels, path_idx)
-        if new_path ~= path_idx then
-            gui.set_path_index(new_path)
-            armed_path = nil
-        end
-        local row = gui.selected_picker()
-        local ready = row and row.kind == "grind"
-        local ready_text = ready and ("Profile: " .. tostring(row.label)) or "Select a grind profile"
-        local ready_col = ready and color.new(90, 210, 110, 255) or color.new(220, 176, 56, 255)
+        win:render_text(FONT_SMALL, vec2.new(x + 10, ny), color.new(180, 170, 150, 255), "Grind profile")
+        local entry = current_route_entry()
+        local y3 = draw_route_button(win, x + 10, ny + 16, field_w, entry)
+        local ready_text = entry and ("Profile: " .. tostring(entry.label or entry.id))
+            or "Click above to choose a grind profile"
+        local ready_col = entry and color.new(90, 210, 110, 255) or color.new(220, 176, 56, 255)
         win:render_text(FONT_SMALL, vec2.new(x + 10, y3), ready_col, ready_text)
         y2 = y3 + 22
     elseif mode == modes.QUEST then
@@ -2037,22 +2058,9 @@ menu:on_tab("path", function(win, x, y, w, h)
         picker_cache_key = ""
         gui.sync_profile_list(false)
     end
-    local path_labels = gui.combo_labels()
-    local path_idx = gui.path_index()
-    local new_path, y3 = menu:draw_dropdown(win, "mfg_dd_path", x + 10, y2, field_w, "Grind / Travel", path_labels, path_idx)
-    if new_path ~= path_idx then
-        gui.set_path_index(new_path)
-        local row = gui.selected_picker()
-        if row and row.kind == "grind" then
-            path_source = "leveling"
-        else
-            path_source = "travel"
-        end
-        armed_path = nil
-        if ok_pr and path_runner and type(path_runner.clear_preview) == "function" then
-            path_runner.clear_preview()
-        end
-    end
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y2), color.new(180, 170, 150, 255), "Grind profile")
+    local y3 = draw_route_button(win, x + 10, y2 + 16, field_w, current_route_entry())
+    path_source = "leveling"
     local loaded = armed_path
     local name = "-"
     local count = 0

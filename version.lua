@@ -2,9 +2,9 @@
 -- Master Farmer - Grindbot
 -- Identity — single source of truth for name / authors / version
 -- ============================================================================
--- Version: 2.0.0
+-- Version: 2.0.1
 -- Authors: BLIZZ - Anthonyk
--- Folder: Master_Farmer_Grindbot_v2.0.0
+-- Folder: Master_Farmer_Grindbot_v2.0.1
 -- ============================================================================
 
 return {
@@ -13,6 +13,6 @@ return {
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "2.0.0",
-    folder = "Master_Farmer_Grindbot_v2.0.0",
+    version = "2.0.1",
+    folder = "Master_Farmer_Grindbot_v2.0.1",
 }

@@ -3,8 +3,8 @@
 -- Racial abilities (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.2.0
--- Folder: Master_Farmer_Grindbot_v2.2.0
+-- Version: 2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Only ACTIVE racials are listed. Passives (Diplomacy, Hardiness, The Human
 -- Spirit, weapon specialisations, resistances) need no toggle and no cast, so

@@ -3,8 +3,8 @@
 -- Config accessors — thin pass-through to the GUI
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.2.0
--- Folder: Master_Farmer_Grindbot_v2.2.0
+-- Version: 2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- This file previously also carried `config.KEY_MAP`, a table of the original
 -- bot's Chinese `Easy_Data` setting names mapped onto this project's GUI keys.

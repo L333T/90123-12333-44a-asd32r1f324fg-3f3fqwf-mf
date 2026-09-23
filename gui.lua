@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.2.0
--- Folder: Master_Farmer_Grindbot_v2.2.0
+-- Version: 2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 
 ---@type color
@@ -1003,11 +1003,44 @@ function gui.path_index()
     return clamp_index(selected_path, n)
 end
 
+--- The selected route as an id rather than an index, for settings.lua.
+--- An index is meaningless across sessions: the catalog can gain routes and
+--- the faction can differ, and index 14 would then be a different route.
+function gui.selected_route_id()
+    local rows = gui.picker_entries()
+    local row = rows[gui.path_index()]
+    return (row and row.id) or nil
+end
+
+--- Select a route by id. Silently does nothing when the id is not in the
+--- current list, which is the right answer for a route that was removed or
+--- belongs to the other faction.
+function gui.select_route_id(id)
+    if type(id) ~= "string" or id == "" then
+        return false
+    end
+    local rows = gui.picker_entries()
+    for i = 1, #rows do
+        if rows[i].id == id then
+            gui.set_path_index(i)
+            return true
+        end
+    end
+    return false
+end
+
 --- Choose a route. Clamped against the list as it is right now, never against
 --- whatever the widget last heard about.
 function gui.set_path_index(index)
     local n, labels = live_path_count()
+    local before = selected_path
     selected_path = clamp_index(index, n)
+    if selected_path ~= before then
+        local ok, settings = pcall(require, "settings")
+        if ok and settings and type(settings.mark_dirty) == "function" then
+            settings.mark_dirty()
+        end
+    end
     -- Keep the element in step for the legacy popups: items FIRST, or the set
     -- is clamped away again.
     pcall(function()

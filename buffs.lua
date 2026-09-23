@@ -3,8 +3,8 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.2.0
--- Folder: Master_Farmer_Grindbot_v2.2.0
+-- Version: 2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED
 --   The bot must be doing something - rotation only, a grind profile, or a
@@ -75,12 +75,44 @@ function buffs.is_enabled(name)
     return enabled[name] == true
 end
 
+local function mark_dirty()
+    local ok, settings = pcall(require, "settings")
+    if ok and settings and type(settings.mark_dirty) == "function" then
+        settings.mark_dirty()
+    end
+end
+
 function buffs.set_enabled(name, on)
     if type(name) ~= "string" then
         return
     end
     enabled[name] = (on == true) or nil
     failed_until[name] = nil
+    mark_dirty()
+end
+
+--- The enabled set as one string, for settings.lua. Names are separated by
+--- newlines because a spell name can contain a comma but not a newline.
+function buffs.serialise()
+    local out = {}
+    for name in pairs(enabled) do
+        out[#out + 1] = name
+    end
+    table.sort(out)
+    return table.concat(out, "\n")
+end
+
+function buffs.deserialise(text)
+    enabled = {}
+    failed_until = {}
+    if type(text) ~= "string" then
+        return
+    end
+    for name in text:gmatch("[^\n]+") do
+        if name ~= "" then
+            enabled[name] = true
+        end
+    end
 end
 
 function buffs.toggle(name)

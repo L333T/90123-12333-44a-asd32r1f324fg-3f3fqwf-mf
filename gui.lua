@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.0.2
--- Folder: Master_Farmer_Grindbot_v2.0.2
+-- Version: 2.1.0
+-- Folder: Master_Farmer_Grindbot_v2.1.0
 -- ============================================================================
 
 ---@type color
@@ -83,7 +83,7 @@ local menu = ui.new({
         { id = "general", label = "General" },
         { id = "grinding", label = "Grinding" },
         { id = "questing", label = "Questing" },
-        { id = "class", label = "Class" },
+        { id = "class", label = "Spells" },
         { id = "mode", label = "Mode" },
         { id = "healing", label = "Healing" },
         { id = "settings", label = "Settings" },
@@ -407,6 +407,21 @@ local function profile_popup_height()
     end
     return h
 end
+
+-- Height from the spellbook, the same way the profile picker sizes from the
+-- catalog. A caster at 60 knows well over a hundred spells, so this one is
+-- capped and scrolls; the count in the footer says how much is below the fold.
+local SPELL_ROW = 22
+
+menu:add_popup({
+    id = "spells",
+    title = "All Known Spells",
+    tab = "spells",
+    w = 460,
+    h = 700,
+    x = 700,
+    y = 60,
+})
 
 menu:add_popup({
     id = "profiles",
@@ -1761,6 +1776,67 @@ menu:on_tab("profiles", function(win, x, y, w, h)
         string.format("%d routes - click one to load it.", #entries))
 end)
 
+-- ============================================================================
+-- ALL KNOWN SPELLS
+-- ============================================================================
+-- Everything the scanner found, one row per rank family rather than one per
+-- rank - eleven Frostbolts is not a list, it is a wall. The rank count is
+-- shown instead, and the id is the best rank.
+menu:on_tab("spells", function(win, x, y, w, h)
+    local gold = color.new(232, 222, 196, 255)
+    local mute = color.new(180, 170, 150, 255)
+    local ok_col = color.new(90, 210, 110, 255)
+    local warn = color.new(220, 176, 56, 255)
+
+    if not spellbook.ready() then
+        win:render_text(FONT_SMALL, vec2.new(x + 12, y + 8), warn,
+            string.format("Scanning the spellbook... %.1fs", spellbook.wait_left()))
+        win:render_text(FONT_SMALL, vec2.new(x + 12, y + 28), mute,
+            "The scan runs once, five seconds after load.")
+        return
+    end
+
+    local fams = spellbook.all_families and spellbook.all_families() or {}
+    if #fams == 0 then
+        win:render_text(FONT_SMALL, vec2.new(x + 12, y + 8), warn, "No spells found.")
+        return
+    end
+
+    local row_y = y + 4
+    local bottom = y + h - 26
+    local shown = 0
+
+    for i = 1, #fams do
+        if row_y > bottom then
+            break
+        end
+        local fam = fams[i]
+        local n = (type(fam.ranks) == "table") and #fam.ranks or 1
+
+        -- Mark the ones the loaded rotation actually drives, so the list
+        -- distinguishes "you know this" from "the bot uses this".
+        local used = spellbook.spell_known and spellbook.spell_known(fam.name) or false
+
+        win:render_text(FONT_SMALL, vec2.new(x + 14, row_y),
+            used and ok_col or gold, tostring(fam.name))
+        win:render_text(FONT_SMALL, vec2.new(x + w - 132, row_y), mute,
+            (n > 1) and string.format("%d ranks", n) or "1 rank")
+        win:render_text(FONT_SMALL, vec2.new(x + w - 66, row_y), mute,
+            tostring(fam.id))
+
+        row_y = row_y + SPELL_ROW
+        shown = shown + 1
+    end
+
+    local ids, distinct = 0, #fams
+    if spellbook.counts then
+        ids, distinct = spellbook.counts()
+    end
+    win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 4), mute,
+        string.format("%d of %d spells shown - %d ranks in the book.",
+            shown, #fams, ids))
+end)
+
 menu:on_tab("grinding", function(win, x, y, w, h)
     local gold = color.new(232, 222, 196, 255)
     local mute = color.new(180, 170, 150, 255)
@@ -1958,7 +2034,39 @@ menu:on_tab("class", function(win, x, y, w, h)
         win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 40), color.new(180, 170, 150, 255), "Spells appear after the one-time 5 second load scan.")
         return
     end
-    win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 22), color.new(180, 170, 150, 255), "Only spells in your spellbook are listed. Other class rotations stay hidden.")
+    -- What the scan actually found, rather than a promise about it.
+    local ids, distinct = 0, 0
+    if spellbook.counts then
+        ids, distinct = spellbook.counts()
+    end
+    win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 22), color.new(180, 170, 150, 255),
+        string.format("%d spells known, %d ranks in the spellbook.", distinct, ids))
+
+    -- The toggles below are the ones the rotation drives. The full book is a
+    -- click away rather than inlined: a level 60 caster has well over a
+    -- hundred spells and this header has 72px.
+    local bmin = vec2.new(x + 10, yy + 40)
+    local bmax = vec2.new(x + 190, yy + 66)
+    local hover = false
+    pcall(function()
+        hover = win:is_mouse_hovering_rect(bmin, bmax) == true
+    end)
+    pcall(function()
+        win:render_rect_filled(bmin, bmax,
+            hover and color.new(52, 58, 72, 235) or color.new(38, 40, 48, 220), 4.0)
+    end)
+    pcall(function()
+        win:render_rect(bmin, bmax, color.new(96, 150, 235, hover and 255 or 150), 4.0, 1.0)
+    end)
+    win:render_text(FONT_SMALL, vec2.new(x + 22, yy + 46), color.new(232, 222, 196, 255),
+        "View all known spells")
+    local pressed = false
+    pcall(function()
+        pressed = win:is_rect_clicked(bmin, bmax) == true
+    end)
+    if pressed then
+        menu:open_popup("spells")
+    end
 end)
 
 menu:on_tab("mode", function(win, x, y, w, h)

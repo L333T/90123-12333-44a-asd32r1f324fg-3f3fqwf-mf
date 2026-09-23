@@ -5,8 +5,8 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.0.2
--- Folder: Master_Farmer_Grindbot_v2.0.2
+-- Version: 2.1.0
+-- Folder: Master_Farmer_Grindbot_v2.1.0
 -- ============================================================================
 
 ---@type color
@@ -1938,7 +1938,11 @@ function Menu:draw_tab_scroll_area(win, tab_id, x, y, w, h)
     local inner_w = view_w - 12
     local extra_top = 0
     if tab_id == "class" and self.tab_draw[tab_id] then
-        extra_top = 72
+        -- 72 was exactly the two status lines. The Spells tab now also carries
+        -- the button that opens the full spellbook, which ends at ~74px, so
+        -- the reserve has to cover it or the button is clipped and the first
+        -- toggle draws on top of it.
+        extra_top = 104
         pcall(self.tab_draw[tab_id], win, start_x, start_y, inner_w, extra_top, self)
     end
     if tab_id == "path" and self.tab_draw[tab_id] then

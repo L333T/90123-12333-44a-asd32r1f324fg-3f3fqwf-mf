@@ -3,8 +3,8 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.0.2
--- Folder: Master_Farmer_Grindbot_v2.0.2
+-- Version: 2.1.0
+-- Folder: Master_Farmer_Grindbot_v2.1.0
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan every 2 seconds. DEFS are rank-1 IDs; highest matching ID wins.
 -- ============================================================================
@@ -25,6 +25,15 @@ local watched = {}
 local book_count = 0
 local book_ids = {}
 local book_names = {}
+
+-- Every spell the character has, grouped into rank families.
+--
+-- The scanner already read the whole book to answer the defined keys; it just
+-- threw the rest away. Grouping it costs one pass and gives the GUI the thing
+-- it actually wants: one row per spell, at the best rank, rather than eleven
+-- rows of Frostbolt.
+local families = {}        -- array of { id, name, ranks = { id, ... } }
+local families_by_name = {}
 local defs = {}
 local resolved_name = {}
 local best_id = {}
@@ -124,6 +133,69 @@ local function ingest_book(raw)
             book_names[id] = name
         end
     end
+end
+
+-- ============================================================================
+-- Group The Whole Book Into Rank Families
+-- ============================================================================
+-- Ranks are grouped by base spell id, which is what the client itself uses to
+-- say "these are the same spell" - Frostbolt rank 1 and rank 11 share one base
+-- id. Name is the fallback for a build where get_base_spell_id is unhelpful,
+-- and is also what keeps the grouping right for spells the API returns a base
+-- id of 0 for.
+--
+-- The highest id in a family is taken as the best rank. That is the same
+-- assumption rank_families already makes for defined keys, and it holds
+-- because Blizzard issues ascending ids per rank within a spell.
+local function group_families()
+    families = {}
+    families_by_name = {}
+
+    local by_key = {}
+    local order = {}
+
+    for i = 1, #book_ids do
+        local id = book_ids[i]
+        local name = book_names[id] or spell_name(id)
+        if name then
+            local base = safe(function()
+                return core.spell_book.get_base_spell_id(id)
+            end)
+
+            -- Key on the base id when the client gives a usable one, on the
+            -- name otherwise. Two spells sharing a name but not a base id are
+            -- the same family; two sharing neither are not.
+            local key
+            if type(base) == "number" and base > 0 then
+                key = "b" .. tostring(base)
+            else
+                key = "n" .. name
+            end
+
+            local fam = by_key[key]
+            if not fam then
+                fam = { id = id, name = name, ranks = {} }
+                by_key[key] = fam
+                order[#order + 1] = fam
+            end
+            fam.ranks[#fam.ranks + 1] = id
+            if id > fam.id then
+                fam.id = id
+                fam.name = name
+            end
+        end
+    end
+
+    for i = 1, #order do
+        local fam = order[i]
+        table.sort(fam.ranks)
+        families[#families + 1] = fam
+        families_by_name[fam.name] = fam
+    end
+
+    table.sort(families, function(a, b)
+        return a.name < b.name
+    end)
 end
 
 local function id_in_book(id)
@@ -244,6 +316,7 @@ local function run_scan()
     ingest_book(safe(function()
         return core.spell_book.get_spells()
     end))
+    group_families()
     scanned = true
     last_scan = izi.now()
     rank_families()
@@ -346,6 +419,38 @@ end
 
 function spellbook.generation()
     return generation
+end
+
+-- ============================================================================
+-- The Whole Spellbook
+-- ============================================================================
+--- Every spell the character knows, one entry per rank family, sorted by name.
+---
+--- Each entry is { id = <best rank id>, name = <string>, ranks = { id, ... } }.
+--- The table is rebuilt on every scan, so callers should read it rather than
+--- hold it across frames; `generation` tells you when the resolved set moved.
+function spellbook.all_families()
+    return families
+end
+
+--- How many distinct spells the character has, as opposed to how many rank
+--- rows the client reported.
+function spellbook.family_count()
+    return #families
+end
+
+--- One family by exact spell name, or nil.
+function spellbook.family(name)
+    if type(name) ~= "string" then
+        return nil
+    end
+    return families_by_name[name]
+end
+
+--- Raw scan totals, for a status line: how many ids the client listed and how
+--- many distinct spells that collapsed to.
+function spellbook.counts()
+    return book_count, #families
 end
 
 return spellbook

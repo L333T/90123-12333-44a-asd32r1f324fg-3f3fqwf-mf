@@ -3,8 +3,8 @@
 -- main.lua - fetch the codebase from GitHub, then hand off to the real main
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.0.2
--- Folder: Master_Farmer_Grindbot_v2.0.2
+-- Version: 2.1.0
+-- Folder: Master_Farmer_Grindbot_v2.1.0
 -- ============================================================================
 -- FLOW
 --   frame 1      start the fetch (manifest, then all modules in parallel)

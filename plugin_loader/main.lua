@@ -67,12 +67,20 @@ local net = require("http_loader")
 --   GitHub answers a commit lookup with the bare 40-character SHA when asked
 --   for the sha media type, so no JSON parsing is involved.
 local REPO   = "L333T/90123-12333-44a-asd32r1f324fg-3f3fqwf-mf"
-local BRANCH = "dev"
+-- main, because that is the repository's default branch and where the pull
+-- requests from dev are merged. Merging a PR is therefore what publishes a
+-- release; pushing to dev alone does not change what the game loads.
+--
+-- Change this to "dev" if you would rather every push go live immediately.
+local BRANCH = "main"
 
 -- Used only when the branch cannot be resolved - no network, API rate limit,
 -- GitHub down. Loading a known-good older build beats loading nothing, and the
 -- log says plainly that it happened.
-local FALLBACK_SHA = "e072643382437e557519d6c6aab696f5014be0e8"
+-- Kept current deliberately. The previous value was a v1.3.38 commit, so on
+-- any lookup failure the plugin quietly dropped 29 versions instead of missing
+-- only the newest one.
+local FALLBACK_SHA = "227d6976d7738bbf6a51aaa576a6659f655364ae"
 
 local REF_URL = "https://api.github.com/repos/" .. REPO .. "/commits/" .. BRANCH
 

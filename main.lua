@@ -3,8 +3,8 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.1
--- Folder: Master_Farmer_Grindbot_v1.9.1
+-- Version: 1.9.2
+-- Folder: Master_Farmer_Grindbot_v1.9.2
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
@@ -39,6 +39,7 @@ local PLUGIN_MODULES = {
     "racials",
     "data/racials",
     "data/factions",
+    "events",
     "config",
     -- The path INDEXES. These were missing, and the effect was invisible and
     -- very confusing: a reload reused the previous session's grind/catalog
@@ -124,6 +125,15 @@ local healing = load_mod("healing")
 local vendor = load_mod("vendor")
 local equip = load_mod("equip")
 local trainer = load_mod("trainer")
+
+-- Game events. Registered once per SESSION, not once per load: the callback
+-- cap is per plugin and this file re-runs on every hot reload. events.install
+-- keeps the guard on the shared namespace and refreshes the handler table, so
+-- a reload picks up new handler code without registering a second callback.
+local events = load_mod("events")
+if events and type(events.install) == "function" then
+    pcall(events.install)
+end
 local supplies = load_mod("supplies")
 local loader = load_mod("loader")
 local path_runner = load_mod("path_runner")

@@ -3,8 +3,8 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.1.0
--- Folder: Master_Farmer_Grindbot_v2.1.0
+-- Version: 2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
@@ -40,6 +40,9 @@ local PLUGIN_MODULES = {
     "data/racials",
     "data/factions",
     "events",
+    "buffs",
+    "settings",
+    "data/spell_categories",
     "config",
     -- The path INDEXES. These were missing, and the effect was invisible and
     -- very confusing: a reload reused the previous session's grind/catalog
@@ -130,6 +133,40 @@ local trainer = load_mod("trainer")
 -- cap is per plugin and this file re-runs on every hot reload. events.install
 -- keeps the guard on the shared namespace and refreshes the handler table, so
 -- a reload picks up new handler code without registering a second callback.
+local buffs = load_mod("buffs")
+local settings = load_mod("settings")
+
+-- What gets remembered per character.
+--
+-- Only state held in plain Lua tables is registered here. Every core.menu
+-- element already persists against its own id, so a checkbox or slider
+-- written here would be stored twice and the two copies would disagree the
+-- moment one of them changed.
+if settings then
+    -- The route as an ID, not an index. An index means a different route
+    -- after the catalog gains entries or the faction changes.
+    settings.register("route",
+        function()
+            return gui and type(gui.selected_route_id) == "function" and gui.selected_route_id() or nil
+        end,
+        function(value)
+            if gui and type(gui.select_route_id) == "function" then
+                gui.select_route_id(value)
+            end
+        end)
+
+    -- The buff toggles, which only exist after the spellbook scan and so
+    -- could never have had a menu element behind them.
+    settings.register("buffs",
+        function()
+            return buffs and type(buffs.serialise) == "function" and buffs.serialise() or nil
+        end,
+        function(value)
+            if buffs and type(buffs.deserialise) == "function" then
+                buffs.deserialise(value)
+            end
+        end)
+end
 local events = load_mod("events")
 if events and type(events.install) == "function" then
     pcall(events.install)
@@ -492,6 +529,12 @@ local function on_update()
         return
     end
     gui.sync_player(player)
+    -- Load once for this character, then flush changes on a debounce. Runs
+    -- before the cascade so a restored route is in place for the first tick
+    -- that could use it.
+    if settings and type(settings.tick) == "function" then
+        pcall(settings.tick, player)
+    end
     if targeting then
         targeting.cache_player(player)
     end
@@ -540,6 +583,12 @@ local function on_update()
         return
     end
     if loot and loot.tick(player) then
+        return
+    end
+    -- Self-buff upkeep. Sits with the class buffs because it answers the
+    -- same question, and after healing.tick so a rest is never interrupted
+    -- to refresh something.
+    if buffs and type(buffs.tick) == "function" and buffs.tick(player) then
         return
     end
     if rotation.buffs_ooc(player) then

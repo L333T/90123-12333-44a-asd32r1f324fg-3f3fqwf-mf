@@ -13,5 +13,16 @@
 *.py    text eol=lf
 *.md    text eol=lf
 
+# BINARIES MUST BE EXEMPT.
+#
+# `* text=auto` applied to plugin_loader.zip as well, so git was line-ending
+# processing a binary archive: the copy GitHub served came back 15,583 bytes
+# against 15,506 on disk. It happened to still open, but that was luck - a zip
+# whose bytes look more like text gets silently corrupted and will not extract.
+*.zip   binary
+*.png   binary
+*.7z    binary
+*.ico   binary
+
 # Everything else: let git decide.
 *       text=auto

@@ -3,8 +3,8 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.0.1
--- Folder: Master_Farmer_Grindbot_v2.0.1
+-- Version: 2.0.2
+-- Folder: Master_Farmer_Grindbot_v2.0.2
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
 -- files without being written nine times for every race. The class rotations

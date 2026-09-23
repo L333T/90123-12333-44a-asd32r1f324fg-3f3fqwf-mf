@@ -3,8 +3,8 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.0.1
--- Folder: Master_Farmer_Grindbot_v2.0.1
+-- Version: 2.0.2
+-- Folder: Master_Farmer_Grindbot_v2.0.2
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
 -- ============================================================================

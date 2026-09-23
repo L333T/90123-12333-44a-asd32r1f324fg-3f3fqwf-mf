@@ -3,8 +3,8 @@
 -- Druid grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.0.1
--- Folder: Master_Farmer_Grindbot_v2.0.1
+-- Version: 2.0.2
+-- Folder: Master_Farmer_Grindbot_v2.0.2
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and
 -- Thorns - with no rotation at all. This adds a balance (caster) filler.

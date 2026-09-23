@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 1.9.3
+-- Folder: Master_Farmer_Grindbot_v1.9.3
 -- ============================================================================
 
 ---@type color
@@ -905,13 +905,46 @@ function gui.leveling_labels()
     return gui.combo_labels()
 end
 
-function gui.path_index()
+-- The chosen route index.
+--
+-- This used to be read straight back out of the mfg_path COMBOBOX ELEMENT,
+-- and that is what hid most of the list. That element is created with a single
+-- placeholder item and its item list is only refreshed by sync_profile_list,
+-- so a real combobox widget - which cannot select an index it has no item for
+-- - clamped every set() to whatever stale count it happened to be holding.
+-- The dropdown showed all 27 routes and picking anything past the clamp
+-- snapped straight back.
+--
+-- The index is ours, so we keep it. The element is still mirrored for the
+-- older popups, but nothing reads the selection back out of it.
+local selected_path = 1
+
+local function live_path_count()
     local labels = gui.combo_labels()
     local n = #labels
     if n == 1 and labels[1] == EMPTY_PATH then
         n = 0
     end
-    return clamp_index(menu:get("mfg_path"), n)
+    return n, labels
+end
+
+function gui.path_index()
+    local n = live_path_count()
+    return clamp_index(selected_path, n)
+end
+
+--- Choose a route. Clamped against the list as it is right now, never against
+--- whatever the widget last heard about.
+function gui.set_path_index(index)
+    local n, labels = live_path_count()
+    selected_path = clamp_index(index, n)
+    -- Keep the element in step for the legacy popups: items FIRST, or the set
+    -- is clamped away again.
+    pcall(function()
+        menu:set_combobox_items("mfg_path", labels)
+        menu:set("mfg_path", selected_path)
+    end)
+    return selected_path
 end
 
 function gui.level_index()
@@ -1013,7 +1046,7 @@ function gui.sync_profile_list(restore_selected)
         picker_cache_key = ""
         last_path_key = ""
         menu:set_combobox_items("mfg_path", { EMPTY_PATH })
-        menu:set("mfg_path", 1)
+        gui.set_path_index(1)
         return
     end
     picker_cache_key = ""
@@ -1031,7 +1064,7 @@ function gui.sync_profile_list(restore_selected)
         menu:set_combobox_items("mfg_path", labels)
         last_path_key = path_key
         if last_region_idx ~= nil and region ~= last_region_idx and restore_selected ~= true then
-            menu:set("mfg_path", 1)
+            gui.set_path_index(1)
         end
     end
     if restore_selected == true then
@@ -1043,7 +1076,7 @@ function gui.sync_profile_list(restore_selected)
             for i = 1, #rows do
                 local row = rows[i]
                 if row.name == want or row.id == want or row.id == want_id or row.label == want then
-                    menu:set("mfg_path", i)
+                    gui.set_path_index(i)
                     if row.kind == "grind" then
                         path_source = "leveling"
                     else
@@ -1571,7 +1604,7 @@ menu:on_tab("grinding", function(win, x, y, w, h)
         "Faction", factions.labels, fidx)
     if new_f ~= fidx then
         menu:set("mfg_faction", new_f)
-        menu:set("mfg_path", 1)
+        gui.set_path_index(1)
         armed_path = nil
         last_path_key = ""
         picker_cache_key = ""
@@ -1613,7 +1646,7 @@ menu:on_tab("grinding", function(win, x, y, w, h)
     local new_p, y3 = menu:draw_dropdown(win, "mfg_tab_path", x + 10, y2, field_w,
         "Route", labels, pidx)
     if new_p ~= pidx then
-        menu:set("mfg_path", new_p)
+        gui.set_path_index(new_p)
         armed_path = nil
     end
 
@@ -1775,7 +1808,7 @@ menu:on_tab("mode", function(win, x, y, w, h)
         local new_region, ny = menu:draw_dropdown(win, "mfg_dd_faction", x + 10, y2, field_w, "Faction", factions.labels, region_idx)
         if new_region ~= region_idx then
             menu:set("mfg_faction", new_region)
-            menu:set("mfg_path", 1)
+            gui.set_path_index(1)
             armed_path = nil
             last_path_key = ""
             picker_cache_key = ""
@@ -1785,7 +1818,7 @@ menu:on_tab("mode", function(win, x, y, w, h)
         local path_idx = gui.path_index()
         local new_path, y3 = menu:draw_dropdown(win, "mfg_dd_path", x + 10, ny, field_w, "Grind profile", path_labels, path_idx)
         if new_path ~= path_idx then
-            menu:set("mfg_path", new_path)
+            gui.set_path_index(new_path)
             armed_path = nil
         end
         local row = gui.selected_picker()
@@ -1850,7 +1883,7 @@ menu:on_tab("path", function(win, x, y, w, h)
     local new_region, y2 = menu:draw_dropdown(win, "mfg_dd_faction", x + 10, y, field_w, "Faction", factions.labels, region_idx)
     if new_region ~= region_idx then
         menu:set("mfg_faction", new_region)
-        menu:set("mfg_path", 1)
+        gui.set_path_index(1)
         armed_path = nil
         last_path_key = ""
         picker_cache_key = ""
@@ -1860,7 +1893,7 @@ menu:on_tab("path", function(win, x, y, w, h)
     local path_idx = gui.path_index()
     local new_path, y3 = menu:draw_dropdown(win, "mfg_dd_path", x + 10, y2, field_w, "Grind / Travel", path_labels, path_idx)
     if new_path ~= path_idx then
-        menu:set("mfg_path", new_path)
+        gui.set_path_index(new_path)
         local row = gui.selected_picker()
         if row and row.kind == "grind" then
             path_source = "leveling"

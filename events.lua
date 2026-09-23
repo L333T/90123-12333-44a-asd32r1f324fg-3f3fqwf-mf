@@ -3,8 +3,8 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 1.9.3
+-- Folder: Master_Farmer_Grindbot_v1.9.3
 -- ============================================================================
 -- WHY THIS FILE EXISTS
 --   Four game events are not notifications. They report an action the engine

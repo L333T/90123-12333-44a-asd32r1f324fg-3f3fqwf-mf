@@ -3,7 +3,7 @@
 -- Debug log, written to scripts_data
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.15.0
+-- Version: 2.16.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Every debug toggle in this project used core.log, which goes to the console
@@ -66,7 +66,7 @@ end
 
 --- Add a line. Cheap: no file work happens here.
 ---
---- `tag` groups the line - "zygor", "quest", "rest" - so one file can carry
+--- `tag` groups the line - "guide", "quest", "rest" - so one file can carry
 --- every subsystem and still be readable.
 function debuglog.line(tag, fmt, ...)
     local text

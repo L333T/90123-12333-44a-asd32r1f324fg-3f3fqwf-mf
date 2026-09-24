@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.15.0
+-- Version: 2.16.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -288,10 +288,10 @@ menu:checkbox("mfg_skip_trivial", true, {
     tab = "quest",
     tooltip = "Skip a quest the NPC reports as trivial (grey). Grey quests award almost no experience, so running them costs more time than they return.",
 })
-menu:checkbox("mfg_zygor", false, {
-    label = "Follow Zygor Guides",
+menu:checkbox("mfg_guide", false, {
+    label = "Follow RestedXP Guides",
     tab = "quest",
-    tooltip = "Take the next objective from the Zygor addon instead of this panel's quest list. Zygor decides what to do; the bot walks, fights, accepts and turns in. Needs the addon installed with a guide loaded - without one the bot falls back to its own quest list.",
+    tooltip = "Take the next objective from the RestedXP addon instead of this panel's quest list. The guide decides what to do; the bot walks, fights, accepts and turns in. Needs the addon installed with a guide loaded - without one the bot falls back to its own quest list.",
 })
 menu:checkbox("mfg_quest_force", false, {
     label = "Use Selected Quest",
@@ -494,7 +494,7 @@ local aliases = {
     move_debug = "mfg_move_debug",
     rotation_only = "mfg_rotation_only",
     quest_force = "mfg_quest_force",
-    zygor = "mfg_zygor",
+    guide = "mfg_guide",
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",
     show_gui = "mfg_show_gui",

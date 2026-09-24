@@ -3,7 +3,7 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.15.0
+-- Version: 2.16.0
 -- Folder: Master_Farmer_Grindbot
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
@@ -19,7 +19,7 @@ local rotation = require("rotation")
 local targeting = require("targeting")
 local movement = require("movement")
 local healing = require("healing")
-local zygor = require("quest/zygor")
+local guide = require("quest/guide")
 
 local DATA = {}
 local DATA_MOD = {}
@@ -32,15 +32,15 @@ local HUNT_SCAN = 0.8
 local HUNT_KILL = 60.0
 local HUNT_ARRIVE = 2.0
 
--- Zygor state. The addon owns WHICH objective; these only track where the
+-- Guide state. The addon owns WHICH objective; these only track where the
 -- bot is in walking to it, and reset when the objective changes.
-local zy_key = nil
-local zy_move = 1
-local zy_scan_until = 0
+local g_key = nil
+local g_move = 1
+local g_scan_until = 0
 -- Interacting and using are rate limited for the same reason quest dialogs
 -- are: re-issuing every frame tears down the frame that just opened.
-local zy_act_until = 0
-local ZY_ACT_GAP = 1.5
+local g_act_until = 0
+local GUIDE_ACT_GAP = 1.5
 local INTERACT_YARDS = 5.0
 
 local hunt_move = 1
@@ -468,27 +468,27 @@ function quest.snapshot(player)
 end
 
 -- ----------------------------------------------------------------------------
--- ZYGOR
+-- GUIDE
 -- ----------------------------------------------------------------------------
 --- Follow the addon's current step.
 ---
---- Zygor decides what to do; this does it with the same helpers the catalog
+--- The guide decides what to do; this does it with the same helpers the catalog
 --- path uses, so accepting, turning in, fighting and walking behave
 --- identically whichever source chose the target.
 ---
---- Returns true when it handled the tick. False means Zygor had nothing to
+--- Returns true when it handled the tick. False means the guide had nothing to
 --- say and the caller should fall back to its own catalog.
-local function zygor_tick(player)
-    if not zygor.ready() then
+local function guide_tick(player)
+    if not guide.ready() then
         return false
     end
 
-    local goal = zygor.goal()
+    local goal = guide.goal()
     if not goal then
         -- Every goal of the step is done and the addon has not moved on yet.
         -- Standing still for a frame is right: inventing work here would
         -- fight whatever it does next.
-        state.set_note("Quest", "Zygor: step complete")
+        state.set_note("Quest", "Guide: step complete")
         return true
     end
 
@@ -501,34 +501,18 @@ local function zygor_tick(player)
         return true
     end
 
-    local kind = zygor.classify(goal)
+    local kind = guide.classify(goal)
 
-    -- Which unit this goal is about. Zygor fills npc_id on some goals and
-    -- target_id on others; a dialog branch that insisted on npc_id was
-    -- skipped whenever only target_id was set, and the tick fell through to
-    -- walking - the bot arrived at the NPC and never spoke to it.
-    local unit_id = goal.npc_id or goal.target_id
+    local unit_id = nil
+    local name_a = goal.text
+    local name_b = nil
 
-    -- The names Zygor shows on screen, used when the id does not match a
-    -- unit. get_npc_id is the reliable handle when the id is a real creature
-    -- entry; a guide addon does not always report one, and the name is what
-    -- the player can see is standing there.
-    local name_a = goal.npc
-    local name_b = goal.target
-
-    -- An accept or turnin goal carries ONLY the quest - Zygor's parser for
-    -- both reads quest and questid and never sets npcid or targetid. The NPC
-    -- is named by a different goal in the same step:
-    --
-    --     talk Tradesman Portanuus##25034
-    --     accept Report to Nasuun##11517
-    --
-    -- so the whole step is searched rather than just the current goal. This
-    -- is why the dialog branches were being skipped and the bot walked to the
-    -- waypoint and stood there.
-    if not unit_id and not name_a and not name_b then
-        unit_id, name_a = zygor.step_npc()
-    end
+    -- RestedXP names no NPC on any goal. Its accept and turnin elements hold
+    -- questId, title and text; element.ids is never set by them. So there is
+    -- no id or name to resolve a quest giver with, and the dialog branches
+    -- below reach it by proximity at the waypoint instead - see
+    -- guide.nearest_talkable, which is the primary path here rather than a
+    -- fallback.
 
     -- Turn "still not finding the NPC" into something readable. Off unless
     -- the Quest Debug box is ticked.
@@ -536,9 +520,9 @@ local function zygor_tick(player)
         local ok_d, dbg = pcall(require, "debuglog")
         local function say(fmt, ...)
             local text = string.format(fmt, ...)
-            core.log("[Master Farmer - Grindbot] zygor: " .. text)
+            core.log("[Master Farmer - Grindbot] guide: " .. text)
             if ok_d and dbg and type(dbg.line) == "function" then
-                dbg.line("zygor", "%s", text)
+                dbg.line("guide", "%s", text)
             end
         end
 
@@ -548,10 +532,6 @@ local function zygor_tick(player)
             tostring(goal.target_id), tostring(name_a), tostring(name_b),
             found and "FOUND by " or "NOT FOUND", found and tostring(how) or "")
 
-        -- Where step_npc landed, since that is what the dialog branches use
-        -- when the current goal names nobody.
-        local sid, sname = zygor.step_npc()
-        say("step npc: id=%s name=%s", tostring(sid), tostring(sname))
 
         if pos then
             local me = safe(function() return player:get_position() end)
@@ -562,17 +542,17 @@ local function zygor_tick(player)
             say("no usable waypoint")
         end
     end
-    local pos, zdist, title = zygor.waypoint()
+    local pos, zdist, title = guide.waypoint()
     local label = goal.target or goal.npc or title or tostring(goal.target_id or goal.npc_id or "?")
 
     -- Anything that changes what we are walking toward restarts the walk.
     local key = string.format("%s|%s|%s|%s", kind, tostring(goal.quest_id),
         tostring(goal.npc_id or goal.target_id), tostring(goal.index))
-    if key ~= zy_key then
-        zy_key = key
-        zy_move = 1
-        zy_scan_until = 0
-        zy_act_until = 0
+    if key ~= g_key then
+        g_key = key
+        g_move = 1
+        g_scan_until = 0
+        g_act_until = 0
         state.reset_target()
     end
 
@@ -583,14 +563,14 @@ local function zygor_tick(player)
     -- so nothing names the NPC at all. Once the bot is standing where the
     -- guide sent it, the nearest thing it cannot attack is the quest giver.
     if (kind == "accept" or kind == "turnin") and not unit_id and not name_a and not name_b then
-        local near = zygor.nearest_talkable(player, 8)
+        local near = guide.nearest_talkable(player, 8)
         if near then
             local now = izi.now()
-            if now >= zy_act_until then
-                zy_act_until = now + ZY_ACT_GAP
+            if now >= g_act_until then
+                g_act_until = now + GUIDE_ACT_GAP
                 pcall(function() core.input.interact_with_object(near) end)
             end
-            state.set_note("Quest", "Zygor: " .. kind .. " at the nearest NPC")
+            state.set_note("Quest", "Guide: " .. kind .. " at the nearest NPC")
             -- The dialog handlers take it from here on the next tick: the
             -- gossip frame is matched on the quest, not on who opened it.
             if goal.quest_id then
@@ -607,7 +587,7 @@ local function zygor_tick(player)
     end
 
     if kind == "accept" and unit_id then
-        state.set_note("Quest", "Zygor: accept " .. label)
+        state.set_note("Quest", "Guide: accept " .. label)
         if npc.at_npc(player, unit_id, pos, name_a, name_b) then
             if goal.quest_id then
                 state.quest.id = goal.quest_id
@@ -623,7 +603,7 @@ local function zygor_tick(player)
     end
 
     if kind == "turnin" and unit_id then
-        state.set_note("Quest", "Zygor: turn in " .. label)
+        state.set_note("Quest", "Guide: turn in " .. label)
         if npc.at_npc(player, unit_id, pos, name_a, name_b) then
             if goal.quest_id then
                 state.quest.id = goal.quest_id
@@ -639,29 +619,29 @@ local function zygor_tick(player)
         -- npc.talk walks AND interacts. at_npc only walks - it returns true
         -- once the NPC is in reach and leaves the dialog to accept/turn_in -
         -- so calling it alone here meant the bot arrived and stood there.
-        state.set_note("Quest", "Zygor: talk to " .. label)
+        state.set_note("Quest", "Guide: talk to " .. label)
         npc.talk(player, unit_id, pos, name_a, name_b)
         return true
     end
 
     -- ---- use an item from the bags -----------------------------------------
-    -- Zygor "use" goals: a quest item that has to be used, sometimes on a
+    -- "use" goals: a quest item that has to be used, sometimes on a
     -- target, sometimes on the spot. Rate limited because a use that does not
     -- clear the goal would otherwise be issued every frame.
     if kind == "item" then
-        local entry = zygor.find_bag_item()
+        local entry = guide.find_bag_item()
         if entry then
             local now = izi.now()
-            if now >= zy_act_until then
-                zy_act_until = now + ZY_ACT_GAP
+            if now >= g_act_until then
+                g_act_until = now + GUIDE_ACT_GAP
                 local on = state.target.unit
-                if zygor.use_bag_item(entry, on) then
-                    state.set_note("Quest", "Zygor: use " .. label)
+                if guide.use_bag_item(entry, on) then
+                    state.set_note("Quest", "Guide: use " .. label)
                     return true
                 end
-                state.set_note("Quest", "Zygor: could not use " .. label)
+                state.set_note("Quest", "Guide: could not use " .. label)
             else
-                state.set_note("Quest", "Zygor: use " .. label)
+                state.set_note("Quest", "Guide: use " .. label)
             end
             return true
         end
@@ -674,22 +654,22 @@ local function zygor_tick(player)
     -- so the mob scan never sees them and find_object walks the visible-object
     -- list instead.
     if kind == "object" or kind == "collect" then
-        local obj, odist = zygor.find_object(player, 40)
+        local obj, odist = guide.find_object(player, 40)
         if obj then
             if type(odist) == "number" and odist <= INTERACT_YARDS then
                 local now = izi.now()
-                if now >= zy_act_until then
-                    zy_act_until = now + ZY_ACT_GAP
+                if now >= g_act_until then
+                    g_act_until = now + GUIDE_ACT_GAP
                     -- Interacting re-issued every frame tears down the frame it
                     -- just opened; that is the 1.5.1 lesson from quest dialogs.
                     pcall(function() core.input.interact_with_object(obj) end)
                 end
-                state.set_note("Quest", "Zygor: click " .. label)
+                state.set_note("Quest", "Guide: click " .. label)
                 return true
             end
             local opos = safe(function() return obj:get_position() end)
             if opos and not movement.is_blocked(opos) then
-                state.set_note("Quest", "Zygor: " .. label)
+                state.set_note("Quest", "Guide: " .. label)
                 if not movement.is_moving() then
                     movement.nav_to(opos, true)
                 end
@@ -705,19 +685,24 @@ local function zygor_tick(player)
         local now = izi.now()
         local unit = state.target.unit
         if unit and state.target.kind == "kill" then
-            if fight_unit(player, unit, "Zygor: " .. label) then
+            if fight_unit(player, unit, "Guide: " .. label) then
                 return true
             end
         end
 
-        local ids = zygor.objective_ids()
-        if #ids > 0 and now >= zy_scan_until then
-            zy_scan_until = now + HUNT_SCAN
-            local found = targeting.find_mobs(player, ids, 50, true)
-            local next_unit = targeting.nearest(player, found)
+        -- guide.find_mob, not targeting.find_mobs by id.
+        --
+        -- find_mobs matches on npc id, and RestedXP supplies none for a mob
+        -- step: CheckNpcIds rewrites element.mobs and element.unitlist to
+        -- NAME strings on an English client. An id scan would find nothing
+        -- every time. find_mob matches the guide's names against the unit
+        -- names on screen, and still takes an id when one is offered.
+        if now >= g_scan_until then
+            g_scan_until = now + HUNT_SCAN
+            local next_unit = guide.find_mob(player, 50)
             if next_unit then
                 targeting.set_current(next_unit, "kill")
-                fight_unit(player, next_unit, "Zygor: " .. label)
+                fight_unit(player, next_unit, "Guide: " .. label)
                 return true
             end
         end
@@ -728,33 +713,33 @@ local function zygor_tick(player)
     if not pos then
         -- No waypoint we can place. Say so rather than standing silently:
         -- either the addon has none, or map_to_world could not convert it.
-        state.set_note("Quest", "Zygor: no usable waypoint for " .. label)
+        state.set_note("Quest", "Guide: no usable waypoint for " .. label)
         return true
     end
 
     if movement.arrived(pos, HUNT_ARRIVE) then
         -- Arrived and there is still nothing to do here. Try the step's other
         -- waypoints before giving up on the step.
-        local alts = zygor.step_waypoints()
+        local alts = guide.step_waypoints()
         if #alts > 0 then
-            zy_move = zy_move + 1
-            if zy_move > #alts then
-                zy_move = 1
+            g_move = g_move + 1
+            if g_move > #alts then
+                g_move = 1
             end
-            local alt = alts[zy_move]
+            local alt = alts[g_move]
             if alt and not movement.arrived(alt, HUNT_ARRIVE) then
-                state.set_note("Quest", "Zygor: " .. label)
+                state.set_note("Quest", "Guide: " .. label)
                 movement.nav_to(alt, true)
                 return true
             end
         end
-        state.set_note("Quest", "Zygor: waiting at " .. label)
+        state.set_note("Quest", "Guide: waiting at " .. label)
         return true
     end
 
     if movement.is_blocked(pos) or movement.last_fail_offmesh() then
         movement.clear_fail()
-        state.set_note("Quest", "Zygor: cannot reach " .. label)
+        state.set_note("Quest", "Guide: cannot reach " .. label)
         return true
     end
     if movement.is_quiet() or movement.in_combat_movement() then
@@ -763,9 +748,9 @@ local function zygor_tick(player)
     end
 
     if type(zdist) == "number" then
-        state.set_note("Quest", string.format("Zygor: %s  %.0fy", label, zdist))
+        state.set_note("Quest", string.format("Guide: %s  %.0fy", label, zdist))
     else
-        state.set_note("Quest", "Zygor: " .. label)
+        state.set_note("Quest", "Guide: " .. label)
     end
     if not movement.is_moving() then
         movement.nav_to(pos, true)
@@ -777,7 +762,7 @@ function quest.tick(player)
     -- The addon leads when it is switched on and has something to say.
     -- Falling through to the catalog when it does not means a guide that
     -- finishes, or is not installed, leaves the bot working rather than idle.
-    if gui.is_on("zygor") and zygor_tick(player) then
+    if gui.is_on("guide") and guide_tick(player) then
         return
     end
 

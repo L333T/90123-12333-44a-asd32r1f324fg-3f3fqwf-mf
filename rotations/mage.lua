@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.2
+-- Version: 2.7.3
 -- Folder: Master_Farmer_Grindbot
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -598,7 +598,11 @@ local function cond_target(key, fallback, max_dist, extra)
         if not sp or not unit then
             return false
         end
-        if type(max_dist) == "number" and seq_dist > max_dist then
+        -- seq_dist is centre to centre. Asking the client keeps this in
+        -- step with cast_unit and castable, which have both been hitbox
+        -- aware since 2.4.0 - this condition was the one left behind, and
+        -- it silently dropped entries from the sequence against big mobs.
+        if type(max_dist) == "number" and not range.spell(unit, sp, max_dist) then
             return false
         end
         if extra and extra() ~= true then
@@ -964,6 +968,37 @@ function mage.rest(player)
     return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
 end
 
+-- Single-target damage in priority order, for when the sequencer will not
+-- run. Instants first so a moving mage still contributes, then the hard
+-- casts. Each entry is { gui key, spell, range in yards }.
+local function direct_nuke(player, target)
+    if not player or not target then
+        return false
+    end
+
+    local order = {
+        { "fire_blast", fire_blast, 20, "Fire Blast" },
+        { "frostbolt", frostbolt, 30, "Frostbolt" },
+        { "fireball", fireball, 35, "Fireball" },
+        { "scorch", scorch, 30, "Scorch" },
+        { "arcane_missiles", arcane_missiles, 30, "Arcane Missiles" },
+    }
+
+    for i = 1, #order do
+        local key, fallback, yards, label = order[i][1], order[i][2], order[i][3], order[i][4]
+        if enabled(key) then
+            local sp = live(key, fallback)
+            if sp and (learned(key) or learned(sp)) and range.spell(target, sp, yards) then
+                if cast_unit(sp, target, label) then
+                    return true
+                end
+            end
+        end
+    end
+
+    return false
+end
+
 function mage.tick(player, target, ctx)
     if not player or not target then
         return false
@@ -1121,7 +1156,25 @@ function mage.tick(player, target, ctx)
             return true
         end
     end
-    return start_mage_sequence()
+    if start_mage_sequence() then
+        return true
+    end
+
+    -- The sequence did not start. Cast something anyway.
+    --
+    -- The mage is the only one of the nine rotations that routes its damage
+    -- through izi.advanced_sequence; the other eight call cast_at directly.
+    -- That made every mage nuke depend on one call succeeding, and
+    -- start_mage_sequence has four separate ways to return false - the
+    -- sequencer being on cooldown, advanced_sequence missing on the build,
+    -- the call returning falsy, and no entry resolving to a spell. Behind
+    -- every one of them the mage simply stood there, which is what "the mage
+    -- does nothing" looked like.
+    --
+    -- The sequence is still preferred: it handles the interesting ordering.
+    -- This is the floor under it, and it casts through cast_unit so the
+    -- range gate still applies.
+    return direct_nuke(player, target)
 end
 
 

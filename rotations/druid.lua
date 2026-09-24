@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
 -- Version: 2.7.1
--- Folder: Master_Farmer_Grindbot_v2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.1
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and
 -- Thorns - with no rotation at all. This adds a balance (caster) filler.

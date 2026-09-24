@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.16.0
+-- Version: 2.16.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -526,6 +526,43 @@ function guide.find_mob(player, range)
         end
     end
     return best, best_d
+end
+
+--- The npc id of whatever is currently targeted, or nil.
+---
+--- This is the one place a real creature id is available under RestedXP. The
+--- guide never names an NPC - its accept and turnin elements carry questId,
+--- title and text and nothing else - so every other path here matches on
+--- name. A targeted unit can simply be asked.
+---
+--- get_target is a UNIT method, not an object_manager one: there is no
+--- core.object_manager.get_target on this build. npc_id() and get_npc_id()
+--- both exist, so both are tried.
+---
+--- An id of 0 means "not a creature" - a player, a pet, an object - and is
+--- rejected rather than passed on as if it were real.
+---
+--- Returns id, unit.
+function guide.target_npc_id(player)
+    if not player then
+        return nil, nil
+    end
+    local target = safe(function() return player:get_target() end)
+    if not target then
+        return nil, nil
+    end
+    if safe(function() return target:is_valid() end) ~= true then
+        return nil, nil
+    end
+
+    local id = safe(function() return target:npc_id() end)
+    if type(id) ~= "number" then
+        id = safe(function() return target:get_npc_id() end)
+    end
+    if type(id) ~= "number" or id == 0 then
+        return nil, target
+    end
+    return id, target
 end
 
 --- The nearest NPC that can be spoken to.

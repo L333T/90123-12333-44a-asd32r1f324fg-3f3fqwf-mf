@@ -1,123 +1,25 @@
--- Alliance 1-60 grind catalog (Elwynn / Westfall).
-return {
-    {
-        id = "Humanlvl1_4",
-        faction = "alliance",
-        label = "Human 1-4",
-        module = "grind/paths/Humanlvl1_4",
-        region = "ek",
-        source = "lvlgrind",
-        kind = "grind",
-        map_id = 1429,
-        count = 133,
-        min = 1,
-        max = 4,
-        pull = 50,
-        loop = true,
-    },
-    {
-        id = "LVL1_75Herbing",
-        faction = "alliance",
-        label = "Elwynn Herb 1-75",
-        module = "grind/paths/LVL1_75Herbing",
-        region = "ek",
-        source = "lvlgrind",
-        kind = "herb",
-        map_id = 1429,
-        count = 802,
-        min = 1,
-        max = 75,
-        pull = 50,
-        loop = true,
-    },
-    {
-        id = "Northshirelvl4_6",
-        faction = "alliance",
-        label = "Northshire 4-6",
-        module = "grind/paths/Northshirelvl4_6",
-        region = "ek",
-        source = "lvlgrind",
-        kind = "grind",
-        map_id = 1429,
-        count = 151,
-        min = 4,
-        max = 6,
-        pull = 50,
-        loop = true,
-    },
-    {
-        id = "ElwynnForstLVL6_9",
-        faction = "alliance",
-        label = "Elwynn Forest 6-9",
-        module = "grind/paths/ElwynnForstLVL6_9",
-        region = "ek",
-        source = "lvlgrind",
-        kind = "grind",
-        map_id = 1429,
-        count = 338,
-        min = 6,
-        max = 9,
-        pull = 50,
-        loop = true,
-    },
-    {
-        id = "NorthsireVendor_to_GoldshireVendor",
-        faction = "alliance",
-        label = "Northshire Vendor -> Goldshire Vendor",
-        module = "grind/paths/NorthsireVendor_to_GoldshireVendor",
-        region = "ek",
-        source = "lvlgrind",
-        kind = "vendor",
-        map_id = 1429,
-        count = 105,
-        min = 6,
-        max = 9,
-        pull = 50,
-        loop = false,
-    },
-    {
-        id = "ElwynnLVL9_12",
-        faction = "alliance",
-        label = "Elwynn Forest 9-12",
-        module = "grind/paths/ElwynnLVL9_12",
-        region = "ek",
-        source = "lvlgrind",
-        kind = "grind",
-        map_id = 1429,
-        count = 620,
-        min = 9,
-        max = 12,
-        pull = 50,
-        loop = true,
-    },
-    {
-        id = "WestFallLVL12_14",
-        faction = "alliance",
-        label = "Westfall 12-14",
-        module = "grind/paths/WestFallLVL12_14",
-        region = "ek",
-        source = "lvlgrind",
-        kind = "grind",
-        map_id = 1436,
-        count = 202,
-        min = 12,
-        max = 14,
-        pull = 50,
-        loop = true,
-    },
-    {
-        id = "Westfall12_14VendorRoute",
-        faction = "alliance",
-        label = "Westfall 12-14 Vendor Route",
-        module = "grind/paths/Westfall12_14VendorRoute",
-        region = "ek",
-        source = "lvlgrind",
-        kind = "vendor",
-        map_id = 1436,
-        count = 126,
-        min = 12,
-        max = 14,
-        pull = 50,
-        loop = false,
-    },
-}
+-- ============================================================================
+-- Master Farmer - Grindbot
+-- Superseded route index
+-- ============================================================================
+-- Authors: BLIZZ - Anthonyk
+-- Version: 2.7.1
+-- Folder: Master_Farmer_Grindbot_v2.7.0
+-- ============================================================================
+-- Deliberately empty.
+--
+-- This used to index eight routes converted from the first PathTool export.
+-- Every one of them was re-exported into the Alliance Grinding 1-60 set and
+-- lives in grind/paths/ally160 now, carrying the same id and the same
+-- waypoints plus the vendor NPC ids from that folder's README.
+--
+-- Because the ids matched, the catalog's deduplication already hid all eight
+-- behind their ally160 twins: they were parsed, indexed and held in memory on
+-- every load, and then never shown. Removing the files and emptying this index
+-- drops 42 catalog entries to 34 - the 34 that were actually reachable.
+--
+-- The file itself stays because grind/catalog.lua, loader.lua and main.lua all
+-- name it in their index lists; returning an empty table is how it says "no
+-- routes here" without those three needing a special case.
+-- ============================================================================
+return {}

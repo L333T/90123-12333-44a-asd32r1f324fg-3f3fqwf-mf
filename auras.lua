@@ -3,7 +3,7 @@
 -- Aura queries - one implementation, used by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.0
+-- Version: 2.7.1
 -- Folder: Master_Farmer_Grindbot_v2.7.0
 -- ============================================================================
 -- Everything in this project asked about auras the same way:

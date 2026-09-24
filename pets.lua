@@ -3,7 +3,7 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.3
+-- Version: 2.7.4
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /
@@ -30,6 +30,91 @@ local state = require("state")
 local pets = {}
 
 local ACT_GAP = 1.5
+
+-- ----------------------------------------------------------------------------
+-- PET HANDLER
+-- ----------------------------------------------------------------------------
+-- common/utility/pet_handler drives the pet through a state enum - PASSIVE,
+-- DEFENSIVE, ASSIST - rather than one-shot key presses, and ASSIST is the
+-- interesting one: the pet follows whatever the player is attacking on its
+-- own, so a grinding bot that changes target every few seconds stops having
+-- to re-issue an attack command (and stops resetting the pet's swing timer
+-- every time it does).
+--
+-- IT MAY NOT BE THERE
+--   The reflected API dump for this TBC build enumerates twelve
+--   common/utility modules and pet_handler is not among them, while
+--   core.input.set_pet_passive / set_pet_defensive / set_pet_assist /
+--   pet_attack all are. So the handler is resolved optionally and every
+--   call falls back to core.input, which is what this file used before and
+--   is confirmed to exist. Nothing here depends on the handler being
+--   present.
+--
+-- DELAYED COMMANDS NEED on_render
+--   set_pet_state and move_pet_to_position take a delay, and a delayed
+--   command only fires if pet_handler:on_render() is pumped every frame.
+--   pets.on_render does that, and main.lua calls it from its render
+--   callback. Nothing here passes a delay today, but a delay that silently
+--   never fires is a nasty thing to leave for whoever adds one.
+local handler = nil
+local handler_tried = false
+
+local function pet_handler()
+    if handler_tried then
+        return handler
+    end
+    handler_tried = true
+    local ok, mod = pcall(require, "common/utility/pet_handler")
+    if ok and type(mod) == "table" and type(mod.set_pet_state) == "function" then
+        handler = mod
+    else
+        handler = nil
+    end
+    return handler
+end
+
+--- One of the handler's state constants, or nil when it cannot be reached.
+local function pet_state(name)
+    local h = pet_handler()
+    if not h or type(h.pet_state) ~= "table" then
+        return nil
+    end
+    local v = h.pet_state[name]
+    if type(v) == "number" then
+        return v
+    end
+    return nil
+end
+
+--- Ask the handler for a state. Returns false when it could not, so the
+--- caller falls through to core.input rather than assuming it worked.
+local function set_state(name)
+    local h = pet_handler()
+    local v = pet_state(name)
+    if not h or v == nil then
+        return false
+    end
+    local ok = pcall(function()
+        h:set_pet_state(v)
+    end)
+    return ok
+end
+
+--- Pump the handler's delayed-command queue. Called once per frame from
+--- main.lua's render callback; a no-op when there is no handler.
+function pets.on_render()
+    local h = pet_handler()
+    if h and type(h.on_render) == "function" then
+        pcall(function()
+            h:on_render()
+        end)
+    end
+end
+
+--- Whether the richer pet control is actually available on this build.
+function pets.has_handler()
+    return pet_handler() ~= nil
+end
 
 local function safe(fn)
     local ok, r = pcall(fn)
@@ -120,7 +205,11 @@ function pets.passive(player)
         return false
     end
     last_stance = now
-    pcall(function() core.input.set_pet_passive() end)
+    if not set_state("PASSIVE") then
+        pcall(function() core.input.set_pet_passive() end)
+    end
+    -- Follow is not part of the handler's state enum, and parking the pet
+    -- means bringing it back as well as telling it to stop.
     pcall(function() core.input.set_pet_follow() end)
     return true
 end
@@ -148,10 +237,21 @@ function pets.attack(player, target)
     end
 
     last_attack = now
-    pcall(function() core.input.set_pet_defensive() end)
-    -- core.input.pet_attack(target) takes the target. It was being called with
-    -- no argument, inside a pcall, so the pet was never actually sent in and
-    -- nothing said so - it only fought what hit it first.
+
+    -- ASSIST means the pet tracks the player's target by itself, which is
+    -- what a grinding bot wants: the target changes constantly and every
+    -- re-issued attack command resets the pet's swing timer.
+    if not set_state("ASSIST") then
+        pcall(function() core.input.set_pet_assist() end)
+        pcall(function() core.input.set_pet_defensive() end)
+    end
+
+    -- Still sent explicitly. ASSIST decides what the pet picks up next; this
+    -- is what puts it on THIS target now rather than at its own pace.
+    --
+    -- core.input.pet_attack(target) takes the target. It was being called
+    -- with no argument, inside a pcall, so the pet was never actually sent
+    -- in and nothing said so - it only fought what hit it first.
     pcall(function() core.input.pet_attack(target) end)
     return true
 end

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.3
+-- Version: 2.7.4
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -20,6 +20,7 @@ local PLUGIN_MODULES = {
     "picks",
     "combat",
     "conjure",
+    "pets",
     "ui",
     "version",
     "state",
@@ -141,6 +142,7 @@ local trainer = load_mod("trainer")
 -- keeps the guard on the shared namespace and refreshes the handler table, so
 -- a reload picks up new handler code without registering a second callback.
 local buffs = load_mod("buffs")
+local pets = load_mod("pets")
 local settings = load_mod("settings")
 
 -- What gets remembered per character.
@@ -667,6 +669,13 @@ end
 local function on_render()
     if movement then
         pcall(movement.on_render)
+    end
+    -- pet_handler queues delayed state changes and moves and only runs them
+    -- when it is pumped. A delay that silently never fires is a bad thing to
+    -- leave lying around, so this runs whether or not anything uses one yet.
+    -- No-op on a build without the handler.
+    if pets and type(pets.on_render) == "function" then
+        pcall(pets.on_render)
     end
     if is_stale() then
         return

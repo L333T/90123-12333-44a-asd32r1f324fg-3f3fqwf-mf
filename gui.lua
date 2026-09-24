@@ -3,8 +3,8 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- ============================================================================
 
 ---@type color
@@ -413,6 +413,15 @@ end
 -- capped and scrolls; the count in the footer says how much is below the fold.
 local SPELL_ROW = 22
 
+-- Mage buff upkeep. skip_draw because the Spells tab draws its own row for
+-- this: registering it here is what gives it a persisted element to live in,
+-- since a plain Lua table would not survive a reload.
+menu:checkbox("mfg_mage_buffs", true, {
+    label = "Mage buffs (Arcane Intellect, armour, Mana Shield)",
+    tab = "spells",
+    skip_draw = true,
+})
+
 menu:add_popup({
     id = "spells",
     title = "All Known Spells",
@@ -454,6 +463,7 @@ local keybinds = {
 
 local aliases = {
     enable = "mfg_enable",
+    mage_buffs = "mfg_mage_buffs",
     player_detect = "mfg_player_detect",
     eat_drink = "mfg_eat_drink",
     potions = "mfg_potions",
@@ -648,8 +658,132 @@ local function keybind_enabled(element)
     return nil
 end
 
+-- ============================================================================
+-- THE SPELLS TAB IS THE ROTATION
+-- ============================================================================
+-- A checkbox registered with a `spell` names a rotation ability. The Spells
+-- tab lists those same abilities by name, so a tick there has to win over the
+-- class checkbox - otherwise the tab is a display that lies about what the
+-- bot will cast.
+--
+-- picks answers three ways, and the third is what makes this safe: nil means
+-- the user has not touched that spell, and the class checkbox keeps deciding.
+-- Adding the tab therefore re-armed and disarmed nothing.
+--
+-- The name is resolved through the spellbook family, because the registry
+-- holds a spell OBJECT while picks is keyed by name. A key whose spell is not
+-- in the book yet simply has no override.
+--- Tell settings.lua something changed, without making gui depend on it.
+local function mark_settings_dirty()
+    local ok, settings = pcall(require, "settings")
+    if ok and settings and type(settings.mark_dirty) == "function" then
+        settings.mark_dirty()
+    end
+end
+
+local pick_name_cache = {}
+
+local function pick_name_for(id)
+    local cached = pick_name_cache[id]
+    if cached ~= nil then
+        return cached ~= false and cached or nil
+    end
+
+    -- Everything here is guarded: is_on is the hottest function in the
+    -- project, called many times per frame from every rotation, and a menu
+    -- whose `elements` is not a plain table must cost a nil rather than an
+    -- error thrown up through the whole combat tick.
+    local rec = nil
+    pcall(function()
+        local els = menu and menu.elements
+        if type(els) == "table" then
+            rec = els[id]
+        end
+    end)
+    local sp = (type(rec) == "table") and rec.spell or nil
+    if type(sp) == "table" and sp[1] ~= nil then
+        sp = sp[1]           -- "Ice / Frost Armor" registers a list
+    end
+    if not sp then
+        pick_name_cache[id] = false
+        return nil
+    end
+
+    local sid = nil
+    pcall(function() sid = sp:id() end)
+    if type(sid) ~= "number" or sid <= 0 then
+        pick_name_cache[id] = false
+        return nil
+    end
+
+    local name = nil
+    if type(spellbook.name_of_id) == "function" then
+        pcall(function() name = spellbook.name_of_id(sid) end)
+    end
+    if type(name) ~= "string" or name == "" then
+        pick_name_cache[id] = false
+        return nil
+    end
+    pick_name_cache[id] = name
+    return name
+end
+
+--- Is this character a mage that actually knows the buffs the toggle governs?
+---
+--- Both halves matter. A non-mage should never see the row, and a mage at
+--- level 1 knows none of these yet, so showing it then would be a control
+--- that does nothing.
+local MAGE_BUFF_NAMES = {
+    "Arcane Intellect", "Frost Armor", "Ice Armor", "Mage Armor",
+    "Molten Armor", "Mana Shield", "Ice Barrier",
+}
+
+function gui.mage_buffs_available()
+    -- The class the menu is already tracking, set by gui.sync_player. Reading
+    -- it here rather than calling the player object keeps this cheap enough
+    -- to run every frame from the tab.
+    local class_id = nil
+    pcall(function() class_id = menu:player_class() end)
+    local want = 8
+    pcall(function() want = require("common/enums").class_id.MAGE end)
+    if class_id ~= want then
+        return false
+    end
+    if type(spellbook.family) ~= "function" then
+        return false
+    end
+    for i = 1, #MAGE_BUFF_NAMES do
+        local fam = nil
+        pcall(function() fam = spellbook.family(MAGE_BUFF_NAMES[i]) end)
+        if fam then
+            return true
+        end
+    end
+    return false
+end
+
+--- Forget the resolved names. The scan replaces the book, so a name that did
+--- not resolve before the scan must be retried after it.
+function gui.reset_pick_names()
+    pick_name_cache = {}
+end
+
 local function is_on(key)
     local id = aliases[key] or key
+
+    -- A Spells tab choice outranks the class checkbox, but only when one was
+    -- actually made.
+    local ok_p, picks = pcall(require, "picks")
+    if ok_p and picks and type(picks.state) == "function" then
+        local name = pick_name_for(id)
+        if name then
+            local st = picks.state(name)
+            if type(st) == "boolean" then
+                return st
+            end
+        end
+    end
+
     local via_menu = menu:get(id)
     if type(via_menu) == "boolean" then
         return via_menu
@@ -1828,6 +1962,41 @@ menu:on_tab("spells", function(win, x, y, w, h)
         return
     end
 
+    -- ------------------------------------------------------------------
+    -- MAGE BUFF UPKEEP
+    -- ------------------------------------------------------------------
+    -- Drawn only when the character IS a mage and the spellbook actually
+    -- holds the buffs it governs. A toggle for something the character
+    -- cannot cast is worse than no toggle: it reads as a setting that does
+    -- nothing, which is indistinguishable from a bug.
+    local mage_row = nil
+    if type(gui.mage_buffs_available) == "function" and gui.mage_buffs_available() then
+        local on = is_on("mage_buffs")
+        local bmin = vec2.new(x + 12, y + 4)
+        local bmax = vec2.new(x + 24, y + 16)
+        pcall(function()
+            win:render_rect_filled(bmin, bmax,
+                on and color.new(90, 210, 110, 220) or color.new(38, 40, 48, 220), 2.0)
+        end)
+        pcall(function()
+            win:render_rect(bmin, bmax, color.new(120, 130, 150, 220), 2.0, 1.0)
+        end)
+        local hit = false
+        pcall(function()
+            hit = win:is_rect_clicked(vec2.new(x + 8, y + 2), vec2.new(x + w - 10, y + 20)) == true
+        end)
+        if hit then
+            set_on("mage_buffs", not on)
+            mark_settings_dirty()
+        end
+        win:render_text(FONT_SMALL, vec2.new(x + 32, y + 3), on and ok_col or gold,
+            "When class is a mage and spells are known")
+        win:render_text(FONT_SMALL, vec2.new(x + 32, y + 19), mute,
+            "Keep Arcane Intellect, armour and Mana Shield up.")
+        mage_row = 38
+    end
+    local top = y + (mage_row or 0)
+
     local groups = spellbook.categories and spellbook.categories() or {}
     if #groups == 0 then
         win:render_text(FONT_SMALL, vec2.new(x + 12, y + 8), warn, "No spells found.")
@@ -1835,11 +2004,12 @@ menu:on_tab("spells", function(win, x, y, w, h)
     end
 
     local ok_b, buffs = pcall(require, "buffs")
+    local ok_p, picks = pcall(require, "picks")
     local ok_c, cats = pcall(require, "data/spell_categories")
     local buff_key = (ok_c and cats and cats.BUFF) or "buff"
 
-    local row_y = y + 4
-    local bottom = y + h - 24
+    local row_y = top + 4
+    local bottom = y + h - 40
     local shown = 0
 
     for gi = 1, #groups do
@@ -1857,31 +2027,60 @@ menu:on_tab("spells", function(win, x, y, w, h)
             local fam = grp.spells[si]
             local n = (type(fam.ranks) == "table") and #fam.ranks or 1
 
-            -- Buffs get a tick box; buffs.lua keeps the ticked ones up.
+            -- EVERY row is a tick box now, not just the buffs: this tab is
+            -- where the rotation is set.
+            --
+            -- A buff is two-state, because "keep this up" has no sensible
+            -- default and untouched means off. Everything else is THREE
+            -- state - on, off, and untouched - so a spell nobody has clicked
+            -- keeps whatever the class rotation already decided, and clicking
+            -- round once more hands it back.
             local is_buff = (grp.key == buff_key) and ok_b and buffs
+            local st
             if is_buff then
-                local on = buffs.is_enabled(fam.name)
-                local bmin = vec2.new(x + 16, row_y + 2)
-                local bmax = vec2.new(x + 28, row_y + 14)
-                pcall(function()
-                    win:render_rect_filled(bmin, bmax,
-                        on and color.new(90, 210, 110, 220) or color.new(38, 40, 48, 220), 2.0)
-                end)
-                pcall(function()
-                    win:render_rect(bmin, bmax, color.new(120, 130, 150, 220), 2.0, 1.0)
-                end)
-                local hit = false
-                pcall(function()
-                    hit = win:is_rect_clicked(vec2.new(x + 12, row_y), vec2.new(x + w - 10, row_y + 18)) == true
-                end)
-                if hit then
-                    buffs.toggle(fam.name)
-                end
-                win:render_text(FONT_SMALL, vec2.new(x + 34, row_y), on and ok_col or gold,
-                    tostring(fam.name))
+                st = buffs.is_enabled(fam.name)
             else
-                win:render_text(FONT_SMALL, vec2.new(x + 22, row_y), gold, tostring(fam.name))
+                st = ok_p and picks and picks.state(fam.name) or nil
             end
+
+            local box
+            if st == true then
+                box = color.new(90, 210, 110, 220)      -- on
+            elseif st == false then
+                box = color.new(190, 80, 80, 220)       -- deliberately off
+            else
+                box = color.new(38, 40, 48, 220)        -- untouched
+            end
+
+            local bmin = vec2.new(x + 16, row_y + 2)
+            local bmax = vec2.new(x + 28, row_y + 14)
+            pcall(function()
+                win:render_rect_filled(bmin, bmax, box, 2.0)
+            end)
+            pcall(function()
+                win:render_rect(bmin, bmax, color.new(120, 130, 150, 220), 2.0, 1.0)
+            end)
+
+            local hit = false
+            pcall(function()
+                hit = win:is_rect_clicked(vec2.new(x + 12, row_y), vec2.new(x + w - 10, row_y + 18)) == true
+            end)
+            if hit then
+                if is_buff then
+                    buffs.toggle(fam.name)
+                elseif ok_p and picks then
+                    picks.cycle(fam.name)
+                    mark_settings_dirty()
+                end
+            end
+
+            local label_col = gold
+            if st == true then
+                label_col = ok_col
+            elseif st == false then
+                label_col = mute
+            end
+            win:render_text(FONT_SMALL, vec2.new(x + 34, row_y), label_col, tostring(fam.name))
 
             -- One row per spell, at its HIGHEST rank. fam.id is the top rank
             -- and n is how many exist behind it, so a mage sees one Frostbolt
@@ -1900,10 +2099,16 @@ menu:on_tab("spells", function(win, x, y, w, h)
     if spellbook.counts then
         ids, distinct = spellbook.counts()
     end
-    local on_n = (ok_b and buffs and buffs.enabled_count and buffs.enabled_count()) or 0
+    local pick_on, pick_off = 0, 0
+    if ok_p and picks and type(picks.count) == "function" then
+        pick_on, pick_off = picks.count()
+    end
     win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 2), mute,
-        string.format("%d of %d spells shown at highest rank, %d ranks in the book - %d buff%s kept up.",
-            shown, distinct, ids, on_n, on_n == 1 and "" or "s"))
+        string.format("%d of %d spells shown at highest rank, %d ranks in the book.",
+            shown, distinct, ids))
+    win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 18), mute,
+        string.format("%d on, %d off, the rest left to the class rotation. Click a row to cycle.",
+            pick_on, pick_off))
 
     -- Ids the client would neither name nor give a base spell for. They are
     -- counted rather than listed: one row each would be a screen of numbers,

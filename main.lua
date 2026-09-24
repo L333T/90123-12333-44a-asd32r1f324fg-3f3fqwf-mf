@@ -3,8 +3,8 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
@@ -17,6 +17,8 @@ local PLUGIN_MODULES = {
     "spellbook",
     "spell_range",
     "auras",
+    "picks",
+    "combat",
     "conjure",
     "ui",
     "version",
@@ -129,6 +131,7 @@ local rotation = load_mod("rotation")
 local death = load_mod("death")
 local healing = load_mod("healing")
 local conjure = load_mod("conjure")
+local picks = load_mod("picks")
 local vendor = load_mod("vendor")
 local equip = load_mod("equip")
 local trainer = load_mod("trainer")
@@ -159,15 +162,18 @@ if settings then
             end
         end)
 
-    -- The buff toggles, which only exist after the spellbook scan and so
-    -- could never have had a menu element behind them.
+    -- The Spells tab picks - buff toggles and rotation choices alike. These
+    -- only exist after the spellbook scan and so could never have had a menu
+    -- element behind them. The key stays "buffs" so a settings file written
+    -- by 2.3.0 still loads; picks.deserialise reads that older one-line form
+    -- as "these were all switched on", which is what it meant.
     settings.register("buffs",
         function()
-            return buffs and type(buffs.serialise) == "function" and buffs.serialise() or nil
+            return picks and type(picks.serialise) == "function" and picks.serialise() or nil
         end,
         function(value)
-            if buffs and type(buffs.deserialise) == "function" then
-                buffs.deserialise(value)
+            if picks and type(picks.deserialise) == "function" then
+                picks.deserialise(value)
             end
         end)
 end

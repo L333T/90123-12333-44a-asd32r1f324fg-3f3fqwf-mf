@@ -3,8 +3,8 @@
 -- Spell categories
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- ============================================================================
 -- HOW A SPELL GETS ITS CATEGORY
 --   1. An explicit id, which always wins. Used where a name is ambiguous

@@ -3,8 +3,8 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED
 --   The bot must be doing something - rotation only, a grind profile, or a
@@ -47,6 +47,7 @@ local izi = require("common/izi_sdk")
 
 local gui = require("gui")
 local auras = require("auras")
+local picks = require("picks")
 local spellbook = require("spellbook")
 local state = require("state")
 
@@ -70,11 +71,8 @@ local REFRESH_LEAD = 0
 local last_act = -1e9
 local failed_until = {}      -- name -> time before which we do not retry
 
--- Which buffs the player has switched on, by spell name. Kept here rather
--- than in menu elements because the spell list is discovered at runtime and
--- the menu's elements are registered at load - the same mismatch that made
--- the route index unreachable in 1.9.3.
-local enabled = {}
+-- Which buffs are switched on lives in picks.lua, shared with the Spells tab
+-- and the rotations. Only the back-off timers are local to this file.
 
 local function safe(fn)
     local ok, result = pcall(fn)
@@ -87,11 +85,16 @@ end
 -- ----------------------------------------------------------------------------
 -- TOGGLE STATE
 -- ----------------------------------------------------------------------------
+-- Delegated to picks.lua. This used to be a second copy of the same table,
+-- and two registries of one fact can only drift: the set the Spells tab drew
+-- was not always the set this file read.
+--
+-- A buff is kept up only when it was explicitly switched ON. Unlike a
+-- rotation spell there is no sensible default here - buffing everything in
+-- the book on sight would be worse than buffing nothing - so untouched
+-- counts as off.
 function buffs.is_enabled(name)
-    if type(name) ~= "string" then
-        return false
-    end
-    return enabled[name] == true
+    return picks.is_enabled(name)
 end
 
 local function mark_dirty()
@@ -105,33 +108,9 @@ function buffs.set_enabled(name, on)
     if type(name) ~= "string" then
         return
     end
-    enabled[name] = (on == true) or nil
+    picks.set(name, on)
     failed_until[name] = nil
     mark_dirty()
-end
-
---- The enabled set as one string, for settings.lua. Names are separated by
---- newlines because a spell name can contain a comma but not a newline.
-function buffs.serialise()
-    local out = {}
-    for name in pairs(enabled) do
-        out[#out + 1] = name
-    end
-    table.sort(out)
-    return table.concat(out, "\n")
-end
-
-function buffs.deserialise(text)
-    enabled = {}
-    failed_until = {}
-    if type(text) ~= "string" then
-        return
-    end
-    for name in text:gmatch("[^\n]+") do
-        if name ~= "" then
-            enabled[name] = true
-        end
-    end
 end
 
 function buffs.toggle(name)
@@ -141,11 +120,8 @@ end
 
 --- How many buffs are switched on, for the tab's status line.
 function buffs.enabled_count()
-    local n = 0
-    for _ in pairs(enabled) do
-        n = n + 1
-    end
-    return n
+    local on = picks.count()
+    return on
 end
 
 -- ----------------------------------------------------------------------------
@@ -218,7 +194,7 @@ function buffs.tick(player)
     for i = 1, #list do
         local fam = list[i]
         local name = fam.name
-        if enabled[name] then
+        if picks.is_enabled(name) then
             local hold = failed_until[name] or 0
             if now >= hold and needs_cast(player, fam) then
                 local spell = safe(function() return izi.spell(fam.id) end)

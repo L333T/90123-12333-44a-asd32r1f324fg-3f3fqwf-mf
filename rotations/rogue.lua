@@ -3,8 +3,8 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
 --   Applying a poison is a two-step interaction: use the poison, which puts it
@@ -311,6 +311,35 @@ function rogue.tick(player, target, ctx)
         if cast_at(sinister_strike, target, "Sinister Strike") then return true end
     end
     return false
+end
+
+
+-- ----------------------------------------------------------------------------
+-- COMBAT ENGINE HOOK
+-- ----------------------------------------------------------------------------
+--- Interrupt any caster in the pack, not only the current target.
+---
+--- combat.assist calls this for every unit in the pack that is casting. The
+--- rotation below still kicks what it is hitting; this is what catches a mob
+--- healing itself behind the one being hit, which previously finished its
+--- cast unchallenged.
+---
+--- Range is checked through spell_range so a big mob's hitbox counts, and the
+--- cast itself goes through cast_at, which refuses an out-of-range spell.
+function rogue.interrupt(player, unit)
+    if not player or not unit then
+        return false
+    end
+    if gui.is_on("kick") ~= true or not learned(kick) then
+        return false
+    end
+    if not range.spell(unit, live("kick", kick), 5) then
+        return false
+    end
+    if safe(function() return player:los_to(unit) end) == false then
+        return false
+    end
+    return cast_at(live("kick", kick), unit, "Kick")
 end
 
 return rogue

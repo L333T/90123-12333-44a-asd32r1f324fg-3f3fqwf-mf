@@ -3,8 +3,8 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
 
@@ -20,6 +20,7 @@ local warlock = require("rotations/warlock")
 local shaman = require("rotations/shaman")
 local rogue = require("rotations/rogue")
 local targeting = require("targeting")
+local combat = require("combat")
 
 local by_class = {}
 local function register(mod)
@@ -196,6 +197,32 @@ function rotation.tick(player, target, ctx)
     if not mod or type(mod.tick) ~= "function" then
         return false
     end
+
+    -- Resolve the target through the combat engine. The caller's own live
+    -- target always wins; the latch only fills in when that target is gone,
+    -- so a grind or quest route keeps deciding what to fight.
+    ctx = ctx or {}
+    local pack = ctx.enemies
+    if type(pack) ~= "table" then
+        pack = nil
+    end
+    local resolved, scanned = combat.acquire(player, rotation.combat_range(player), target, pack)
+    if resolved then
+        target = resolved
+        ctx.enemies = scanned
+    end
+
+    if combat.dismount(player, target) then
+        return true
+    end
+
+    -- Interrupt / taunt / aggro dump across the whole pack, before the damage
+    -- rotation. Each rotation only ever interrupted its CURRENT target, so a
+    -- mob casting behind the one being hit finished its cast unchallenged.
+    if combat.assist(player, target, ctx.enemies, mod) then
+        return true
+    end
+
     if player and target and targeting and type(targeting.start_auto_attack) == "function" then
         targeting.start_auto_attack(player, target)
     end

@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.3.0
+-- Version: 2.4.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach
@@ -90,7 +90,20 @@ function Rg.in_fight_range(player, unit, yards)
         end
     end
     if range <= 3 then has_los = true end
-    return (range <= yards and has_los), range, has_los
+
+    -- `range` is centre to centre, so comparing it straight against `yards`
+    -- puts a large mob out of the fight while the player is standing in its
+    -- hitbox. Ask the client, which measures to the hitbox, and keep the raw
+    -- distance as the returned value because callers steer on it.
+    local in_range
+    local ok_r, hit = pcall(unit.is_in_range, unit, yards)
+    if ok_r and type(hit) == "boolean" then
+        in_range = hit
+    else
+        in_range = (range <= yards)
+    end
+
+    return (in_range and has_los), range, has_los
 end
 
 function Rg.arrived(dest, yards)

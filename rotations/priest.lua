@@ -3,7 +3,7 @@
 -- Priest grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.3.0
+-- Version: 2.4.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Ported from the reference grindbot's Buff_Check Priest branch, which kept
@@ -35,6 +35,7 @@ local resting = require("resting")
 local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
+local range = require("spell_range")
 
 local priest = {}
 
@@ -182,6 +183,16 @@ local function cast_at(spell, target, label)
     if not spell or not target then
         return false
     end
+
+    -- Ask the client whether THIS spell reaches THIS target before trying it.
+    -- The raw cast below is ungated, so without this an out-of-range ability
+    -- was sent to the server, rejected, and retried on the very next tick -
+    -- the rotation would sit on a short-ranged spell and never fall through
+    -- to one it could actually land.
+    if not range.spell(target, spell) then
+        return false
+    end
+
     local ok = safe(function() return spell:cast_safe(target, label) end)
     if ok ~= true then
         ok = safe(function() return spell:cast(target, label) end)
@@ -439,7 +450,7 @@ function priest.tick(player, target, ctx)
 
     local yards = priest.combat_range(player)
     local dist = safe(function() return player:distance_to(target) end) or 99
-    if dist > yards then
+    if not range.within(target, yards) then
         return false
     end
 

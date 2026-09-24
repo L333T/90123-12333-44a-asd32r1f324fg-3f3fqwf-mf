@@ -3,7 +3,7 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.3.0
+-- Version: 2.4.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
@@ -41,6 +41,7 @@ local resting = require("resting")
 local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
+local range = require("spell_range")
 
 local rogue = {}
 
@@ -117,9 +118,23 @@ local function cast_self(spell, player, label)
 end
 
 local function cast_at(spell, target, label)
-    if not spell or not target then return false end
+    if not spell or not target then
+        return false
+    end
+
+    -- Ask the client whether THIS spell reaches THIS target before trying it.
+    -- The raw cast below is ungated, so without this an out-of-range ability
+    -- was sent to the server, rejected, and retried on the very next tick -
+    -- the rotation would sit on a short-ranged spell and never fall through
+    -- to one it could actually land.
+    if not range.spell(target, spell) then
+        return false
+    end
+
     local ok = safe(function() return spell:cast_safe(target, label) end)
-    if ok ~= true then ok = safe(function() return spell:cast(target, label) end) end
+    if ok ~= true then
+        ok = safe(function() return spell:cast(target, label) end)
+    end
     if ok == true then rotation_note(label) return true end
     return false
 end
@@ -254,7 +269,10 @@ function rogue.tick(player, target, ctx)
     end
 
     local dist = safe(function() return player:distance_to(target) end) or 99
-    if dist > 5 then return false end
+    -- Hitbox aware: centre-to-centre distance to a large mob reads well over
+    -- five yards while the player is standing inside its hitbox swinging at
+    -- it, and the old check refused the whole melee block on that reading.
+    if not range.melee(target, 5) then return false end
 
     if gui.is_on("kick") and learned(kick) then
         if safe(function() return target:is_casting() end) == true then

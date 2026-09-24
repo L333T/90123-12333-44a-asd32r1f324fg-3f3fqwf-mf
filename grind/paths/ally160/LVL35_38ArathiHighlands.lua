@@ -3,7 +3,7 @@
 -- Arathi Highlands 35-38
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.10.0
+-- Version: 2.11.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

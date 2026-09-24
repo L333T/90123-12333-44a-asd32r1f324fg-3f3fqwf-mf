@@ -3,7 +3,7 @@
 -- Consumables — conjured + vendor food/water from Orca tables
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.0
+-- Version: 2.6.1
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- Source: orca de.lua conjuredFood / food / conjuredDrinks / drinks / foodordrink
 -- Highest rank / best restore first.
@@ -70,54 +70,73 @@ consumables.MANNA_ITEM_IDS = {
     34780, -- Naaru Ration
 }
 
--- Vendor / drop water and juice (not alcohol)
-consumables.VENDOR_WATER_ITEM_IDS = {
-    28399, -- Filtered Draenic Water
-    27860, -- Purified Draenic Water
-    38431, -- Blackrock Fortified Water
-    38430, -- Blackrock Mineral Water
-    38429, -- Blackrock Spring Water
-    32453, -- Star's Tears
-    32455, -- Star's Lament
-    32722, -- Enriched Terocone Juice
-    30457, -- Gilneas Sparkling Water
-    19300, -- Bottled Winterspring Water
-    18300, -- Hyjal Nectar
-    8766,  -- Morning Glory Dew
-    1645,  -- Moonberry Juice
-    1708,  -- Sweet Nectar
-    1205,  -- Melon Juice
-    4791,  -- Enchanted Water
-    9451,  -- Bubbling Water
-    33042, -- Black Coffee
-    1179,  -- Ice Cold Milk
-    159,   -- Refreshing Spring Water
+-- ============================================================================
+-- THE FULL FOOD AND DRINK LISTS
+-- ============================================================================
+-- Every food and drink the bot will consider, BEST FIRST. Position in these
+-- lists is the whole ranking: resting.lua uses the first one it is actually
+-- carrying, so earlier means better.
+--
+-- ORDER MATTERS, AND THE SOURCE FOOD LIST WAS NOT IN IT
+--   The drink list arrived best first already - Conjured Glacier Water sixth,
+--   Refreshing Spring Water last. The food list did not: it was a Vanilla
+--   block in best-first order with a TBC block appended after it, so Tough
+--   Jerky (level 1) sat at position 179 while Conjured Croissant (level 70)
+--   sat at 188 and Smoked Talbuk Venison at 223. Taking the first held item
+--   from that would have meant a level 70 mage eating Tough Jerky.
+--
+--   The TBC block is therefore moved in front of the Vanilla block here.
+--   Neither block's internal order is touched - each was already best first -
+--   and the result is one list that genuinely descends in quality.
+--
+-- FIVE IDS APPEAR IN BOTH
+--   20031, 32722, 33053, 34062 and 34780 are the manna biscuits and rations,
+--   which restore health and mana together. Being in both lists is correct:
+--   they are a valid answer to either question.
+-- ============================================================================
+
+-- 242 ids: 60 from TBC, then 182 from Vanilla.
+consumables.FOOD_FULL_LIST = {
+    33053, 34062, 34780, 32722, 27663, 22019, 29394, 29448, 29449, 29450,
+    29451, 29452, 29453, 30355, 30357, 30358, 30359, 30361, 32685, 32686,
+    33048, 33052, 33872, 38428, 22895, 24008, 24009, 24539, 27651, 27655,
+    27657, 27658, 27659, 27660, 27661, 27662, 27664, 27665, 27666, 27667,
+    27854, 27855, 27856, 27857, 27858, 27859, 28486, 29393, 29412, 30155,
+    30458, 30610, 31672, 31673, 32721, 33867, 38427, 24338, 28501, 29292,
+    21215, 21023, 20031, 19301, 20516, 19996, 21236, 23172, 21240, 21254,
+    19995, 21235, 19696, 19994, 8932, 20452, 13893, 18255, 13810, 18254,
+    8952, 13724, 13935, 8953, 8948, 8950, 8076, 11415, 13933, 13934,
+    21033, 21031, 23160, 16171, 12763, 11444, 19225, 22324, 13755, 13931,
+    13928, 3927, 6887, 4599, 13932, 13929, 4608, 13930, 4602, 13927,
+    16766, 21552, 4601, 19306, 9681, 21030, 16168, 8075, 17408, 18635,
+    12218, 16971, 18045, 12216, 21217, 17222, 12215, 4457, 13546, 12210,
+    8364, 3771, 13851, 3729, 12213, 4594, 12214, 4539, 1707, 18632,
+    12212, 4544, 19224, 4607, 17407, 16169, 1487, 6038, 8543, 12211,
+    6807, 20074, 3728, 1119, 5527, 4593, 3770, 7228, 12209, 3665,
+    4538, 3664, 3663, 3726, 4606, 5480, 1017, 3727, 3666, 422,
+    19305, 4542, 1114, 16170, 5479, 21072, 1082, 5526, 5478, 2685,
+    12238, 5525, 4592, 5095, 2683, 2684, 2687, 6890, 4537, 2287,
+    4541, 3220, 414, 17119, 2682, 4605, 5477, 724, 733, 1113,
+    5066, 3662, 19304, 5476, 16167, 6316, 17406, 18633, 3448, 1326,
+    17198, 5474, 17199, 2888, 2680, 6888, 2681, 17197, 12224, 5472,
+    11109, 7808, 7806, 7807, 6299, 6290, 787, 5349, 19223, 2679,
+    7097, 16166, 17344, 4536, 2070, 11584, 961, 4604, 117, 4540,
+    4656, 5057,
 }
 
--- Vendor / cooked / drop food (not alcohol, not pet feed)
-consumables.VENDOR_FOOD_ITEM_IDS = {
-    35565, 32721, 33052, 33053, 33048, 33872, 33866, 33867, 33825, 32686, 32685,
-    31673, 31672, 30816, 30610, 30458, 30361, 30359, 30358, 30357, 30355, 30155,
-    29453, 29452, 29451, 29450, 29449, 29448, 29412, 29394, 29393, 29293, 29292,
-    28501, 28486, 28112, 27859, 27858, 27857, 27856, 27855, 27854, 27667, 27666,
-    27665, 27664, 27663, 27662, 27661, 27660, 27659, 27658, 27657, 27656, 27655,
-    27651, 24539, 24338, 24105, 24072, 24009, 24008, 23756, 23495, 23172, 23160,
-    22645, 22324, 21552, 21254, 21240, 21236, 21235, 21217, 21215, 21072, 21033,
-    21031, 21030, 21023, 20857, 20516, 20452, 20074, 20031, 19996, 19995, 19994,
-    19696, 19306, 19305, 19304, 19301, 19225, 19224, 19223, 18635, 18633, 18632,
-    18255, 18254, 18045, 17408, 17407, 17406, 17344, 17222, 17197, 17119, 16971,
-    16766, 16171, 16170, 16169, 16168, 16167, 16166, 13935, 13934, 13933, 13932,
-    13931, 13930, 13929, 13928, 13927, 13893, 13851, 13810, 13755, 13724, 13546,
-    12763, 12238, 12224, 12218, 12217, 12216, 12215, 12214, 12213, 12212, 12211,
-    12210, 12209, 11951, 11584, 11444, 11415, 9681, 8957, 8953, 8952, 8950, 8948,
-    8932, 8364, 7808, 7807, 7806, 733, 724, 7228, 7097, 6890, 6888, 6887, 6807,
-    6657, 6522, 6316, 6299, 6290, 6038, 5527, 5526, 5525, 5480, 5479, 5478, 5477,
-    5476, 5474, 5473, 5472, 5095, 5066, 4656, 4608, 4607, 4606, 4605, 4604, 4602,
-    4601, 4599, 4593, 4592, 4544, 4542, 4541, 4540, 4539, 4538, 4537, 4536, 4457,
-    422, 414, 3927, 3771, 3770, 3729, 3728, 3727, 3726, 3666, 3665, 3664, 3663,
-    3662, 35710, 3448, 33924, 33004, 3220, 30816, 2888, 2687, 2685, 2684, 2683,
-    2682, 2681, 2680, 2679, 23495, 2287, 2070, 1707, 1326, 117, 1082, 1017, 787,
+-- 40 ids, best first as supplied.
+consumables.DRINK_FULL_LIST = {
+    33053, 34062, 34780, 20031, 32722, 22018, 27860, 29395, 29401, 30457,
+    32453, 32668, 33042, 34411, 38431, 28399, 29454, 30703, 33825, 38430,
+    8079, 18300, 32455, 8766, 8078, 1645, 8077, 19300, 4791, 1708,
+    10841, 3772, 1205, 9451, 2136, 1179, 2288, 17404, 5350, 159,
 }
+
+-- The previous names, kept so nothing that referred to them breaks. They are
+-- the same lists: the split into "vendor" and everything else stopped being
+-- meaningful once these covered drops and quest rewards too.
+consumables.VENDOR_FOOD_ITEM_IDS = consumables.FOOD_FULL_LIST
+consumables.VENDOR_WATER_ITEM_IDS = consumables.DRINK_FULL_LIST
 
 local function merge_unique(lists)
     local seen = {}
@@ -137,95 +156,28 @@ local function merge_unique(lists)
     return out
 end
 
+-- The curated list comes FIRST, because its order is the ranking.
+--
+-- These used to lead with CONJURED_*_ITEM_IDS, which put all nine conjured
+-- ranks ahead of every vendor item - so a level 70 mage carrying a leftover
+-- rank 1 Conjured Water and a stack of Filtered Draenic Water would have
+-- drunk the rank 1. The full lists already contain every conjured item at its
+-- proper place (Conjured Glacier Water sixth, Conjured Water second from
+-- last), so leading with them was both redundant and wrong.
+--
+-- The conjured and manna tables still follow as a safety net: anything they
+-- hold that the curated list somehow misses is appended rather than lost.
 consumables.FOOD_ITEM_IDS = merge_unique({
+    consumables.FOOD_FULL_LIST,
     consumables.CONJURED_FOOD_ITEM_IDS,
     consumables.MANNA_ITEM_IDS,
-    consumables.VENDOR_FOOD_ITEM_IDS,
 })
 
 consumables.WATER_ITEM_IDS = merge_unique({
+    consumables.DRINK_FULL_LIST,
     consumables.CONJURED_WATER_ITEM_IDS,
     consumables.MANNA_ITEM_IDS,
-    consumables.VENDOR_WATER_ITEM_IDS,
 })
-
--- ============================================================================
--- REQUIRED LEVEL, FOR PICKING THE BEST ONE IN THE BAGS
--- ============================================================================
--- "Use the highest level food/water in the bags" needs a level per item, and
--- the client exposes none: there is no item-level call anywhere on the item
--- object or in core.inventory. So the ladder is data.
---
--- These are the standard vendor ladders, which is what the bot actually
--- carries - supplies.lua buys from merchants, so the bags hold vendor stock
--- plus whatever a mage conjured.
---
--- An id that is not listed here ranks 0 and is used only when nothing ranked
--- is held. That is deliberate: guessing a level for an unknown drop or quest
--- reward would be worse than falling back to list order, which is at least
--- predictable.
-consumables.WATER_LEVEL = {
-    [159]   = 1,    -- Refreshing Spring Water
-    [1179]  = 5,    -- Ice Cold Milk
-    [1205]  = 15,   -- Melon Juice
-    [1708]  = 25,   -- Sweet Nectar
-    [1645]  = 35,   -- Moonberry Juice
-    [8766]  = 45,   -- Morning Glory Dew
-    [18300] = 50,   -- Hyjal Nectar
-    [19300] = 55,   -- Bottled Winterspring Water
-    [27860] = 62,   -- Purified Draenic Water
-    [28399] = 65,   -- Filtered Draenic Water
-    [32453] = 70,   -- Star's Tears
-}
-
-consumables.FOOD_LEVEL = {
-    [117]   = 1,    -- Tough Jerky
-    [2287]  = 5,    -- Haunch of Meat
-    [3770]  = 15,   -- Mutton Chop
-    [3771]  = 25,   -- Wild Hog Shank
-    [4599]  = 35,   -- Cured Ham Steak
-    [8952]  = 45,   -- Roasted Quail
-    [8950]  = 45,   -- Homemade Cherry Pie
-    [27854] = 65,   -- Smoked Talbuk Venison
-    [27855] = 65,   -- Mag'har Grainbread
-    [29449] = 65,   -- Sporeggar Mushroom
-}
-
--- Conjured items rank above any vendor stock of the same era, because a mage
--- that has just conjured has a fresh stack and no reason to eat bought food.
--- The numbers keep the ladder monotonic with the vendor ones above.
-consumables.CONJURED_LEVEL = {
-    [5350]  = 1,    -- Conjured Water
-    [2288]  = 15,   -- Conjured Fresh Water
-    [2136]  = 25,   -- Conjured Purified Water
-    [3772]  = 35,   -- Conjured Spring Water
-    [8077]  = 45,   -- Conjured Mineral Water
-    [8078]  = 55,   -- Conjured Sparkling Water
-    [8079]  = 60,   -- Conjured Crystal Water
-    [30703] = 65,   -- Conjured Mountain Spring Water
-    [22018] = 70,   -- Conjured Glacier Water
-
-    [5349]  = 1,    -- Conjured Muffin
-    [1113]  = 15,   -- Conjured Bread
-    [1114]  = 25,   -- Conjured Rye
-    [1487]  = 35,   -- Conjured Pumpernickel
-    [8075]  = 45,   -- Conjured Sourdough
-    [8076]  = 55,   -- Conjured Sweet Roll
-    [22895] = 60,   -- Conjured Cinnamon Roll
-    [34062] = 65,   -- Conjured Manna Biscuit
-    [22019] = 70,   -- Conjured Croissant
-}
-
---- Required level of an item, or 0 when it is not on any ladder.
-function consumables.level_of(id)
-    if type(id) ~= "number" then
-        return 0
-    end
-    return consumables.CONJURED_LEVEL[id]
-        or consumables.WATER_LEVEL[id]
-        or consumables.FOOD_LEVEL[id]
-        or 0
-end
 
 -- Eat / drink buff spell IDs (not item IDs)
 consumables.FOOD_AURA_IDS = {

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.0
+-- Version: 2.6.1
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback

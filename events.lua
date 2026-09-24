@@ -3,7 +3,7 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.0
+-- Version: 2.6.1
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- WHY THIS FILE EXISTS

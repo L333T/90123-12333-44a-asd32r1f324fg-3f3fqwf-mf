@@ -3,7 +3,7 @@
 -- Paladin grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.14.0
+-- Version: 2.14.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THE AURA IS A DROPDOWN AND NOT SIX CHECKBOXES
@@ -72,9 +72,12 @@ local AURA_LABELS = {
     "Fire Resistance Aura",
 }
 
-local auras = {}
+-- The Paladin's own Aura spells. NOT the shared `auras` module required
+-- above: this used to be called `auras` too and shadowed it, which made
+-- auras.aura_up nil and threw on every buffs_ooc tick.
+local aura_spells = {}
 for i = 1, #AURA_IDS do
-    auras[i] = make(AURA_IDS[i], true, false)
+    aura_spells[i] = make(AURA_IDS[i], true, false)
 end
 
 local BOM_IDS = { 27140, 25291, 19837, 19836, 19835, 19834, 19740 }
@@ -244,7 +247,7 @@ local function debug_dump()
     core.log("[Master Farmer - Grindbot] Paladin spell resolution:")
     for i = 1, #AURA_LABELS do
         core.log(string.format("    %-24s %s", AURA_LABELS[i],
-            (auras[i] and learned(auras[i])) and "OK" or "not learned / unresolved"))
+            (aura_spells[i] and learned(aura_spells[i])) and "OK" or "not learned / unresolved"))
     end
     for i = 1, #SPELL_LABELS do
         local name, spell = SPELL_LABELS[i][1], SPELL_LABELS[i][2]
@@ -351,7 +354,7 @@ function paladin.buffs_ooc(player)
 
     -- Exactly one aura is ever considered, so two can never fight each other.
     local idx = aura_choice()
-    local aura = auras[idx]
+    local aura = aura_spells[idx]
     if aura and learned(aura) then
         if not has_aura(player, AURA_IDS[idx]) then
             if cast_self(aura, player, AURA_LABELS[idx]) then

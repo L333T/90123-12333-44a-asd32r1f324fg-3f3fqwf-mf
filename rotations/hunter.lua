@@ -3,7 +3,7 @@
 -- Hunter grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.4.0
+-- Version: 2.5.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Warlock.
@@ -34,6 +34,18 @@ local pets = require("pets")
 local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
+local auras = require("auras")
+
+-- Refresh a damage-over-time effect this many seconds before it runs out.
+--
+-- Waiting for it to fall off leaves the mob with no DoT on it for however
+-- long it takes to notice and recast, which on a long fight is a tick of
+-- damage lost every cycle. Two seconds is enough to cover a bot tick and a
+-- global without clipping so early that the tail of the DoT is thrown away.
+-- Where the game will not report the time left, remaining reads as infinite
+-- and this reverts to recasting only once the DoT is gone.
+local DOT_LEAD = 2.0
+
 
 local hunter = {}
 
@@ -139,10 +151,14 @@ local function cast_at(spell, target, label)
     return false
 end
 
+-- Same question as before, asked through the cached aura layer: a rotation
+-- checks half a dozen auras per frame and each one used to be its own trip
+-- into the game.
 local function has_aura(unit, ids)
-    if not unit then return false end
-    if safe(function() return unit:has_buff(ids) end) == true then return true end
-    return safe(function() return unit:has_aura(ids) end) == true
+    if not unit then
+        return false
+    end
+    return auras.aura_up(unit, ids)
 end
 
 local debug_printed = false
@@ -295,12 +311,12 @@ function hunter.tick(player, target, ctx)
     if not range.within(target, hunter.combat_range(player)) then return false end
 
     if gui.is_on("hunters_mark") and learned(hunters_mark) then
-        if safe(function() return target:has_debuff(MARK_IDS) end) ~= true then
+        if auras.debuff_expiring(target, MARK_IDS, DOT_LEAD) then
             if cast_at(hunters_mark, target, "Hunter's Mark") then return true end
         end
     end
     if gui.is_on("serpent_sting") and learned(serpent_sting) then
-        if safe(function() return target:has_debuff(SERPENT_IDS) end) ~= true then
+        if auras.debuff_expiring(target, SERPENT_IDS, DOT_LEAD) then
             if cast_at(serpent_sting, target, "Serpent Sting") then return true end
         end
     end

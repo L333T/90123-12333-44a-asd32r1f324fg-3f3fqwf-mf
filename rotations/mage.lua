@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.4.0
+-- Version: 2.5.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -31,7 +31,13 @@ local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
+local auras = require("auras")
 local targeting = require("targeting")
+
+-- Re-apply a self buff this many seconds before it runs out, so the armour or
+-- shield is never actually missing mid fight. Matches buffs.lua.
+local BUFF_LEAD = 3.0
+
 
 local movement_mod = nil
 
@@ -250,13 +256,9 @@ local function shield_down(player, ids)
     if not player then
         return false
     end
-    if safe(function() return player:has_buff(ids) end) == true then
-        return false
-    end
-    if safe(function() return player:has_aura(ids) end) == true then
-        return false
-    end
-    return true
+    -- Nearly out counts as down, so the armour is re-applied just before it
+    -- lapses rather than just after. See buffs.lua for the same reasoning.
+    return auras.aura_expiring(player, ids, BUFF_LEAD)
 end
 
 local function cast_self_buff(spell, player, label)
@@ -773,11 +775,11 @@ local function target_frozen(target)
     if not target then return false end
     local ranks = spellbook.ranks("frost_nova")
     if type(ranks) == "table" and #ranks > 0 then
-        if safe(function() return target:has_debuff(ranks) end) == true then
+        if auras.debuff_up(target, ranks) then
             return true
         end
     end
-    return safe(function() return target:has_debuff(FROZEN_IDS) end) == true
+    return auras.debuff_up(target, FROZEN_IDS)
 end
 
 --- Rules the combat movement controller applies for this class (§17).
@@ -857,7 +859,7 @@ function mage.buffs_ooc(player)
         return false
     end
     if gui.is_on("ice_armor") then
-        local has_armor = safe(function() return player:has_buff(ARMOR_ANY) end) == true
+        local has_armor = not auras.buff_expiring(player, ARMOR_ANY, BUFF_LEAD)
         if not has_armor then
             if learned(ice_armor) and cast_self(ice_armor, player, "Ice Armor") then
                 return true
@@ -868,21 +870,21 @@ function mage.buffs_ooc(player)
         end
     end
     if gui.is_on("mage_armor") and learned(mage_armor) then
-        if safe(function() return player:has_buff({ 27125, 22783, 22782, 6117 }) end) ~= true then
+        if auras.buff_expiring(player, { 27125, 22783, 22782, 6117 }, BUFF_LEAD) then
             if cast_self(mage_armor, player, "Mage Armor") then
                 return true
             end
         end
     end
     if gui.is_on("molten_armor") and learned(molten_armor) then
-        if safe(function() return player:has_buff({ 30482 }) end) ~= true then
+        if auras.buff_expiring(player, { 30482 }, BUFF_LEAD) then
             if cast_self(molten_armor, player, "Molten Armor") then
                 return true
             end
         end
     end
     if learned(arcane_intellect) then
-        if safe(function() return player:has_buff({ 27127, 23028, 27126, 10157, 10156, 1461, 1460, 1459 }) end) ~= true then
+        if auras.buff_expiring(player, { 27127, 23028, 27126, 10157, 10156, 1461, 1460, 1459 }, BUFF_LEAD) then
             if cast_self(arcane_intellect, player, "Arcane Intellect") then
                 return true
             end
@@ -1002,14 +1004,14 @@ function mage.tick(player, target, ctx)
     seq_frozen = safe(function()
         local ranks = spellbook.ranks("frost_nova")
         if type(ranks) == "table" and #ranks > 0 then
-            return target:has_debuff(ranks) or target:has_debuff({ 33395 })
+            return auras.debuff_up(target, ranks) or auras.debuff_up(target, { 33395 })
         end
-        return target:has_debuff({ 27088, 10230, 6131, 865, 122, 33395 })
+        return auras.debuff_up(target, { 27088, 10230, 6131, 865, 122, 33395 })
     end) == true
 
 
     if learned(evocation) and mana <= 20 then
-        if safe(function() return player:has_buff({ 12051 }) end) ~= true then
+        if not auras.buff_up(player, { 12051 }) then
             if cast_self(live("evocation", evocation), player, "Evocation") then
                 return true
             end
@@ -1018,7 +1020,7 @@ function mage.tick(player, target, ctx)
 
     if gui.is_on("mana_shield") and learned(mana_shield) then
         local shield = live("mana_shield", mana_shield)
-        if safe(function() return player:has_buff(spellbook.ranks("mana_shield") or { 27131, 10193, 10192, 10191, 8495, 8494, 1463 }) end) ~= true then
+        if auras.buff_expiring(player, spellbook.ranks("mana_shield") or { 27131, 10193, 10192, 10191, 8495, 8494, 1463 }, BUFF_LEAD) then
             if cast_self(shield, player, "Mana Shield") then
                 return true
             end

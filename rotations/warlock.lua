@@ -3,7 +3,7 @@
 -- Warlock grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.4.0
+-- Version: 2.5.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Hunter.
@@ -36,6 +36,18 @@ local pets = require("pets")
 local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
+local auras = require("auras")
+
+-- Refresh a damage-over-time effect this many seconds before it runs out.
+--
+-- Waiting for it to fall off leaves the mob with no DoT on it for however
+-- long it takes to notice and recast, which on a long fight is a tick of
+-- damage lost every cycle. Two seconds is enough to cover a bot tick and a
+-- global without clipping so early that the tail of the DoT is thrown away.
+-- Where the game will not report the time left, remaining reads as infinite
+-- and this reverts to recasting only once the DoT is gone.
+local DOT_LEAD = 2.0
+
 
 local warlock = {}
 
@@ -160,10 +172,14 @@ local function cast_at(spell, target, label)
     return false
 end
 
+-- Same question as before, asked through the cached aura layer: a rotation
+-- checks half a dozen auras per frame and each one used to be its own trip
+-- into the game.
 local function has_aura(unit, ids)
-    if not unit then return false end
-    if safe(function() return unit:has_buff(ids) end) == true then return true end
-    return safe(function() return unit:has_aura(ids) end) == true
+    if not unit then
+        return false
+    end
+    return auras.aura_up(unit, ids)
 end
 
 --- Soul shards carried. Summoning anything but the Imp costs one.
@@ -353,17 +369,17 @@ function warlock.tick(player, target, ctx)
     if not range.within(target, warlock.combat_range(player)) then return false end
 
     if gui.is_on("curse_agony") and learned(curse_agony) then
-        if safe(function() return target:has_debuff(AGONY_IDS) end) ~= true then
+        if auras.debuff_expiring(target, AGONY_IDS, DOT_LEAD) then
             if cast_at(curse_agony, target, "Curse of Agony") then return true end
         end
     end
     if gui.is_on("corruption") and learned(corruption) then
-        if safe(function() return target:has_debuff(CORRUPTION_IDS) end) ~= true then
+        if auras.debuff_expiring(target, CORRUPTION_IDS, DOT_LEAD) then
             if cast_at(corruption, target, "Corruption") then return true end
         end
     end
     if gui.is_on("immolate") and learned(immolate) then
-        if safe(function() return target:has_debuff(IMMOLATE_IDS) end) ~= true then
+        if auras.debuff_expiring(target, IMMOLATE_IDS, DOT_LEAD) then
             if cast_at(immolate, target, "Immolate") then return true end
         end
     end

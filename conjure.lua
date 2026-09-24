@@ -3,7 +3,7 @@
 -- Conjured food and water, for mages
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.11.0
+-- Version: 2.12.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- A mage never has to buy food or water, and until now the bot made it do

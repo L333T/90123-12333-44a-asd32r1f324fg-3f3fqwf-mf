@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.5
+-- Version: 2.8.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -504,13 +504,45 @@ local function tick_rotation_only(player)
     -- Frostbolt takes seconds and the next frame started the decision over
     -- before it could land. "The rotation does not run" is what a caster that
     -- never finishes a cast looks like.
+    -- Dead is the one thing that stops Rotation Only outright. Everything
+    -- else - no target, out of combat, standing still - is a normal state in
+    -- which buffs should still be kept up.
+    if safe(function() return player:is_dead_or_ghost() end) == true
+        or safe(function() return player:is_dead() end) == true then
+        state.set_note("Rotation", "Rotation Only - dead")
+        return
+    end
+
     if player_is_busy(player) then
         state.set_note("Rotation", "Rotation Only - casting")
         return
     end
+
+    -- Buff upkeep runs BEFORE the target check, and therefore with or without
+    -- an enemy selected.
+    --
+    -- buffs.lua has always returned true from bot_is_working() when
+    -- rotation_only is set - it was written expecting to be called here. It
+    -- never was: on_update returns at the Rotation Only branch, and
+    -- buffs.tick sits below that, in the Play path. So a Mage in Rotation
+    -- Only kept no Armour, no Arcane Intellect and no Mana Shield unless it
+    -- happened to have an enemy targeted, and out of combat nothing ran at
+    -- all.
+    --
+    -- Returning after a cast is the same one-action-per-tick rule the rest of
+    -- the cascade follows; the buff has a global cooldown to serve.
+    if buffs and type(buffs.tick) == "function" and buffs.tick(player) then
+        state.set_note("Rotation", "Rotation Only - buffing")
+        return
+    end
+    if rotation.buffs_ooc(player) then
+        state.set_note("Rotation", "Rotation Only - buffing")
+        return
+    end
+
     local target = safe(function() return player:get_target() end)
     if not target or safe(function() return target:is_valid() end) ~= true then
-        state.set_note("Rotation", "Rotation Only - select a target")
+        state.set_note("Rotation", "Rotation Only - buffs up, select a target")
         return
     end
     if safe(function() return target:is_dead_or_ghost() end) == true or safe(function() return target:is_dead() end) == true then

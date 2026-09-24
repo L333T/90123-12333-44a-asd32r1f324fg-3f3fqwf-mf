@@ -3,7 +3,7 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.5
+-- Version: 2.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED
@@ -138,10 +138,39 @@ local function bot_is_working()
     return false
 end
 
+--- Is the character eating or drinking, by anyone's doing?
+---
+--- healing.is_resting reports the BOT's own rest flag, which is only set when
+--- the bot sat the character down itself. In Rotation Only the bot never
+--- rests - the player drives - so that flag is always false, and a buff that
+--- happened to drop while the player was eating would be cast straight into
+--- the meal and cancel it.
+---
+--- The food and drink auras are the real answer and cost nothing extra: the
+--- aura layer is cached.
 local function is_resting()
     local ok, healing = pcall(require, "healing")
     if ok and healing and type(healing.is_resting) == "function" then
-        return healing.is_resting() == true
+        if healing.is_resting() == true then
+            return true
+        end
+    end
+
+    local ok_c, cons = pcall(require, "data/consumables")
+    if not ok_c or type(cons) ~= "table" then
+        return false
+    end
+    local player = safe(function() return izi.me() end)
+    if not player then
+        return false
+    end
+    if type(cons.FOOD_AURA_IDS) == "table"
+        and auras.buff_up(player, cons.FOOD_AURA_IDS) then
+        return true
+    end
+    if type(cons.DRINK_AURA_IDS) == "table"
+        and auras.buff_up(player, cons.DRINK_AURA_IDS) then
+        return true
     end
     return false
 end

@@ -3,14 +3,15 @@
 -- Gnome/Dwarf 1-6 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 2.6.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : GnomeDwarfLvL1_6
 --   source file   : LVL1_6GnomeDwarfVendor.json
 --   waypoints     : 271
---   first/last gap: 2.3 yards -> loop
+--   first/last gap: 2.3 yards
+--   the ends meet, so the circuit closes on itself.
 --
 -- Vendor NPC ids come from the folder's README.txt: 829
 -- The merchant coordinates below are this path's FIRST WAYPOINT, not

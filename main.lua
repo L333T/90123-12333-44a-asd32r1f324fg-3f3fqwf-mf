@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.5.0
+-- Version: 2.6.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -17,6 +17,7 @@ local PLUGIN_MODULES = {
     "spellbook",
     "spell_range",
     "auras",
+    "conjure",
     "ui",
     "version",
     "state",
@@ -127,6 +128,7 @@ local loot = load_mod("loot")
 local rotation = load_mod("rotation")
 local death = load_mod("death")
 local healing = load_mod("healing")
+local conjure = load_mod("conjure")
 local vendor = load_mod("vendor")
 local equip = load_mod("equip")
 local trainer = load_mod("trainer")
@@ -581,6 +583,14 @@ local function on_update()
     -- range, healing.tick was never reached - the bot would sit at 30% mana
     -- working through corpses and never drink. Resting also hard-locks
     -- movement, so loot.tick below cannot walk off mid-drink.
+    -- Ahead of healing on purpose. A mage with an empty bag needs to conjure
+    -- BEFORE the rest logic goes looking for water, or the rest finds nothing,
+    -- reports empty bags, and the bot stands at low mana next to a spell that
+    -- would have fixed it. conjure.tick refuses to fire mid-meal, so it cannot
+    -- interrupt a rest that is already under way.
+    if conjure and type(conjure.tick) == "function" and conjure.tick(player) then
+        return
+    end
     if healing.tick(player) then
         return
     end

@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.5.0
+-- Version: 2.6.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan every 2 seconds. DEFS are rank-1 IDs; highest matching ID wins.
@@ -33,6 +33,7 @@ local book_names = {}
 -- it actually wants: one row per spell, at the best rank, rather than eleven
 -- rows of Frostbolt.
 local families = {}        -- array of { id, name, ranks = { id, ... }, category }
+local unnamed = {}         -- ids the client will not name and cannot group
 local by_category = {}     -- category -> array of families
 local families_by_name = {}
 local defs = {}
@@ -207,21 +208,39 @@ local function group_families()
     local by_key = {}
     local order = {}
 
+    unnamed = {}
+
     for i = 1, #book_ids do
         local id = book_ids[i]
-        -- An id the client will not name still gets a row, labelled by id.
-        -- Hiding it is how the list came up short against the spellbook.
-        local name = book_names[id] or spell_name(id) or ("Spell " .. tostring(id))
-        if name then
-            local base = safe(function()
-                return core.spell_book.get_base_spell_id(id)
-            end)
+        local base = safe(function()
+            return core.spell_book.get_base_spell_id(id)
+        end)
+        local has_base = (type(base) == "number" and base > 0)
+
+        -- The name, tried through the base spell too. A rank whose own id will
+        -- not resolve usually shares a base id with one that will, and taking
+        -- the base's name is what lets that rank join its family instead of
+        -- standing alone.
+        local name = book_names[id] or spell_name(id)
+        if not name and has_base then
+            name = book_names[base] or spell_name(base)
+        end
+
+        if not name and not has_base then
+            -- Nothing to group it by and nothing to call it. Previously this
+            -- was labelled "Spell <id>", which is unique per rank - so every
+            -- rank of it became its own family and the list showed eleven
+            -- Frostbolts instead of one. Count it and move on; the tab
+            -- reports the total rather than a screen of numbered rows.
+            unnamed[#unnamed + 1] = id
+        else
+            name = name or ("Spell " .. tostring(base))
 
             -- Key on the base id when the client gives a usable one, on the
             -- name otherwise. Two spells sharing a name but not a base id are
             -- the same family; two sharing neither are not.
             local key
-            if type(base) == "number" and base > 0 then
+            if has_base then
                 key = "b" .. tostring(base)
             else
                 key = "n" .. name
@@ -518,6 +537,13 @@ end
 --- many distinct spells that collapsed to.
 function spellbook.counts()
     return book_count, #families
+end
+
+--- How many ids the scan found that the client would neither name nor give a
+--- base spell for. They are real spells the character has, so they are counted
+--- rather than dropped, but they cannot be shown as named rows.
+function spellbook.unnamed_count()
+    return #unnamed
 end
 
 --- Families of one category, sorted by name.

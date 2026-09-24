@@ -3,14 +3,15 @@
 -- Gnome/Dwarf 8-11 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 2.6.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL8_11GnomeDwarfVendor
 --   source file   : LVL8_11GnomeDwafVendor.json
 --   waypoints     : 470
---   first/last gap: 1.0 yards -> loop
+--   first/last gap: 1.0 yards
+--   the ends meet, so the circuit closes on itself.
 --
 -- Vendor NPC ids come from the folder's README.txt: 1698
 -- The merchant coordinates below are this path's FIRST WAYPOINT, not

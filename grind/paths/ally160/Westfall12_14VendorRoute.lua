@@ -3,14 +3,15 @@
 -- Westfall 12-14 Vendor Route
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 2.6.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL12_14Westfall
 --   source file   : Westfall12_14VendorRoute.json
 --   waypoints     : 126
---   first/last gap: 797.1 yards -> point to point
+--   first/last gap: 797.1 yards
+--   a vendor transit path, not a circuit - it does not loop.
 --
 -- The README for this route records no vendor, so no merchant is set and
 -- the lap-end vendor visit does not run.

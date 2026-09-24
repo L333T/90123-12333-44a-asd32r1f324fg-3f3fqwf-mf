@@ -3,14 +3,15 @@
 -- Wetlands 21-26 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 2.6.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL21_26WetlandsVendor
 --   source file   : LVL21_26WetlandsVendor.json
 --   waypoints     : 534
---   first/last gap: 2.8 yards -> loop
+--   first/last gap: 2.8 yards
+--   the ends meet, so the circuit closes on itself.
 --
 -- Vendor NPC ids come from the folder's README.txt: 8305
 -- The merchant coordinates below are this path's FIRST WAYPOINT, not

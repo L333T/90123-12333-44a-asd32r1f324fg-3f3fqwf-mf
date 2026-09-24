@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.5.0
+-- Version: 2.6.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -276,10 +276,38 @@ local function use_first(ids)
     if type(ids) ~= "table" then
         return false, "no id list"
     end
+    -- Collect what is actually in the bags first, then use the highest level
+    -- one. Walking the list and taking the first hit used the order of the id
+    -- table instead, and that table is ordered by item id, not by what the
+    -- food restores - so a character holding both Tough Jerky and Roasted
+    -- Quail could sit down to the level 1 jerky.
+    --
+    -- Ties and unranked items keep their list order, which is the old
+    -- behaviour, so nothing regresses for an item with no known level.
+    -- level_of is looked up rather than called straight: this runs inside the
+    -- rest path, and a consumables table without it would otherwise throw
+    -- where the old code simply ate something. No ladder means every item
+    -- ranks 0 and the original list order stands.
+    local level_of = consumables.level_of
+    if type(level_of) ~= "function" then
+        level_of = function() return 0 end
+    end
+
+    local order = {}
+    for i = 1, #ids do
+        order[#order + 1] = { id = ids[i], seq = i, lvl = level_of(ids[i]) or 0 }
+    end
+    table.sort(order, function(a, b)
+        if a.lvl ~= b.lvl then
+            return a.lvl > b.lvl
+        end
+        return a.seq < b.seq
+    end)
+
     local held = 0
     local refused = nil
-    for i = 1, #ids do
-        local item = item_of(ids[i])
+    for i = 1, #order do
+        local item = item_of(order[i].id)
         if item then
             local count = safe(function() return item:count() end) or 0
             local ready = safe(function() return item:cooldown_up() end) == true
@@ -298,7 +326,7 @@ local function use_first(ids)
                 if ok == true then
                     return true
                 end
-                refused = refused or (safe(function() return item:name() end) or ids[i])
+                refused = refused or (safe(function() return item:name() end) or order[i].id)
             end
         end
     end

@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.4
+-- Version: 2.7.5
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE

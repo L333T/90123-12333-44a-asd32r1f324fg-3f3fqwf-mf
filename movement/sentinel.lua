@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.14.1
+-- Version: 2.15.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -19,18 +19,16 @@ local vec3 = require("common/geometry/vector_3")
 local K = require("movement/const")
 local R = require("movement/rt")
 local U = require("movement/util")
-local Z = require("movement/zones")
 local W = require("movement/walker")
 
 local OWNER             = K.OWNER
 local SN_NEED           = K.SN_NEED
 local INFLIGHT_TIMEOUT  = K.INFLIGHT_TIMEOUT
-local STUCK_ZONE_RADIUS = K.STUCK_ZONE_RADIUS
 
 local pt, to_vec3 = R.pt, R.to_vec3
 local xyz, dlog = U.xyz, U.dlog
 
-local P_DEST, P_TMP = R.P_DEST, R.P_TMP
+local P_DEST = R.P_DEST
 
 local N = {}
 
@@ -76,11 +74,15 @@ function N.on_nav_done(ok, reason)
     if r == "unreachable" or r == "navmesh" or r == "blocked" then
         W.mark_fail("unreachable")
     elseif r == "max_stuck_exceeded" then
+        -- Sentinel exhausted its recovery. Hand back to the walker, but do
+        -- NOT blacklist anything here.
+        --
+        -- This used to blacklist the DESTINATION, which is the one place we
+        -- know is not the obstruction: failing to reach a quest giver would
+        -- blacklist the quest giver. Sentinel's own AddAvoidanceZone puts the
+        -- zone at obstacles.last_hit, or the player's position when there is
+        -- no hit - the place actually blocked - and it owns that memory.
         W.mark_fail("max_stuck_exceeded")
-        if R.has_dest then
-            Z.blacklist_area(pt(P_TMP, R.dest_x, R.dest_y, R.dest_z),
-                STUCK_ZONE_RADIUS, "max_stuck_exceeded")
-        end
     else
         W.mark_fail(r ~= "" and r or "failed")
     end
@@ -92,8 +94,29 @@ end
 
 local on_nav_done = N.on_nav_done
 
+--- Sentinel has detected a stuck condition and has STARTED recovering.
+---
+--- This is not a failure and must not be treated as one. The legacy "stuck"
+--- event is documented as mapped from navigating.recovering, and the bus
+--- event nav.stuck_detected fires at the same point: the StuckRecoveryTree is
+--- about to run its staged escalation - jump, then probe plus an avoidance
+--- zone plus a repath, then strafe.
+---
+--- This used to call on_nav_done(false, "max_stuck_exceeded"), which tore the
+--- navigation down and took the player back before Sentinel had tried any of
+--- that. Sentinel owns stuck handling; we wait.
+---
+--- The terminal case arrives separately, as a failure with the reason
+--- max_stuck_exceeded, and is handled in on_nav_done.
 local function on_sn_stuck()
-    on_nav_done(false, "max_stuck_exceeded")
+    R.sn_recovering = true
+    dlog("sentinel", "stuck detected - Sentinel is recovering, holding")
+end
+
+--- Recovery worked and navigation continues.
+local function on_sn_recovered()
+    R.sn_recovering = false
+    dlog("sentinel", "stuck recovered")
 end
 
 local function on_sn_failed(reason)
@@ -115,21 +138,45 @@ local function on_reach_done(reachable, reason, _distance)
     end
 end
 
+--- Subscribe to Sentinel's navigation events.
+---
+--- TWO NAMING SCHEMES, AND THEY ARE NOT INTERCHANGEABLE.
+---   client:on(...)        legacy compatibility: "state_change", "arrived",
+---                         "stuck", "failed"
+---   get_event_bus():on()  namespaced: nav.state_changed, nav.arrived,
+---                         nav.stuck_detected, nav.stuck_recovered, nav.failed
+---
+--- The bus branch used to subscribe to the bare "stuck" and "failed". Those
+--- keys are never emitted on the bus, so it bound to nothing - and because
+--- bus:on happily registers a subscription for an event that never fires,
+--- the pcall succeeded and sn_events was set, so the silence looked like
+--- success. Sentinel's stuck and failure reports simply never arrived.
+---
+--- The bus is preferred now: it carries stuck_recovered, which the legacy
+--- event set has no equivalent for.
 local function bind_sn_events(c)
     if R.sn_events or type(c) ~= "table" then return end
+
+    if type(c.get_event_bus) == "function" then
+        local okB, bus = pcall(c.get_event_bus, c)
+        if okB and type(bus) == "table" and type(bus.on) == "function" then
+            local opts = { owner = N }
+            local ok1 = pcall(bus.on, bus, "nav.stuck_detected", on_sn_stuck, opts)
+            local ok2 = pcall(bus.on, bus, "nav.stuck_recovered", on_sn_recovered, opts)
+            local ok3 = pcall(bus.on, bus, "nav.failed", on_sn_failed, opts)
+            if ok1 or ok2 or ok3 then
+                R.sn_events = true
+                return
+            end
+        end
+    end
+
+    -- Older build with no bus: the legacy names are the right ones there.
     if type(c.on) == "function" then
         local ok1 = pcall(c.on, c, "stuck", on_sn_stuck)
         local ok2 = pcall(c.on, c, "failed", on_sn_failed)
         R.sn_events = ok1 == true or ok2 == true
-        return
     end
-    if type(c.get_event_bus) ~= "function" then return end
-    local okB, bus = pcall(c.get_event_bus, c)
-    if not okB or type(bus) ~= "table" or type(bus.on) ~= "function" then return end
-    local opts = { owner = N }
-    local ok1 = pcall(bus.on, bus, "stuck", on_sn_stuck, opts)
-    local ok2 = pcall(bus.on, bus, "failed", on_sn_failed, opts)
-    R.sn_events = ok1 == true or ok2 == true
 end
 
 -- ============================================================================

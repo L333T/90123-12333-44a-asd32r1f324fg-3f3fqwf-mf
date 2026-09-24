@@ -3,7 +3,7 @@
 -- Zygor Guides adapter
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.13.0
+-- Version: 2.14.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.zygor into the shapes quest/engine already understands:

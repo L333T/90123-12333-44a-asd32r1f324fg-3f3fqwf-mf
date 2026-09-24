@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.13.0
+-- Version: 2.14.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -165,11 +165,19 @@ end
 --- Walk to `npc_id`. Returns true once the bot is standing at it - every tick,
 --- and WITHOUT interacting. The dialog state machines below decide when to
 --- interact, because re-interacting closes whatever frame they are reading.
+-- The console line is kept - it is what you watch live - and the same text
+-- also goes to scripts_data/mfg/debug.log, because a console line cannot be
+-- scrolled back to or sent to anybody.
 local function quest_debug(fmt, ...)
     if gui.is_on("quest_debug") ~= true then
         return
     end
-    core.log("[Master Farmer - Grindbot] quest: " .. string.format(fmt, ...))
+    local text = select("#", ...) > 0 and string.format(fmt, ...) or tostring(fmt)
+    core.log("[Master Farmer - Grindbot] quest: " .. text)
+    local ok, dbg = pcall(require, "debuglog")
+    if ok and dbg and type(dbg.line) == "function" then
+        dbg.line("quest", "%s", text)
+    end
 end
 
 --- Find an NPC by id, falling back to its name.

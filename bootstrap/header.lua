@@ -3,7 +3,7 @@
 -- header.lua - load gate (local checks only)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.13.0
+-- Version: 2.14.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- This is the header for the THIN LOADER plugin, not for the plugin itself.

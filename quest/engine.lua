@@ -3,7 +3,7 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.13.0
+-- Version: 2.14.0
 -- Folder: Master_Farmer_Grindbot
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
@@ -533,20 +533,33 @@ local function zygor_tick(player)
     -- Turn "still not finding the NPC" into something readable. Off unless
     -- the Quest Debug box is ticked.
     if gui.is_on("quest_debug") then
+        local ok_d, dbg = pcall(require, "debuglog")
+        local function say(fmt, ...)
+            local text = string.format(fmt, ...)
+            core.log("[Master Farmer - Grindbot] zygor: " .. text)
+            if ok_d and dbg and type(dbg.line) == "function" then
+                dbg.line("zygor", "%s", text)
+            end
+        end
+
         local found, how = npc.find(player, unit_id, name_a, name_b, 100)
-        core.log(string.format(
-            "[Master Farmer - Grindbot] zygor: action=%s kind=%s npc_id=%s target_id=%s npc=%s target=%s -> %s%s",
+        say("action=%s kind=%s npc_id=%s target_id=%s npc=%s target=%s -> %s%s",
             tostring(goal.action), tostring(kind), tostring(goal.npc_id),
             tostring(goal.target_id), tostring(name_a), tostring(name_b),
-            found and "FOUND by " or "NOT FOUND", found and tostring(how) or ""))
+            found and "FOUND by " or "NOT FOUND", found and tostring(how) or "")
+
+        -- Where step_npc landed, since that is what the dialog branches use
+        -- when the current goal names nobody.
+        local sid, sname = zygor.step_npc()
+        say("step npc: id=%s name=%s", tostring(sid), tostring(sname))
+
         if pos then
             local me = safe(function() return player:get_position() end)
-            core.log(string.format(
-                "[Master Farmer - Grindbot] zygor: waypoint %.1f,%.1f,%.1f  player %.1f,%.1f,%.1f",
+            say("waypoint %.1f,%.1f,%.1f  player %.1f,%.1f,%.1f",
                 pos.x, pos.y, pos.z,
-                me and me.x or 0, me and me.y or 0, me and me.z or 0))
+                me and me.x or 0, me and me.y or 0, me and me.z or 0)
         else
-            core.log("[Master Farmer - Grindbot] zygor: no usable waypoint")
+            say("no usable waypoint")
         end
     end
     local pos, zdist, title = zygor.waypoint()

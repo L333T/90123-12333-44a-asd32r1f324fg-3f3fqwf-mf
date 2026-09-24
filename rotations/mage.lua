@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.14.0
+-- Version: 2.14.1
 -- Folder: Master_Farmer_Grindbot
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -503,9 +503,13 @@ local function cast_blizzard_most_hits(player, target)
     if not player_position then
         return false
     end
-    local range = BLIZZARD_RANGE
+    -- `yards`, not `range`: `range` is the spell_range module required at the
+    -- top of this file, and a local of that name here would shadow it for the
+    -- rest of the function. Harmless while nothing below calls range.spell,
+    -- and a nil-index on a number the moment something does.
+    local yards = BLIZZARD_RANGE
     if type(blizzard.maximum_range) == "number" and blizzard.maximum_range > 0 then
-        range = blizzard.maximum_range
+        yards = blizzard.maximum_range
     end
     local pred_type = spell_prediction.prediction_type
     local geo_type = spell_prediction.geometry_type
@@ -514,7 +518,7 @@ local function cast_blizzard_most_hits(player, target)
     end
     local spell_data = spell_prediction:new_spell_data(
         sid,
-        range,
+        yards,
         BLIZZARD_RADIUS,
         blizzard_cast_time(),
         0.0,

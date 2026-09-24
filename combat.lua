@@ -3,8 +3,8 @@
 -- Combat engine - pack scan, target latch, kill-first priority, class hooks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.1
--- Folder: Master_Farmer_Grindbot_v2.7.1
+-- Version: 2.7.2
+-- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared by every class rotation. Class modules opt in by exposing interrupt,
 -- taunt or aggro_dump; the engine never casts on their behalf.

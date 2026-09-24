@@ -3,8 +3,8 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.1
--- Folder: Master_Farmer_Grindbot_v2.7.1
+-- Version: 2.7.2
+-- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED
 --   The bot must be doing something - rotation only, a grind profile, or a

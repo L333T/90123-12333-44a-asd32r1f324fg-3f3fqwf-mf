@@ -3,8 +3,8 @@
 -- header.lua - load gate (local checks only)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.1
--- Folder: Master_Farmer_Grindbot_v2.7.1
+-- Version: 2.7.2
+-- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- This is the header for the THIN LOADER plugin, not for the plugin itself.
 -- Drop this folder into your Sylvanas plugins directory as its own plugin; it

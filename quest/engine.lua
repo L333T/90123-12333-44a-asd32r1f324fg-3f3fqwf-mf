@@ -3,7 +3,7 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.12.0
+-- Version: 2.12.1
 -- Folder: Master_Farmer_Grindbot
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
@@ -502,6 +502,12 @@ local function zygor_tick(player)
     end
 
     local kind = zygor.classify(goal)
+
+    -- Which unit this goal is about. Zygor fills npc_id on some goals and
+    -- target_id on others; a dialog branch that insisted on npc_id was
+    -- skipped whenever only target_id was set, and the tick fell through to
+    -- walking - the bot arrived at the NPC and never spoke to it.
+    local unit_id = goal.npc_id or goal.target_id
     local pos, zdist, title = zygor.waypoint()
     local label = goal.target or goal.npc or title or tostring(goal.target_id or goal.npc_id or "?")
 
@@ -519,29 +525,41 @@ local function zygor_tick(player)
     -- ---- quest dialog -----------------------------------------------------
     -- npc.at_npc walks there and returns true once the NPC is in reach, which
     -- is the same handshake the catalog path uses.
-    if kind == "accept" and goal.quest_id and goal.npc_id then
-        state.quest.id = goal.quest_id
+    if kind == "accept" and unit_id then
         state.set_note("Quest", "Zygor: accept " .. label)
-        if npc.at_npc(player, goal.npc_id, pos) then
-            npc.accept(player, goal.quest_id, goal.npc, goal.npc_id)
+        if npc.at_npc(player, unit_id, pos) then
+            if goal.quest_id then
+                state.quest.id = goal.quest_id
+                npc.accept(player, goal.quest_id, goal.npc, unit_id)
+            else
+                -- No quest id from the addon. Open the dialog anyway: the
+                -- gossip handler matches on title, and a frame the player can
+                -- see beats standing silently next to the quest giver.
+                npc.talk(player, unit_id, pos)
+            end
         end
         return true
     end
 
-    if kind == "turnin" and goal.quest_id and goal.npc_id then
-        state.quest.id = goal.quest_id
+    if kind == "turnin" and unit_id then
         state.set_note("Quest", "Zygor: turn in " .. label)
-        if npc.at_npc(player, goal.npc_id, pos) then
-            npc.turn_in(player, goal.quest_id, goal.npc, goal.npc_id)
+        if npc.at_npc(player, unit_id, pos) then
+            if goal.quest_id then
+                state.quest.id = goal.quest_id
+                npc.turn_in(player, goal.quest_id, goal.npc, unit_id)
+            else
+                npc.talk(player, unit_id, pos)
+            end
         end
         return true
     end
 
-    if kind == "talk" and goal.npc_id then
+    if kind == "talk" and unit_id then
+        -- npc.talk walks AND interacts. at_npc only walks - it returns true
+        -- once the NPC is in reach and leaves the dialog to accept/turn_in -
+        -- so calling it alone here meant the bot arrived and stood there.
         state.set_note("Quest", "Zygor: talk to " .. label)
-        -- at_npc both walks and interacts; a talk goal needs nothing more,
-        -- and the addon marks it complete once the frame opens.
-        npc.at_npc(player, goal.npc_id, pos)
+        npc.talk(player, unit_id, pos)
         return true
     end
 

@@ -3,7 +3,7 @@
 -- Alliance 1-60 w/Vendoring - path index
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.9.0
+-- Version: 2.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Index only. Every entry names a module that is required on demand and

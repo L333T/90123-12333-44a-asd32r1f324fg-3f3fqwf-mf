@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.9.0
+-- Version: 2.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.

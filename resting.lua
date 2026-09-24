@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.13.0
+-- Version: 2.14.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -138,6 +138,12 @@ local function rest_debug(fmt, ...)
         return
     end
     local msg = select("#", ...) > 0 and string.format(fmt, ...) or fmt
+    do
+        local ok_d, dbg = pcall(require, "debuglog")
+        if ok_d and dbg and type(dbg.line) == "function" then
+            dbg.line("rest", "%s", tostring(msg))
+        end
+    end
     local t = 0
     local ok, now = pcall(function() return izi.now() end)
     if ok and type(now) == "number" then t = now end

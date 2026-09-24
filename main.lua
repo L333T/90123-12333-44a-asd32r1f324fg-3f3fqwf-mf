@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.13.0
+-- Version: 2.14.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -21,6 +21,7 @@ local PLUGIN_MODULES = {
     "combat",
     "conjure",
     "quest/zygor",
+    "debuglog",
     "pets",
     "ui",
     "version",
@@ -142,6 +143,7 @@ local trainer = load_mod("trainer")
 -- a reload picks up new handler code without registering a second callback.
 local buffs = load_mod("buffs")
 local pets = load_mod("pets")
+local debuglog = load_mod("debuglog")
 local settings = load_mod("settings")
 
 -- What gets remembered per character.
@@ -735,6 +737,12 @@ local function on_render()
     -- No-op on a build without the handler.
     if pets and type(pets.on_render) == "function" then
         pcall(pets.on_render)
+    end
+    -- Debug lines are buffered and written on a debounce, because
+    -- write_data_file overwrites rather than appends. Without this they are
+    -- collected and never reach scripts_data.
+    if debuglog and type(debuglog.tick) == "function" then
+        pcall(debuglog.tick)
     end
     if is_stale() then
         return

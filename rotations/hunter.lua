@@ -3,7 +3,7 @@
 -- Hunter grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.3.0
+-- Version: 2.4.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Warlock.
@@ -33,6 +33,7 @@ local racials = require("racials")
 local pets = require("pets")
 local state = require("state")
 local spellbook = require("spellbook")
+local range = require("spell_range")
 
 local hunter = {}
 
@@ -117,9 +118,23 @@ local function cast_self(spell, player, label)
 end
 
 local function cast_at(spell, target, label)
-    if not spell or not target then return false end
+    if not spell or not target then
+        return false
+    end
+
+    -- Ask the client whether THIS spell reaches THIS target before trying it.
+    -- The raw cast below is ungated, so without this an out-of-range ability
+    -- was sent to the server, rejected, and retried on the very next tick -
+    -- the rotation would sit on a short-ranged spell and never fall through
+    -- to one it could actually land.
+    if not range.spell(target, spell) then
+        return false
+    end
+
     local ok = safe(function() return spell:cast_safe(target, label) end)
-    if ok ~= true then ok = safe(function() return spell:cast(target, label) end) end
+    if ok ~= true then
+        ok = safe(function() return spell:cast(target, label) end)
+    end
     if ok == true then rotation_note(label) return true end
     return false
 end
@@ -277,7 +292,7 @@ function hunter.tick(player, target, ctx)
         return false
     end
 
-    if dist > hunter.combat_range(player) then return false end
+    if not range.within(target, hunter.combat_range(player)) then return false end
 
     if gui.is_on("hunters_mark") and learned(hunters_mark) then
         if safe(function() return target:has_debuff(MARK_IDS) end) ~= true then

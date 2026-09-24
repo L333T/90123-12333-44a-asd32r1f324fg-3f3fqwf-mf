@@ -3,7 +3,7 @@
 -- Intelligent Movement & Navigation System - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.3.0
+-- Version: 2.4.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- SINGLE-OWNER MOVEMENT STATE MACHINE

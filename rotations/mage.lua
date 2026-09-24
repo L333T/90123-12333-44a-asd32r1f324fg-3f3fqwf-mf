@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.3.0
+-- Version: 2.4.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -30,6 +30,7 @@ local resting = require("resting")
 local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
+local range = require("spell_range")
 local targeting = require("targeting")
 
 local movement_mod = nil
@@ -206,6 +207,12 @@ local function castable(spell, unit)
         return false
     end
     if unit then
+        -- Range first: is_castable_to_unit does not always account for the
+        -- target's hitbox, so a large mob could read uncastable while the
+        -- client itself would happily let the spell go.
+        if not range.spell(unit, spell) then
+            return false
+        end
         return safe(function()
             return spell:is_castable_to_unit(unit)
         end) == true
@@ -339,6 +346,14 @@ local function cast_unit(spell, target, label)
     if not spell or not target then
         return false
     end
+
+    -- Per spell, not per rotation. combat_range is Frostbolt's 30 yards, and
+    -- gating Fire Blast (20) and Cone of Cold (10) on that number is why the
+    -- short-ranged half of the book kept being cast from out of range.
+    if not range.spell(target, spell) then
+        return false
+    end
+
     pause_cast(target, spell)
     local ok = safe(function()
         return spell:cast_safe(target, label)
@@ -968,7 +983,9 @@ function mage.tick(player, target, ctx)
             los = false
         end
     end
-    local fight_ready = (dist <= yards and los ~= false)
+    -- range.within rather than dist <= yards: the distance is centre to
+    -- centre, so a big mob reads further away than the client considers it.
+    local fight_ready = (range.within(target, yards) and los ~= false)
     if movement_mod and type(movement_mod.in_fight_range) == "function" then
         local ready, range, has_los = movement_mod.in_fight_range(player, target, yards)
         fight_ready = ready == true

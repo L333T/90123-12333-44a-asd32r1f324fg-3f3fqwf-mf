@@ -3,7 +3,7 @@
 -- Leveling grind patrols by continent (from Grind_Information zones)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.0
+-- Version: 2.7.1
 -- Folder: Master_Farmer_Grindbot_v2.7.0
 -- ============================================================================
 

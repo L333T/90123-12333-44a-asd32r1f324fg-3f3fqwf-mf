@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.1
+-- Version: 2.9.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1003,18 +1003,6 @@ function gui.sync_faction(player)
     end
 end
 
-function gui.region_key()
-    -- The Continent control is gone. Travel paths still index by region, so
-    -- this answers with the only region that has any, rather than nil.
-    local idx = 1
-    if type(idx) ~= "number" or idx < 1 then
-        idx = 1
-    end
-    if idx > #REGION_KEYS then
-        idx = #REGION_KEYS
-    end
-    return REGION_KEYS[idx], idx
-end
 
 local function clamp_index(idx, n)
     if type(idx) ~= "number" or idx < 1 then
@@ -1217,35 +1205,14 @@ local function arm_path(path, kind)
     return path
 end
 
-function gui.load_travel_path()
-    local row = gui.selected_picker()
-    local key, region = gui.region_key()
-    path_source = "travel"
-    local path, err = nil, nil
-    if row and row.source == "custom" then
-        path_profiles.prepare()
-        path_profiles.apply_region(region)
-        local file = row.id
-        if file then
-            path, err = path_profiles.load_file(file)
-        else
-            err = "no travel path"
-        end
-    else
-        local index = row and row.index or 1
-        path, err = path_catalog.load_region(key, index)
-        if not path then
-            local entries = path_catalog.entries_for_region(key)
-            local entry = entries[index]
-            if entry and type(path_profiles.seed_one) == "function" then
-                path_profiles.seed_one(entry)
-                local file = (entry.id or "path") .. ".json"
-                path, err = path_profiles.load_file(file)
-            end
-        end
-    end
-    return arm_path(path, "travel"), err
-end
+-- gui.load_travel_path and gui.region_key were removed in 2.9.0.
+--
+-- They were the only readers of path_catalog, which indexed 26 Kalimdor
+-- travel routes that were never shipped - every module it named was missing
+-- from disk. Nothing could reach them either: picker_entries only ever
+-- produces rows of kind "grind" or "none", and load_selected_path routes
+-- "grind" to load_grind_path and returns early on "none", so the travel
+-- branch was unreachable regardless of what the catalog held.
 
 function gui.load_grind_path()
     local row = gui.selected_picker()
@@ -1265,10 +1232,8 @@ function gui.load_selected_path()
     if not row or row.kind == "none" then
         return nil, "no path"
     end
-    if row.kind == "grind" then
-        return gui.load_grind_path()
-    end
-    return gui.load_travel_path()
+    -- Every row a picker produces is a grind row; see the note above.
+    return gui.load_grind_path()
 end
 
 function gui.ready_path()
@@ -2460,7 +2425,7 @@ menu:on_tab("path", function(win, x, y, w, h)
     local ready = loaded ~= nil
     if loaded then
         name = loaded.name or loaded.id or "-"
-        count = loaded.waypoints and #loaded.waypoints or 0
+        count = path_format.count(loaded)
         map_id = loaded.map_id or 0
     end
     local status = "Idle"

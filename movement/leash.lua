@@ -3,7 +3,7 @@
 -- movement/leash.lua - path leash (corridor around a saved route)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.1
+-- Version: 2.9.0
 -- ============================================================================
 -- The leash is a flat number array { x1, y1, z1, x2, ... } flattened once per
 -- distinct waypoint list. Moving outside the corridor is only allowed when the
@@ -107,11 +107,27 @@ function L.set_path_leash(waypoints)
     end
     if waypoints ~= R.leash_src then                   -- flatten once per new list
         local flat, n = {}, 0
-        for i = 1, #waypoints do
-            local x, y, z = xyz(waypoints[i])
-            if x then
-                flat[n * 3 + 1], flat[n * 3 + 2], flat[n * 3 + 3] = x, y, z
-                n = n + 1
+        if type(waypoints[1]) == "number" then
+            -- Already flat: a path's own coords array, handed straight over.
+            -- Building one object per waypoint here only to take it apart
+            -- again would allocate the whole route for nothing - 1,460
+            -- objects on the longest one.
+            local len = math.floor(#waypoints / 3)
+            for i = 1, len do
+                local k = (i - 1) * 3
+                local x, y, z = waypoints[k + 1], waypoints[k + 2], waypoints[k + 3]
+                if type(x) == "number" and type(y) == "number" and type(z) == "number" then
+                    flat[n * 3 + 1], flat[n * 3 + 2], flat[n * 3 + 3] = x, y, z
+                    n = n + 1
+                end
+            end
+        else
+            for i = 1, #waypoints do
+                local x, y, z = xyz(waypoints[i])
+                if x then
+                    flat[n * 3 + 1], flat[n * 3 + 2], flat[n * 3 + 3] = x, y, z
+                    n = n + 1
+                end
             end
         end
         if n == 0 then

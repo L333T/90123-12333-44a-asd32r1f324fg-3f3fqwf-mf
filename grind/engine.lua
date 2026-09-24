@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.1
+-- Version: 2.9.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -12,6 +12,7 @@ local izi = require("common/izi_sdk")
 
 local gui = require("gui")
 local state = require("state")
+local path_format = require("path_format")
 local targeting = require("targeting")
 local movement = require("movement")
 local rotation = require("rotation")
@@ -89,11 +90,16 @@ end
 --- reachability checks still apply - so a route with no mob list is not
 --- unfiltered, it is just not restricted to a hand-listed set.
 local function path_to_zone(path)
-    if type(path) ~= "table" or type(path.waypoints) ~= "table" or #path.waypoints < 1 then
+    -- coords is the path's own flat x,y,z array. Handing the same table over
+    -- every tick matters: movement.plan_grind_route caches its route plan on
+    -- the identity of what it is given.
+    if type(path) ~= "table" or path_format.count(path) < 1 then
         return nil
     end
     return {
-        coords = path.waypoints,
+        coords = path.coords,
+        flat = true,
+        path = path,
         mobs = path.mobs,
         pull = path.pull or 50,
         merchant = path.merchant,
@@ -120,17 +126,37 @@ local function current_zone(player)
     return grind_zones.lookup(race_id, level)
 end
 
-local function node_row(zone, index)
+--- How many nodes this zone has, flat array or list of rows.
+local function node_count(zone)
     if not zone or type(zone.coords) ~= "table" then
-        return nil
+        return 0
     end
-    local n = #zone.coords
+    if zone.flat then
+        return math.floor(#zone.coords / 3)
+    end
+    return #zone.coords
+end
+
+--- The i-th node as something the movement layer accepts, plus the count.
+--- A flat zone builds the object here, on demand, for the one node being
+--- navigated to - not one per node held.
+local function node_row(zone, index)
+    local n = node_count(zone)
     if n < 1 then
         return nil
     end
     if index > n then
         index = 1
         state.grind.move = 1
+    end
+    if zone.flat then
+        local k = (index - 1) * 3
+        local c = zone.coords
+        local x, y, z = c[k + 1], c[k + 2], c[k + 3]
+        if type(x) ~= "number" then
+            return nil
+        end
+        return { x = x, y = y, z = z }, n
     end
     return zone.coords[index], n
 end
@@ -142,7 +168,7 @@ local function snap_grind_node(zone, n, here)
     local best_i = state.grind.move
     local best_d = 1e9
     for i = 1, n do
-        local d = dist_here(here, zone.coords[i])
+        local d = dist_here(here, (node_row(zone, i)))
         if type(d) == "number" and d < best_d then
             best_d = d
             best_i = i
@@ -151,7 +177,7 @@ local function snap_grind_node(zone, n, here)
     if type(best_d) ~= "number" or best_d > AREA_YARDS then
         return
     end
-    local cur_d = dist_here(here, zone.coords[state.grind.move])
+    local cur_d = dist_here(here, (node_row(zone, state.grind.move)))
     if type(cur_d) ~= "number" or cur_d > OFF_PATH or best_d + 4.0 < cur_d then
         if best_i ~= state.grind.move then
             state.grind.move = best_i
@@ -207,7 +233,7 @@ function grind.kill_mobs(player)
         end
         local coord_i = order[state.grind.move]
         if type(coord_i) == "number" then
-            pos = coords[coord_i]
+            pos = (node_row(zone, coord_i))
         end
         if not pos then
             pos, n = node_row(zone, state.grind.move)

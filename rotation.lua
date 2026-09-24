@@ -3,43 +3,80 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.1
+-- Version: 2.9.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
 
+---@type izi_api
+local izi = require("common/izi_sdk")
+
 ---@type enums
 local enums = require("common/enums")
 
-local mage = require("rotations/mage")
-local priest = require("rotations/priest")
-local druid = require("rotations/druid")
-local paladin = require("rotations/paladin")
-local hunter = require("rotations/hunter")
-local warlock = require("rotations/warlock")
-local shaman = require("rotations/shaman")
-local rogue = require("rotations/rogue")
 local targeting = require("targeting")
 local combat = require("combat")
 
-local by_class = {}
-local function register(mod)
-    if mod and type(mod.class_id) == "function" then
-        local ok, id = pcall(mod.class_id)
-        if ok and id ~= nil then
-            by_class[id] = mod
-        end
-    end
-end
+-- ============================================================================
+-- CLASS MODULES ARE LOADED ON DEMAND
+-- ============================================================================
+-- All eight used to be required here, at load, and seven of them were dead
+-- weight for the rest of the session: a character has one class. Measured
+-- resident, the eight came to 314 KB, of which the unused seven were 211 KB
+-- for a mage and 290 KB for a rogue.
+--
+-- The map below is names only - requiring nothing - and the module behind a
+-- class is pulled in the first time that class is actually asked for.
+--
+-- WARRIOR HAS NO ROTATION YET, and is absent here rather than present and
+-- nil, so `supported` answers honestly without trying to load anything.
+local CLASS_MODULES = {
+    [enums.class_id.PALADIN] = "rotations/paladin",
+    [enums.class_id.HUNTER]  = "rotations/hunter",
+    [enums.class_id.ROGUE]   = "rotations/rogue",
+    [enums.class_id.PRIEST]  = "rotations/priest",
+    [enums.class_id.SHAMAN]  = "rotations/shaman",
+    [enums.class_id.MAGE]    = "rotations/mage",
+    [enums.class_id.WARLOCK] = "rotations/warlock",
+    [enums.class_id.DRUID]   = "rotations/druid",
+}
 
-register(mage)
-register(priest)
-register(druid)
-register(paladin)
-register(hunter)
-register(warlock)
-register(shaman)
-register(rogue)
+local by_class = {}          -- class id -> module, once loaded
+local load_failed = {}       -- class id -> true, so a bad module is not retried
+
+--- The rotation for a class, loading it the first time it is wanted.
+---
+--- Returns nil for a class with no rotation, and for one whose module will
+--- not load - the failure is remembered, because retrying a broken require
+--- once per frame is its own problem.
+local function module_for_class(class_id)
+    if type(class_id) ~= "number" then
+        return nil
+    end
+    local mod = by_class[class_id]
+    if mod then
+        return mod
+    end
+    if load_failed[class_id] then
+        return nil
+    end
+    local name = CLASS_MODULES[class_id]
+    if not name then
+        return nil
+    end
+
+    local ok, loaded = pcall(require, name)
+    if not ok or type(loaded) ~= "table" then
+        load_failed[class_id] = true
+        core.log_warning("[Master Farmer - Grindbot] Could not load " .. tostring(name))
+        return nil
+    end
+
+    by_class[class_id] = loaded
+    local label = enums.class_id_to_name and enums.class_id_to_name[class_id] or tostring(class_id)
+    core.log("[Master Farmer - Grindbot] Loaded rotation for " .. tostring(label))
+    return loaded
+end
 
 local rotation = {}
 local last_action = "Idle"
@@ -123,12 +160,14 @@ function rotation.scan_range(player)
     return 30
 end
 
+--- Does this class have a rotation? Answered from the name map, so asking
+--- does not load anything.
 function rotation.supported(class_id)
-    return by_class[class_id] ~= nil
+    return CLASS_MODULES[class_id] ~= nil
 end
 
 function rotation.module_for(class_id)
-    return by_class[class_id]
+    return module_for_class(class_id)
 end
 
 function rotation.active(player)
@@ -141,14 +180,44 @@ function rotation.active(player)
     if not ok then
         return nil
     end
-    local mod = by_class[class_id]
+    local mod = module_for_class(class_id)
     sync_profile(mod)
     return mod
 end
 
+--- Register the class checkboxes.
+---
+--- Only the player's own class is registered, which is the whole point: the
+--- other seven modules are never loaded. The class is read here, at load,
+--- because Sylvanas takes its menu elements at load - registering them later
+--- is the mismatch picks.lua exists to work around, and is not something to
+--- rely on.
+---
+--- If the player cannot be read yet, every class is registered instead. That
+--- is exactly the old behaviour, so the fallback costs memory rather than
+--- function, and the menu is never short of a checkbox.
 function rotation.register_gui(menu)
-    for _, mod in pairs(by_class) do
-        if type(mod.register_gui) == "function" then
+    local class_id = nil
+    pcall(function()
+        local me = izi.me()
+        if me then
+            class_id = me:get_class()
+        end
+    end)
+
+    if type(class_id) == "number" and CLASS_MODULES[class_id] then
+        local mod = module_for_class(class_id)
+        if mod and type(mod.register_gui) == "function" then
+            pcall(mod.register_gui, menu)
+            return
+        end
+    end
+
+    core.log_warning(
+        "[Master Farmer - Grindbot] Class unknown at load; registering every rotation")
+    for id, _ in pairs(CLASS_MODULES) do
+        local mod = module_for_class(id)
+        if mod and type(mod.register_gui) == "function" then
             pcall(mod.register_gui, menu)
         end
     end

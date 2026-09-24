@@ -3,7 +3,7 @@
 -- main.lua - fetch the codebase from GitHub, then hand off to the real main
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.1
+-- Version: 2.9.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- FLOW

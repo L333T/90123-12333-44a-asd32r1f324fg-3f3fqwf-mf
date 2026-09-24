@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.1
+-- Version: 2.9.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -58,8 +58,6 @@ local PLUGIN_MODULES = {
     "grind/catalog",
     "grind/paths/catalog",
     "grind/paths/ally160/catalog",
-    "path_catalog",
-    "data/paths/catalog",
 }
 
 for i = 1, #PLUGIN_MODULES do

@@ -8,7 +8,7 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.1
+-- Version: 2.9.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -70,11 +70,40 @@ local function dist(a, b)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
-local function nearest_index(pos, waypoints)
+-- Distance from a position to the i-th waypoint, straight off the flat
+-- array. No waypoint object is built, which matters because this runs for
+-- every waypoint of the path on a recovery scan.
+local function dist_at(pos, path, i)
+    if not pos then
+        return nil
+    end
+    local x, y, z = path_format.xyz(path, i)
+    if not x then
+        return nil
+    end
+    local dx = pos.x - x
+    local dy = pos.y - y
+    local dz = (pos.z or 0) - z
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+--- The i-th waypoint as a vec3, for the movement calls that need an object.
+--- Allocated on demand: only the few waypoints actually navigated to in a
+--- tick become objects, rather than every waypoint the path holds.
+local function wp_at(path, i)
+    local x, y, z = path_format.xyz(path, i)
+    if not x then
+        return nil
+    end
+    return vec3.new(x, y, z)
+end
+
+local function nearest_index(pos, path)
     local best = 1
     local best_d = 1e9
-    for i = 1, #waypoints do
-        local d = dist(pos, waypoints[i])
+    local n = path_format.count(path)
+    for i = 1, n do
+        local d = dist_at(pos, path, i)
         if type(d) == "number" and d < best_d then
             best_d = d
             best = i
@@ -83,16 +112,15 @@ local function nearest_index(pos, waypoints)
     return best, best_d
 end
 
-local function recover_to_path(pos, waypoints, index)
-    if not pos or type(waypoints) ~= "table" or #waypoints < 1 then
+local function recover_to_path(pos, path, index)
+    if not pos or path_format.count(path) < 1 then
         return index, false
     end
-    local best, best_d = nearest_index(pos, waypoints)
+    local best, best_d = nearest_index(pos, path)
     if type(best_d) ~= "number" or best_d > AREA_YARDS then
         return index, false
     end
-    local cur = waypoints[index]
-    local cur_d = dist(pos, cur)
+    local cur_d = dist_at(pos, path, index)
     local off_path = type(cur_d) ~= "number" or cur_d > OFF_PATH
     if off_path and best ~= index then
         return best, true
@@ -103,20 +131,20 @@ local function recover_to_path(pos, waypoints, index)
     return index, false
 end
 
-local function next_break(waypoints, from)
-    local last = #waypoints
+local function next_break(path, from)
+    local last = path_format.count(path)
     if type(from) ~= "number" or from < 1 then
         from = 1
     end
     if from > last then
         return last
     end
-    if path_format.has_hold(waypoints[from]) then
+    if path_format.holds_at(path, from) then
         return from
     end
     local limit = math.min(last, from + CHUNK - 1)
     for i = from + 1, limit do
-        if path_format.has_hold(waypoints[i]) then
+        if path_format.holds_at(path, i) then
             return i
         end
     end
@@ -171,8 +199,8 @@ function path_runner.resume()
     session.paused = false
     session.stuck_since = 0
     local pos = state.cached_pos
-    if pos and session.path and type(session.path.waypoints) == "table" then
-        local recovered, changed = recover_to_path(pos, session.path.waypoints, session.index)
+    if pos and session.path and path_format.count(session.path) > 0 then
+        local recovered, changed = recover_to_path(pos, session.path, session.index)
         if changed then
             session.index = recovered
             reset_hold(session)
@@ -188,7 +216,7 @@ function path_runner.status_text()
     if not session then
         return "Idle"
     end
-    local n = #session.path.waypoints
+    local n = path_format.count(session.path)
     if session.paused then
         return string.format("Combat  %d/%d  %s", session.index, n, session.path.name or "Path")
     end
@@ -253,14 +281,14 @@ function path_runner.start(path, opts)
         slice_to = nil,
     }
     preview = normalized
-    local first = normalized.waypoints[1]
-    local n = #normalized.waypoints
+    local first = wp_at(normalized, 1)
+    local n = path_format.count(normalized)
     if pos and first then
         local d = dist(pos, first)
         if type(d) == "number" and d <= ARRIVE then
             session.approach = false
         end
-        local ni, nd = nearest_index(pos, normalized.waypoints)
+        local ni, nd = nearest_index(pos, normalized)
         if type(nd) == "number" and nd <= AREA_YARDS then
             session.index = ni
             session.approach = false
@@ -282,7 +310,9 @@ function path_runner.start(path, opts)
         session.reversed and ", reverse" or ""
     ))
     if type(movement.set_path_leash) == "function" then
-        movement.set_path_leash(normalized.waypoints)
+        -- The leash flattens whatever it is given into x,y,z triples, and
+        -- the path already is one, so it is handed over as is.
+        movement.set_path_leash(normalized.coords)
     end
     return true
 end
@@ -335,18 +365,21 @@ local function run_action(player, act)
     return true
 end
 
-local function skip_blocked(waypoints, index)
+local function skip_blocked(path, index)
     local i = index
-    local n = #waypoints
+    local n = path_format.count(path)
     local hops = 0
     local pos = state.cached_pos
     while i <= n and hops < 20 do
-        local wp = waypoints[i]
+        local wp = wp_at(path, i)
+        if not wp then
+            break
+        end
         if movement.is_blocked(wp) then
             i = i + 1
             hops = hops + 1
-        elseif pos and i < n and not path_format.has_hold(wp) and movement.line_blocked and movement.line_blocked(pos, wp) then
-            local nxt = waypoints[i + 1]
+        elseif pos and i < n and not path_format.holds_at(path, i) and movement.line_blocked and movement.line_blocked(pos, wp) then
+            local nxt = wp_at(path, i + 1)
             if nxt and not movement.is_blocked(nxt) and not movement.line_blocked(pos, nxt) then
                 i = i + 1
                 hops = hops + 1
@@ -360,17 +393,21 @@ local function skip_blocked(waypoints, index)
     return i
 end
 
-local function skip_passed(pos, waypoints, index)
+local function skip_passed(pos, path, index)
     local i = index
-    while i < #waypoints do
-        local wp = waypoints[i]
-        if path_format.has_hold(wp) then
+    local n = path_format.count(path)
+    while i < n do
+        if path_format.holds_at(path, i) then
+            break
+        end
+        local wp = wp_at(path, i)
+        if not wp then
             break
         end
         if movement.is_blocked(wp) then
             i = i + 1
         else
-            local d = dist(pos, wp)
+            local d = dist_at(pos, path, i)
             if type(d) ~= "number" or d > ARRIVE then
                 break
             end
@@ -380,15 +417,15 @@ local function skip_passed(pos, waypoints, index)
     return i
 end
 
-local function issue_move(waypoints, from_index)
+local function issue_move(path, from_index)
     if type(from_index) ~= "number" or from_index < 1 then
         return false
     end
-    local wp = waypoints[from_index]
+    local wp = wp_at(path, from_index)
     if not wp then
         return false
     end
-    local to = next_break(waypoints, from_index)
+    local to = next_break(path, from_index)
     if type(to) ~= "number" or to < from_index then
         to = from_index
     end
@@ -399,7 +436,7 @@ local function issue_move(waypoints, from_index)
         end
         local pts = {}
         for i = from_index, to do
-            pts[#pts + 1] = waypoints[i]
+            pts[#pts + 1] = wp_at(path, i)
         end
         session.slice, session.slice_from, session.slice_to = pts, from_index, to
         return movement.nav_path(pts)
@@ -429,8 +466,7 @@ function path_runner.tick(player)
         return false
     end
     local path = session.path
-    local waypoints = path.waypoints
-    local n = #waypoints
+    local n = path_format.count(path)
     if n == 0 then
         path_runner.stop()
         return false
@@ -482,7 +518,7 @@ function path_runner.tick(player)
     end
 
     if not session.approach then
-        local recovered, changed = recover_to_path(pos, waypoints, session.index)
+        local recovered, changed = recover_to_path(pos, path, session.index)
         if changed then
             session.index = recovered
             reset_hold(session)
@@ -491,14 +527,14 @@ function path_runner.tick(player)
     end
 
     if session.approach then
-        local recovered, changed = recover_to_path(pos, waypoints, 1)
+        local recovered, changed = recover_to_path(pos, path, 1)
         if changed then
             session.approach = false
             session.index = recovered
             reset_hold(session)
             state.set_note("Path", "Rejoin closest waypoint")
         else
-            local first = waypoints[1]
+            local first = wp_at(path, 1)
             if not first then
                 session.approach = false
             elseif movement.arrived(first, ARRIVE) then
@@ -509,7 +545,7 @@ function path_runner.tick(player)
             else
                 if movement.is_blocked(first) or movement.last_fail_offmesh() then
                     session.approach = false
-                    session.index = skip_blocked(waypoints, 1)
+                    session.index = skip_blocked(path, 1)
                     reset_hold(session)
                     movement.clear_fail()
                     core.log_warning("[Master Farmer - Grindbot] Path start not on navmesh - skipping to waypoint " .. tostring(session.index))
@@ -522,8 +558,8 @@ function path_runner.tick(player)
         end
     end
 
-    session.index = skip_passed(pos, waypoints, session.index)
-    session.index = skip_blocked(waypoints, session.index)
+    session.index = skip_passed(pos, path, session.index)
+    session.index = skip_blocked(path, session.index)
 
     if session.index > n then
         if session.loop then
@@ -540,7 +576,7 @@ function path_runner.tick(player)
         end
     end
 
-    local wp = waypoints[session.index]
+    local wp = wp_at(path, session.index)
     if not wp then
         return true
     end
@@ -558,7 +594,7 @@ function path_runner.tick(player)
                     movement.nav_stop()
                 end)
                 movement.clear_fail()
-                issue_move(waypoints, session.index)
+                issue_move(path, session.index)
                 return true
             end
             skip_offmesh(n)
@@ -569,10 +605,10 @@ function path_runner.tick(player)
             session.stuck_since = 0
             local until_i = session.nav_until or 0
             if type(until_i) ~= "number" or until_i < session.index then
-                issue_move(waypoints, session.index)
+                issue_move(path, session.index)
             end
         else
-            issue_move(waypoints, session.index)
+            issue_move(path, session.index)
             if session.stuck_since == 0 then
                 session.stuck_since = now
             elseif (now - session.stuck_since) > 12 then
@@ -624,7 +660,7 @@ function path_runner.tick(player)
         return false
     end
 
-    issue_move(waypoints, session.index)
+    issue_move(path, session.index)
     state.set_note("Path", string.format("%s  %d/%d", path.name, session.index, n))
     return true
 end
@@ -656,7 +692,7 @@ end
 
 function path_runner.set_preview(path)
     local normalized = path
-    if type(path) == "table" and type(path.waypoints) == "table" then
+    if type(path) == "table" and path_format.count(path) > 0 then
         local ok_norm = path_format.normalize(path)
         if ok_norm then
             normalized = ok_norm
@@ -706,11 +742,10 @@ function path_runner.draw()
     elseif preview then
         path = preview
     end
-    if not path or type(path.waypoints) ~= "table" then
+    if not path or path_format.count(path) < 1 then
         return
     end
-    local waypoints = path.waypoints
-    local n = #waypoints
+    local n = path_format.count(path)
     if n < 1 then
         return
     end
@@ -723,7 +758,7 @@ function path_runner.draw()
     local prev = nil
     local prev_i = 0
     for i = 1, n, step do
-        local wp = waypoints[i]
+        local wp = wp_at(path, i)
         if near_player(pos, wp) then
             local v = wp_vec(wp)
             if v and prev and (i - prev_i) <= (step * 2) then
@@ -743,13 +778,13 @@ function path_runner.draw()
         end
     end
     if current >= 1 and current <= n then
-        local now_v = wp_vec(waypoints[current])
+        local now_v = wp_at(path, current)
         if now_v then
             pcall(function()
                 core.graphics.circle_3d(now_v, 1.6, NOW_COL, 2.0, 2.5)
             end)
         end
-        local nxt = waypoints[current + 1]
+        local nxt = wp_at(path, current + 1)
         local nxt_v = wp_vec(nxt)
         if nxt_v then
             pcall(function()
@@ -762,8 +797,8 @@ function path_runner.draw()
             end
         end
     elseif n >= 1 then
-        local first = wp_vec(waypoints[1])
-        if first and near_player(pos, waypoints[1]) then
+        local first = wp_at(path, 1)
+        if first and near_player(pos, first) then
             pcall(function()
                 core.graphics.circle_3d(first, 1.4, LINE_COL, 2.0, 2.5)
             end)

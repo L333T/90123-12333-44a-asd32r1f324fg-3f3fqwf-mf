@@ -3,7 +3,7 @@
 -- Path profiles — save / load / play PathTool JSON from scripts_data
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.1
+-- Version: 2.9.0
 -- Folder: Master_Farmer_Grindbot
 -- Files live in scripts_data/mfg_profiles/*.json (do not prefix scripts_data/).
 -- ============================================================================
@@ -91,10 +91,8 @@ function path_profiles.region_of(filename)
         return "custom"
     end
     local id = filename:gsub("%.json$", "")
-    local ok, catalog = pcall(require, "path_catalog")
-    if ok and catalog and type(catalog.region_of) == "function" then
-        return catalog.region_of(id)
-    end
+    -- path_catalog is gone (2.9.0): it indexed routes that were never
+    -- shipped. Every profile on disk is a custom one now.
     return "custom"
 end
 
@@ -306,24 +304,6 @@ function path_profiles.seed_one(entry)
     return wrote == true
 end
 
-function path_profiles.seed_missing()
-    local ok, catalog = pcall(require, "path_catalog")
-    if not ok or type(catalog) ~= "table" or type(catalog.count) ~= "function" then
-        return 0
-    end
-    local n = catalog.count()
-    local wrote = 0
-    for i = 1, n do
-        local entry = catalog.entry(i)
-        if seed_entry(entry) then
-            wrote = wrote + 1
-        end
-    end
-    if wrote > 0 then
-        core.log("[Master Farmer - Grindbot] Wrote " .. tostring(wrote) .. " path profiles to scripts_data/" .. FOLDER)
-    end
-    return wrote
-end
 
 function path_profiles.prepare()
     path_profiles.ensure_folder()

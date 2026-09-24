@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.1
+-- Version: 2.9.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -218,9 +218,20 @@ function N.plan_grind_route(coords)
     if not c or type(c.plan_route) ~= "function" then return nil end
     R.sn_plan_key, R.sn_plan_order, R.sn_plan_pending = coords, nil, true
     local nodes = {}
-    for i = 1, #coords do
-        local x, y, z = xyz(coords[i])
-        if x then nodes[#nodes + 1] = vec3.new(x, y, z) end
+    if type(coords[1]) == "number" then
+        -- A path's own flat x,y,z array.
+        for i = 1, math.floor(#coords / 3) do
+            local k = (i - 1) * 3
+            local x, y, z = coords[k + 1], coords[k + 2], coords[k + 3]
+            if type(x) == "number" and type(y) == "number" and type(z) == "number" then
+                nodes[#nodes + 1] = vec3.new(x, y, z)
+            end
+        end
+    else
+        for i = 1, #coords do
+            local x, y, z = xyz(coords[i])
+            if x then nodes[#nodes + 1] = vec3.new(x, y, z) end
+        end
     end
     if #nodes < 2 then
         R.sn_plan_pending = false

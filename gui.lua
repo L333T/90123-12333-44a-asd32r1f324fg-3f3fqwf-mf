@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.11.0
+-- Version: 2.12.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

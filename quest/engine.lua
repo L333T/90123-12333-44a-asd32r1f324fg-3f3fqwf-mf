@@ -3,7 +3,7 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.11.0
+-- Version: 2.12.0
 -- Folder: Master_Farmer_Grindbot
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
@@ -37,6 +37,11 @@ local HUNT_ARRIVE = 2.0
 local zy_key = nil
 local zy_move = 1
 local zy_scan_until = 0
+-- Interacting and using are rate limited for the same reason quest dialogs
+-- are: re-issuing every frame tears down the frame that just opened.
+local zy_act_until = 0
+local ZY_ACT_GAP = 1.5
+local INTERACT_YARDS = 5.0
 
 local hunt_move = 1
 local hunt_scan_until = 0
@@ -507,6 +512,7 @@ local function zygor_tick(player)
         zy_key = key
         zy_move = 1
         zy_scan_until = 0
+        zy_act_until = 0
         state.reset_target()
     end
 
@@ -539,8 +545,64 @@ local function zygor_tick(player)
         return true
     end
 
+    -- ---- use an item from the bags -----------------------------------------
+    -- Zygor "use" goals: a quest item that has to be used, sometimes on a
+    -- target, sometimes on the spot. Rate limited because a use that does not
+    -- clear the goal would otherwise be issued every frame.
+    if kind == "item" then
+        local entry = zygor.find_bag_item()
+        if entry then
+            local now = izi.now()
+            if now >= zy_act_until then
+                zy_act_until = now + ZY_ACT_GAP
+                local on = state.target.unit
+                if zygor.use_bag_item(entry, on) then
+                    state.set_note("Quest", "Zygor: use " .. label)
+                    return true
+                end
+                state.set_note("Quest", "Zygor: could not use " .. label)
+            else
+                state.set_note("Quest", "Zygor: use " .. label)
+            end
+            return true
+        end
+        -- Not carrying it yet. Walk to the waypoint; the step usually wants
+        -- the item picked up there first.
+    end
+
+    -- ---- click a world object ----------------------------------------------
+    -- Chests, levers, herbs, quest pickups on the ground. These are not units,
+    -- so the mob scan never sees them and find_object walks the visible-object
+    -- list instead.
+    if kind == "object" or kind == "collect" then
+        local obj, odist = zygor.find_object(player, 40)
+        if obj then
+            if type(odist) == "number" and odist <= INTERACT_YARDS then
+                local now = izi.now()
+                if now >= zy_act_until then
+                    zy_act_until = now + ZY_ACT_GAP
+                    -- Interacting re-issued every frame tears down the frame it
+                    -- just opened; that is the 1.5.1 lesson from quest dialogs.
+                    pcall(function() core.input.interact_with_object(obj) end)
+                end
+                state.set_note("Quest", "Zygor: click " .. label)
+                return true
+            end
+            local opos = safe(function() return obj:get_position() end)
+            if opos and not movement.is_blocked(opos) then
+                state.set_note("Quest", "Zygor: " .. label)
+                if not movement.is_moving() then
+                    movement.nav_to(opos, true)
+                end
+                return true
+            end
+        end
+        -- collect falls through to the kill scan: the thing may drop from a
+        -- mob rather than lie on the ground, and the goal does not say which.
+    end
+
     -- ---- kill, and collect-by-killing --------------------------------------
-    if kind == "kill" or kind == "interact" then
+    if kind == "kill" or kind == "collect" then
         local now = izi.now()
         local unit = state.target.unit
         if unit and state.target.kind == "kill" then

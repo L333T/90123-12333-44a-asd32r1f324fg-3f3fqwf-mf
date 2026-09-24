@@ -3,7 +3,7 @@
 -- Spell range checks - one implementation, used by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.11.0
+-- Version: 2.12.0
 -- Folder: Master_Farmer_Grindbot
 -- Not to be confused with movement/range.lua, which answers navigation
 -- questions - facing, line of sight, whether a point is reachable. This file

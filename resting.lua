@@ -3,8 +3,8 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
 --   Each class owns its resting decision - when to sit down, and at what

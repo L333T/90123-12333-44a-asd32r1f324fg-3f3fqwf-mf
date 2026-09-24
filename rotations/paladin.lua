@@ -3,8 +3,8 @@
 -- Paladin grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- ============================================================================
 -- WHY THE AURA IS A DROPDOWN AND NOT SIX CHECKBOXES
 --   The reference grindbot exposes six independent booleans - Devotion, Frost

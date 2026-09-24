@@ -3,8 +3,8 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan every 2 seconds. DEFS are rank-1 IDs; highest matching ID wins.
 -- ============================================================================
@@ -544,6 +544,32 @@ end
 --- rather than dropped, but they cannot be shown as named rows.
 function spellbook.unnamed_count()
     return #unnamed
+end
+
+--- The family NAME that owns this spell id, or nil.
+---
+--- Any rank answers with the family's name, so a checkbox registered against
+--- rank 1 resolves to the same row the Spells tab draws at the top rank. That
+--- is what lets a tick in the tab override a class checkbox.
+function spellbook.name_of_id(id)
+    if type(id) ~= "number" or id <= 0 then
+        return nil
+    end
+    for i = 1, #families do
+        local fam = families[i]
+        if fam.id == id then
+            return fam.name
+        end
+        local ranks = fam.ranks
+        if type(ranks) == "table" then
+            for r = 1, #ranks do
+                if ranks[r] == id then
+                    return fam.name
+                end
+            end
+        end
+    end
+    return nil
 end
 
 --- Families of one category, sorted by name.

@@ -3,8 +3,8 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.6.1
+-- Version: 2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.0
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
 -- ============================================================================
@@ -849,6 +849,12 @@ function mage.buffs_ooc(player)
     if not player then
         return false
     end
+    -- The Spells tab switch. Off means the mage keeps no self buffs up at
+    -- all, which is a real choice on a bot that is being levelled by hand
+    -- between sessions.
+    if gui.is_on("mage_buffs") ~= true then
+        return false
+    end
     if racials.ooc(player) then
         return true
     end
@@ -1116,6 +1122,35 @@ function mage.tick(player, target, ctx)
         end
     end
     return start_mage_sequence()
+end
+
+
+-- ----------------------------------------------------------------------------
+-- COMBAT ENGINE HOOK
+-- ----------------------------------------------------------------------------
+--- Interrupt any caster in the pack, not only the current target.
+---
+--- combat.assist calls this for every unit in the pack that is casting. The
+--- rotation below still kicks what it is hitting; this is what catches a mob
+--- healing itself behind the one being hit, which previously finished its
+--- cast unchallenged.
+---
+--- Range is checked through spell_range so a big mob's hitbox counts, and the
+--- cast itself goes through cast_at, which refuses an out-of-range spell.
+function mage.interrupt(player, unit)
+    if not player or not unit then
+        return false
+    end
+    if gui.is_on("counterspell") ~= true or not learned(counterspell) then
+        return false
+    end
+    if not range.spell(unit, live("counterspell", counterspell), 30) then
+        return false
+    end
+    if safe(function() return player:los_to(unit) end) == false then
+        return false
+    end
+    return cast_unit(live("counterspell", counterspell), unit, "Counterspell")
 end
 
 return mage

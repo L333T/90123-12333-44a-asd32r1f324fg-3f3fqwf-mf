@@ -3,7 +3,7 @@
 -- movement/own.lua - ownership, state transitions, restrictions, shared gates
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.14.1
+-- Version: 2.15.0
 -- ============================================================================
 -- The arbiter primitives every higher module shares:
 --

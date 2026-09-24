@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
 -- Version: 2.7.1
--- Folder: Master_Farmer_Grindbot_v2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.1
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
 

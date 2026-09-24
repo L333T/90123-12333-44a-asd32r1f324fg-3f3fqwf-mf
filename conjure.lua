@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
 -- Version: 2.7.1
--- Folder: Master_Farmer_Grindbot_v2.7.0
+-- Folder: Master_Farmer_Grindbot_v2.7.1
 -- ============================================================================
 -- A mage never has to buy food or water, and until now the bot made it do
 -- exactly that: supplies.lua walked it to a vendor to spend copper on

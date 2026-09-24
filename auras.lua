@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
 -- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.6.1
 -- ============================================================================
 -- Everything in this project asked about auras the same way:
 --

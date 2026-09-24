@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
 -- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.6.1
 -- ============================================================================
 -- BOTH APIS, IN THAT ORDER  (1.9.1)
 --   unit:get_race_id()     integer, the race the character was created as

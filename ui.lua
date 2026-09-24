@@ -6,7 +6,7 @@
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
 -- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.6.1
 -- ============================================================================
 
 ---@type color

@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
 -- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.6.1
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
 --   There is no trainer location data in this project. The zone tables carry a

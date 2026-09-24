@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
 -- Version: 2.6.1
--- Folder: Master_Farmer_Grindbot_v2.3.0
+-- Folder: Master_Farmer_Grindbot_v2.6.1
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
 --   An NPC with quests shows either a GOSSIP frame (get_gossip_*_quests, keyed

@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.12.1
+-- Version: 2.12.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -165,6 +165,39 @@ end
 --- Walk to `npc_id`. Returns true once the bot is standing at it - every tick,
 --- and WITHOUT interacting. The dialog state machines below decide when to
 --- interact, because re-interacting closes whatever frame they are reading.
+local function quest_debug(fmt, ...)
+    if gui.is_on("quest_debug") ~= true then
+        return
+    end
+    core.log("[Master Farmer - Grindbot] quest: " .. string.format(fmt, ...))
+end
+
+--- Find an NPC by id, falling back to its name.
+---
+--- get_npc_id is the reliable handle when the caller has a real creature
+--- entry. A guide addon does not always: the id it reports may be a different
+--- numbering, or missing entirely for a goal that only names its target. The
+--- name is what the player sees and what the addon shows, so it is the honest
+--- second key.
+---
+--- Returns the unit and how it was matched, so a caller can say which worked.
+function npc.find(player, npc_id, name_a, name_b, range)
+    range = range or 80
+    if npc_id then
+        local by_id = targeting.find_npc(player, npc_id, range)
+        if by_id then
+            return by_id, "id"
+        end
+    end
+    if type(name_a) == "string" or type(name_b) == "string" then
+        local by_name = targeting.find_named(player, name_a, name_b, range)
+        if by_name then
+            return by_name, "name"
+        end
+    end
+    return nil, nil
+end
+
 --- Walk to an NPC and open its dialog.
 ---
 --- at_npc only WALKS - it returns true once the NPC is in reach and leaves
@@ -178,18 +211,21 @@ end
 ---
 --- Returns true once the NPC is in reach, whether or not this tick was the
 --- one that interacted.
-function npc.talk(player, npc_id, dest)
-    if not npc.at_npc(player, npc_id, dest) then
+function npc.talk(player, npc_id, dest, name_a, name_b)
+    if not npc.at_npc(player, npc_id, dest, name_a, name_b) then
         return false
     end
     local now = izi.now()
     if now < (state.quest.interact_until or 0) then
         return true
     end
-    local unit = targeting.find_npc(player, npc_id, 10)
+    local unit, how = npc.find(player, npc_id, name_a, name_b, 10)
     if not unit then
+        quest_debug("talk: in reach but no unit matched id=%s name=%s/%s",
+            tostring(npc_id), tostring(name_a), tostring(name_b))
         return true
     end
+    quest_debug("talk: matched by %s, interacting", tostring(how))
     state.quest.interact_until = now + 1.2
     pcall(function()
         core.input.interact_with_object(unit)
@@ -197,8 +233,8 @@ function npc.talk(player, npc_id, dest)
     return true
 end
 
-function npc.at_npc(player, npc_id, dest)
-    local unit = targeting.find_npc(player, npc_id, 80)
+function npc.at_npc(player, npc_id, dest, name_a, name_b)
+    local unit = npc.find(player, npc_id, name_a, name_b, 80)
     if unit then
         local d = safe(function() return player:distance_to(unit) end) or 99
         if d > 4 then
@@ -249,13 +285,6 @@ end
 
 local function dlg_to(stage, now)
     dlg.stage, dlg.t = stage, now
-end
-
-local function quest_debug(fmt, ...)
-    if gui.is_on("quest_debug") ~= true then
-        return
-    end
-    core.log("[Master Farmer - Grindbot] quest: " .. string.format(fmt, ...))
 end
 
 --- Find a quest in a gossip list.

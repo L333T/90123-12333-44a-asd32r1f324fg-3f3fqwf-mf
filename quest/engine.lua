@@ -3,7 +3,7 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.12.1
+-- Version: 2.12.2
 -- Folder: Master_Farmer_Grindbot
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
@@ -508,6 +508,33 @@ local function zygor_tick(player)
     -- skipped whenever only target_id was set, and the tick fell through to
     -- walking - the bot arrived at the NPC and never spoke to it.
     local unit_id = goal.npc_id or goal.target_id
+
+    -- The names Zygor shows on screen, used when the id does not match a
+    -- unit. get_npc_id is the reliable handle when the id is a real creature
+    -- entry; a guide addon does not always report one, and the name is what
+    -- the player can see is standing there.
+    local name_a = goal.npc
+    local name_b = goal.target
+
+    -- Turn "still not finding the NPC" into something readable. Off unless
+    -- the Quest Debug box is ticked.
+    if gui.is_on("quest_debug") then
+        local found, how = npc.find(player, unit_id, name_a, name_b, 100)
+        core.log(string.format(
+            "[Master Farmer - Grindbot] zygor: action=%s kind=%s npc_id=%s target_id=%s npc=%s target=%s -> %s%s",
+            tostring(goal.action), tostring(kind), tostring(goal.npc_id),
+            tostring(goal.target_id), tostring(name_a), tostring(name_b),
+            found and "FOUND by " or "NOT FOUND", found and tostring(how) or ""))
+        if pos then
+            local me = safe(function() return player:get_position() end)
+            core.log(string.format(
+                "[Master Farmer - Grindbot] zygor: waypoint %.1f,%.1f,%.1f  player %.1f,%.1f,%.1f",
+                pos.x, pos.y, pos.z,
+                me and me.x or 0, me and me.y or 0, me and me.z or 0))
+        else
+            core.log("[Master Farmer - Grindbot] zygor: no usable waypoint")
+        end
+    end
     local pos, zdist, title = zygor.waypoint()
     local label = goal.target or goal.npc or title or tostring(goal.target_id or goal.npc_id or "?")
 
@@ -527,7 +554,7 @@ local function zygor_tick(player)
     -- is the same handshake the catalog path uses.
     if kind == "accept" and unit_id then
         state.set_note("Quest", "Zygor: accept " .. label)
-        if npc.at_npc(player, unit_id, pos) then
+        if npc.at_npc(player, unit_id, pos, name_a, name_b) then
             if goal.quest_id then
                 state.quest.id = goal.quest_id
                 npc.accept(player, goal.quest_id, goal.npc, unit_id)
@@ -535,7 +562,7 @@ local function zygor_tick(player)
                 -- No quest id from the addon. Open the dialog anyway: the
                 -- gossip handler matches on title, and a frame the player can
                 -- see beats standing silently next to the quest giver.
-                npc.talk(player, unit_id, pos)
+                npc.talk(player, unit_id, pos, name_a, name_b)
             end
         end
         return true
@@ -543,12 +570,12 @@ local function zygor_tick(player)
 
     if kind == "turnin" and unit_id then
         state.set_note("Quest", "Zygor: turn in " .. label)
-        if npc.at_npc(player, unit_id, pos) then
+        if npc.at_npc(player, unit_id, pos, name_a, name_b) then
             if goal.quest_id then
                 state.quest.id = goal.quest_id
                 npc.turn_in(player, goal.quest_id, goal.npc, unit_id)
             else
-                npc.talk(player, unit_id, pos)
+                npc.talk(player, unit_id, pos, name_a, name_b)
             end
         end
         return true
@@ -559,7 +586,7 @@ local function zygor_tick(player)
         -- once the NPC is in reach and leaves the dialog to accept/turn_in -
         -- so calling it alone here meant the bot arrived and stood there.
         state.set_note("Quest", "Zygor: talk to " .. label)
-        npc.talk(player, unit_id, pos)
+        npc.talk(player, unit_id, pos, name_a, name_b)
         return true
     end
 

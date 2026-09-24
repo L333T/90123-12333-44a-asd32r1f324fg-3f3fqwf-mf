@@ -3,7 +3,7 @@
 -- Consumables — conjured + vendor food/water from Orca tables
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.0
+-- Version: 2.8.1
 -- Folder: Master_Farmer_Grindbot
 -- Source: orca de.lua conjuredFood / food / conjuredDrinks / drinks / foodordrink
 -- Highest rank / best restore first.

@@ -3,7 +3,7 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.12.2
+-- Version: 2.13.0
 -- Folder: Master_Farmer_Grindbot
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
@@ -516,6 +516,20 @@ local function zygor_tick(player)
     local name_a = goal.npc
     local name_b = goal.target
 
+    -- An accept or turnin goal carries ONLY the quest - Zygor's parser for
+    -- both reads quest and questid and never sets npcid or targetid. The NPC
+    -- is named by a different goal in the same step:
+    --
+    --     talk Tradesman Portanuus##25034
+    --     accept Report to Nasuun##11517
+    --
+    -- so the whole step is searched rather than just the current goal. This
+    -- is why the dialog branches were being skipped and the bot walked to the
+    -- waypoint and stood there.
+    if not unit_id and not name_a and not name_b then
+        unit_id, name_a = zygor.step_npc()
+    end
+
     -- Turn "still not finding the NPC" into something readable. Off unless
     -- the Quest Debug box is ticked.
     if gui.is_on("quest_debug") then
@@ -552,6 +566,33 @@ local function zygor_tick(player)
     -- ---- quest dialog -----------------------------------------------------
     -- npc.at_npc walks there and returns true once the NPC is in reach, which
     -- is the same handshake the catalog path uses.
+    -- Some steps are only `turnin ... |goto x,y` with no talk goal anywhere,
+    -- so nothing names the NPC at all. Once the bot is standing where the
+    -- guide sent it, the nearest thing it cannot attack is the quest giver.
+    if (kind == "accept" or kind == "turnin") and not unit_id and not name_a and not name_b then
+        local near = zygor.nearest_talkable(player, 8)
+        if near then
+            local now = izi.now()
+            if now >= zy_act_until then
+                zy_act_until = now + ZY_ACT_GAP
+                pcall(function() core.input.interact_with_object(near) end)
+            end
+            state.set_note("Quest", "Zygor: " .. kind .. " at the nearest NPC")
+            -- The dialog handlers take it from here on the next tick: the
+            -- gossip frame is matched on the quest, not on who opened it.
+            if goal.quest_id then
+                state.quest.id = goal.quest_id
+                if kind == "accept" then
+                    npc.accept(player, goal.quest_id, nil, nil)
+                else
+                    npc.turn_in(player, goal.quest_id, nil, nil)
+                end
+            end
+            return true
+        end
+        -- Not there yet: fall through to the walk below.
+    end
+
     if kind == "accept" and unit_id then
         state.set_note("Quest", "Zygor: accept " .. label)
         if npc.at_npc(player, unit_id, pos, name_a, name_b) then

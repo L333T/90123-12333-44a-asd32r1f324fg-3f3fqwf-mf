@@ -3,7 +3,7 @@
 -- Zygor Guides adapter
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.12.2
+-- Version: 2.13.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.zygor into the shapes quest/engine already understands:
@@ -142,6 +142,93 @@ function zygor.goal()
     return nil
 end
 
+--- The NPC this STEP is about, looked for across all of its goals.
+---
+--- This is the fix for the commonest shape in the guides. An accept or turnin
+--- goal carries only the quest:
+---
+---     step
+---     talk Tradesman Portanuus##25034      <- the npc id is here
+---     accept Report to Nasuun##11517       <- and this goal has none
+---
+--- GOALTYPES['accept'].parse reads only quest and questid; it never sets
+--- npcid or targetid. Asking the accept goal who to talk to therefore always
+--- came back empty, the dialog branch was skipped, and the bot walked to the
+--- waypoint and stood there.
+---
+--- Completed goals are searched too: by the time the accept goal is current,
+--- the talk goal above it is usually already ticked off.
+---
+--- Returns id, name - either may be nil.
+function zygor.step_npc()
+    local step = zygor.step()
+    if not step then
+        return nil, nil
+    end
+    local goals = step.goals
+    if type(goals) ~= "table" then
+        return nil, nil
+    end
+
+    local id, name = nil, nil
+    for i = 1, #goals do
+        local g = goals[i]
+        if type(g) == "table" then
+            id = id or tonumber(g.npc_id) or tonumber(g.target_id)
+            if type(g.npc) == "string" and g.npc ~= "" then
+                name = name or g.npc
+            elseif type(g.target) == "string" and g.target ~= "" then
+                name = name or g.target
+            end
+            if id and name then
+                break
+            end
+        end
+    end
+    return id, name
+end
+
+--- The nearest NPC that can be spoken to, for a step that names none.
+---
+--- Some steps are just `turnin ... |goto x,y` with no talk goal anywhere, so
+--- there is no id and no name to look for - Zygor points its arrow at the
+--- spot and the player clicks whoever is standing there. This does the same:
+--- the nearest unit we cannot attack, which is a quest giver, a vendor or a
+--- guard rather than a mob.
+---
+--- Deliberately short ranged. It is a guess, and a guess should only be made
+--- when the bot is already standing where the guide sent it.
+function zygor.nearest_talkable(player, range)
+    if not player then
+        return nil
+    end
+    range = tonumber(range) or 8
+
+    local list = safe(function() return core.object_manager.get_visible_objects() end)
+    if type(list) ~= "table" then
+        return nil
+    end
+
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_unit() end) == true
+            and safe(function() return u:is_dead_or_ghost() end) ~= true
+            and safe(function() return u:is_player() end) ~= true then
+            -- Friendly: something we cannot attack. A mob standing near the
+            -- quest giver must not be picked instead of it.
+            if safe(function() return player:can_attack(u) end) == false then
+                local d = safe(function() return player:distance_to(u) end)
+                if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+                    best, best_d = u, d
+                end
+            end
+        end
+    end
+    return best, best_d
+end
+
 -- ============================================================================
 -- WHAT THE ENGINE SHOULD DO
 -- ============================================================================
@@ -150,30 +237,50 @@ end
 -- A goal we do not recognise becomes "goto". That is deliberate: walking to
 -- the step's waypoint is progress toward whatever it wants, where guessing at
 -- an unknown verb is how a bot ends up attacking a quest giver.
+-- Taken from the addon's own GOALTYPES table, which declares 129 of them.
+-- Only the ones a levelling bot can act on are listed; everything else falls
+-- to "goto", which walks to the step's waypoint and lets the addon tick the
+-- goal off however it normally would.
 local ACTIONS = {
+    -- quest dialog
     accept      = "accept",
     turnin      = "turnin",
-    ["turn-in"] = "turnin",
-    kill        = "kill",
-    killrare    = "kill",
-    talk        = "talk",
-    clicknpc    = "talk",
-    ["goto"]    = "goto",
+    turninany   = "turnin",
 
-    -- A world object to click: a chest, a lever, a herb, a quest pickup lying
-    -- on the ground. These are NOT units, so the mob scan cannot see them.
+    -- speak to someone
+    talk        = "talk",
+    talknpcs    = "talk",
+    gossip      = "talk",
+    trainer     = "talk",
+    vendor      = "talk",
+    stablemaster = "talk",
+    clicknpc    = "talk",
+
+    -- fight
+    kill        = "kill",
+    killboss    = "kill",
+    grind       = "kill",
+
+    -- move
+    ["goto"]    = "goto",
+    at          = "goto",
+    walk        = "goto",
+
+    -- click a thing in the world
     click       = "object",
 
-    -- Zygor uses these for "end up holding N of this". That can be an object
-    -- on the ground or a drop from a mob, and the goal does not say which, so
-    -- "collect" tries an object first and falls back to killing.
+    -- end up holding N of something: an object on the ground or a mob drop,
+    -- and the goal does not say which, so both are tried
     get         = "collect",
     collect     = "collect",
+    farm        = "collect",
     buy         = "collect",
 
-    -- Use something already in the bags.
+    -- use something already carried
     ["use"]     = "item",
+    useany      = "item",
 }
+
 
 --- What kind of thing this goal is, in the engine's vocabulary.
 function zygor.classify(goal)

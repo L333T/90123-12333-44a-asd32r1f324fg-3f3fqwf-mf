@@ -3,7 +3,7 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.16.0
+-- Version: 2.16.1
 -- Folder: Master_Farmer_Grindbot
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
@@ -503,7 +503,11 @@ local function guide_tick(player)
 
     local kind = guide.classify(goal)
 
-    local unit_id = nil
+    -- A targeted NPC is the one place a real creature id is available under
+    -- RestedXP, so it is preferred over every name path below. When the bot
+    -- or the player has the quest giver selected, the dialog helpers get a
+    -- verified id instead of a proximity guess.
+    local unit_id = guide.target_npc_id(player)
     local name_a = goal.text
     local name_b = nil
 

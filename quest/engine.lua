@@ -3,7 +3,7 @@
 -- Quest engine — starter slice from quest/data only. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.10.0
+-- Version: 2.11.0
 -- Folder: Master_Farmer_Grindbot
 -- ASSUMPTIONS: Undertaker Mordo=1568, Sarvis=1569, Kaltunk=10176, Gornek=3143
 -- ============================================================================
@@ -19,6 +19,7 @@ local rotation = require("rotation")
 local targeting = require("targeting")
 local movement = require("movement")
 local healing = require("healing")
+local zygor = require("quest/zygor")
 
 local DATA = {}
 local DATA_MOD = {}
@@ -30,6 +31,12 @@ local EMPTY_QUEST = "(no starter quests)"
 local HUNT_SCAN = 0.8
 local HUNT_KILL = 60.0
 local HUNT_ARRIVE = 2.0
+
+-- Zygor state. The addon owns WHICH objective; these only track where the
+-- bot is in walking to it, and reset when the objective changes.
+local zy_key = nil
+local zy_move = 1
+local zy_scan_until = 0
 
 local hunt_move = 1
 local hunt_scan_until = 0
@@ -455,7 +462,164 @@ function quest.snapshot(player)
     }
 end
 
+-- ----------------------------------------------------------------------------
+-- ZYGOR
+-- ----------------------------------------------------------------------------
+--- Follow the addon's current step.
+---
+--- Zygor decides what to do; this does it with the same helpers the catalog
+--- path uses, so accepting, turning in, fighting and walking behave
+--- identically whichever source chose the target.
+---
+--- Returns true when it handled the tick. False means Zygor had nothing to
+--- say and the caller should fall back to its own catalog.
+local function zygor_tick(player)
+    if not zygor.ready() then
+        return false
+    end
+
+    local goal = zygor.goal()
+    if not goal then
+        -- Every goal of the step is done and the addon has not moved on yet.
+        -- Standing still for a frame is right: inventing work here would
+        -- fight whatever it does next.
+        state.set_note("Quest", "Zygor: step complete")
+        return true
+    end
+
+    -- A rest outranks the guide, exactly as it outranks a hunt.
+    if healing and type(healing.is_resting) == "function" and healing.is_resting() then
+        if movement and type(movement.nav_stop) == "function" then
+            movement.nav_stop()
+        end
+        pcall(function() core.input.stop_attack() end)
+        return true
+    end
+
+    local kind = zygor.classify(goal)
+    local pos, zdist, title = zygor.waypoint()
+    local label = goal.target or goal.npc or title or tostring(goal.target_id or goal.npc_id or "?")
+
+    -- Anything that changes what we are walking toward restarts the walk.
+    local key = string.format("%s|%s|%s|%s", kind, tostring(goal.quest_id),
+        tostring(goal.npc_id or goal.target_id), tostring(goal.index))
+    if key ~= zy_key then
+        zy_key = key
+        zy_move = 1
+        zy_scan_until = 0
+        state.reset_target()
+    end
+
+    -- ---- quest dialog -----------------------------------------------------
+    -- npc.at_npc walks there and returns true once the NPC is in reach, which
+    -- is the same handshake the catalog path uses.
+    if kind == "accept" and goal.quest_id and goal.npc_id then
+        state.quest.id = goal.quest_id
+        state.set_note("Quest", "Zygor: accept " .. label)
+        if npc.at_npc(player, goal.npc_id, pos) then
+            npc.accept(player, goal.quest_id, goal.npc, goal.npc_id)
+        end
+        return true
+    end
+
+    if kind == "turnin" and goal.quest_id and goal.npc_id then
+        state.quest.id = goal.quest_id
+        state.set_note("Quest", "Zygor: turn in " .. label)
+        if npc.at_npc(player, goal.npc_id, pos) then
+            npc.turn_in(player, goal.quest_id, goal.npc, goal.npc_id)
+        end
+        return true
+    end
+
+    if kind == "talk" and goal.npc_id then
+        state.set_note("Quest", "Zygor: talk to " .. label)
+        -- at_npc both walks and interacts; a talk goal needs nothing more,
+        -- and the addon marks it complete once the frame opens.
+        npc.at_npc(player, goal.npc_id, pos)
+        return true
+    end
+
+    -- ---- kill, and collect-by-killing --------------------------------------
+    if kind == "kill" or kind == "interact" then
+        local now = izi.now()
+        local unit = state.target.unit
+        if unit and state.target.kind == "kill" then
+            if fight_unit(player, unit, "Zygor: " .. label) then
+                return true
+            end
+        end
+
+        local ids = zygor.objective_ids()
+        if #ids > 0 and now >= zy_scan_until then
+            zy_scan_until = now + HUNT_SCAN
+            local found = targeting.find_mobs(player, ids, 50, true)
+            local next_unit = targeting.nearest(player, found)
+            if next_unit then
+                targeting.set_current(next_unit, "kill")
+                fight_unit(player, next_unit, "Zygor: " .. label)
+                return true
+            end
+        end
+        -- Nothing in range yet: walk to the waypoint and look again there.
+    end
+
+    -- ---- walk ---------------------------------------------------------------
+    if not pos then
+        -- No waypoint we can place. Say so rather than standing silently:
+        -- either the addon has none, or map_to_world could not convert it.
+        state.set_note("Quest", "Zygor: no usable waypoint for " .. label)
+        return true
+    end
+
+    if movement.arrived(pos, HUNT_ARRIVE) then
+        -- Arrived and there is still nothing to do here. Try the step's other
+        -- waypoints before giving up on the step.
+        local alts = zygor.step_waypoints()
+        if #alts > 0 then
+            zy_move = zy_move + 1
+            if zy_move > #alts then
+                zy_move = 1
+            end
+            local alt = alts[zy_move]
+            if alt and not movement.arrived(alt, HUNT_ARRIVE) then
+                state.set_note("Quest", "Zygor: " .. label)
+                movement.nav_to(alt, true)
+                return true
+            end
+        end
+        state.set_note("Quest", "Zygor: waiting at " .. label)
+        return true
+    end
+
+    if movement.is_blocked(pos) or movement.last_fail_offmesh() then
+        movement.clear_fail()
+        state.set_note("Quest", "Zygor: cannot reach " .. label)
+        return true
+    end
+    if movement.is_quiet() or movement.in_combat_movement() then
+        state.set_note("Quest", "Nav settle")
+        return true
+    end
+
+    if type(zdist) == "number" then
+        state.set_note("Quest", string.format("Zygor: %s  %.0fy", label, zdist))
+    else
+        state.set_note("Quest", "Zygor: " .. label)
+    end
+    if not movement.is_moving() then
+        movement.nav_to(pos, true)
+    end
+    return true
+end
+
 function quest.tick(player)
+    -- The addon leads when it is switched on and has something to say.
+    -- Falling through to the catalog when it does not means a guide that
+    -- finishes, or is not installed, leaves the bot working rather than idle.
+    if gui.is_on("zygor") and zygor_tick(player) then
+        return
+    end
+
     current = pick(player)
     if not current then
         leave_hunt()

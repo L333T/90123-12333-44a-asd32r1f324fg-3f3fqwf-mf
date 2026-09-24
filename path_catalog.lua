@@ -3,7 +3,7 @@
 -- Kalimdor Alliance PathTool catalog (lazy load)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.0
+-- Version: 2.8.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.8.0
+-- Version: 2.8.1
 -- Folder: Master_Farmer_Grindbot
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -104,7 +104,14 @@ local frost_nova = make({ 27088, 10230, 6131, 865, 122 }, false, true)
 local ice_lance = make({ 30455 })
 local blast_wave = make({ 11113 })
 local dragons_breath = make({ 33043, 33041, 31661 })
+-- Ice Barrier, rank 6 down to rank 1. 33405 is the TBC rank.
+--
+-- The id list was already here and nothing used it - it was left behind when
+-- the Class tab checkbox was removed. It is a maintained self buff now, kept
+-- up alongside the armour and Arcane Intellect rather than being a rotation
+-- toggle.
 local ICE_BARRIER_IDS = { 33405, 27134, 13033, 13032, 13031, 11426 }
+local ice_barrier = make(ICE_BARRIER_IDS, true, false)
 local mana_shield = make({ 27131, 10193, 10192, 10191, 8495, 8494, 1463 }, true, false)
 local ice_armor = make({ 27124, 10220, 10219, 7320, 7302 }, true, false)
 local frost_armor = make({ 7301, 7300, 168 }, true, false)
@@ -125,6 +132,7 @@ local conjure_food = make(consumables.CONJURE_FOOD_SPELL_IDS)
 
 spellbook.define({
     frostbolt = 116,
+    ice_barrier = 11426,
     fireball = 133,
     arcane_missiles = 5143,
     fire_blast = 2136,
@@ -836,6 +844,7 @@ function mage.register_gui(menu)
     menu:checkbox("mfg_mage_armor", false, opt("Mage Armor", mage_armor))
     menu:checkbox("mfg_molten_armor", false, opt("Molten Armor", molten_armor))
     menu:checkbox("mfg_mana_shield", false, opt("Mana Shield", mana_shield))
+    menu:checkbox("mfg_ice_barrier", true, opt("Ice Barrier", ice_barrier))
     menu:checkbox("mfg_icy_veins", true, opt("Icy Veins", icy_veins))
     menu:checkbox("mfg_presence_of_mind", true, opt("Presence of Mind", presence_of_mind))
     menu:checkbox("mfg_combustion", false, opt("Combustion", combustion))
@@ -904,6 +913,17 @@ function mage.buffs_ooc(player)
     if learned(arcane_intellect) then
         if auras.buff_expiring(player, { 27127, 23028, 27126, 10157, 10156, 1461, 1460, 1459 }, BUFF_LEAD) then
             if cast_self(arcane_intellect, player, "Arcane Intellect") then
+                return true
+            end
+        end
+    end
+    -- Ice Barrier is kept up the same way as the armour: cast when the
+    -- absorb is gone, left alone while it holds. The ranks come from the
+    -- scanner where it knows them, so a mage below rank 6 gets its own.
+    if gui.is_on("ice_barrier") and learned(ice_barrier) then
+        local ids = spellbook.ranks("ice_barrier") or ICE_BARRIER_IDS
+        if auras.buff_expiring(player, ids, BUFF_LEAD) then
+            if cast_self(live("ice_barrier", ice_barrier), player, "Ice Barrier") then
                 return true
             end
         end
@@ -1062,6 +1082,18 @@ function mage.tick(player, target, ctx)
     if learned(evocation) and mana <= 20 then
         if not auras.buff_up(player, { 12051 }) then
             if cast_self(live("evocation", evocation), player, "Evocation") then
+                return true
+            end
+        end
+    end
+
+    -- Ice Barrier before Mana Shield: it absorbs against health and costs no
+    -- mana to hold, where Mana Shield spends mana to absorb. With both
+    -- switched on the free one goes up first.
+    if gui.is_on("ice_barrier") and learned(ice_barrier) then
+        local ids = spellbook.ranks("ice_barrier") or ICE_BARRIER_IDS
+        if auras.buff_expiring(player, ids, BUFF_LEAD) then
+            if cast_self(live("ice_barrier", ice_barrier), player, "Ice Barrier") then
                 return true
             end
         end

@@ -3,7 +3,7 @@
 -- Priest grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.3
+-- Version: 2.7.4
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference grindbot's Buff_Check Priest branch, which kept

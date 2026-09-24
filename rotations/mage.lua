@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.3
+-- Version: 2.7.4
 -- Folder: Master_Farmer_Grindbot
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -32,6 +32,7 @@ local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
 local auras = require("auras")
+local pets = require("pets")
 local targeting = require("targeting")
 
 -- Re-apply a self buff this many seconds before it runs out, so the armour or
@@ -534,6 +535,13 @@ local seq_dist = 99
 local seq_pack = 0
 local seq_frozen = false
 local seq_gen = -1
+
+-- Water Elemental is a 3 minute cooldown. Retrying faster than this cannot
+-- help, and retrying every tick is what made a failed summon swallow the
+-- whole rotation.
+local SUMMON_GAP = 20.0
+local last_summon = -1e9
+local last_cold_snap = -1e9
 
 local function seq_unit_ok(unit)
     if not unit then
@@ -1128,22 +1136,44 @@ function mage.tick(player, target, ctx)
         end
     end
 
-    local pet = safe(function() return player:get_pet() end)
-    local pet_ok = pet and safe(function() return pet:is_valid() end) == true and safe(function() return pet:is_dead_or_ghost() end) ~= true
-    if gui.is_on("water_ele") and learned(water_elemental) and not pet_ok and dist <= 30 then
+    -- pets.alive asks the same question the Hunter and Warlock ask, rather
+    -- than a third open-coded version of it.
+    local pet_ok = pets.alive(player)
+
+    -- Summoning is rate limited on its own timer.
+    --
+    -- The guard used to be "no pet" alone, and cast_self returns true for
+    -- ISSUING the cast, not for a pet appearing. If the summon does not land
+    -- - on cooldown, interrupted, or simply a build where get_pet does not
+    -- report the elemental - the next tick saw no pet again, cast again, and
+    -- returned true again, so the rotation never reached its damage. A mage
+    -- that could not summon did nothing at all.
+    --
+    -- Water Elemental is a three minute cooldown, so retrying it more often
+    -- than that cannot help even when everything works.
+    if gui.is_on("water_ele") and learned(water_elemental) and not pet_ok and dist <= 30
+        and (now - last_summon) >= SUMMON_GAP then
+        last_summon = now
         if cast_self(live("water_elemental", water_elemental), player, "Water Elemental") then
             return true
         end
-    elseif pet_ok then
-        pcall(function()
-            core.input.pet_attack(target)
-        end)
+    end
+
+    if pet_ok then
+        pets.attack(player, target)
         if learned(freeze) and dist <= 30 and castable(live("freeze", freeze), target) then
             if cast_unit(live("freeze", freeze), target, "Freeze") then
                 return true
             end
         end
-    elseif gui.is_on("water_ele") and learned(cold_snap) and learned(water_elemental) and dist <= 30 then
+    elseif gui.is_on("water_ele") and learned(cold_snap) and learned(water_elemental)
+        and dist <= 30 and (now - last_cold_snap) >= SUMMON_GAP then
+        -- Cold Snap here exists only to reset Water Elemental, and like the
+        -- summon it was gated purely on the client refusing the cast. That is
+        -- true in game, where Cold Snap is a ten minute cooldown - but it
+        -- means one optimistic return from cast_safe swallows the rotation
+        -- for as long as the pet stays missing. Same rate limit, same reason.
+        last_cold_snap = now
         if cast_self(live("cold_snap", cold_snap), player, "Cold Snap") then
             return true
         end

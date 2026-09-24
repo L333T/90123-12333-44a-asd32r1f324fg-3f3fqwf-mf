@@ -3,7 +3,7 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.4
+-- Version: 2.7.5
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

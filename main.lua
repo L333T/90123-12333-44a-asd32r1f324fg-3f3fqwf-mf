@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.4
+-- Version: 2.7.5
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -471,30 +471,6 @@ local function path_handle_combat(player)
     return false
 end
 
-local function tick_rotation_only(player)
-    if not player or not rotation then
-        return
-    end
-    local target = safe(function() return player:get_target() end)
-    if not target or safe(function() return target:is_valid() end) ~= true then
-        state.set_note("Rotation", "Rotation Only - select a target")
-        return
-    end
-    if safe(function() return target:is_dead_or_ghost() end) == true or safe(function() return target:is_dead() end) == true then
-        state.set_note("Rotation", "Rotation Only - target dead")
-        return
-    end
-    pcall(function()
-        core.input.set_target(target)
-    end)
-    local pack = {}
-    if targeting then
-        pack = targeting.combat_scan(player, scan_yards(player))
-    end
-    state.set_note("Rotation", "Rotation Only")
-    rotation.tick(player, target, { enemies = pack, no_move = true })
-end
-
 local function player_is_busy(player)
     if not player then
         return false
@@ -512,6 +488,58 @@ local function player_is_busy(player)
         return true
     end
     return false
+end
+
+local function tick_rotation_only(player)
+    if not player or not rotation then
+        return
+    end
+
+    -- The same guard the Play path has had all along.
+    --
+    -- That check lives at the bottom of on_update, AFTER this branch returns,
+    -- so Rotation Only never had it: the rotation was driven every single
+    -- frame whether or not a cast was already in flight. On an instant-cast
+    -- class that is merely wasteful; on a caster it is fatal, because
+    -- Frostbolt takes seconds and the next frame started the decision over
+    -- before it could land. "The rotation does not run" is what a caster that
+    -- never finishes a cast looks like.
+    if player_is_busy(player) then
+        state.set_note("Rotation", "Rotation Only - casting")
+        return
+    end
+    local target = safe(function() return player:get_target() end)
+    if not target or safe(function() return target:is_valid() end) ~= true then
+        state.set_note("Rotation", "Rotation Only - select a target")
+        return
+    end
+    if safe(function() return target:is_dead_or_ghost() end) == true or safe(function() return target:is_dead() end) == true then
+        state.set_note("Rotation", "Rotation Only - target dead")
+        return
+    end
+    -- Only assert the target when it is not already ours. This ran every
+    -- tick on the unit the player had just been read FROM, so it was at best
+    -- redundant and at worst a re-target that clipped the cast it had started
+    -- the frame before.
+    local have = safe(function() return player:get_target() end)
+    local same = false
+    if have then
+        local a = safe(function() return have:get_guid() end)
+        local b = safe(function() return target:get_guid() end)
+        same = (a ~= nil and a == b)
+    end
+    if not same then
+        pcall(function()
+            core.input.set_target(target)
+        end)
+    end
+
+    local pack = {}
+    if targeting then
+        pack = targeting.combat_scan(player, scan_yards(player))
+    end
+    state.set_note("Rotation", "Rotation Only")
+    rotation.tick(player, target, { enemies = pack, no_move = true })
 end
 
 local function on_update()

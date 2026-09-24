@@ -3,7 +3,7 @@
 -- Config accessors — thin pass-through to the GUI
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.4
+-- Version: 2.7.5
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- This file previously also carried `config.KEY_MAP`, a table of the original

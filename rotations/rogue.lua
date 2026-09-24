@@ -3,7 +3,7 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.4.0
+-- Version: 2.5.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
@@ -42,6 +42,7 @@ local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
+local auras = require("auras")
 
 local rogue = {}
 
@@ -139,10 +140,14 @@ local function cast_at(spell, target, label)
     return false
 end
 
+-- Same question as before, asked through the cached aura layer: a rotation
+-- checks half a dozen auras per frame and each one used to be its own trip
+-- into the game.
 local function has_aura(unit, ids)
-    if not unit then return false end
-    if safe(function() return unit:has_buff(ids) end) == true then return true end
-    return safe(function() return unit:has_aura(ids) end) == true
+    if not unit then
+        return false
+    end
+    return auras.aura_up(unit, ids)
 end
 
 --- Combo points on the current target. Without this the finisher logic is
@@ -290,7 +295,7 @@ function rogue.tick(player, target, ctx)
             if cast_self(slice_dice, player, "Slice and Dice") then return true end
         end
         if gui.is_on("rupture") and learned(rupture) then
-            if safe(function() return target:has_debuff(RUPTURE_IDS) end) ~= true then
+            if not auras.debuff_up(target, RUPTURE_IDS) then
                 if cast_at(rupture, target, "Rupture") then return true end
             end
         end

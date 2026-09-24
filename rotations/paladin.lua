@@ -3,7 +3,7 @@
 -- Paladin grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.4.0
+-- Version: 2.5.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- WHY THE AURA IS A DROPDOWN AND NOT SIX CHECKBOXES
@@ -33,6 +33,7 @@ local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
+local auras = require("auras")
 
 local paladin = {}
 
@@ -201,14 +202,14 @@ local function cast_at(spell, target, label)
     return false
 end
 
+-- Same question as before, asked through the cached aura layer: a rotation
+-- checks half a dozen auras per frame and each one used to be its own trip
+-- into the game.
 local function has_aura(unit, ids)
     if not unit then
         return false
     end
-    if safe(function() return unit:has_buff(ids) end) == true then
-        return true
-    end
-    return safe(function() return unit:has_aura(ids) end) == true
+    return auras.aura_up(unit, ids)
 end
 
 --- Selected aura index, clamped. The dropdown is 1-based and may return a

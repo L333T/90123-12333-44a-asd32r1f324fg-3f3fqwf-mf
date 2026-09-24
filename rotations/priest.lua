@@ -3,7 +3,7 @@
 -- Priest grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.4.0
+-- Version: 2.5.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Ported from the reference grindbot's Buff_Check Priest branch, which kept
@@ -36,6 +36,18 @@ local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
+local auras = require("auras")
+
+-- Refresh a damage-over-time effect this many seconds before it runs out.
+--
+-- Waiting for it to fall off leaves the mob with no DoT on it for however
+-- long it takes to notice and recast, which on a long fight is a tick of
+-- damage lost every cycle. Two seconds is enough to cover a bot tick and a
+-- global without clipping so early that the tail of the DoT is thrown away.
+-- Where the game will not report the time left, remaining reads as infinite
+-- and this reverts to recasting only once the DoT is gone.
+local DOT_LEAD = 2.0
+
 
 local priest = {}
 
@@ -204,14 +216,14 @@ local function cast_at(spell, target, label)
     return false
 end
 
+-- Same question as before, asked through the cached aura layer: a rotation
+-- checks half a dozen auras per frame and each one used to be its own trip
+-- into the game.
 local function has_aura(unit, ids)
     if not unit then
         return false
     end
-    if safe(function() return unit:has_buff(ids) end) == true then
-        return true
-    end
-    return safe(function() return unit:has_aura(ids) end) == true
+    return auras.aura_up(unit, ids)
 end
 
 -- ----------------------------------------------------------------------------
@@ -457,7 +469,7 @@ function priest.tick(player, target, ctx)
     -- Dot first: it keeps ticking while we close, and re-applying early wastes
     -- the remaining duration, so only cast when the debuff is actually absent.
     if gui.is_on("swp") and learned(shadow_word_pain) then
-        if safe(function() return target:has_debuff(SWP_IDS) end) ~= true then
+        if auras.debuff_expiring(target, SWP_IDS, DOT_LEAD) then
             if cast_at(shadow_word_pain, target, "Shadow Word: Pain") then
                 return true
             end

@@ -3,7 +3,7 @@
 -- Shaman grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.4.0
+-- Version: 2.5.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- WEAPON IMBUES - THE BUG NOT COPIED
@@ -32,6 +32,18 @@ local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
+local auras = require("auras")
+
+-- Refresh a damage-over-time effect this many seconds before it runs out.
+--
+-- Waiting for it to fall off leaves the mob with no DoT on it for however
+-- long it takes to notice and recast, which on a long fight is a tick of
+-- damage lost every cycle. Two seconds is enough to cover a bot tick and a
+-- global without clipping so early that the tail of the DoT is thrown away.
+-- Where the game will not report the time left, remaining reads as infinite
+-- and this reverts to recasting only once the DoT is gone.
+local DOT_LEAD = 2.0
+
 
 local shaman = {}
 
@@ -139,10 +151,14 @@ local function cast_at(spell, target, label)
     return false
 end
 
+-- Same question as before, asked through the cached aura layer: a rotation
+-- checks half a dozen auras per frame and each one used to be its own trip
+-- into the game.
 local function has_aura(unit, ids)
-    if not unit then return false end
-    if safe(function() return unit:has_buff(ids) end) == true then return true end
-    return safe(function() return unit:has_aura(ids) end) == true
+    if not unit then
+        return false
+    end
+    return auras.aura_up(unit, ids)
 end
 
 --- Is the main hand carrying a temporary enchant right now?
@@ -327,7 +343,7 @@ function shaman.tick(player, target, ctx)
     end
 
     if gui.is_on("flame_shock") and learned(flame_shock) then
-        if safe(function() return target:has_debuff(FLAME_SHOCK_IDS) end) ~= true then
+        if auras.debuff_expiring(target, FLAME_SHOCK_IDS, DOT_LEAD) then
             if cast_at(flame_shock, target, "Flame Shock") then return true end
         end
     end

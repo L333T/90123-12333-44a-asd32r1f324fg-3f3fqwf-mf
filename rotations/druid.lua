@@ -3,7 +3,7 @@
 -- Druid grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.4.0
+-- Version: 2.5.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and
@@ -35,6 +35,18 @@ local racials = require("racials")
 local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
+local auras = require("auras")
+
+-- Refresh a damage-over-time effect this many seconds before it runs out.
+--
+-- Waiting for it to fall off leaves the mob with no DoT on it for however
+-- long it takes to notice and recast, which on a long fight is a tick of
+-- damage lost every cycle. Two seconds is enough to cover a bot tick and a
+-- global without clipping so early that the tail of the DoT is thrown away.
+-- Where the game will not report the time left, remaining reads as infinite
+-- and this reverts to recasting only once the DoT is gone.
+local DOT_LEAD = 2.0
+
 
 local druid = {}
 
@@ -183,14 +195,14 @@ local function cast_at(spell, target, label)
     return false
 end
 
+-- Same question as before, asked through the cached aura layer: a rotation
+-- checks half a dozen auras per frame and each one used to be its own trip
+-- into the game.
 local function has_aura(unit, ids)
     if not unit then
         return false
     end
-    if safe(function() return unit:has_buff(ids) end) == true then
-        return true
-    end
-    return safe(function() return unit:has_aura(ids) end) == true
+    return auras.aura_up(unit, ids)
 end
 
 -- ----------------------------------------------------------------------------
@@ -264,7 +276,7 @@ function druid.combat_profile()
             if not gui.is_on("entangling") then
                 return false
             end
-            return safe(function() return ctx.target:has_debuff(ROOTS_IDS) end) == true
+            return auras.debuff_up(ctx.target, ROOTS_IDS)
         end,
     }
 end
@@ -396,7 +408,7 @@ function druid.tick(player, target, ctx)
     -- Root only once something is actually in melee, and only if it is not
     -- already rooted - re-casting clips the existing root for no gain.
     if gui.is_on("entangling") and learned(entangling) and dist <= 8 then
-        if safe(function() return target:has_debuff(ROOTS_IDS) end) ~= true then
+        if not auras.debuff_up(target, ROOTS_IDS) then
             if cast_at(entangling, target, "Entangling Roots") then
                 return true
             end
@@ -408,7 +420,7 @@ function druid.tick(player, target, ctx)
     end
 
     if gui.is_on("moonfire") and learned(moonfire) then
-        if safe(function() return target:has_debuff(MOONFIRE_IDS) end) ~= true then
+        if auras.debuff_expiring(target, MOONFIRE_IDS, DOT_LEAD) then
             if cast_at(moonfire, target, "Moonfire") then
                 return true
             end
@@ -416,7 +428,7 @@ function druid.tick(player, target, ctx)
     end
 
     if gui.is_on("faerie_fire") and learned(faerie_fire) then
-        if safe(function() return target:has_debuff(FAERIE_IDS) end) ~= true then
+        if auras.debuff_expiring(target, FAERIE_IDS, DOT_LEAD) then
             if cast_at(faerie_fire, target, "Faerie Fire") then
                 return true
             end

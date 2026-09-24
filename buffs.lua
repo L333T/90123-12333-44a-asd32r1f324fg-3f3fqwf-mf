@@ -3,7 +3,7 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.4.0
+-- Version: 2.5.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED
@@ -25,10 +25,16 @@
 --   Shield up, because both arrive as a buff family from the same scan.
 --
 -- HOW "EXPIRED" IS DECIDED
---   By asking whether the aura is on the player, not by timing the cast. A
---   timer drifts, gets cleared by a dispel it never hears about, and has to
---   guess a duration per rank. has_buff on the family's rank ids is the direct
---   question and needs no table of durations.
+--   By asking the game, not by timing the cast. A timer of our own drifts,
+--   is wrong after a dispel it never hears about, and has to guess a duration
+--   per rank.
+--
+--   The question now includes how long is left, via auras.lua, so a buff is
+--   refreshed just BEFORE it runs out rather than just after. Waiting for it
+--   to drop meant it was genuinely missing for a tick or two, and the moment
+--   a buff is most likely to lapse is mid fight - the moment it was wanted.
+--   On a build that cannot report the time left this degrades to exactly the
+--   old behaviour.
 --
 -- ONE AT A TIME
 --   One buff per tick, with a gap between. A global cooldown is shared, so
@@ -40,6 +46,7 @@
 local izi = require("common/izi_sdk")
 
 local gui = require("gui")
+local auras = require("auras")
 local spellbook = require("spellbook")
 local state = require("state")
 
@@ -47,6 +54,17 @@ local buffs = {}
 
 local ACT_GAP = 1.2          -- seconds between buff casts
 local RETRY_GAP = 6.0        -- how long before re-trying one that did not land
+
+-- Refresh this many seconds before a buff actually runs out.
+--
+-- Waiting for it to drop means it IS dropped for as long as it takes to
+-- notice and cast - and the moment a buff is most likely to lapse is mid
+-- fight, which is the moment it was wanted. Three seconds covers a tick of
+-- the bot plus a cast, without re-casting so early that the buff is thrown
+-- away. Where the game will not tell us the time left, this has no effect:
+-- remaining reads as infinite and the behaviour falls back to the old
+-- "recast once it is gone".
+local REFRESH_LEAD = 3.0
 
 local last_act = -1e9
 local failed_until = {}      -- name -> time before which we do not retry
@@ -151,17 +169,14 @@ local function is_resting()
     return false
 end
 
---- Is this buff's aura on the player right now?
+--- Does this buff need casting - missing, or nearly out?
 --- Every rank is offered, because a lower rank's aura is still the buff.
-local function aura_up(player, fam)
+local function needs_cast(player, fam)
     local ids = fam.ranks
     if type(ids) ~= "table" or #ids == 0 then
         ids = { fam.id }
     end
-    if safe(function() return player:has_buff(ids) end) == true then
-        return true
-    end
-    return safe(function() return player:has_aura(ids) end) == true
+    return auras.aura_expiring(player, ids, REFRESH_LEAD)
 end
 
 -- ----------------------------------------------------------------------------
@@ -204,7 +219,7 @@ function buffs.tick(player)
         local name = fam.name
         if enabled[name] then
             local hold = failed_until[name] or 0
-            if now >= hold and not aura_up(player, fam) then
+            if now >= hold and needs_cast(player, fam) then
                 local spell = safe(function() return izi.spell(fam.id) end)
                 local cast = false
                 if spell then

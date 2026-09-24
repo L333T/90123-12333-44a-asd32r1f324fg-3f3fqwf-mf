@@ -3,7 +3,7 @@
 -- Duskwood 26-28 Worgen (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.12.0
+-- Version: 2.12.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

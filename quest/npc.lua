@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.12.0
+-- Version: 2.12.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -165,6 +165,38 @@ end
 --- Walk to `npc_id`. Returns true once the bot is standing at it - every tick,
 --- and WITHOUT interacting. The dialog state machines below decide when to
 --- interact, because re-interacting closes whatever frame they are reading.
+--- Walk to an NPC and open its dialog.
+---
+--- at_npc only WALKS - it returns true once the NPC is in reach and leaves
+--- the talking to npc.accept or npc.turn_in, which drive the quest frames.
+--- A goal that is only "go and speak to this NPC" had nothing to call: the
+--- bot arrived and stood there.
+---
+--- Interaction is rate limited by state.quest.interact_until, the same latch
+--- the dialog state machine uses, because re-issuing interact_with_object
+--- tears down the frame it just opened (1.5.1).
+---
+--- Returns true once the NPC is in reach, whether or not this tick was the
+--- one that interacted.
+function npc.talk(player, npc_id, dest)
+    if not npc.at_npc(player, npc_id, dest) then
+        return false
+    end
+    local now = izi.now()
+    if now < (state.quest.interact_until or 0) then
+        return true
+    end
+    local unit = targeting.find_npc(player, npc_id, 10)
+    if not unit then
+        return true
+    end
+    state.quest.interact_until = now + 1.2
+    pcall(function()
+        core.input.interact_with_object(unit)
+    end)
+    return true
+end
+
 function npc.at_npc(player, npc_id, dest)
     local unit = targeting.find_npc(player, npc_id, 80)
     if unit then

@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.9.1
+-- Version: 2.10.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -81,13 +81,28 @@ local WATER_ITEM_RANK = consumables.WATER_ITEM_IDS
 local REST_DEFAULT = 30
 local REST_DONE = 100
 
--- Seconds a use is committed for before another of the same kind is considered.
--- Covers the delay between using the item and its aura becoming visible.
--- Measured against the worst case, not the typical one: a 3s window still
--- double-consumed when the aura took 4.5s to register.
-local USE_COMMIT = 5.0
+-- Seconds a use is committed for before another of the same kind is
+-- considered - eat or drink for this long before reaching for another item.
+--
+-- It also covers the delay between using an item and its aura becoming
+-- visible; that alone wanted 5s, because a 3s window still double-consumed
+-- when the aura took 4.5s to register. Fifteen is the eating time asked for,
+-- and it subsumes the aura delay.
+--
+-- This only bites when NO aura is up: a meal that is actually ticking is left
+-- alone by the first check in consume_one however long it runs.
+local USE_COMMIT = 15.0
 -- Worst-case bound per rest session if aura detection is broken entirely.
 local MAX_USES = 8
+
+-- How close a hostile mob may be before sitting down is a bad idea.
+--
+-- Being out of combat is not the same as being safe. A mob that has not
+-- aggroed yet is still standing there, and eating in front of it means
+-- taking the first hit sitting down, at the health that made the bot stop to
+-- eat in the first place. The rest waits until nothing hostile is inside
+-- this radius.
+local REST_CLEAR_YARDS = 10
 
 -- Gates use_self_safe applies by default, and why one of them is turned off.
 --
@@ -550,6 +565,21 @@ function resting_mod.tick(player, opts)
         rest_debug("swimming - cannot sit down to eat or drink")
         clear_rest()
         return false
+    end
+
+    -- Out of combat is not the same as clear. Lazy require: targeting pulls in
+    -- a good deal and resting sits below it in the load order.
+    local ok_t, targeting = pcall(require, "targeting")
+    if ok_t and targeting and type(targeting.threat_nearby) == "function" then
+        if safe(function()
+            return targeting.threat_nearby(player, REST_CLEAR_YARDS)
+        end) == true then
+            rest_debug("hostile within %d yards - holding off the rest", REST_CLEAR_YARDS)
+            state.set_note("Rest", string.format("Waiting to eat - mob within %dy", REST_CLEAR_YARDS))
+            -- Not a rest: the caller must be free to fight or walk away.
+            clear_rest()
+            return false
+        end
     end
 
     if rest_eat == true and eating ~= true and hp < REST_DONE and has_usable(foods) ~= true then

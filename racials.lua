@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.9.0
+-- Version: 2.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class

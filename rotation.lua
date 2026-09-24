@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.9.0
+-- Version: 2.9.1
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -296,10 +296,26 @@ function rotation.tick(player, target, ctx)
         targeting.start_auto_attack(player, target)
     end
     -- Facing is idempotent and throttled inside movement, so asserting it here
-    -- is safe even when combat movement is already facing the same target. It
-    -- is what keeps Rotation Only mode (no combat movement) pointed the right
-    -- way. This is a facing command, never a movement command.
-    if target then
+    -- is safe even when combat movement is already facing the same target.
+    -- This is a facing command, never a movement command.
+    --
+    -- It used to run in Rotation Only too, on the reasoning that a mode with
+    -- no combat movement still wants to be pointed the right way. That is the
+    -- bot turning the camera under a player who is steering by hand, so it is
+    -- off there now: in Rotation Only the character faces wherever the player
+    -- points it and the rotation casts at whatever is already targeted.
+    --
+    -- ctx.no_move is NOT the test. Every caller passes it - grind, quest and
+    -- the path runner all mean "you do not own movement, I do" by it - so
+    -- gating on it would stop the bot facing its target while grinding.
+    -- Lazy require, like healing above: gui is a large module and this file
+    -- sits under it in the load order.
+    local rotation_only = false
+    local ok_g, gui = pcall(require, "gui")
+    if ok_g and gui and type(gui.is_on) == "function" then
+        rotation_only = gui.is_on("rotation_only") == true
+    end
+    if target and not rotation_only then
         local movement = get_movement()
         if movement then
             movement.face(target)

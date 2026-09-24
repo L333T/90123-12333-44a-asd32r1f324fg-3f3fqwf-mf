@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.9.0
+-- Version: 2.9.1
 -- Folder: Master_Farmer_Grindbot
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -310,7 +310,23 @@ local function spell_pause_sec(spell, fallback)
     return fallback
 end
 
+--- In Rotation Only the player drives. The bot issues no movement and no
+--- facing at all - it casts at whatever is already targeted, pointed wherever
+--- the player is pointing.
+---
+--- This is not only about nav commands. movement.prepare_cast,
+--- prepare_channel and prepare_ground all reach begin_lock, which calls
+--- look_at_target / look_at_position - so the "hold still while casting"
+--- helpers turn the character too. In Rotation Only there is nothing to hold
+--- still, and the turning is exactly what has to stop.
+local function hands_off()
+    return gui.is_on("rotation_only") == true
+end
+
 local function pause_cast(target, spell)
+    if hands_off() then
+        return
+    end
     local movement = get_movement()
     if not movement or type(movement.prepare_cast) ~= "function" then
         return
@@ -319,6 +335,9 @@ local function pause_cast(target, spell)
 end
 
 local function pause_channel(target, spell, fallback)
+    if hands_off() then
+        return
+    end
     local movement = get_movement()
     if not movement or type(movement.prepare_channel) ~= "function" then
         return
@@ -327,6 +346,9 @@ local function pause_channel(target, spell, fallback)
 end
 
 local function pause_ground(pos, spell, channel, fallback)
+    if hands_off() then
+        return
+    end
     local movement = get_movement()
     if not movement or type(movement.prepare_ground) ~= "function" then
         return
@@ -689,24 +711,9 @@ local function start_mage_sequence()
             condition = cond_target("pyroblast", pyroblast, 30),
         },
         {
-            spell = live("dragons_breath", dragons_breath),
-            target = function() return seq_enemy() end,
-            condition = cond_target("dragons_breath", dragons_breath, 8),
-        },
-        {
-            spell = live("blast_wave", blast_wave),
-            target = function() return seq_enemy() end,
-            condition = cond_target("blast_wave", blast_wave, 8),
-        },
-        {
             spell = live("frostbolt", frostbolt),
             target = function() return seq_enemy() end,
             condition = cond_target("frostbolt", frostbolt, 34),
-        },
-        {
-            spell = live("scorch", scorch),
-            target = function() return seq_enemy() end,
-            condition = cond_target("scorch", scorch, 29),
         },
         {
             spell = live("arcane_missiles", arcane_missiles),
@@ -847,11 +854,9 @@ function mage.register_gui(menu)
     menu:checkbox("mfg_ice_barrier", true, opt("Ice Barrier", ice_barrier))
     menu:checkbox("mfg_icy_veins", true, opt("Icy Veins", icy_veins))
     menu:checkbox("mfg_presence_of_mind", true, opt("Presence of Mind", presence_of_mind))
-    menu:checkbox("mfg_combustion", false, opt("Combustion", combustion))
     menu:checkbox("mfg_arcane_power", false, opt("Arcane Power", arcane_power))
     menu:checkbox("mfg_frostbolt", true, opt("Frostbolt", frostbolt))
     menu:checkbox("mfg_fireball", true, opt("Fireball", fireball))
-    menu:checkbox("mfg_scorch", false, opt("Scorch", scorch))
     menu:checkbox("mfg_arcane_missiles", false, opt("Arcane Missiles", arcane_missiles))
     menu:checkbox("mfg_pyroblast", false, opt("Pyroblast", pyroblast))
     menu:checkbox("mfg_fire_blast", true, opt("Fire Blast", fire_blast))
@@ -860,10 +865,17 @@ function mage.register_gui(menu)
     menu:checkbox("mfg_cone", false, opt("Cone of Cold", cone_of_cold))
     menu:checkbox("mfg_flamestrike", false, opt("Flamestrike (2+)", flamestrike))
     menu:checkbox("mfg_blizzard", false, opt("Blizzard (2+)", blizzard))
-    menu:checkbox("mfg_blast_wave", false, opt("Blast Wave", blast_wave))
-    menu:checkbox("mfg_dragons_breath", false, opt("Dragon's Breath", dragons_breath))
     menu:checkbox("mfg_water_ele", true, opt("Summon Water Elemental", water_elemental))
     menu:checkbox("mfg_counterspell", true, opt("Counterspell", counterspell))
+    menu:checkbox("mfg_evocation", true, opt("Evocation", evocation))
+    menu:checkbox("invisibility", true, opt("Invisibility", { 66, 1856, 66 }))
+    menu:checkbox("mfg_conjure_water", true, opt("Conjure Water", conjure_water))
+    menu:checkbox("mfg_conjure_food", true, opt("Conjure Food", conjure_food))
+    menu:checkbox("conjure_mana_gem", true, opt("Conjure Mana Gem", { 759, 3552, 3553, 3554 }))
+    menu:checkbox("mfg_cold_snap", true, opt("Cold Snap", cold_snap))
+    menu:checkbox("arcane_brilliance", true, { label = "Keep Arcane Brilliance Up", tab = "class", class_id = class_id })
+    menu:checkbox("ice_barrier", true, { label = "Keep Ice Barrier Up", tab = "class", class_id = class_id })
+    menu:checkbox("mage_buffs", true, { label = "Keep Buffs Up", tab = "class", class_id = class_id })
 end
 
 function mage.buffs_ooc(player)
@@ -959,7 +971,7 @@ function mage.buffs_ooc(player)
             threat = targeting.threat_nearby(player, 50) == true
         end
         if not threat then
-            local mv = get_movement()
+            local mv = (not hands_off()) and get_movement() or nil
             if mv then
                 mv.nav_stop()
             end
@@ -975,7 +987,7 @@ function mage.buffs_ooc(player)
             threat = targeting.threat_nearby(player, 50) == true
         end
         if not threat then
-            local mv = get_movement()
+            local mv = (not hands_off()) and get_movement() or nil
             if mv then
                 mv.nav_stop()
             end
@@ -1118,15 +1130,7 @@ function mage.tick(player, target, ctx)
         end
     end
 
-    if gui.is_on("flamestrike") and pack >= 2 and dist < 29 and learned(flamestrike) then
-        if (now - state.combat.nova_at) >= 10 then
-            local pos = safe(function() return target:get_position() end)
-            if pos and cast_pos(live("flamestrike", flamestrike), pos, "Flamestrike", false, 2.0) then
-                state.combat.nova_at = now
-                return true
-            end
-        end
-    end
+
 
     if gui.is_on("frost_nova") and dist < 10 and learned(frost_nova) and castable(live("frost_nova", frost_nova)) then
         local nova = live("frost_nova", frost_nova)

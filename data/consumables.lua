@@ -3,7 +3,7 @@
 -- Consumables — conjured + vendor food/water from Orca tables
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.5.0
+-- Version: 2.6.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- Source: orca de.lua conjuredFood / food / conjuredDrinks / drinks / foodordrink
 -- Highest rank / best restore first.
@@ -148,6 +148,84 @@ consumables.WATER_ITEM_IDS = merge_unique({
     consumables.MANNA_ITEM_IDS,
     consumables.VENDOR_WATER_ITEM_IDS,
 })
+
+-- ============================================================================
+-- REQUIRED LEVEL, FOR PICKING THE BEST ONE IN THE BAGS
+-- ============================================================================
+-- "Use the highest level food/water in the bags" needs a level per item, and
+-- the client exposes none: there is no item-level call anywhere on the item
+-- object or in core.inventory. So the ladder is data.
+--
+-- These are the standard vendor ladders, which is what the bot actually
+-- carries - supplies.lua buys from merchants, so the bags hold vendor stock
+-- plus whatever a mage conjured.
+--
+-- An id that is not listed here ranks 0 and is used only when nothing ranked
+-- is held. That is deliberate: guessing a level for an unknown drop or quest
+-- reward would be worse than falling back to list order, which is at least
+-- predictable.
+consumables.WATER_LEVEL = {
+    [159]   = 1,    -- Refreshing Spring Water
+    [1179]  = 5,    -- Ice Cold Milk
+    [1205]  = 15,   -- Melon Juice
+    [1708]  = 25,   -- Sweet Nectar
+    [1645]  = 35,   -- Moonberry Juice
+    [8766]  = 45,   -- Morning Glory Dew
+    [18300] = 50,   -- Hyjal Nectar
+    [19300] = 55,   -- Bottled Winterspring Water
+    [27860] = 62,   -- Purified Draenic Water
+    [28399] = 65,   -- Filtered Draenic Water
+    [32453] = 70,   -- Star's Tears
+}
+
+consumables.FOOD_LEVEL = {
+    [117]   = 1,    -- Tough Jerky
+    [2287]  = 5,    -- Haunch of Meat
+    [3770]  = 15,   -- Mutton Chop
+    [3771]  = 25,   -- Wild Hog Shank
+    [4599]  = 35,   -- Cured Ham Steak
+    [8952]  = 45,   -- Roasted Quail
+    [8950]  = 45,   -- Homemade Cherry Pie
+    [27854] = 65,   -- Smoked Talbuk Venison
+    [27855] = 65,   -- Mag'har Grainbread
+    [29449] = 65,   -- Sporeggar Mushroom
+}
+
+-- Conjured items rank above any vendor stock of the same era, because a mage
+-- that has just conjured has a fresh stack and no reason to eat bought food.
+-- The numbers keep the ladder monotonic with the vendor ones above.
+consumables.CONJURED_LEVEL = {
+    [5350]  = 1,    -- Conjured Water
+    [2288]  = 15,   -- Conjured Fresh Water
+    [2136]  = 25,   -- Conjured Purified Water
+    [3772]  = 35,   -- Conjured Spring Water
+    [8077]  = 45,   -- Conjured Mineral Water
+    [8078]  = 55,   -- Conjured Sparkling Water
+    [8079]  = 60,   -- Conjured Crystal Water
+    [30703] = 65,   -- Conjured Mountain Spring Water
+    [22018] = 70,   -- Conjured Glacier Water
+
+    [5349]  = 1,    -- Conjured Muffin
+    [1113]  = 15,   -- Conjured Bread
+    [1114]  = 25,   -- Conjured Rye
+    [1487]  = 35,   -- Conjured Pumpernickel
+    [8075]  = 45,   -- Conjured Sourdough
+    [8076]  = 55,   -- Conjured Sweet Roll
+    [22895] = 60,   -- Conjured Cinnamon Roll
+    [34062] = 65,   -- Conjured Manna Biscuit
+    [22019] = 70,   -- Conjured Croissant
+}
+
+--- Required level of an item, or 0 when it is not on any ladder.
+function consumables.level_of(id)
+    if type(id) ~= "number" then
+        return 0
+    end
+    return consumables.CONJURED_LEVEL[id]
+        or consumables.WATER_LEVEL[id]
+        or consumables.FOOD_LEVEL[id]
+        or 0
+end
 
 -- Eat / drink buff spell IDs (not item IDs)
 consumables.FOOD_AURA_IDS = {

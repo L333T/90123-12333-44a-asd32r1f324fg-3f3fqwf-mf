@@ -3,7 +3,7 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.5.0
+-- Version: 2.6.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED
@@ -55,16 +55,17 @@ local buffs = {}
 local ACT_GAP = 1.2          -- seconds between buff casts
 local RETRY_GAP = 6.0        -- how long before re-trying one that did not land
 
--- Refresh this many seconds before a buff actually runs out.
+-- How early to refresh a buff, in seconds before it runs out.
 --
--- Waiting for it to drop means it IS dropped for as long as it takes to
--- notice and cast - and the moment a buff is most likely to lapse is mid
--- fight, which is the moment it was wanted. Three seconds covers a tick of
--- the bot plus a cast, without re-casting so early that the buff is thrown
--- away. Where the game will not tell us the time left, this has no effect:
--- remaining reads as infinite and the behaviour falls back to the old
--- "recast once it is gone".
-local REFRESH_LEAD = 3.0
+-- Zero: recast when the player does NOT have the buff, and not before. An
+-- early refresh throws away the tail of a buff that is still working, and on
+-- a long self buff that is a cast and a global spent for nothing every cycle.
+--
+-- The anti-spam that matters is elsewhere and does not depend on this: the
+-- aura check says the buff is up, ACT_GAP holds a second between any two buff
+-- casts, and RETRY_GAP backs off one that would not land. Those three are why
+-- a buff is cast once and then left alone.
+local REFRESH_LEAD = 0
 
 local last_act = -1e9
 local failed_until = {}      -- name -> time before which we do not retry

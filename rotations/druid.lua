@@ -3,7 +3,7 @@
 -- Druid grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.5.0
+-- Version: 2.6.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.5.0
+-- Version: 2.6.0
 -- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 
@@ -1883,8 +1883,11 @@ menu:on_tab("spells", function(win, x, y, w, h)
                 win:render_text(FONT_SMALL, vec2.new(x + 22, row_y), gold, tostring(fam.name))
             end
 
+            -- One row per spell, at its HIGHEST rank. fam.id is the top rank
+            -- and n is how many exist behind it, so a mage sees one Frostbolt
+            -- labelled "top of 11" rather than eleven Frostbolt rows.
             win:render_text(FONT_SMALL, vec2.new(x + w - 118, row_y), mute,
-                (n > 1) and string.format("%d ranks", n) or "1 rank")
+                (n > 1) and string.format("top of %d", n) or "1 rank")
             win:render_text(FONT_SMALL, vec2.new(x + w - 60, row_y), mute, tostring(fam.id))
 
             row_y = row_y + SPELL_ROW
@@ -1899,8 +1902,18 @@ menu:on_tab("spells", function(win, x, y, w, h)
     end
     local on_n = (ok_b and buffs and buffs.enabled_count and buffs.enabled_count()) or 0
     win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 2), mute,
-        string.format("%d of %d spells shown, %d ranks in the book - %d buff%s kept up.",
+        string.format("%d of %d spells shown at highest rank, %d ranks in the book - %d buff%s kept up.",
             shown, distinct, ids, on_n, on_n == 1 and "" or "s"))
+
+    -- Ids the client would neither name nor give a base spell for. They are
+    -- counted rather than listed: one row each would be a screen of numbers,
+    -- and that is what made the list look like it was showing every rank.
+    local nameless = (spellbook.unnamed_count and spellbook.unnamed_count()) or 0
+    if nameless > 0 then
+        win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 18), mute,
+            string.format("%d further id%s the client would not name.",
+                nameless, nameless == 1 and "" or "s"))
+    end
 end)
 
 menu:on_tab("grinding", function(win, x, y, w, h)

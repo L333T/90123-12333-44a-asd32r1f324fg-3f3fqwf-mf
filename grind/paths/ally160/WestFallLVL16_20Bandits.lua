@@ -3,14 +3,15 @@
 -- Westfall 16-20 Bandits
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 2.6.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL16_20Westfall
 --   source file   : WestFallLVL16_20Bandits.json
 --   waypoints     : 211
---   first/last gap: 8.9 yards -> loop
+--   first/last gap: 8.9 yards
+--   the ends meet, so the circuit closes on itself.
 --
 -- The README for this route records no vendor, so no merchant is set and
 -- the lap-end vendor visit does not run.

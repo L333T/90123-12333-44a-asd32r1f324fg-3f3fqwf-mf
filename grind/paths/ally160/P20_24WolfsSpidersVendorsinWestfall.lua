@@ -3,14 +3,17 @@
 -- Duskwood 20-24 Wolves/Spiders (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 2.6.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL20_24DuskwoodVendorsWestfall
 --   source file   : 20_24WolfsSpidersVendorsinWestfall.json
 --   waypoints     : 606
---   first/last gap: 458.5 yards -> point to point
+--   first/last gap: 458.5 yards
+--   the ends do NOT meet: at the last waypoint the runner walks back
+--   to the first and goes round again. loop is still true because a
+--   grind route is meant to be run continuously.
 --
 -- Vendor NPC ids come from the folder's README.txt: 843, 1668, 1670
 -- The merchant coordinates below are this path's FIRST WAYPOINT, not
@@ -23,7 +26,7 @@ return {
     id = "P20_24WolfsSpidersVendorsinWestfall",
     name = "Duskwood 20-24 Wolves/Spiders (Vendor)",
     map_id = 1436,
-    loop = false,
+    loop = true,
     region = "ally160",
     source = "ally160",
     kind = "grind",
@@ -31,7 +34,7 @@ return {
     max = 24,
     pull = 50,
     merchant = { npc_id = 843, ids = { 843, 1668, 1670 }, x = -10865.1611, y = 588.1425, z = 31.065 },
-    vendor_each_lap = false,
+    vendor_each_lap = true,
     waypoints = {
         { x = -10865.1611, y = 588.1425, z = 31.065 },
         { x = -10866.3057, y = 581.1981, z = 30.8257 },

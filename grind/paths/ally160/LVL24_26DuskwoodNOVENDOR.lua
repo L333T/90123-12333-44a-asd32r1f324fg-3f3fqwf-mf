@@ -3,14 +3,17 @@
 -- Duskwood 24-26
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 2.6.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL24_26duskwoodnovendor
 --   source file   : LVL24_26DuskwoodNOVENDOR.json
 --   waypoints     : 259
---   first/last gap: 340.6 yards -> point to point
+--   first/last gap: 340.6 yards
+--   the ends do NOT meet: at the last waypoint the runner walks back
+--   to the first and goes round again. loop is still true because a
+--   grind route is meant to be run continuously.
 --
 -- The README for this route records no vendor, so no merchant is set and
 -- the lap-end vendor visit does not run.
@@ -19,7 +22,7 @@ return {
     id = "LVL24_26DuskwoodNOVENDOR",
     name = "Duskwood 24-26",
     map_id = 1431,
-    loop = false,
+    loop = true,
     region = "ally160",
     source = "ally160",
     kind = "grind",

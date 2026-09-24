@@ -3,14 +3,17 @@
 -- Westfall 14-16 Easy (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 2.6.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL14_16Westfall
 --   source file   : LVL14_16EasywithVendorWestfall.json
 --   waypoints     : 435
---   first/last gap: 663.2 yards -> point to point
+--   first/last gap: 663.2 yards
+--   the ends do NOT meet: at the last waypoint the runner walks back
+--   to the first and goes round again. loop is still true because a
+--   grind route is meant to be run continuously.
 --
 -- Vendor NPC ids come from the folder's README.txt: 1668, 843
 -- The merchant coordinates below are this path's FIRST WAYPOINT, not
@@ -23,7 +26,7 @@ return {
     id = "LVL14_16EasywithVendorWestfall",
     name = "Westfall 14-16 Easy (Vendor)",
     map_id = 1436,
-    loop = false,
+    loop = true,
     region = "ally160",
     source = "ally160",
     kind = "grind",
@@ -31,7 +34,7 @@ return {
     max = 16,
     pull = 50,
     merchant = { npc_id = 1668, ids = { 1668, 843 }, x = -10155.5059, y = 1437.631, z = 40.1024 },
-    vendor_each_lap = false,
+    vendor_each_lap = true,
     waypoints = {
         { x = -10155.5059, y = 1437.631, z = 40.1024 },
         { x = -10160.7598, y = 1432.9916, z = 40.1355 },

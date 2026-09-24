@@ -3,14 +3,15 @@
 -- Northshire Vendor -> Goldshire Vendor
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.9.2
--- Folder: Master_Farmer_Grindbot_v1.9.2
+-- Version: 2.6.0
+-- Folder: Master_Farmer_Grindbot_v2.3.0
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : lvl6_9ElwynnForstALLY
 --   source file   : NorthsireVendor_to_GoldshireVendor.json
 --   waypoints     : 105
---   first/last gap: 623.4 yards -> point to point
+--   first/last gap: 623.4 yards
+--   a vendor transit path, not a circuit - it does not loop.
 --
 -- Vendor NPC ids come from the folder's README.txt: 66
 -- The merchant coordinates below are this path's FIRST WAYPOINT, not

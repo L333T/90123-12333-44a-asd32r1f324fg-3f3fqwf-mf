@@ -3,8 +3,8 @@
 -- Spell range checks - one implementation, used by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.7.1
--- Folder: Master_Farmer_Grindbot_v2.7.1
+-- Version: 2.7.2
+-- Folder: Master_Farmer_Grindbot
 -- Not to be confused with movement/range.lua, which answers navigation
 -- questions - facing, line of sight, whether a point is reachable. This file
 -- answers one question only: can this spell reach this unit right now.

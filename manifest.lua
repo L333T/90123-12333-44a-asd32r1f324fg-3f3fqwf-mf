@@ -3,7 +3,7 @@
 return {
     version = "2.18.0",
     count   = 117,
-    bytes   = 1515702,
+    bytes   = 1516279,
     files = {
         { path = "auras.lua",                                                   hash = "e4dc077e", size = 8943 },
         { path = "buffs.lua",                                                   hash = "228d204a", size = 9281 },
@@ -38,7 +38,7 @@ return {
         { path = "spellbook.lua",                                               hash = "c5c10cfe", size = 17829 },
         { path = "state.lua",                                                   hash = "e59c3096", size = 3653 },
         { path = "supplies.lua",                                                hash = "2ee5166b", size = 11235 },
-        { path = "targeting.lua",                                               hash = "07f90712", size = 16343 },
+        { path = "targeting.lua",                                               hash = "fe40b300", size = 16920 },
         { path = "trainer.lua",                                                 hash = "535b19a6", size = 10258 },
         { path = "ui.lua",                                                      hash = "6f70aab1", size = 71689 },
         { path = "vendor.lua",                                                  hash = "d21c53a9", size = 19711 },

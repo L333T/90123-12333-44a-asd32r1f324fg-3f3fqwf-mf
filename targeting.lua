@@ -36,6 +36,30 @@ local function safe(fn)
     return nil
 end
 
+--- safe(), without the closure: the same "first result, or nil on error", but
+--- using pcall's own argument passing.
+---
+---     safe(function() return u:is_valid() end)   ->   call(u.is_valid, u)
+---
+--- Identical behaviour, no allocation. The closure form builds a new closure
+--- capturing `u` on every call, and these are called inside loops over every
+--- visible object - five to seven per object, per scan, several scans a frame
+--- in combat. find_corpses below has always used this form for its predicate;
+--- this just makes the rest of the file agree with it.
+---
+--- ONE DIFFERENCE, AND IT MATTERS: the index `u.is_valid` happens OUTSIDE the
+--- pcall, so a nil receiver throws here where the closure form would have
+--- swallowed it. Every call site keeps its `if u and ...` guard for exactly
+--- that reason - do not remove one thinking call() covers it. A receiver that
+--- exists but lacks the method is still fine: pcall catches calling a nil.
+local function call(fn, a, b)
+    local ok, result = pcall(fn, a, b)
+    if ok then
+        return result
+    end
+    return nil
+end
+
 local function all_objects()
     local now = izi.now()
     if obj_cache_list and (now - obj_cache_t) < OBJ_CACHE_GAP then
@@ -61,7 +85,10 @@ function targeting.cache_player(player)
 end
 
 local function tap_denied(unit)
-    local v = safe(function() return unit:is_tap_denied() end)
+    if unit == nil then
+        return false
+    end
+    local v = call(unit.is_tap_denied, unit)
     if v == true then
         return true
     end
@@ -82,8 +109,8 @@ local function player_nearby(player, range)
     end
     for i = 1, #list do
         local u = list[i]
-        if u and safe(function() return u:is_player() end) == true then
-            local d = safe(function() return player:distance_to(u) end)
+        if u and call(u.is_player, u) == true then
+            local d = call(player.distance_to, player, u)
             if type(d) == "number" and d <= yards then
                 return true
             end
@@ -150,26 +177,26 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
     local untapped = gui.is_on("untapped")
     for i = 1, #list do
         local u = list[i]
-        if u and safe(function() return u:is_valid() end) == true then
+        if u and call(u.is_valid, u) == true then
             local skip = false
-            if safe(function() return u:is_dead_or_ghost() end) == true then
+            if call(u.is_dead_or_ghost, u) == true then
                 skip = true
-            elseif safe(function() return u:is_dead() end) == true then
+            elseif call(u.is_dead, u) == true then
                 skip = true
             end
             if (not skip) and pve_only == true then
-                if safe(function() return u:is_player() end) == true then
+                if call(u.is_player, u) == true then
                     skip = true
                 end
-                if (not skip) and safe(function() return u:is_dummy() end) == true then
+                if (not skip) and call(u.is_dummy, u) == true then
                     skip = true
                 end
             end
             if not skip then
-                local guid = safe(function() return u:get_guid() end)
+                local guid = call(u.get_guid, u)
                 if (not state.was_killed(guid)) and not (state.is_unreachable and state.is_unreachable(guid)) then
-                    local npc_id = safe(function() return u:get_npc_id() end) or 0
-                    local lvl = safe(function() return u:get_level() end) or 1
+                    local npc_id = call(u.get_npc_id, u) or 0
+                    local lvl = call(u.get_level, u) or 1
                     local diff = lvl - my_level
                     local level_ok = true
                     if type(band) == "number" then
@@ -177,8 +204,8 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
                     end
                     if id_wanted(npc_id, mobs) and level_ok then
                         if (not untapped) or (not tap_denied(u)) then
-                            if safe(function() return player:can_attack(u) end) ~= false then
-                                local upos = safe(function() return u:get_position() end)
+                            if call(player.can_attack, player, u) ~= false then
+                                local upos = call(u.get_position, u)
                                 local reach_ok = upos ~= nil
                                 if (not skip_reach) and reach_ok and movement and type(movement.can_reach) == "function" then
                                     reach_ok = movement.can_reach(pos, upos) == true
@@ -211,11 +238,11 @@ function targeting.threat_nearby(player, yards)
     end
     for i = 1, #list do
         local u = list[i]
-        if u and safe(function() return u:is_valid() end) == true then
-            if safe(function() return u:is_dead_or_ghost() end) ~= true then
-                if safe(function() return u:is_player() end) ~= true then
-                    if safe(function() return u:is_dummy() end) ~= true then
-                        if safe(function() return player:can_attack(u) end) ~= false then
+        if u and call(u.is_valid, u) == true then
+            if call(u.is_dead_or_ghost, u) ~= true then
+                if call(u.is_player, u) ~= true then
+                    if call(u.is_dummy, u) ~= true then
+                        if call(player.can_attack, player, u) ~= false then
                             return true
                         end
                     end
@@ -242,9 +269,9 @@ function targeting.combat_scan(player, range)
     local me_guid = safe(function() return player:get_guid() end)
     for i = 1, #list do
         local u = list[i]
-        if u and safe(function() return u:is_in_combat() end) == true and safe(function() return u:is_dead_or_ghost() end) ~= true then
-            local tar = safe(function() return u:get_target() end)
-            local tguid = tar and safe(function() return tar:get_guid() end)
+        if u and call(u.is_in_combat, u) == true and call(u.is_dead_or_ghost, u) ~= true then
+            local tar = call(u.get_target, u)
+            local tguid = tar and call(tar.get_guid, tar)
             if me_guid ~= nil and tguid == me_guid then
                 found[#found + 1] = u
             end
@@ -286,7 +313,7 @@ function targeting.nearest(player, units)
     end
     for i = 1, #units do
         local u = units[i]
-        local d = safe(function() return player:distance_to(u) end)
+        local d = call(player.distance_to, player, u)
         if type(d) == "number" and d < best_d then
             best_d = d
             best = u
@@ -506,11 +533,11 @@ function targeting.find_named(player, name_a, name_b, range)
     local best_d = range or 80
     for i = 1, #objects do
         local obj = objects[i]
-        if obj and safe(function() return obj:is_valid() end) == true then
-            if safe(function() return obj:is_dead_or_ghost() end) ~= true then
-                local got = safe(function() return obj:get_name() end)
+        if obj and call(obj.is_valid, obj) == true then
+            if call(obj.is_dead_or_ghost, obj) ~= true then
+                local got = call(obj.get_name, obj)
                 if names_match(got, name_a) or names_match(got, name_b) then
-                    local d = safe(function() return player:distance_to(obj) end)
+                    local d = call(player.distance_to, player, obj)
                     if type(d) == "number" and d < best_d then
                         best_d = d
                         best = obj
@@ -534,10 +561,10 @@ function targeting.find_npc(player, npc_id, range)
     local best_d = range or 80
     for i = 1, #objects do
         local obj = objects[i]
-        if obj and safe(function() return obj:is_valid() end) == true then
-            local id = safe(function() return obj:get_npc_id() end)
+        if obj and call(obj.is_valid, obj) == true then
+            local id = call(obj.get_npc_id, obj)
             if id == npc_id then
-                local d = safe(function() return player:distance_to(obj) end)
+                local d = call(player.distance_to, player, obj)
                 if type(d) == "number" and d < best_d then
                     best_d = d
                     best = obj

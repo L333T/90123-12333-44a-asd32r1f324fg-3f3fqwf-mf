@@ -60,6 +60,47 @@ local function safe(fn)
     end
     return nil
 end
+--- safe(), without the closure: the same "first result, or nil on error", but
+--- using pcall's own argument passing.
+---
+---     safe(function() return u:is_valid() end)   ->   call(u.is_valid, u)
+---
+--- Identical behaviour, no allocation. Used for the calls inside loops over
+--- the visible object list, where the closure form allocated one per object
+--- per predicate.
+---
+--- THE RECEIVER MUST BE NON-NIL: the index u.is_valid happens OUTSIDE the
+--- pcall, so a nil receiver throws here where the closure form swallowed it.
+--- Every call site keeps its `if u and ...` guard for that reason. A receiver
+--- that exists but lacks the method is still fine - pcall catches calling a
+--- nil value.
+---
+--- WHAT IS DELIBERATELY STILL ON safe(): the quest-log walks and the bag
+--- scan. Those loops run over at most a couple of dozen entries, on throttled
+--- paths rather than every frame, and they call through core.quests and
+--- core.inventory rather than a unit - tables a build may not carry at all,
+--- so moving the index outside the pcall would buy nothing and cost a new
+--- guard on each one. Only the visible-object loops, which run over
+--- everything in range, were converted. The rest are not oversights.
+--- Is this value something call() may index?
+---
+--- call() does the index OUTSIDE the pcall, so a receiver that is not a table
+--- or userdata throws before pcall can catch it. The closure form tolerated
+--- any junk in a list - a boolean, a number, a leftover - and this keeps that
+--- tolerance rather than narrowing it to "not nil".
+local function indexable(v)
+    local t = type(v)
+    return t == "table" or t == "userdata"
+end
+
+local function call(fn, a, b)
+    local ok, result = pcall(fn, a, b)
+    if ok then
+        return result
+    end
+    return nil
+end
+
 
 --- The addon namespace, or nil when this build has no core.addons.rested_xp.
 local function api()
@@ -533,16 +574,16 @@ function guide.find_object(player, range)
     local best, best_d = nil, nil
     for i = 1, #list do
         local o = list[i]
-        if o and safe(function() return o:is_valid() end) ~= false then
+        if indexable(o) and call(o.is_valid, o) ~= false then
             -- A unit is handled by the kill path; this is for everything else.
-            if safe(function() return o:is_unit() end) ~= true then
+            if call(o.is_unit, o) ~= true then
                 local want = false
-                local oid = safe(function() return o:get_npc_id() end)
+                local oid = call(o.get_npc_id, o)
                 if type(oid) == "number" and ids[oid] then
                     want = true
                 end
                 if not want then
-                    local oname = safe(function() return o:get_name() end)
+                    local oname = call(o.get_name, o)
                     if type(oname) == "string" and oname ~= "" then
                         if names[oname] then
                             want = true
@@ -562,9 +603,9 @@ function guide.find_object(player, range)
                     end
                 end
                 if want then
-                    local pos = safe(function() return o:get_position() end)
+                    local pos = call(o.get_position, o)
                     if pos then
-                        local d = safe(function() return player:distance_to(o) end)
+                        local d = call(player.distance_to, player, o)
                         if type(d) ~= "number" then
                             d = geometry.distance(me, pos)
                         end
@@ -602,19 +643,19 @@ function guide.find_mob(player, range)
     local best, best_d = nil, nil
     for i = 1, #list do
         local u = list[i]
-        if u and safe(function() return u:is_valid() end) == true
-            and safe(function() return u:is_unit() end) == true
-            and safe(function() return u:is_dead_or_ghost() end) ~= true
-            and safe(function() return u:is_player() end) ~= true
-            and safe(function() return player:can_attack(u) end) ~= false then
+        if indexable(u) and call(u.is_valid, u) == true
+            and call(u.is_unit, u) == true
+            and call(u.is_dead_or_ghost, u) ~= true
+            and call(u.is_player, u) ~= true
+            and call(player.can_attack, player, u) ~= false then
 
             local want = false
-            local uid = safe(function() return u:get_npc_id() end)
+            local uid = call(u.get_npc_id, u)
             if type(uid) == "number" and ids[uid] then
                 want = true
             end
             if not want then
-                local uname = safe(function() return u:get_name() end)
+                local uname = call(u.get_name, u)
                 if type(uname) == "string" and uname ~= "" then
                     if names[uname] then
                         want = true
@@ -631,7 +672,7 @@ function guide.find_mob(player, range)
             end
 
             if want then
-                local d = safe(function() return player:distance_to(u) end)
+                local d = call(player.distance_to, player, u)
                 if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
                     best, best_d = u, d
                 end
@@ -824,12 +865,12 @@ function guide.nearest_talkable(player, range)
     local best, best_d = nil, nil
     for i = 1, #list do
         local u = list[i]
-        if u and safe(function() return u:is_valid() end) == true
-            and safe(function() return u:is_unit() end) == true
-            and safe(function() return u:is_dead_or_ghost() end) ~= true
-            and safe(function() return u:is_player() end) ~= true then
-            if safe(function() return player:can_attack(u) end) == false then
-                local d = safe(function() return player:distance_to(u) end)
+        if indexable(u) and call(u.is_valid, u) == true
+            and call(u.is_unit, u) == true
+            and call(u.is_dead_or_ghost, u) ~= true
+            and call(u.is_player, u) ~= true then
+            if call(player.can_attack, player, u) == false then
+                local d = call(player.distance_to, player, u)
                 if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
                     best, best_d = u, d
                 end

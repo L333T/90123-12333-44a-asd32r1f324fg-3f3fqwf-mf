@@ -77,6 +77,39 @@ local function safe(fn)
     end
     return nil
 end
+--- safe(), without the closure: the same "first result, or nil on error", but
+--- using pcall's own argument passing.
+---
+---     safe(function() return u:is_valid() end)   ->   call(u.is_valid, u)
+---
+--- Identical behaviour, no allocation. Used for the calls inside loops over
+--- the visible object list, where the closure form allocated one per object
+--- per predicate.
+---
+--- THE RECEIVER MUST BE NON-NIL: the index u.is_valid happens OUTSIDE the
+--- pcall, so a nil receiver throws here where the closure form swallowed it.
+--- Every call site keeps its `if u and ...` guard for that reason. A receiver
+--- that exists but lacks the method is still fine - pcall catches calling a
+--- nil value.
+--- Is this value something call() may index?
+---
+--- call() does the index OUTSIDE the pcall, so a receiver that is not a table
+--- or userdata throws before pcall can catch it. The closure form tolerated
+--- any junk in a list - a boolean, a number, a leftover - and this keeps that
+--- tolerance rather than narrowing it to "not nil".
+local function indexable(v)
+    local t = type(v)
+    return t == "table" or t == "userdata"
+end
+
+local function call(fn, a, b)
+    local ok, result = pcall(fn, a, b)
+    if ok then
+        return result
+    end
+    return nil
+end
+
 
 -- targeting requires nothing from here, but resolving it lazily keeps the two
 -- modules free of a load-order dependency either way round.
@@ -92,20 +125,20 @@ local function targeting_ref()
 end
 
 local function guid_of(unit)
-    if not unit then
+    if not indexable(unit) then
         return nil
     end
-    return safe(function() return unit:get_guid() end)
+    return call(unit.get_guid, unit)
 end
 
 local function alive(unit)
-    if not unit then
+    if not indexable(unit) then
         return false
     end
-    if safe(function() return unit:is_valid() end) ~= true then
+    if call(unit.is_valid, unit) ~= true then
         return false
     end
-    return safe(function() return unit:is_dead_or_ghost() end) ~= true
+    return call(unit.is_dead_or_ghost, unit) ~= true
 end
 
 local function grouped()
@@ -178,14 +211,14 @@ function combat.scan(player, range)
     local rows = {}
     for i = 1, #list do
         local u = list[i]
-        if alive(u) and safe(function() return u:is_in_combat() end) == true then
-            if safe(function() return player:can_attack(u) end) ~= false then
-                local tar = safe(function() return u:get_target() end)
+        if alive(u) and call(u.is_in_combat, u) == true then
+            if call(player.can_attack, player, u) ~= false then
+                local tar = call(u.get_target, u)
                 local tguid = tar and guid_of(tar) or nil
                 local mine = me_guid ~= nil and tguid ~= nil and tguid == me_guid
                 local on_pet = pet_guid ~= nil and tguid ~= nil and tguid == pet_guid
                 if dungeon or mine or on_pet then
-                    local d = safe(function() return player:distance_to(u) end)
+                    local d = call(player.distance_to, player, u)
                     rows[#rows + 1] = {
                         unit = u,
                         distance = type(d) == "number" and d or 9999,
@@ -222,9 +255,10 @@ function combat.pick(player, pack)
 
     for k = 1, #kill_first do
         for i = 1, #pack do
-            local id = safe(function() return pack[i]:get_npc_id() end)
+            local u = pack[i]
+            local id = indexable(u) and call(u.get_npc_id, u)
             if id == kill_first[k] then
-                return pack[i]
+                return u
             end
         end
     end
@@ -235,10 +269,11 @@ function combat.pick(player, pack)
     if grouped() then
         local me_guid = guid_of(player)
         for i = 1, #pack do
-            local tar = safe(function() return pack[i]:get_target() end)
+            local u = pack[i]
+            local tar = indexable(u) and call(u.get_target, u)
             if tar and guid_of(tar) ~= me_guid then
-                if safe(function() return tar:is_player() end) == true then
-                    return pack[i]
+                if indexable(tar) and call(tar.is_player, tar) == true then
+                    return u
                 end
             end
         end
@@ -313,7 +348,10 @@ function combat.dismount(player, target)
 end
 
 local function casting(unit)
-    return safe(function() return unit:is_channeling_or_casting() end) == true
+    if not indexable(unit) then
+        return false
+    end
+    return call(unit.is_channeling_or_casting, unit) == true
 end
 
 --- Give the class module its interrupt, taunt and aggro-dump windows before
@@ -330,7 +368,7 @@ function combat.assist(player, target, pack, module)
     if type(module.interrupt) == "function" then
         for i = 1, #pack do
             local u = pack[i]
-            if casting(u) and safe(function() return module.interrupt(player, u) end) == true then
+            if casting(u) and call(module.interrupt, player, u) == true then
                 return true
             end
         end
@@ -340,9 +378,9 @@ function combat.assist(player, target, pack, module)
         local me_guid = guid_of(player)
         for i = 1, #pack do
             local u = pack[i]
-            local tar = safe(function() return u:get_target() end)
+            local tar = indexable(u) and call(u.get_target, u)
             if not tar or guid_of(tar) ~= me_guid then
-                if safe(function() return module.taunt(player, u) end) == true then
+                if call(module.taunt, player, u) == true then
                     return true
                 end
             end
@@ -350,7 +388,7 @@ function combat.assist(player, target, pack, module)
     end
 
     if #pack >= 2 and type(module.aggro_dump) == "function" then
-        if safe(function() return module.aggro_dump(player, pack) end) == true then
+        if call(module.aggro_dump, player, pack) == true then
             return true
         end
     end

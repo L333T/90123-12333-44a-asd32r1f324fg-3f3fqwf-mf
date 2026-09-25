@@ -37,6 +37,39 @@ local function safe(fn)
     end
     return nil
 end
+--- safe(), without the closure: the same "first result, or nil on error", but
+--- using pcall's own argument passing.
+---
+---     safe(function() return u:is_valid() end)   ->   call(u.is_valid, u)
+---
+--- Identical behaviour, no allocation. Used for the calls inside loops over
+--- the visible object list, where the closure form allocated one per object
+--- per predicate.
+---
+--- THE RECEIVER MUST BE NON-NIL: the index u.is_valid happens OUTSIDE the
+--- pcall, so a nil receiver throws here where the closure form swallowed it.
+--- Every call site keeps its `if u and ...` guard for that reason. A receiver
+--- that exists but lacks the method is still fine - pcall catches calling a
+--- nil value.
+--- Is this value something call() may index?
+---
+--- call() does the index OUTSIDE the pcall, so a receiver that is not a table
+--- or userdata throws before pcall can catch it. The closure form tolerated
+--- any junk in a list - a boolean, a number, a leftover - and this keeps that
+--- tolerance rather than narrowing it to "not nil".
+local function indexable(v)
+    local t = type(v)
+    return t == "table" or t == "userdata"
+end
+
+local function call(fn, a, b)
+    local ok, result = pcall(fn, a, b)
+    if ok then
+        return result
+    end
+    return nil
+end
+
 
 local function pause_path()
     local ok, path_runner = pcall(require, "path_runner")
@@ -112,13 +145,13 @@ local function hostiles_near(pos, yards, player_level)
     end
     for i = 1, #list do
         local u = list[i]
-        if u and safe(function() return u:is_valid() end) == true then
-            if safe(function() return u:is_dead_or_ghost() end) ~= true then
-                if safe(function() return u:is_player() end) ~= true then
-                    if safe(function() return u:is_dummy() end) ~= true then
+        if indexable(u) and call(u.is_valid, u) == true then
+            if call(u.is_dead_or_ghost, u) ~= true then
+                if call(u.is_player, u) ~= true then
+                    if call(u.is_dummy, u) ~= true then
                         local ignore = false
                         if type(player_level) == "number" then
-                            local lvl = safe(function() return u:get_level() end)
+                            local lvl = call(u.get_level, u)
                             if type(lvl) == "number" and (player_level - lvl) > LEVEL_GAP then
                                 ignore = true
                             end

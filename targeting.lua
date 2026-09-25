@@ -52,6 +52,17 @@ end
 --- swallowed it. Every call site keeps its `if u and ...` guard for exactly
 --- that reason - do not remove one thinking call() covers it. A receiver that
 --- exists but lacks the method is still fine: pcall catches calling a nil.
+--- Is this value something call() may index?
+---
+--- call() does the index OUTSIDE the pcall, so a receiver that is not a table
+--- or userdata throws before pcall can catch it. The closure form tolerated
+--- any junk in a list - a boolean, a number, a leftover - and this keeps that
+--- tolerance rather than narrowing it to "not nil".
+local function indexable(v)
+    local t = type(v)
+    return t == "table" or t == "userdata"
+end
+
 local function call(fn, a, b)
     local ok, result = pcall(fn, a, b)
     if ok then
@@ -85,7 +96,7 @@ function targeting.cache_player(player)
 end
 
 local function tap_denied(unit)
-    if unit == nil then
+    if not indexable(unit) then
         return false
     end
     local v = call(unit.is_tap_denied, unit)
@@ -109,7 +120,7 @@ local function player_nearby(player, range)
     end
     for i = 1, #list do
         local u = list[i]
-        if u and call(u.is_player, u) == true then
+        if indexable(u) and call(u.is_player, u) == true then
             local d = call(player.distance_to, player, u)
             if type(d) == "number" and d <= yards then
                 return true
@@ -177,7 +188,7 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
     local untapped = gui.is_on("untapped")
     for i = 1, #list do
         local u = list[i]
-        if u and call(u.is_valid, u) == true then
+        if indexable(u) and call(u.is_valid, u) == true then
             local skip = false
             if call(u.is_dead_or_ghost, u) == true then
                 skip = true
@@ -238,7 +249,7 @@ function targeting.threat_nearby(player, yards)
     end
     for i = 1, #list do
         local u = list[i]
-        if u and call(u.is_valid, u) == true then
+        if indexable(u) and call(u.is_valid, u) == true then
             if call(u.is_dead_or_ghost, u) ~= true then
                 if call(u.is_player, u) ~= true then
                     if call(u.is_dummy, u) ~= true then
@@ -269,9 +280,9 @@ function targeting.combat_scan(player, range)
     local me_guid = safe(function() return player:get_guid() end)
     for i = 1, #list do
         local u = list[i]
-        if u and call(u.is_in_combat, u) == true and call(u.is_dead_or_ghost, u) ~= true then
+        if indexable(u) and call(u.is_in_combat, u) == true and call(u.is_dead_or_ghost, u) ~= true then
             local tar = call(u.get_target, u)
-            local tguid = tar and call(tar.get_guid, tar)
+            local tguid = indexable(tar) and call(tar.get_guid, tar)
             if me_guid ~= nil and tguid == me_guid then
                 found[#found + 1] = u
             end
@@ -533,7 +544,7 @@ function targeting.find_named(player, name_a, name_b, range)
     local best_d = range or 80
     for i = 1, #objects do
         local obj = objects[i]
-        if obj and call(obj.is_valid, obj) == true then
+        if indexable(obj) and call(obj.is_valid, obj) == true then
             if call(obj.is_dead_or_ghost, obj) ~= true then
                 local got = call(obj.get_name, obj)
                 if names_match(got, name_a) or names_match(got, name_b) then
@@ -561,7 +572,7 @@ function targeting.find_npc(player, npc_id, range)
     local best_d = range or 80
     for i = 1, #objects do
         local obj = objects[i]
-        if obj and call(obj.is_valid, obj) == true then
+        if indexable(obj) and call(obj.is_valid, obj) == true then
             local id = call(obj.get_npc_id, obj)
             if id == npc_id then
                 local d = call(player.distance_to, player, obj)

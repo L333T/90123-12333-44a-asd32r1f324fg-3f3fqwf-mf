@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.16.1
+-- Version: 2.17.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -302,6 +302,15 @@ function guide.targets()
     if type(step) == "table" and type(step.goals) == "table" then
         for i = 1, #step.goals do
             take(step.goals[i])
+            -- The quest log words the same objective in the client's own
+            -- terms, which is a tighter match than the guide's sentence.
+            local g = step.goals[i]
+            if type(g) == "table" and g.is_complete ~= true then
+                local from_log = guide.objective_names(g.quest_id)
+                for k = 1, #from_log do
+                    names[from_log[k]] = true
+                end
+            end
         end
     end
     local stickies = guide.stickies()
@@ -315,6 +324,109 @@ function guide.targets()
     end
 
     return ids, names
+end
+
+-- ============================================================================
+-- TARGET NAMES FROM THE QUEST LOG
+-- ============================================================================
+-- The guide's text is a sentence - "Collect 5 Bundles of Wood" - so matching
+-- a unit name against it means a substring test, which is loose.
+--
+-- The quest log carries the same objective in the client's own words:
+-- get_quest_log_leader_board returns "Kobold Vermin slain: 3/10". Stripping
+-- the progress off the end leaves the creature or item name as the client
+-- spells it, localised correctly, which is a far tighter thing to match on.
+--
+-- core.quests has no npc id anywhere - not in the log, the dialog, the gossip
+-- lists or the trainer info - so this is names, not ids. It is the best
+-- identity that API can give.
+
+local log_cache = {}         -- quest_id -> { names = {...}, t = when }
+local LOG_TTL = 5.0
+local headers_expanded = false
+
+--- The quest log index for a quest id, or nil.
+---
+--- Collapsed headers hide their quests from the log indices, so every header
+--- is expanded once per session before the first walk. Once, not per tick:
+--- it changes what the player sees in their own quest log.
+local function log_index_of(quest_id)
+    if not headers_expanded then
+        headers_expanded = true
+        pcall(function() core.quests.expand_quest_header(0) end)
+    end
+    local n = safe(function() return core.quests.get_num_quest_log_entries() end)
+    if type(n) ~= "number" then
+        return nil
+    end
+    for i = 1, n do
+        local info = safe(function() return core.quests.get_quest_log_title(i) end)
+        if type(info) == "table" and info.is_header ~= true
+            and tonumber(info.quest_id) == quest_id then
+            return i
+        end
+    end
+    return nil
+end
+
+--- Strip the progress off an objective description.
+---
+--- "Kobold Vermin slain: 3/10" -> "Kobold Vermin slain"
+--- "Bundle of Wood: 0/5"       -> "Bundle of Wood"
+---
+--- The trailing verb is left on. Matching asks whether the unit's name occurs
+--- INSIDE the candidate, so "Kobold Vermin" still matches "Kobold Vermin
+--- slain", and trying to strip verbs would mean a localised word list.
+local function strip_progress(text)
+    if type(text) ~= "string" or text == "" then
+        return nil
+    end
+    local head = text:match("^(.*):%s*%d+%s*/%s*%d+%s*$")
+    if head and head ~= "" then
+        return head
+    end
+    return text
+end
+
+--- Objective names for a quest, as the client words them.
+---
+--- Finished objectives are skipped: their target is not wanted any more, and
+--- including them sends the bot after mobs it has already killed enough of.
+function guide.objective_names(quest_id)
+    quest_id = tonumber(quest_id)
+    if not quest_id then
+        return {}
+    end
+
+    local now = safe(function() return izi.now() end) or 0
+    local hit = log_cache[quest_id]
+    if hit and (now - hit.t) < LOG_TTL then
+        return hit.names
+    end
+
+    local names = {}
+    local idx = log_index_of(quest_id)
+    if idx then
+        local count = safe(function()
+            return core.quests.get_num_quest_leader_boards(idx)
+        end)
+        if type(count) == "number" then
+            for j = 1, count do
+                local obj = safe(function()
+                    return core.quests.get_quest_log_leader_board(j, idx)
+                end)
+                if type(obj) == "table" and obj.is_completed ~= true then
+                    local name = strip_progress(obj.description)
+                    if name then
+                        names[#names + 1] = name
+                    end
+                end
+            end
+        end
+    end
+
+    log_cache[quest_id] = { names = names, t = now }
+    return names
 end
 
 --- The target ids as an array, for callers that scan by id.
@@ -563,6 +675,63 @@ function guide.target_npc_id(player)
         return nil, target
     end
     return id, target
+end
+
+-- ============================================================================
+-- LEARNING NPC IDS
+-- ============================================================================
+-- core.quests never reports an npc id, so one can only be read off a unit.
+-- But the gossip frame says WHICH npc we are standing at: when it is open and
+-- lists the quest we want, the thing we have targeted is that quest's giver.
+--
+-- That pairing is worth keeping. Learned once, an accept or turnin for the
+-- same quest can go straight to a verified id on the next visit instead of
+-- guessing by proximity.
+--
+-- In memory only, and small. Persisting it would mean a per-character file
+-- whose entries can go stale when a guide is changed, for a saving of one
+-- interaction.
+local learned = {}           -- quest title -> npc id
+
+--- Record the targeted npc as the giver of whatever the gossip frame lists.
+---
+--- Only called when the frame is actually open: without it there is nothing
+--- confirming that the target has anything to do with the current goal.
+--- Returns the id when one was learned.
+function guide.learn_npc_id(player)
+    if safe(function() return core.quests.is_gossip_frame_shown() end) ~= true then
+        return nil
+    end
+    local id = guide.target_npc_id(player)
+    if not id then
+        return nil
+    end
+
+    local function record(list)
+        if type(list) ~= "table" then
+            return
+        end
+        for i = 1, #list do
+            local q = list[i]
+            if type(q) == "table" and type(q.title) == "string" and q.title ~= "" then
+                learned[q.title] = id
+            end
+        end
+    end
+    record(safe(function() return core.quests.get_gossip_active_quests() end))
+    record(safe(function() return core.quests.get_gossip_available_quests() end))
+    return id
+end
+
+--- The npc id learned for a quest title, or nil.
+---
+--- Keyed on title because that is what the gossip frame gives on TBC - its
+--- quest_id is a row index, not a quest id, and must never be stored.
+function guide.known_npc_id(title)
+    if type(title) ~= "string" or title == "" then
+        return nil
+    end
+    return learned[title]
 end
 
 --- The nearest NPC that can be spoken to.

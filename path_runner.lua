@@ -8,7 +8,7 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.16.1
+-- Version: 2.17.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

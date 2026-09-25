@@ -3,7 +3,7 @@
 -- movement/leash.lua - path leash (corridor around a saved route)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.0
+-- Version: 2.17.1
 -- ============================================================================
 -- The leash is a flat number array { x1, y1, z1, x2, ... } flattened once per
 -- distinct waypoint list. Moving outside the corridor is only allowed when the

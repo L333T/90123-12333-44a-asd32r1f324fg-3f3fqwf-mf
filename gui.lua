@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.18.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -535,6 +535,27 @@ local aliases = {
     evasion = "mfg_evasion",
     kick = "mfg_kick",
     rogue_debug = "mfg_rogue_debug",
+    -- Warrior (rotations/warrior.lua)
+    battle_shout = "mfg_battle_shout",
+    battle_stance = "mfg_battle_stance",
+    bloodrage = "mfg_bloodrage",
+    berserker_rage = "mfg_berserker_rage",
+    victory_rush = "mfg_victory_rush",
+    execute = "mfg_execute",
+    mortal_strike = "mfg_mortal_strike",
+    bloodthirst = "mfg_bloodthirst",
+    whirlwind = "mfg_whirlwind",
+    overpower = "mfg_overpower",
+    rend = "mfg_rend",
+    thunder_clap = "mfg_thunder_clap",
+    cleave = "mfg_cleave",
+    heroic_strike = "mfg_heroic_strike",
+    sunder_armor = "mfg_sunder_armor",
+    demo_shout = "mfg_demo_shout",
+    hamstring = "mfg_hamstring",
+    pummel = "mfg_pummel",
+    shield_bash = "mfg_shield_bash",
+    warrior_debug = "mfg_warrior_debug",
     -- Supplies (supplies.lua)
     buy_supplies = "mfg_buy_supplies",
     vendor_debug = "mfg_vendor_debug",
@@ -628,6 +649,9 @@ local slider_aliases = {
     priest_heal_pct = "mfg_priest_heal_pct",
     druid_heal_pct = "mfg_druid_heal_pct",
     paladin_heal_pct = "mfg_paladin_heal_pct",
+    heroic_rage = "mfg_heroic_rage",
+    bloodrage_hp = "mfg_bloodrage_hp",
+    execute_pct = "mfg_execute_pct",
 }
 
 -- Combobox ids read via gui.combo(). Kept separate from checkbox and slider
@@ -774,13 +798,32 @@ function gui.reset_pick_names()
     pick_name_cache = {}
 end
 
+-- picks is required lazily because it loads after this file. The require stays
+-- lazy; only the LOOKUP is remembered.
+--
+-- is_on is the hottest function in the project - see the note above
+-- pick_name_for - and it was paying a pcall and a package.loaded lookup on
+-- every single call, of which there are roughly twenty per frame from the
+-- rotations alone. Resolved once, on the first call that succeeds.
+--
+-- Cached on success only. A call that lands before picks is loadable must
+-- leave the slot empty and retry, not remember the failure for the session.
+local picks_mod = nil
+
+local function get_picks()
+    if picks_mod then return picks_mod end
+    local ok, mod = pcall(require, "picks")
+    if ok and type(mod) == "table" then picks_mod = mod end
+    return picks_mod
+end
+
 local function is_on(key)
     local id = aliases[key] or key
 
     -- A Spells tab choice outranks the class checkbox, but only when one was
     -- actually made.
-    local ok_p, picks = pcall(require, "picks")
-    if ok_p and picks and type(picks.state) == "function" then
+    local picks = get_picks()
+    if picks and type(picks.state) == "function" then
         local name = pick_name_for(id)
         if name then
             local st = picks.state(name)

@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest lock and cast / channel / loot locks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.18.0
 -- ============================================================================
 -- Locks pause the walker by reason, so a cast finishing can never un-pause a
 -- stun or a food break. Releasing a cast lock touches only the cast and loot
@@ -130,6 +130,11 @@ function Lk.last_fail_reason()
     return nil
 end
 
-function Lk.clear_fail() R.last_fail.valid = false end
+function Lk.clear_fail()
+    R.last_fail.valid = false
+    -- The off-mesh probe flag was set alongside the failure; it goes with it.
+    local ok, Pr = pcall(require, "movement/probe")
+    if ok and type(Pr) == "table" then Pr.set_off_mesh(false) end
+end
 
 return Lk

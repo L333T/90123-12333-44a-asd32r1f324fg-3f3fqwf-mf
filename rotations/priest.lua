@@ -3,7 +3,7 @@
 -- Priest grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.18.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference grindbot's Buff_Check Priest branch, which kept
@@ -37,6 +37,7 @@ local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
 local auras = require("auras")
+local sequence = require("rotations/sequence")
 
 -- Refresh a damage-over-time effect this many seconds before it runs out.
 --
@@ -445,6 +446,19 @@ function priest.rest(player)
     return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
 end
 
+-- Damage priority for the sequencer, highest first - the same order the floor
+-- below casts in. The dot keeps its expiry gate as a `when` closure, which
+-- the sequencer re-asks at cast time.
+local function start_sequence(player, target, ctx)
+    return sequence.start({
+        { spell = shadow_word_pain, key = "swp", dist = 30,
+          when = function() return auras.debuff_expiring(target, SWP_IDS, DOT_LEAD) end },
+        { spell = mind_blast, key = "mind_blast", dist = 30 },
+        { spell = mind_flay, key = "mind_flay", dist = 20 },
+        { spell = smite, key = "smite", dist = 30 },
+    }, target, "Priest Rotation")
+end
+
 function priest.tick(player, target, ctx)
     if not player or not target then
         return false
@@ -468,6 +482,14 @@ function priest.tick(player, target, ctx)
 
     -- Dot first: it keeps ticking while we close, and re-applying early wastes
     -- the remaining duration, so only cast when the debuff is actually absent.
+    -- The sequence first: it handles the interesting ordering. Everything
+    -- below is the floor under it, unchanged, and it runs whenever the
+    -- sequence does not start - the sequencer being busy or on cooldown,
+    -- advanced_sequence missing on the build, or no entry resolving.
+    if start_sequence(player, target, ctx) then
+        return true
+    end
+
     if gui.is_on("swp") and learned(shadow_word_pain) then
         if auras.debuff_expiring(target, SWP_IDS, DOT_LEAD) then
             if cast_at(shadow_word_pain, target, "Shadow Word: Pain") then

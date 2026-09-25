@@ -3,7 +3,7 @@
 -- Warlock grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.18.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Hunter.
@@ -37,6 +37,7 @@ local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
 local auras = require("auras")
+local sequence = require("rotations/sequence")
 
 -- Refresh a damage-over-time effect this many seconds before it runs out.
 --
@@ -338,6 +339,21 @@ function warlock.rest(player)
     return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
 end
 
+-- Damage priority for the sequencer, highest first - the same order the floor
+-- below casts in. Each dot keeps its expiry gate as a `when` closure, which
+-- the sequencer re-asks at cast time, so none of them is refreshed early.
+local function start_sequence(player, target, ctx)
+    return sequence.start({
+        { spell = curse_agony, key = "curse_agony", dist = 30,
+          when = function() return auras.debuff_expiring(target, AGONY_IDS, DOT_LEAD) end },
+        { spell = corruption, key = "corruption", dist = 30,
+          when = function() return auras.debuff_expiring(target, CORRUPTION_IDS, DOT_LEAD) end },
+        { spell = immolate, key = "immolate", dist = 30,
+          when = function() return auras.debuff_expiring(target, IMMOLATE_IDS, DOT_LEAD) end },
+        { spell = shadow_bolt, key = "shadow_bolt", dist = 30 },
+    }, target, "Warlock Rotation")
+end
+
 function warlock.tick(player, target, ctx)
     if not player or not target then return false end
     ctx = ctx or {}
@@ -367,6 +383,14 @@ function warlock.tick(player, target, ctx)
 
     local dist = safe(function() return player:distance_to(target) end) or 99
     if not range.within(target, warlock.combat_range(player)) then return false end
+
+    -- The sequence first: it handles the interesting ordering. Everything
+    -- below is the floor under it, unchanged, and it runs whenever the
+    -- sequence does not start - the sequencer being busy or on cooldown,
+    -- advanced_sequence missing on the build, or no entry resolving.
+    if start_sequence(player, target, ctx) then
+        return true
+    end
 
     if gui.is_on("curse_agony") and learned(curse_agony) then
         if auras.debuff_expiring(target, AGONY_IDS, DOT_LEAD) then

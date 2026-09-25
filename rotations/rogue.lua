@@ -3,7 +3,7 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.18.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
@@ -43,6 +43,7 @@ local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
 local auras = require("auras")
+local sequence = require("rotations/sequence")
 
 local rogue = {}
 
@@ -255,6 +256,20 @@ function rogue.rest(player)
     return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
 end
 
+-- Damage priority for the sequencer, highest first - the same order the floor
+-- below casts in.
+--
+-- The finishers stay on the floor only. They are gated on combo points, and
+-- Slice and Dice is cast on the player rather than the target; spending a
+-- finisher from inside a sequence that was built a moment earlier is how a
+-- rogue ends up firing Eviscerate at one point.
+local function start_sequence(player, target, ctx)
+    return sequence.start({
+        { spell = backstab, key = "backstab", dist = 5 },
+        { spell = sinister_strike, key = "sinister_strike", dist = 5 },
+    }, target, "Rogue Rotation")
+end
+
 function rogue.tick(player, target, ctx)
     if not player or not target then return false end
     ctx = ctx or {}
@@ -302,6 +317,14 @@ function rogue.tick(player, target, ctx)
         if gui.is_on("eviscerate") and learned(eviscerate) then
             if cast_at(eviscerate, target, "Eviscerate") then return true end
         end
+    end
+
+    -- The sequence first: it handles the interesting ordering. Everything
+    -- below is the floor under it, unchanged, and it runs whenever the
+    -- sequence does not start - the sequencer being busy or on cooldown,
+    -- advanced_sequence missing on the build, or no entry resolving.
+    if start_sequence(player, target, ctx) then
+        return true
     end
 
     if gui.is_on("backstab") and learned(backstab) then

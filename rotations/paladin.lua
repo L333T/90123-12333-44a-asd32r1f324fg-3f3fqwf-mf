@@ -3,7 +3,7 @@
 -- Paladin grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.18.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THE AURA IS A DROPDOWN AND NOT SIX CHECKBOXES
@@ -34,6 +34,7 @@ local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
 local auras = require("auras")
+local sequence = require("rotations/sequence")
 
 local paladin = {}
 
@@ -423,6 +424,24 @@ function paladin.rest(player)
     return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
 end
 
+-- Damage priority for the sequencer, highest first - the same order the floor
+-- below casts in.
+--
+-- Judgement keeps its seal gate as a `when` closure, so the sequencer re-asks
+-- it at cast time and cannot spend a seal that is no longer up.
+--
+-- Hammer of Wrath and Consecration stay on the floor only. Hammer sits above
+-- the melee gate and is health-gated, and Consecration is cast on the player
+-- rather than the target, which is not what an entry's target function
+-- returns.
+local function start_sequence(player, target, ctx)
+    return sequence.start({
+        { spell = judgement, key = "judgement", dist = 10,
+          when = function() return has_aura(player, SOR_IDS) end },
+        { spell = crusader_strike, key = "crusader_strike", dist = 5 },
+    }, target, "Paladin Rotation")
+end
+
 function paladin.tick(player, target, ctx)
     if not player or not target then
         return false
@@ -465,6 +484,14 @@ function paladin.tick(player, target, ctx)
 
     -- Judgement consumes the seal, so it goes after the seal check above and
     -- the seal is re-applied on the next tick.
+    -- The sequence first: it handles the interesting ordering. Everything
+    -- below is the floor under it, unchanged, and it runs whenever the
+    -- sequence does not start - the sequencer being busy or on cooldown,
+    -- advanced_sequence missing on the build, or no entry resolving.
+    if start_sequence(player, target, ctx) then
+        return true
+    end
+
     if gui.is_on("judgement") and learned(judgement) and has_aura(player, SOR_IDS) then
         if cast_at(judgement, target, "Judgement") then
             return true

@@ -3,7 +3,7 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.0
+-- Version: 2.17.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.0
+-- Version: 2.17.1
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -177,6 +177,25 @@ if settings then
         function(value)
             if picks and type(picks.deserialise) == "function" then
                 picks.deserialise(value)
+            end
+        end)
+
+    -- Quest givers learned at a gossip frame, kept per character so an NPC
+    -- met in one session is known in the next. Required lazily: quest/guide
+    -- is only meaningful when the guide addon is present, and main should not
+    -- fail to load because it is not.
+    settings.register("npc_ids",
+        function()
+            local ok, guide = pcall(require, "quest/guide")
+            if ok and guide and type(guide.serialise) == "function" then
+                return guide.serialise()
+            end
+            return nil
+        end,
+        function(value)
+            local ok, guide = pcall(require, "quest/guide")
+            if ok and guide and type(guide.deserialise) == "function" then
+                guide.deserialise(value)
             end
         end)
 end

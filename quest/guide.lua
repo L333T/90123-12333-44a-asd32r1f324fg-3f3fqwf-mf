@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.0
+-- Version: 2.17.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -688,9 +688,13 @@ end
 -- same quest can go straight to a verified id on the next visit instead of
 -- guessing by proximity.
 --
--- In memory only, and small. Persisting it would mean a per-character file
--- whose entries can go stale when a guide is changed, for a saving of one
--- interaction.
+-- Persisted per character through settings.lua, so a quest giver met in one
+-- session is known in the next.
+--
+-- Staleness is handled rather than feared: an id that no longer matches
+-- anything simply finds no unit, and the proximity path takes over as it did
+-- before. A wrong id costs one scan, not a wrong interaction, because
+-- targeting.find_npc matches the id against units actually present.
 local learned = {}           -- quest title -> npc id
 
 --- Record the targeted npc as the giver of whatever the gossip frame lists.
@@ -707,6 +711,7 @@ function guide.learn_npc_id(player)
         return nil
     end
 
+    local changed = false
     local function record(list)
         if type(list) ~= "table" then
             return
@@ -714,13 +719,73 @@ function guide.learn_npc_id(player)
         for i = 1, #list do
             local q = list[i]
             if type(q) == "table" and type(q.title) == "string" and q.title ~= "" then
-                learned[q.title] = id
+                if learned[q.title] ~= id then
+                    learned[q.title] = id
+                    changed = true
+                end
             end
         end
     end
     record(safe(function() return core.quests.get_gossip_active_quests() end))
     record(safe(function() return core.quests.get_gossip_available_quests() end))
+
+    -- Only ask for a write when something actually changed. This runs on
+    -- every tick that has a gossip frame open, and marking dirty each time
+    -- would rewrite the file for the whole visit.
+    if changed then
+        local ok, settings = pcall(require, "settings")
+        if ok and settings and type(settings.mark_dirty) == "function" then
+            settings.mark_dirty()
+        end
+    end
     return id
+end
+
+-- ----------------------------------------------------------------------------
+-- PERSISTENCE
+-- ----------------------------------------------------------------------------
+-- settings.lua stores one line per provider as key=value and escapes the
+-- value, so anything may be put in it. The inner format is
+--
+--     <npc id>=<quest title>
+--
+-- with the id first because it is numeric: the first "=" is therefore always
+-- the separator, and a quest title containing one cannot break the parse.
+-- Entries are newline separated, which is the same shape picks.lua uses.
+local ENTRY_SEP = "\n"
+
+--- Everything learned, for settings.lua to write out.
+function guide.serialise()
+    local lines = {}
+    for title, id in pairs(learned) do
+        if type(title) == "string" and title ~= "" and type(id) == "number" then
+            lines[#lines + 1] = string.format("%d=%s", id, title)
+        end
+    end
+    -- Sorted so the file does not churn between sessions that learned the
+    -- same things in a different order.
+    table.sort(lines)
+    return table.concat(lines, ENTRY_SEP)
+end
+
+--- Load what a previous session learned.
+function guide.deserialise(text)
+    learned = {}
+    if type(text) ~= "string" or text == "" then
+        return
+    end
+    for line in text:gmatch("[^\n]+") do
+        local id, title = line:match("^(%d+)=(.+)$")
+        id = tonumber(id)
+        if id and id > 0 and type(title) == "string" and title ~= "" then
+            learned[title] = id
+        end
+    end
+end
+
+--- Forget everything. Used by the tests and on a settings reset.
+function guide.forget_npc_ids()
+    learned = {}
 end
 
 --- The npc id learned for a quest title, or nil.

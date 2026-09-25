@@ -2,8 +2,8 @@
 -- Consumed by net_loader.lua; hash is Adler-32 of the LF-normalised bytes.
 return {
     version = "2.18.0",
-    count   = 118,
-    bytes   = 1537749,
+    count   = 119,
+    bytes   = 1562116,
     files = {
         { path = "auras.lua",                                                   hash = "e4dc077e", size = 8943 },
         { path = "buffs.lua",                                                   hash = "228d204a", size = 9281 },
@@ -16,12 +16,12 @@ return {
         { path = "events.lua",                                                  hash = "be823274", size = 6622 },
         { path = "geometry.lua",                                                hash = "ff55e207", size = 7997 },
         { path = "grind.lua",                                                   hash = "f7fd253a", size = 109 },
-        { path = "gui.lua",                                                     hash = "396e6fc7", size = 91561 },
+        { path = "gui.lua",                                                     hash = "ea978af7", size = 92423 },
         { path = "header.lua",                                                  hash = "abcf7d89", size = 1991 },
         { path = "healing.lua",                                                 hash = "cb75ee91", size = 4137 },
         { path = "loader.lua",                                                  hash = "acd1fa2e", size = 2473 },
         { path = "loot.lua",                                                    hash = "b2f73406", size = 7710 },
-        { path = "main.lua",                                                    hash = "a5bb8131", size = 27135 },
+        { path = "main.lua",                                                    hash = "6a358943", size = 27160 },
         { path = "modes.lua",                                                   hash = "0cd39fb8", size = 1516 },
         { path = "movement.lua",                                                hash = "db5dad64", size = 11763 },
         { path = "path_format.lua",                                             hash = "9efe06ef", size = 15632 },
@@ -32,7 +32,7 @@ return {
         { path = "quest.lua",                                                   hash = "0c822594", size = 109 },
         { path = "racials.lua",                                                 hash = "8517e95b", size = 10307 },
         { path = "resting.lua",                                                 hash = "0e502e22", size = 23039 },
-        { path = "rotation.lua",                                                hash = "daa6d056", size = 14277 },
+        { path = "rotation.lua",                                                hash = "15dfe189", size = 14329 },
         { path = "settings.lua",                                                hash = "9fe7f0bf", size = 10379 },
         { path = "spell_range.lua",                                             hash = "8b916ebf", size = 7574 },
         { path = "spellbook.lua",                                               hash = "c5c10cfe", size = 17829 },
@@ -123,5 +123,6 @@ return {
         { path = "rotations/sequence.lua",                                      hash = "4e6a7147", size = 7711 },
         { path = "rotations/shaman.lua",                                        hash = "b45301fa", size = 17253 },
         { path = "rotations/warlock.lua",                                       hash = "f2d80f2a", size = 17259 },
+        { path = "rotations/warrior.lua",                                       hash = "edd8b2a8", size = 23428 },
     },
 }

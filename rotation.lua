@@ -31,6 +31,7 @@ local combat = require("combat")
 -- WARRIOR HAS NO ROTATION YET, and is absent here rather than present and
 -- nil, so `supported` answers honestly without trying to load anything.
 local CLASS_MODULES = {
+    [enums.class_id.WARRIOR] = "rotations/warrior",
     [enums.class_id.PALADIN] = "rotations/paladin",
     [enums.class_id.HUNTER]  = "rotations/hunter",
     [enums.class_id.ROGUE]   = "rotations/rogue",

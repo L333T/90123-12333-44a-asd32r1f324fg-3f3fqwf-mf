@@ -535,6 +535,27 @@ local aliases = {
     evasion = "mfg_evasion",
     kick = "mfg_kick",
     rogue_debug = "mfg_rogue_debug",
+    -- Warrior (rotations/warrior.lua)
+    battle_shout = "mfg_battle_shout",
+    battle_stance = "mfg_battle_stance",
+    bloodrage = "mfg_bloodrage",
+    berserker_rage = "mfg_berserker_rage",
+    victory_rush = "mfg_victory_rush",
+    execute = "mfg_execute",
+    mortal_strike = "mfg_mortal_strike",
+    bloodthirst = "mfg_bloodthirst",
+    whirlwind = "mfg_whirlwind",
+    overpower = "mfg_overpower",
+    rend = "mfg_rend",
+    thunder_clap = "mfg_thunder_clap",
+    cleave = "mfg_cleave",
+    heroic_strike = "mfg_heroic_strike",
+    sunder_armor = "mfg_sunder_armor",
+    demo_shout = "mfg_demo_shout",
+    hamstring = "mfg_hamstring",
+    pummel = "mfg_pummel",
+    shield_bash = "mfg_shield_bash",
+    warrior_debug = "mfg_warrior_debug",
     -- Supplies (supplies.lua)
     buy_supplies = "mfg_buy_supplies",
     vendor_debug = "mfg_vendor_debug",
@@ -628,6 +649,9 @@ local slider_aliases = {
     priest_heal_pct = "mfg_priest_heal_pct",
     druid_heal_pct = "mfg_druid_heal_pct",
     paladin_heal_pct = "mfg_paladin_heal_pct",
+    heroic_rage = "mfg_heroic_rage",
+    bloodrage_hp = "mfg_bloodrage_hp",
+    execute_pct = "mfg_execute_pct",
 }
 
 -- Combobox ids read via gui.combo(). Kept separate from checkbox and slider

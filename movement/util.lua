@@ -128,6 +128,11 @@ end
 
 --- Trace at eye height between two points. true = clear, false = hit,
 --- nil = no budget left / no flag.
+---
+--- That polarity is trace_line's own, and it is confirmed rather than
+--- assumed: the SDK's line-of-sight example reads a true return as "the enemy
+--- is in line of sight". Do not invert it here. movement/probe.lua flips it
+--- once, deliberately, because its callers ask the opposite question.
 function U.trace(a, b, flags)
     if type(flags) ~= "number" or R.traces_used >= TRACE_BUDGET then return nil end
     R.traces_used = R.traces_used + 1

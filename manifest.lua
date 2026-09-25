@@ -3,7 +3,7 @@
 return {
     version = "2.18.0",
     count   = 117,
-    bytes   = 1512642,
+    bytes   = 1513789,
     files = {
         { path = "auras.lua",                                                   hash = "e4dc077e", size = 8943 },
         { path = "buffs.lua",                                                   hash = "228d204a", size = 9281 },
@@ -99,12 +99,12 @@ return {
         { path = "movement/locks.lua",                                          hash = "8fa27529", size = 4581 },
         { path = "movement/nav.lua",                                            hash = "29b006ee", size = 7506 },
         { path = "movement/own.lua",                                            hash = "f94d9689", size = 7055 },
-        { path = "movement/probe.lua",                                          hash = "3f9172b2", size = 17070 },
+        { path = "movement/probe.lua",                                          hash = "1e7e7ffa", size = 17915 },
         { path = "movement/range.lua",                                          hash = "dee87034", size = 5406 },
         { path = "movement/rt.lua",                                             hash = "9d6c856a", size = 5929 },
         { path = "movement/sentinel.lua",                                       hash = "70bad4b0", size = 12502 },
         { path = "movement/steer.lua",                                          hash = "9e7ebe06", size = 9187 },
-        { path = "movement/util.lua",                                           hash = "2b50dffe", size = 5047 },
+        { path = "movement/util.lua",                                           hash = "3c2547f8", size = 5349 },
         { path = "movement/walker.lua",                                         hash = "a802daeb", size = 7308 },
         { path = "movement/zones.lua",                                          hash = "98702dad", size = 2808 },
         { path = "quest/engine.lua",                                            hash = "fabe8990", size = 28395 },

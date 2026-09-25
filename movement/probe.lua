@@ -14,23 +14,33 @@
 --   (all three)     -> probe.shape        prune, smooth, settle in order
 --   _findPath       -> probe.navigate     handed to Sentinel; see below
 --
--- WHY native_intersect AND NOT trace_line
+-- THE TWO TRACES, AND WHICH ONE ANSWERS WHAT
 --   The legacy TraceLine returns the hit point and is tested with ~= 0, so
---   "nonzero means blocked". core.graphics.trace_line returns a bare boolean
---   and NOTHING in the reflected dump, the stub tree or the SDK notes says
---   which way round it is - whether true means clear or means hit. Guessing
---   inverts every decision in this file: the bot would walk into walls and
---   stop in open ground.
+--   for it "nonzero means blocked". Neither Sylvanas call works that way, and
+--   they do not agree with each other either, so the polarity is written out
+--   here once:
+--
+--   core.graphics.trace_line(pos1, pos2, flags) -> boolean
+--     TRUE MEANS CLEAR. The SDK's own example checks line of sight with it
+--     and reads a true return as "the enemy is in line of sight". So it is
+--     the opposite sense from the legacy test, and probe.hits inverts it.
+--     No distance argument, so there is nothing to clip.
 --
 --   core.graphics.native_intersect(end_pos, start_pos, distance, hit_mask)
---   documents its first return as "hit - whether an intersection occurred",
---   which is the sense the legacy code tests, and it also hands back the hit
---   position, which settle needs. So everything here goes through it.
+--     -> hit, hit_pos, hit_distance
+--     TRUE MEANS BLOCKED - "hit: whether an intersection occurred" - which is
+--     the legacy sense. Used only where the hit POSITION is wanted, because
+--     trace_line cannot give one: that is probe.hit_at, and through it the
+--     water-surface probe in settle.
 --
---   Note the argument order: END position first, then START. That is the
---   documented order and it is the reverse of what you would expect.
---   `distance` defaults to 1.0, so it must be passed or every probe is
---   silently clipped to one yard.
+--     Two traps in it, both covered by tests. The argument order is END
+--     first, then START, which is the reverse of what you would expect. And
+--     `distance` defaults to 1.0, so it must be passed or a twenty yard probe
+--     silently reports on its first yard.
+--
+--   Getting either polarity backwards inverts every decision in this file:
+--   the bot walks into walls and stops in open ground. The tests assert the
+--   inversion directly, so dropping it fails there rather than in game.
 --
 -- WHY NOT ObjectHeight FOR THE PROBE HEIGHTS
 --   The porting list maps ObjectHeight("player") to client:get_player_height.
@@ -153,8 +163,12 @@ end
 --- True when something is between `a` and `b`, false when the line is clear,
 --- nil when the trace could not be run.
 ---
---- `distance` is passed explicitly because native_intersect defaults it to
---- 1.0 - leave it out and a twenty yard probe reports on the first yard.
+--- NOTE THE INVERSION. trace_line answers the opposite question: it returns
+--- true when the line is CLEAR. This function is named for what the callers
+--- want to know - is there a wall - so the return is flipped exactly once,
+--- here, and nowhere else in the file.
+---
+--- Arguments are the natural way round for this one: from, then to.
 function probe.hits(a, b, flags)
     if type(flags) ~= "number" then
         return nil
@@ -167,20 +181,22 @@ function probe.hits(a, b, flags)
 
     local from = vec3.new(ax, ay, az)
     local to   = vec3.new(bx, by, bz)
-    local span = from:dist_to(to)
-    if span <= 0 then
+    if from:dist_to(to) <= 0 then
         return false
     end
 
-    -- End first, then start. That is the documented order.
-    local ok, hit = pcall(core.graphics.native_intersect, to, from, span, flags)
-    if not ok then
+    local ok, clear = pcall(core.graphics.trace_line, from, to, flags)
+    if not ok or type(clear) ~= "boolean" then
         return nil
     end
-    return hit == true
+    return clear == false
 end
 
 --- Where the line first hits, as a vec3, or nil for a clear line.
+---
+--- native_intersect rather than trace_line, because only it returns the hit
+--- position. Its boolean is the other way round - true means it DID hit - so
+--- there is no inversion here.
 function probe.hit_at(a, b, flags)
     if type(flags) ~= "number" then
         return nil

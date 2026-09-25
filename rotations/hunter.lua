@@ -35,6 +35,7 @@ local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
 local auras = require("auras")
+local sequence = require("rotations/sequence")
 
 -- Refresh a damage-over-time effect this many seconds before it runs out.
 --
@@ -282,6 +283,25 @@ function hunter.rest(player)
     return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
 end
 
+-- Damage priority for the sequencer, highest first. The same order the list
+-- below casts in, so a sequence that starts does what the floor would have
+-- done, only with the sequencer's ordering on top.
+--
+-- Hunter's Mark and Serpent Sting are left OUT deliberately: both are gated
+-- on a debuff being close to expiry, which is a per-tick question the
+-- sequence cannot re-ask once it has been built. They stay on the floor,
+-- ahead of the sequence in tick.
+local function start_sequence(player, target, ctx)
+    local pack = (ctx and ctx.enemies and #ctx.enemies) or 0
+    return sequence.start({
+        { spell = multi_shot,  key = "multi_shot",  dist = 30,
+          when = function() return pack >= 2 end },
+        { spell = arcane_shot, key = "arcane_shot", dist = 35 },
+        { spell = steady_shot, key = "steady_shot", dist = 35 },
+        { spell = auto_shot,   dist = 35 },
+    }, target, "Hunter Rotation")
+end
+
 function hunter.tick(player, target, ctx)
     if not player or not target then return false end
     ctx = ctx or {}
@@ -309,6 +329,14 @@ function hunter.tick(player, target, ctx)
     end
 
     if not range.within(target, hunter.combat_range(player)) then return false end
+
+    -- The sequence first: it handles the interesting ordering. Everything
+    -- below is the floor under it, unchanged, and it runs whenever the
+    -- sequence does not start - the sequencer being busy or on cooldown,
+    -- advanced_sequence missing on the build, or no entry resolving.
+    if start_sequence(player, target, ctx) then
+        return true
+    end
 
     if gui.is_on("hunters_mark") and learned(hunters_mark) then
         if auras.debuff_expiring(target, MARK_IDS, DOT_LEAD) then

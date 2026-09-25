@@ -37,6 +37,10 @@ local PLUGIN_MODULES = {
     "loot",
     "path_runner",
     "rotations/mage",
+    -- Shared by the seven class rotations that use the sequencer. It holds no
+    -- state across a reload, but it must drop with them or a reloaded class
+    -- module would be talking to the previous session's copy.
+    "rotations/sequence",
     "rotation",
     "death",
     "healing",

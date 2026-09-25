@@ -33,6 +33,7 @@ local state = require("state")
 local spellbook = require("spellbook")
 local range = require("spell_range")
 local auras = require("auras")
+local sequence = require("rotations/sequence")
 
 -- Refresh a damage-over-time effect this many seconds before it runs out.
 --
@@ -313,6 +314,25 @@ function shaman.rest(player)
     return resting.tick(player, { eat_pct = 30, drink_pct = 30 })
 end
 
+-- Damage priority for the sequencer, highest first - the same order the floor
+-- below casts in.
+--
+-- Lightning Bolt carries the same enhancement check the floor applies, as a
+-- `when` closure, so a melee shaman does not start hard casting. Stormstrike
+-- stays on the floor: it sits inside the melee branch above, before the shock
+-- list this mirrors.
+local function start_sequence(player, target, ctx)
+    local melee = gui.is_on("enhancement")
+    return sequence.start({
+        { spell = flame_shock, key = "flame_shock", dist = 20,
+          when = function() return auras.debuff_expiring(target, FLAME_SHOCK_IDS, DOT_LEAD) end },
+        { spell = earth_shock, key = "earth_shock", dist = 20 },
+        { spell = frost_shock, key = "frost_shock", dist = 20 },
+        { spell = lightning_bolt, key = "lightning_bolt", dist = 30,
+          when = function() return melee ~= true end },
+    }, target, "Shaman Rotation")
+end
+
 function shaman.tick(player, target, ctx)
     if not player or not target then return false end
     ctx = ctx or {}
@@ -340,6 +360,14 @@ function shaman.tick(player, target, ctx)
         if learned(stormstrike) and cast_at(stormstrike, target, "Stormstrike") then return true end
     elseif dist > 30 then
         return false
+    end
+
+    -- The sequence first: it handles the interesting ordering. Everything
+    -- below is the floor under it, unchanged, and it runs whenever the
+    -- sequence does not start - the sequencer being busy or on cooldown,
+    -- advanced_sequence missing on the build, or no entry resolving.
+    if start_sequence(player, target, ctx) then
+        return true
     end
 
     if gui.is_on("flame_shock") and learned(flame_shock) then

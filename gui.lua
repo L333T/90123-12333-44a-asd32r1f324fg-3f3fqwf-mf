@@ -774,13 +774,32 @@ function gui.reset_pick_names()
     pick_name_cache = {}
 end
 
+-- picks is required lazily because it loads after this file. The require stays
+-- lazy; only the LOOKUP is remembered.
+--
+-- is_on is the hottest function in the project - see the note above
+-- pick_name_for - and it was paying a pcall and a package.loaded lookup on
+-- every single call, of which there are roughly twenty per frame from the
+-- rotations alone. Resolved once, on the first call that succeeds.
+--
+-- Cached on success only. A call that lands before picks is loadable must
+-- leave the slot empty and retry, not remember the failure for the session.
+local picks_mod = nil
+
+local function get_picks()
+    if picks_mod then return picks_mod end
+    local ok, mod = pcall(require, "picks")
+    if ok and type(mod) == "table" then picks_mod = mod end
+    return picks_mod
+end
+
 local function is_on(key)
     local id = aliases[key] or key
 
     -- A Spells tab choice outranks the class checkbox, but only when one was
     -- actually made.
-    local ok_p, picks = pcall(require, "picks")
-    if ok_p and picks and type(picks.state) == "function" then
+    local picks = get_picks()
+    if picks and type(picks.state) == "function" then
         local name = pick_name_for(id)
         if name then
             local st = picks.state(name)

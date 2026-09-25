@@ -3,7 +3,7 @@
 return {
     version = "2.18.0",
     count   = 117,
-    bytes   = 1513789,
+    bytes   = 1515702,
     files = {
         { path = "auras.lua",                                                   hash = "e4dc077e", size = 8943 },
         { path = "buffs.lua",                                                   hash = "228d204a", size = 9281 },
@@ -16,7 +16,7 @@ return {
         { path = "events.lua",                                                  hash = "be823274", size = 6622 },
         { path = "geometry.lua",                                                hash = "ff55e207", size = 7997 },
         { path = "grind.lua",                                                   hash = "f7fd253a", size = 109 },
-        { path = "gui.lua",                                                     hash = "60056aac", size = 90799 },
+        { path = "gui.lua",                                                     hash = "396e6fc7", size = 91561 },
         { path = "header.lua",                                                  hash = "abcf7d89", size = 1991 },
         { path = "healing.lua",                                                 hash = "cb75ee91", size = 4137 },
         { path = "loader.lua",                                                  hash = "acd1fa2e", size = 2473 },
@@ -32,7 +32,7 @@ return {
         { path = "quest.lua",                                                   hash = "0c822594", size = 109 },
         { path = "racials.lua",                                                 hash = "8517e95b", size = 10307 },
         { path = "resting.lua",                                                 hash = "0e502e22", size = 23039 },
-        { path = "rotation.lua",                                                hash = "d70746fe", size = 13126 },
+        { path = "rotation.lua",                                                hash = "daa6d056", size = 14277 },
         { path = "settings.lua",                                                hash = "9fe7f0bf", size = 10379 },
         { path = "spell_range.lua",                                             hash = "8b916ebf", size = 7574 },
         { path = "spellbook.lua",                                               hash = "c5c10cfe", size = 17829 },

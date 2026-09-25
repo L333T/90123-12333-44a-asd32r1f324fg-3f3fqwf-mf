@@ -96,6 +96,33 @@ local function get_movement()
     return movement_mod
 end
 
+-- healing and gui are lazily required for the same reason movement is: healing
+-- requires rotation, and gui sits above this file in the load order. The
+-- requires stay lazy; only the LOOKUP is remembered.
+--
+-- Both of these sit on per-frame paths - buffs_ooc and tick run every frame -
+-- and each was paying a pcall and a package.loaded lookup on every one of
+-- them. Resolved once, on the first call that succeeds.
+--
+-- Cached on success only. A call that lands before the module is loadable
+-- must leave the slot empty and retry next frame, not remember the failure.
+local healing_mod = nil
+local gui_mod = nil
+
+local function get_healing()
+    if healing_mod then return healing_mod end
+    local ok, mod = pcall(require, "healing")
+    if ok and type(mod) == "table" then healing_mod = mod end
+    return healing_mod
+end
+
+local function get_gui()
+    if gui_mod then return gui_mod end
+    local ok, mod = pcall(require, "gui")
+    if ok and type(mod) == "table" then gui_mod = mod end
+    return gui_mod
+end
+
 --- Install the active class's combat-movement profile (§17). The movement
 --- controller owns positioning; the class only supplies the rules.
 local function sync_profile(mod)
@@ -174,9 +201,10 @@ function rotation.active(player)
     if not player then
         return nil
     end
-    local ok, class_id = pcall(function()
-        return player:get_class()
-    end)
+    -- pcall carries its own arguments, so this needs no closure. rotation.active
+    -- runs every frame, and the closure it used to build captured `player`, so
+    -- it was a real allocation each time rather than a hoistable constant.
+    local ok, class_id = pcall(player.get_class, player)
     if not ok then
         return nil
     end
@@ -225,8 +253,8 @@ end
 
 function rotation.buffs_ooc(player)
     -- Buff casts cancel eating and drinking exactly like combat casts do.
-    local ok_h, healing = pcall(require, "healing")
-    if ok_h and healing and type(healing.is_resting) == "function" then
+    local healing = get_healing()
+    if healing and type(healing.is_resting) == "function" then
         if healing.is_resting() == true then
             return false
         end
@@ -255,8 +283,8 @@ function rotation.tick(player, target, ctx)
     -- the auto-attack start below cancels eating or drinking. main.lua already
     -- returns before this, but a grind or quest engine calling rotation.tick
     -- directly would bypass that. Lazy require - healing requires rotation.
-    local ok_h, healing = pcall(require, "healing")
-    if ok_h and healing and type(healing.is_resting) == "function" then
+    local healing = get_healing()
+    if healing and type(healing.is_resting) == "function" then
         if healing.is_resting() == true then
             return false
         end
@@ -311,8 +339,8 @@ function rotation.tick(player, target, ctx)
     -- Lazy require, like healing above: gui is a large module and this file
     -- sits under it in the load order.
     local rotation_only = false
-    local ok_g, gui = pcall(require, "gui")
-    if ok_g and gui and type(gui.is_on) == "function" then
+    local gui = get_gui()
+    if gui and type(gui.is_on) == "function" then
         rotation_only = gui.is_on("rotation_only") == true
     end
     if target and not rotation_only then

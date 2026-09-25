@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.18.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -48,6 +48,8 @@ local izi = require("common/izi_sdk")
 
 ---@type vec3
 local vec3 = require("common/geometry/vector_3")
+
+local geometry = require("geometry")
 
 local guide = {}
 
@@ -564,8 +566,7 @@ function guide.find_object(player, range)
                     if pos then
                         local d = safe(function() return player:distance_to(o) end)
                         if type(d) ~= "number" then
-                            local dx, dy, dz = me.x - pos.x, me.y - pos.y, (me.z or 0) - (pos.z or 0)
-                            d = math.sqrt(dx * dx + dy * dy + dz * dz)
+                            d = geometry.distance(me, pos)
                         end
                         if d <= range and (best_d == nil or d < best_d) then
                             best, best_d = o, d
@@ -667,11 +668,11 @@ function guide.target_npc_id(player)
         return nil, nil
     end
 
-    local id = safe(function() return target:npc_id() end)
-    if type(id) ~= "number" then
-        id = safe(function() return target:get_npc_id() end)
-    end
-    if type(id) ~= "number" or id == 0 then
+    -- geometry.object_id asks the client for the creature id instead of
+    -- matching it out of the GUID with a pattern, and rejects 0 - which means
+    -- the target is not a creature at all.
+    local id = geometry.object_id(target)
+    if not id then
         return nil, target
     end
     return id, target

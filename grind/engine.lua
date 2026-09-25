@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.18.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -13,6 +13,7 @@ local izi = require("common/izi_sdk")
 local gui = require("gui")
 local state = require("state")
 local path_format = require("path_format")
+local geometry = require("geometry")
 local targeting = require("targeting")
 local movement = require("movement")
 local rotation = require("rotation")
@@ -57,10 +58,8 @@ local function dist_here(here, row)
     if not x then
         return nil
     end
-    local dx = here.x - x
-    local dy = here.y - y
-    local dz = (here.z or 0) - z
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
+    -- vec3:dist_to, not sqrt of the squares by hand.
+    return geometry.distance(here, { x = x, y = y, z = z })
 end
 
 function grind.set_hunt(spec)

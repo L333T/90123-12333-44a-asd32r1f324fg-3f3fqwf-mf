@@ -3,7 +3,7 @@
 -- Death run — release, path graveyard to corpse, retrieve
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.18.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -19,6 +19,7 @@ local unit_helper = require("common/utility/unit_helper")
 local gui = require("gui")
 local movement = require("movement")
 local state = require("state")
+local geometry = require("geometry")
 
 local death = {}
 
@@ -82,10 +83,15 @@ local function dist_to(pos)
     if not here or not pos then
         return nil
     end
-    local dx = here.x - pos.x
-    local dy = here.y - pos.y
-    local dz = (here.z or 0) - (pos.z or 0)
-    return math.sqrt(dx * dx + dy * dy + dz * dz)
+    -- vec3:dist_to, not sqrt of the squares by hand.
+    local d = geometry.distance(here, pos)
+    if type(d) == "number" then
+        return d
+    end
+    -- A position the vector helper could not read. Say "far" rather than
+    -- "here": a corpse run must not think it has arrived because a
+    -- coordinate was missing.
+    return math.huge
 end
 
 --- Is anything near `pos` that would actually threaten a resurrection?

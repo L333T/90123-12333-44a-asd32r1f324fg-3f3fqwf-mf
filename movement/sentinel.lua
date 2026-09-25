@@ -110,7 +110,17 @@ local on_nav_done = N.on_nav_done
 --- max_stuck_exceeded, and is handled in on_nav_done.
 local function on_sn_stuck()
     R.sn_recovering = true
-    dlog("sentinel", "stuck detected - Sentinel is recovering, holding")
+    -- Sentinel owns the recovery. All we add is which way the wall is, so the
+    -- log says what it was stuck ON and not just that it was stuck. This is
+    -- diagnostic only - nothing steers off it.
+    local ok, Pr = pcall(require, "movement/probe")
+    local side = ok and type(Pr) == "table" and Pr.blocked() or nil
+    if type(side) == "string" then
+        dlog("sentinel", "stuck detected, obstacle to the " .. side
+            .. " - Sentinel is recovering, holding")
+    else
+        dlog("sentinel", "stuck detected - Sentinel is recovering, holding")
+    end
 end
 
 --- Recovery worked and navigation continues.

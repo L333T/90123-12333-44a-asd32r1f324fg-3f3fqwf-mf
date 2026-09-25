@@ -24,6 +24,7 @@ local K = require("movement/const")
 local R = require("movement/rt")
 local U = require("movement/util")
 local Z = require("movement/zones")
+local Pr = require("movement/probe")
 
 local TAG            = K.TAG
 local OWNER          = K.OWNER
@@ -135,6 +136,10 @@ function W.mark_fail(reason, at)
     local lf = R.last_fail
     lf.reason, lf.t, lf.valid = tostring(reason), t, true
     lf.offmesh = reason_offmesh(lf.reason)
+    -- Off the navmesh there is nothing describing the ground, so the forward
+    -- probes have to include terrain. On it, terrain would read every slope
+    -- as a wall. This is the one place that knows which we are.
+    Pr.set_off_mesh(lf.offmesh)
     if lf.offmesh then
         R.fail_cooldown_until = t + FAIL_COOLDOWN
         if R.cur_owner ~= OWNER.COMBAT then W.set_quiet(QUIET_OFFMESH) end

@@ -90,6 +90,7 @@ local Nv = require("movement/nav")
 local C  = require("movement/combat")
 local F  = require("movement/fsm")
 local D  = require("movement/diag")
+local Pr = require("movement/probe")
 
 local movement = {}
 
@@ -170,6 +171,21 @@ movement.clear_path_leash  = L.clear_path_leash
 movement.path_offset       = L.path_offset
 movement.needs_rejoin      = L.public_needs_rejoin
 movement.path_anchor_index = L.path_anchor_index
+
+-- ============================================================================
+-- COLLISION PROBING AND PATH SHAPING
+-- ============================================================================
+-- The ported legacy helpers. blocked() answers "front" / "right" / "left" /
+-- false; shape() prunes, smooths and settles a path we hold ourselves.
+movement.probe_blocked  = Pr.blocked
+movement.probe_hits     = Pr.hits
+movement.probe_hit_at   = Pr.hit_at
+movement.shape_path     = Pr.shape
+movement.prune_path     = Pr.prune
+movement.smooth_path    = Pr.smooth
+movement.settle_path    = Pr.settle
+movement.set_off_mesh   = Pr.set_off_mesh
+movement.off_mesh       = Pr.off_mesh
 
 -- ============================================================================
 -- FAILURE REPORTING

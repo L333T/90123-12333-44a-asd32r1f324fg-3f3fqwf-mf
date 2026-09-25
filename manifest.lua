@@ -3,7 +3,7 @@
 return {
     version = "2.18.0",
     count   = 117,
-    bytes   = 1520596,
+    bytes   = 1521261,
     files = {
         { path = "auras.lua",                                                   hash = "e4dc077e", size = 8943 },
         { path = "buffs.lua",                                                   hash = "228d204a", size = 9281 },
@@ -21,7 +21,7 @@ return {
         { path = "healing.lua",                                                 hash = "cb75ee91", size = 4137 },
         { path = "loader.lua",                                                  hash = "acd1fa2e", size = 2473 },
         { path = "loot.lua",                                                    hash = "b2f73406", size = 7710 },
-        { path = "main.lua",                                                    hash = "68584e04", size = 26225 },
+        { path = "main.lua",                                                    hash = "c6012e45", size = 26890 },
         { path = "modes.lua",                                                   hash = "0cd39fb8", size = 1516 },
         { path = "movement.lua",                                                hash = "db5dad64", size = 11763 },
         { path = "path_format.lua",                                             hash = "9efe06ef", size = 15632 },

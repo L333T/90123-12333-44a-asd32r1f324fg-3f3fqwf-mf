@@ -345,7 +345,11 @@ local function closest_in_range(player, lists, yards)
     return targeting.nearest(player, found)
 end
 
-local function path_fight(player, unit, scan_range)
+--- `pack` is optional. When the caller has already scanned with this same
+--- range in this same frame it passes its list in, and this does not scan a
+--- second time. Omitting it keeps the old behaviour exactly, so the function
+--- still stands on its own.
+local function path_fight(player, unit, scan_range, pack)
     if movement.needs_rejoin() == true then
         -- Getting back on the recorded line outranks fighting from off it, so
         -- hand movement back to navigation before asking for the rejoin hop -
@@ -375,7 +379,14 @@ local function path_fight(player, unit, scan_range)
     local yards = rotation_yards(player)
     movement.combat_engage(player, unit, yards)
 
-    local pack = targeting.combat_scan(player, scan_range)
+    -- Reuse the caller's scan when there is one. Two combat_scan calls in one
+    -- frame with the same player and range cannot disagree: the world does not
+    -- change between them, and unit_helper:get_enemy_list_around is cached by
+    -- the core anyway, so the second call was re-filtering an identical list
+    -- into a second identical table.
+    if type(pack) ~= "table" then
+        pack = targeting.combat_scan(player, scan_range)
+    end
     state.set_note("Path", "Combat")
     rotation.tick(player, unit, { enemies = pack, no_move = true })
     return true
@@ -476,7 +487,7 @@ local function path_handle_combat(player)
         if movement.sentinel_active and movement.sentinel_active() then
             movement.nav_stop()
         end
-        return path_fight(player, target, range)
+        return path_fight(player, target, range, pack)
     end
 
     if path_runner.is_paused() then

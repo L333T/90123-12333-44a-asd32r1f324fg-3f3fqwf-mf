@@ -3,7 +3,7 @@
 -- Corpse loot after a kill (IZI: enemies_if, can_be_looted, has_loot, loot_object)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.30.0
+-- Version: 2.31.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -92,12 +92,24 @@ local function is_lootable(corpse)
     if not ok_valid or valid ~= true then
         return false
     end
+    -- can_be_looted is the corpse's lootable flag, which the game only sets
+    -- for whoever holds loot rights - it is the test. has_loot (does it hold
+    -- items) was required as well, and it is not reliably populated before
+    -- a loot window has opened: corpses were rejected and never looted.
+    -- has_loot is only consulted on a build without can_be_looted.
     local ok_can, can = pcall(corpse.can_be_looted, corpse)
+    if ok_can and type(can) == "boolean" then
+        return can
+    end
     local ok_has, has = pcall(corpse.has_loot, corpse)
-    return ok_can == true and can == true and ok_has == true and has == true
+    return ok_has == true and has == true
 end
 
 local function fire_loot(corpse)
+    local ok_e, elog = pcall(require, "errorlog")
+    if ok_e and type(elog) == "table" then
+        elog.probe("loot:fire")
+    end
     if core.input and type(core.input.loot_object) == "function" then
         pcall(core.input.loot_object, corpse, true)
     end
@@ -207,8 +219,16 @@ pick_corpse_raw = function(player, mine_only)
         if is_lootable(corpse) and not exhausted(corpse) then
             local allow = true
             if mine_only then
+                -- Ours if the bot recorded the kill, or if the corpse is not
+                -- tap-denied: a lootable corpse nobody else tapped can only
+                -- be one we killed. The kill record alone missed corpses
+                -- whose object reported invalid at the moment of death.
                 local guid = guid_of(corpse)
-                allow = guid and state.was_killed(guid) == true
+                allow = (guid and state.was_killed(guid) == true)
+                if not allow then
+                    local ok_t, denied = pcall(corpse.is_tap_denied, corpse)
+                    allow = ok_t and denied == false
+                end
             end
             if allow then
                 local ok_d, dist = pcall(player.distance_to, player, corpse)

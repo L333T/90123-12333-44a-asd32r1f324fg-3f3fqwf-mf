@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.30.0
+-- Version: 2.31.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -697,6 +697,9 @@ local function on_update()
         return
     end
     next_bot_tick = now_t + BOT_TICK
+    if errorlog then
+        errorlog.tick_begin()
+    end
 
     local player = safe(function() return izi.me() end)
     if not player or safe(function() return player:is_valid() end) ~= true then
@@ -934,6 +937,26 @@ do
     end
 end
 
+-- What each BEAT line reports beside the stages: status, health, combat,
+-- and the kill target with its distance.
+if errorlog then
+    errorlog.set_beat_extra(function()
+        local me = safe(function() return izi.me() end)
+        local hp = me and safe(function() return me:get_health_percentage() end)
+        local cbt = me and safe(function() return me:is_in_combat() end)
+        local tgt = "-"
+        local u = state and state.target and state.target.unit
+        if u then
+            local name = safe(function() return u:get_name() end)
+            local d = me and safe(function() return me:distance_to(u) end)
+            tgt = string.format("%s %.1fy", tostring(name), tonumber(d) or -1)
+        end
+        return string.format("%s | hp %s%s | tgt %s",
+            tostring(state and state.note or ""),
+            hp and string.format("%.0f", hp) or "?", cbt and " combat" or "", tgt)
+    end)
+end
+
 core.register_on_update_callback(function()
     if quest_guide then
         quest_guide.allow_reads(true)
@@ -941,6 +964,9 @@ core.register_on_update_callback(function()
     guarded("on_update", on_update)
     if quest_guide then
         quest_guide.allow_reads(false)
+    end
+    if errorlog then
+        errorlog.tick_end()
     end
     probe("-")
 end)

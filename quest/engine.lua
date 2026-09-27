@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.30.0
+-- Version: 2.31.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -144,6 +144,16 @@ end
 --- fight - dead, gone, unreachable or timed out.
 local function fight_unit(player, unit, note)
     local now = izi.now()
+    -- Dead first: a corpse whose object reports invalid at the moment of death
+    -- used to fall into the "gone" branch below and was never recorded as a
+    -- kill, so "Loot My Kills Only" refused it for good.
+    if unit and (safe(function() return unit:is_dead() end) == true
+        or safe(function() return unit:is_dead_or_ghost() end) == true) then
+        state.mark_killed(state.target.guid or safe(function() return unit:get_guid() end))
+        trail("act", "killed %s", tostring(safe(function() return unit:get_name() end)))
+        release_combat()
+        return false
+    end
     if not unit or safe(function() return unit:is_valid() end) ~= true then
         release_combat()
         return false

@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.30.0
+-- Version: 2.31.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -340,6 +340,10 @@ function errorlog.probe(tag)
     if cpu then
         perf_mark(tag)
     end
+    if beat_on and beat_n < 48 and tag ~= "-" then
+        beat_n = beat_n + 1
+        beat_tags[beat_n] = (tag:gsub("^u:", ""))
+    end
     if not probe_on then
         return
     end
@@ -356,6 +360,49 @@ function errorlog.probe(tag)
     else
         write("PROBE", tag)
     end
+end
+
+-- ----------------------------------------------------------------------------
+-- HEARTBEAT (2.31.0)
+-- ----------------------------------------------------------------------------
+-- The full recorder writes ~25 lines a frame and slows the game enough that
+-- the crash stops happening. The heartbeat writes ONE line per bot tick
+-- (10 a second): the stages that tick ran through, and a short snapshot of
+-- what the bot was doing. The last BEAT before a crash is the last complete
+-- tick. Probe tags are only collected while a bot tick is open.
+local beat_on = false
+local beat_tags = {}
+local beat_n = 0
+local beat_count = 0
+local beat_extra = nil
+
+--- A function returning a short status string for each BEAT line.
+function errorlog.set_beat_extra(fn)
+    beat_extra = fn
+end
+
+--- Open a bot tick: probe tags from here on are collected for its BEAT line.
+function errorlog.tick_begin()
+    beat_on = true
+    beat_n = 0
+end
+
+--- Close the bot tick and write its BEAT line. No-op when none is open.
+function errorlog.tick_end()
+    if not beat_on then
+        return
+    end
+    beat_on = false
+    beat_count = beat_count + 1
+    local extra = ""
+    if type(beat_extra) == "function" then
+        local ok, s = pcall(beat_extra)
+        if ok and type(s) == "string" then
+            extra = s
+        end
+    end
+    write("BEAT", string.format("#%d %s | %s", beat_count,
+        table.concat(beat_tags, ">", 1, beat_n), extra))
 end
 
 -- ----------------------------------------------------------------------------

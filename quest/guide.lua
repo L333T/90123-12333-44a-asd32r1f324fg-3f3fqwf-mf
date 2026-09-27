@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.41.0
+-- Version: 2.42.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -636,10 +636,30 @@ end
 --- the bot standing at forever. A text_only goal is still returned when it is
 --- the only thing left, so its waypoint is walked to. A step whose goals are
 --- all complete returns nil; the addon moves on by itself.
+-- Goals the bot finished itself (2.42.0): talk / vendor / trainer / flight
+-- master steps that RestedXP does not always tick off. Keyed "step|index" and
+-- forgotten when the step changes.
+local done_goals = {}
+local done_step = nil
+
+--- Count one goal of the current step as done.
+function guide.mark_goal_done(step_num, index)
+    if done_step ~= step_num then
+        done_goals = {}
+        done_step = step_num
+    end
+    done_goals[tostring(step_num) .. "|" .. tostring(index)] = true
+    snap.memo = {}            -- recompute the current goal
+end
+
 local function compute_goal()
     local step = guide.step()
     if not step or step.is_complete == true then
         return nil
+    end
+    if done_step ~= step.num then
+        done_goals = {}
+        done_step = step.num
     end
     local goals = step.goals
     if type(goals) ~= "table" then
@@ -649,7 +669,8 @@ local function compute_goal()
     for i = 1, #goals do
         local g = goals[i]
         if type(g) == "table" and g.is_complete ~= true
-            and not skipped(tonumber(g.quest_id)) then
+            and not skipped(tonumber(g.quest_id))
+            and not done_goals[tostring(step.num) .. "|" .. tostring(i)] then
             if g.text_only ~= true then
                 return shape_goal(g, i)
             end

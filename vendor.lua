@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.41.0
+-- Version: 2.42.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -48,6 +48,7 @@ local HEARTHSTONE = 6948
 local SELL_GAP = 0.40
 local INTERACT_GAP = 1.20
 local DONE_COOLDOWN = 90.0
+local HERE_COOLDOWN = 60.0    -- a merchant window already worked is left alone this long
 local ARRIVE = 5.0
 local FIND_RANGE = 12.0
 
@@ -362,11 +363,29 @@ local function finish_trip(note)
     state.vendor.done_until = izi.now() + DONE_COOLDOWN
     state.vendor.wait_npc = 0
     state.vendor.tries = 0
+    -- A merchant window still open is not worked again for HERE_COOLDOWN.
+    state.vendor.here_until = izi.now() + HERE_COOLDOWN
     movement.nav_stop()
     close_vendor()
+    -- Let go of the merchant (2.42.0): the trip targeted it with kind
+    -- "vendor" and nothing ever cleared it, so the character kept the NPC.
+    if state.target and state.target.kind == "vendor" then
+        state.reset_target()
+    end
     if note then
         state.set_note("Vendor", note)
     end
+end
+
+--- Is a vendor trip under way? The quest engine waits on it before it counts
+--- a ".vendor" step as done.
+function vendor.is_busy()
+    return state.vendor.active == true
+end
+
+--- Is a merchant window open right now?
+function vendor.merchant_open()
+    return merchant_open()
 end
 
 function vendor.reset()
@@ -467,6 +486,19 @@ function vendor.tick(player)
         return false
     end
 
+    -- A merchant window someone else opened - a quest ".vendor" step, or the
+    -- player - is a trip right here (2.42.0): sell, restock and repair while
+    -- it is open. It used to be ignored unless this module had started the
+    -- trip itself, and then bailed with "No merchant for this zone".
+    if not state.vendor.active and merchant_open() and izi.now() >= (state.vendor.here_until or 0) then
+        state.vendor.active = true
+        supplies.reset()
+        state.vendor.repaired = false
+        state.vendor.sold = 0
+        state.vendor.wait_npc = 0
+        state.vendor.tries = 0
+    end
+
     if not state.vendor.active then
         if not vendor.needs_trip(player) then
             return false
@@ -483,13 +515,6 @@ function vendor.tick(player)
         state.vendor.sold = 0
         state.vendor.wait_npc = 0
         state.vendor.tries = 0
-    end
-
-    local info = current_merchant(player)
-    local dest = merchant_pos(info)
-    if not dest then
-        finish_trip("No merchant for this zone")
-        return false
     end
 
     if merchant_open() then
@@ -535,6 +560,13 @@ function vendor.tick(player)
             return true
         end
         finish_trip("Vendor done")
+        return false
+    end
+
+    local info = current_merchant(player)
+    local dest = merchant_pos(info)
+    if not dest then
+        finish_trip("No merchant for this zone")
         return false
     end
 

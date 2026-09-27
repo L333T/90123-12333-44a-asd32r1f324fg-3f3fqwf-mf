@@ -3,7 +3,7 @@
 -- http_loader.lua - fetch a Lua codebase over core.http_get
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.1.0
+-- Version: 1.2.0
 -- ============================================================================
 -- API CONTRACT THIS CODES AGAINST
 --
@@ -491,5 +491,20 @@ end
 --- Source of a downloaded module, or nil. Used to prove a module really arrived
 --- before requiring it.
 function M.source(name) return sources[name] end
+
+--- Drop everything kept only for the load (1.2.0). Call once the plugin has
+--- been handed off.
+---
+--- After install, every module lives in package.preload (or the require
+--- wrapper's closure) as a compiled chunk. The source strings - the whole
+--- plugin as text, ~1.6 MB - and M._chunks, a second reference to the same
+--- chunks, were kept for the rest of the session and never read again.
+--- M.source returns nil afterwards; its one caller runs before hand-off.
+function M.release()
+    sources = {}
+    entries = {}
+    M._chunks = nil
+    pcall(collectgarbage, "collect")
+end
 
 return M

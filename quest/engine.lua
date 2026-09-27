@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.28.0
+-- Version: 2.29.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -203,7 +203,7 @@ local function engage(player, unit, note)
     -- The first fight after Start is where every crash happened; one burst
     -- there is enough. Arming on every engage wrote 15,000 lines in five
     -- minutes of normal play.
-    if errorlog and not g_armed_engage and gui.is_on("quest_debug") then
+    if errorlog and not g_armed_engage and gui.is_on("crash_recorder") then
         g_armed_engage = true
         errorlog.arm("first engage")
     end

@@ -187,6 +187,12 @@ local function hand_off()
         return
     end
 
+    -- The plugin is running from package.preload now; the downloaded source
+    -- text is dead weight (~1.6 MB). Older http_loader copies lack release.
+    if type(net.release) == "function" then
+        net.release()
+    end
+
     core.log(string.format("%s handed off to %s v%s", TAG,
         identity and identity.name or "the bot",
         identity and identity.version or tostring(net.status().version)))

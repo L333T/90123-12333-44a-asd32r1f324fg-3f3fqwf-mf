@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.76.0
+-- Version: 2.77.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -109,14 +109,6 @@ menu:checkbox("mfg_enable", false, {
     tab = "general",
     skip_draw = true,
     tooltip = "Internal run flag. Set by Start after Grind or Quest and a profile are chosen.",
-})
-menu:checkbox("mfg_player_detect", false, {
-    label = "Player Detect (pause pulls)",
-    tab = "general",
-})
-menu:slider_int("mfg_player_yards", 10, 80, 30, {
-    label = "Player Detect Range",
-    tab = "general",
 })
 -- One switch for all looting, on the always-visible General tab: grinding,
 -- questing and path mode all loot through loot.lua.
@@ -475,7 +467,6 @@ local keybinds = {
 
 local aliases = {
     enable = "mfg_enable",
-    player_detect = "mfg_player_detect",
     eat_drink = "mfg_eat_drink",
     potions = "mfg_potions",
     rest_debug = "mfg_rest_debug",
@@ -632,7 +623,6 @@ local aliases = {
 }
 
 local slider_aliases = {
-    player_yards = "mfg_player_yards",
     sp_heal = "mfg_sp_heal",
     sp_def = "mfg_sp_def",
     sp_aoe = "mfg_sp_aoe",

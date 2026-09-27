@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.29.0
+-- Version: 2.30.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -298,9 +298,33 @@ local function probe(tag)
     end
 end
 
+-- ----------------------------------------------------------------------------
+-- READS ONLY FROM THE UPDATE CALLBACK (2.30.0)
+-- ----------------------------------------------------------------------------
+-- The game crashed a few seconds into questing whenever frames were fast
+-- (2.20, 2.21, 2.29 at ~540 fps) and never while the flight recorder slowed
+-- them to ~10 fps (2.22, 2.27). The Questing tab asked for the guide snapshot
+-- from the RENDER callback, and once the window had lapsed that read the
+-- addon right there - in the render hook, as often as hundreds of times a
+-- second - and so could the objectives lookup and the detection panel.
+--
+-- Now ns_call refuses unless main.lua has opened the update window
+-- (guide.allow_reads). Every read happens inside on_update, at most once per
+-- WINDOW; everything else only ever sees the last snapshot.
+local reads_ok = false
+
+--- Open or close the window in which the addon may be read. main.lua opens
+--- it around on_update and closes it straight after.
+function guide.allow_reads(on)
+    reads_ok = on == true
+end
+
 --- Call one function of the namespace.
 --- Returns result, nil - or nil, reason when it could not be called.
 local function ns_call(name, ...)
+    if not reads_ok then
+        return nil, "outside the update callback"
+    end
     local ns = api()
     if not ns then
         return nil, "core.addons.rested_xp missing"
@@ -367,6 +391,9 @@ local function player_in_combat()
 end
 
 local function refresh()
+    if not reads_ok then
+        return                -- render / GUI: the last snapshot stands
+    end
     local now = clock()
     if snap.t >= 0 and now >= snap.t and (now - snap.t) < WINDOW then
         return
@@ -424,6 +451,16 @@ end
 local function memo(key, fn)
     refresh()
     local v = snap.memo[key]
+    if v == nil and not reads_ok then
+        -- Outside the update window a derived value may be missing data the
+        -- addon would have supplied; hand it back but never cache it, or the
+        -- engine would reuse the thinner answer for the rest of the window.
+        v = fn()
+        if v == false then
+            return nil
+        end
+        return v
+    end
     if v == nil then
         v = fn()
         if v == nil then
@@ -457,6 +494,18 @@ end
 -- THE CURRENT STEP
 -- ============================================================================
 
+--- Called by main.lua every bot tick while Questing is enabled, inside the
+--- update window: keeps the snapshot (and a requested detection reading)
+--- current for the GUI even while the bot is not started.
+function guide.update()
+    refresh()
+    if diag_wanted then
+        diag_wanted = false
+        guide.diagnose()
+        diag_wanted = false
+    end
+end
+
 --- The current step as a plain table { num, is_complete, goals }, or nil.
 function guide.step()
     refresh()
@@ -473,8 +522,20 @@ end
 --- Everything the Questing tab shows about how the addon is being read, so a
 --- "no quest information" report can be answered by looking at the tab.
 local diag_cache, diag_t = nil, -1
+local diag_wanted = false
+local DIAG_PENDING = {
+    addons = "-", namespace = "-", missing = {}, is_loaded = "(reading)",
+    has_step = "(reading)", step_type = "-", step_num = 0, goal_count = 0,
+    waypoint = "(reading)", step_waypoints = 0,
+}
 
+--- The detection panel's figures. Called from the GUI it only files a
+--- request and returns the last reading; the update fills it in.
 function guide.diagnose()
+    diag_wanted = true
+    if not reads_ok then
+        return diag_cache or DIAG_PENDING
+    end
     local now = clock()
     if diag_cache and now >= diag_t and (now - diag_t) < 1.0 then
         return diag_cache
@@ -734,7 +795,9 @@ function guide.classify(goal)
     local k = goal._kind
     if k == nil then
         k = classify_raw(goal)
-        goal._kind = k
+        if reads_ok then
+            goal._kind = k
+        end
     end
     return k
 end
@@ -777,6 +840,9 @@ function guide.objectives(quest_id)
     local hit = snap.objectives[quest_id]
     if hit then
         return hit
+    end
+    if not reads_ok then
+        return out            -- asked from the GUI: nothing cached yet
     end
     local list = to_list((ns_call("get_objectives", quest_id)))
     for i = 1, #list do
@@ -926,7 +992,9 @@ function guide.objective_names(quest_id)
         end
     end
 
-    log_cache[quest_id] = { names = names, t = now }
+    if reads_ok then
+        log_cache[quest_id] = { names = names, t = now }
+    end
     return names
 end
 

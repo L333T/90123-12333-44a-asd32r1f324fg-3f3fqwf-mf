@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.87.0
+-- Version: 2.88.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1470,6 +1470,10 @@ local function start_bot()
         -- each, 90+ ms a frame (2.28.0 log). Its own opt-in box only.
         if is_on("crash_recorder") then
             errorlog.arm("start " .. (g and "grinding" or "questing"))
+        end
+        -- The first 30 s after Start (2.88.0): most shutdowns came 4-45 s in.
+        if is_on("crash_capture") and type(errorlog.arm_light) == "function" then
+            errorlog.arm_light(30, "first 30 s after Start")
         end
     end
 end

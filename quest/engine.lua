@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.70.0
+-- Version: 2.71.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -438,9 +438,25 @@ local function find_giver(player, goal, kind, wps)
             end
         end
     end
+    -- The player's target only counts when it stands at the goal's waypoint
+    -- (2.71.0): a vendor trip leaves the merchant targeted, and the next accept
+    -- was tried on him ("accept with Godric Rothgar via player target").
     local tid, tunit = guide.target_npc_id(player)
     if tid and tunit and not bad(tunit) and safe(function() return player:can_attack(tunit) end) == false then
-        return tunit, "player target"
+        local near = (#wps == 0)
+        local tp = safe(function() return tunit:get_position() end)
+        if not near and tp then
+            for i = 1, #wps do
+                local p = wps[i].pos
+                if p and geometry.distance(tp, p) <= TALK_SEARCH * 2 then
+                    near = true
+                    break
+                end
+            end
+        end
+        if near then
+            return tunit, "player target"
+        end
     end
     for i = 1, #wps do
         local unit = guide.nearest_talkable(player, TALK_SEARCH, wps[i].pos, g_bad_givers)
@@ -910,7 +926,11 @@ tick_inner = function(player)
     -- A waypoint it reports unreachable is skipped for the next one; when
     -- every waypoint of the goal is unreachable the goal is skipped with a log
     -- line, instead of walking into the 5-minute stuck watchdog.
-    if type(movement.reachable) == "function" then
+    -- Never for an accept / turn-in / talk goal (2.71.0): the guide cannot
+    -- move on without it, so skipping it left the bot idle on "step complete"
+    -- with the quest never taken. Those keep walking to their waypoint.
+    local must_do = kind == "accept" or kind == "turnin" or kind == "talk"
+    if type(movement.reachable) == "function" and not must_do then
         local tried = 0
         while tried < #wps and movement.reachable(wps[g_move].pos) == false do
             g_move = g_move + 1

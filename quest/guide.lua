@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.70.0
+-- Version: 2.71.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2024,7 +2024,13 @@ local function to_world(wp)
         local dx, dy = e.x - mx, e.y - my
         if dx * dx + dy * dy <= HEIGHT_RANGE * HEIGHT_RANGE then
             local ok, h = pcall(izi.get_terrain_height, e.x, e.y)
-            if ok and finite(h) and math.abs(h - mz) < 200 then
+            -- 0 is what the height query returns when it has no answer
+            -- (2.71.0): "Eagan Peltskinner" got z 0 at a spot ~82 high, Sentinel
+            -- answered "Position not on navmesh" and the goal was skipped as
+            -- unreachable. A 0 is only believed where the player stands near
+            -- 0 too, and any height must be within 60 yards of the player's.
+            local bogus_zero = ok and h == 0 and math.abs(mz) > 5
+            if ok and finite(h) and not bogus_zero and math.abs(h - mz) < 60 then
                 e.z, e.final = h, true
                 z = h
             end

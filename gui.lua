@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.56.0
+-- Version: 2.57.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -99,7 +99,7 @@ local menu = ui.new({
         { id = "grinding", label = "Grinding" },
         { id = "questing", label = "Questing" },
         { id = "class", label = "Spells" },
-        { id = "healing", label = "Healing" },
+        { id = "healing", label = "Resting" },   -- id kept: saved settings and code refer to it
         { id = "settings", label = "Settings" },
     },
 })
@@ -201,17 +201,25 @@ menu:checkbox("mfg_move_debug", false, {
 menu:checkbox("mfg_eat_drink", true, {
     label = "Eat / Drink",
     tab = "healing",
-    tooltip = "Out of combat: at 35% health or mana, FORCE-stop pathing and combat, then eat/drink until that resource is 100%. Uses the highest-ranked food/water in bags.",
+    tooltip = "Out of combat: when health or mana falls to the percentages set below, stop and eat / drink until that resource is full. Uses the highest-ranked food and water in the bags. Untick to turn eating and drinking off.",
 })
-menu:slider_int("mfg_eat_hp", 20, 35, 35, {
-    label = "Eat Below HP %",
+-- Shown only while Eat / Drink is ticked (ui.lua visible_if). 10-90%: the
+-- old 20-35% range was too narrow to be worth a slider.
+local function eat_drink_on()
+    local v = menu:get("mfg_eat_drink")
+    return v == true
+end
+menu:slider_int("mfg_eat_hp", 10, 90, 35, {
+    label = "Eat when Health below %",
     tab = "healing",
-    tooltip = "Eating starts at 35% health or lower and continues until health is 100%.",
+    visible_if = eat_drink_on,
+    tooltip = "Out of combat, sit and eat when health falls to this percentage or lower, and keep eating until health is full.",
 })
-menu:slider_int("mfg_drink_mana", 20, 35, 35, {
-    label = "Drink Below Mana %",
+menu:slider_int("mfg_drink_mana", 10, 90, 35, {
+    label = "Drink when Mana below %",
     tab = "healing",
-    tooltip = "Drinking starts at 35% mana or lower and continues until mana is 100%.",
+    visible_if = eat_drink_on,
+    tooltip = "Out of combat, sit and drink when mana falls to this percentage or lower, and keep drinking until mana is full. Classes without mana never drink.",
 })
 menu:checkbox("mfg_potions", true, {
     label = "Use Potions",

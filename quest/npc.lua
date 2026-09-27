@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.62.0
+-- Version: 2.63.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -293,14 +293,65 @@ local FRAME_WAIT  = 2.0   -- how long to let the reward frame appear
 local RETRY_GAP   = 8.0   -- restart a stalled dialog after this
 local MAX_TRIES   = 3
 
-local dlg = { key = nil, stage = nil, t = -1e9, tries = 0, picked = nil }
+local MAX_NO_UNIT = 10     -- interact attempts with no NPC in reach before giving up
+
+local dlg = { key = nil, stage = nil, t = -1e9, tries = 0, picked = nil, no_unit = 0, result = nil }
 
 local function dlg_reset(key)
     dlg.key, dlg.stage, dlg.t, dlg.tries, dlg.picked = key, "interact", -1e9, 0, nil
+    dlg.no_unit, dlg.result = 0, nil
 end
 
 local function dlg_to(stage, now)
     dlg.stage, dlg.t = stage, now
+end
+
+--- End the dialog with `result`, which is returned on every later call too
+--- (2.63.0): "done" (landed), "skipped" (grey), "not_offered", "gave_up".
+--- The engine used to get nil back once a dialog had finished, so it could
+--- not tell "finished" from "still working" and stood at the NPC until
+--- RestedXP ticked the goal off - or, when it did not, until the 5-minute
+--- watchdog.
+local function dlg_finish(result)
+    dlg.stage, dlg.result = "done", result
+    return result
+end
+
+--- One interact for the state machine. A miss (no NPC in reach yet) is NOT
+--- a try (2.63.0): it used to use one up and move on to reading a frame that
+--- was never opened, so three misses gave up on the right NPC.
+local function dlg_interact(player, npc_id, unit, now)
+    if interact_once(player, npc_id, unit) then
+        dlg.tries = dlg.tries + 1
+        dlg.no_unit = 0
+        dlg_to("select", now)
+        return true
+    end
+    dlg.no_unit = dlg.no_unit + 1
+    dlg.t = now
+    return false
+end
+
+--- A gossip frame is open and lists NO quest of `kind`, but does list other
+--- options (a guard's directions, a flight master's "show me where I can
+--- fly"): this NPC does not have the quest, and saying so at once beats three
+--- 8-second retries (2.63.0). An empty frame with no options at all may still
+--- be loading, so that is left to the normal retry.
+local function gossip_lacks(kind)
+    if not gossip_open() then
+        return false
+    end
+    local list = safe(function()
+        if kind == "available" then
+            return core.quests.get_gossip_available_quests()
+        end
+        return core.quests.get_gossip_active_quests()
+    end)
+    if type(list) ~= "table" or #list > 0 then
+        return false
+    end
+    local opts = safe(function() return core.quests.get_gossip_options() end)
+    return type(opts) == "table" and #opts > 0
 end
 
 --- Find a quest in a gossip list.
@@ -515,34 +566,43 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
     if dlg.key ~= key then
         dlg_reset(key)
     end
+    if dlg.stage == "done" then
+        return dlg.result
+    end
     local now = izi.now()
     if (now - dlg.t) < STEP_GAP then
         return
     end
 
     if dlg.stage == "interact" then
-        if dlg.tries >= MAX_TRIES then
-            return "gave_up"
+        -- Already in the log (accepted by hand, or the guide lagging): there
+        -- is nothing to do at this NPC (2.63.0).
+        if safe(function() return core.quests.is_on_quest(quest_id) end) == true then
+            return dlg_finish("done")
         end
-        dlg.tries = dlg.tries + 1
-        interact_once(player, npc_id, unit)
-        quest_debug("accept %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
-        dlg_to("select", now)
+        if dlg.tries >= MAX_TRIES or dlg.no_unit >= MAX_NO_UNIT then
+            return dlg_finish("gave_up")
+        end
+        if dlg_interact(player, npc_id, unit, now) then
+            quest_debug("accept %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
+        end
         return
     end
 
     if dlg.stage == "select" then
         if is_trivial_quest(player, quest_id, quest_name) then
             mark_skipped(quest_id, quest_name)
-            dlg.stage = "done"
-            return
+            return dlg_finish("skipped")
+        end
+        if gossip_lacks("available") then
+            quest_debug("accept %s: this NPC's gossip lists no quests", tostring(quest_name or quest_id))
+            return dlg_finish("not_offered")
         end
         -- The NPC lists quests and this one is not among them: wrong NPC
         -- (2.50.0). Say so, so the engine tries another giver instead of
         -- re-interacting with this one until the tries run out.
         if not select_quest(quest_id, quest_name, "available") then
-            dlg.stage = "done"
-            return "not_offered"
+            return dlg_finish("not_offered")
         end
         dlg_to("accept", now)
         return
@@ -560,8 +620,8 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
 
     if dlg.stage == "verify" then
         if safe(function() return core.quests.is_on_quest(quest_id) end) == true then
-            dlg.stage = "done"
-            return
+            quest_debug("accept %s: on the quest", tostring(quest_name or quest_id))
+            return dlg_finish("done")
         end
         if (now - dlg.t) >= RETRY_GAP then
             quest_debug("accept %s: still not on the quest, retrying", tostring(quest_name or quest_id))
@@ -580,29 +640,39 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
     if dlg.key ~= key then
         dlg_reset(key)
     end
+    if dlg.stage == "done" then
+        return dlg.result
+    end
     local now = izi.now()
     if (now - dlg.t) < STEP_GAP then
         return
     end
 
     if dlg.stage == "interact" then
-        if dlg.tries >= MAX_TRIES then
+        -- Handed in already and out of the log (2.63.0).
+        if safe(function() return core.quests.is_on_quest(quest_id) end) ~= true
+            and safe(function() return core.quests.is_quest_flagged_completed(quest_id) end) == true then
+            return dlg_finish("done")
+        end
+        if dlg.tries >= MAX_TRIES or dlg.no_unit >= MAX_NO_UNIT then
             warn_once("turnin_giveup:" .. tostring(quest_id),
                 "Gave up handing in quest %s after %d attempts.",
                 tostring(quest_name or quest_id), MAX_TRIES)
-            return "gave_up"
+            return dlg_finish("gave_up")
         end
-        dlg.tries = dlg.tries + 1
-        interact_once(player, npc_id, unit)
-        quest_debug("turn in %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
-        dlg_to("select", now)
+        if dlg_interact(player, npc_id, unit, now) then
+            quest_debug("turn in %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
+        end
         return
     end
 
     if dlg.stage == "select" then
+        if gossip_lacks("active") then
+            quest_debug("turn in %s: this NPC's gossip lists no quests", tostring(quest_name or quest_id))
+            return dlg_finish("not_offered")
+        end
         if not select_quest(quest_id, quest_name, "active") then
-            dlg.stage = "done"
-            return "not_offered"
+            return dlg_finish("not_offered")
         end
         dlg_to("wait", now)
         return
@@ -664,9 +734,8 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
 
     if dlg.stage == "verify" then
         if safe(function() return core.quests.is_on_quest(quest_id) end) ~= true then
-            dlg.stage = "done"
             quest_debug("turn in %s: complete", tostring(quest_name or quest_id))
-            return
+            return dlg_finish("done")
         end
         if (now - dlg.t) >= RETRY_GAP then
             quest_debug("turn in %s: still in the log, retrying", tostring(quest_name or quest_id))
@@ -676,7 +745,7 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
 end
 
 function npc.close()
-    dlg.key, dlg.stage = nil, nil
+    dlg.key, dlg.stage, dlg.result = nil, nil, nil
     pcall(function()
         core.quests.close_quest()
     end)

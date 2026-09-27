@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.52.0
+-- Version: 2.53.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1425,6 +1425,48 @@ function guide.find_source_mob(player, range, goal)
                     end
                 end
                 if hit then
+                    local d = call(player.distance_to, player, u)
+                    if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+                        best, best_d = u, d
+                    end
+                end
+            end
+        end
+    end
+    return best, best_d
+end
+
+--- The nearest unit RestedXP has marked with a raid-target icon (2.53.0).
+---
+--- The guide puts raid markers (star ... skull, get_target_marker_index 1-8)
+--- on the NPC a step wants spoken to and the mobs it wants killed. `want` is
+--- "friendly" (an NPC to talk to - not attackable) or "hostile" (a mob to
+--- fight - fightable). `exclude` is a GUID set to skip.
+function guide.find_marked(player, range, want, exclude)
+    if not player then
+        return nil, nil
+    end
+    range = math.min(tonumber(range) or 60, MAX_RANGE)
+    local list = visible_objects()
+    if type(list) ~= "table" then
+        return nil, nil
+    end
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if indexable(u) and call(u.is_valid, u) == true and call(u.is_unit, u) == true then
+            local mark = call(u.get_target_marker_index, u)
+            if type(mark) == "number" and mark >= 1 and mark <= 8
+                and call(u.is_player, u) ~= true
+                and call(u.is_dead_or_ghost, u) ~= true
+                and not (exclude and exclude[call(u.get_guid, u) or ""]) then
+                local ok
+                if want == "hostile" then
+                    ok = fightable(player, u)
+                else
+                    ok = call(player.can_attack, player, u) == false
+                end
+                if ok then
                     local d = call(player.distance_to, player, u)
                     if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
                         best, best_d = u, d

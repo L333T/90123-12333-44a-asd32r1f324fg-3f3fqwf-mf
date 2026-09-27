@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.88.0
+-- Version: 2.89.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -477,6 +477,13 @@ function errorlog.tick_end()
     end
     beat_on = false
     beat_count = beat_count + 1
+    -- Heartbeat lines only with "Detailed session log" ticked (2.89.0): ten
+    -- appends a second to a file OneDrive may be syncing is a suspect in the
+    -- game shutdowns, so by default the log is quiet between trail lines.
+    local g = package.loaded["gui"]
+    if not (type(g) == "table" and type(g.is_on) == "function" and g.is_on("session_detail") == true) then
+        return
+    end
     local extra = ""
     if type(beat_extra) == "function" then
         local ok, s = pcall(beat_extra)

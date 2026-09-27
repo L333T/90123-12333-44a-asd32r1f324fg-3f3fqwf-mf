@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.48.0
+-- Version: 2.49.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -59,9 +59,14 @@ local HEARTH_ID = 6948
 local HEARTH_CAST = 12.0      -- seconds held still for the 10 s cast
 local FIND_RADIUS = 30
 local FIND_MAX = 8            -- NPCs tried before giving up
+-- A repair trip (2.49.0) searches wider and longer: an innkeeper is a
+-- merchant but cannot repair, so the smiths near the inn have to be reached.
+local FIND_RADIUS_REPAIR = 60
+local FIND_MAX_REPAIR = 12
 local FIND_TIMEOUT = 90.0
 local TALK_WAIT = 1.5         -- seconds after an interact before judging it
-local ht = nil                -- hearth trip: { stage, t, tried = {}, cur, tries, started }
+local ht = nil                -- hearth trip: { stage, t, tried = {}, cur, tries, started, want_repair }
+local ht_skip_until = 0       -- stone not ready: do not try to hearth again before this
 local ARRIVE = 5.0
 local FIND_RANGE = 12.0
 
@@ -485,7 +490,8 @@ function vendor.needs_trip(player)
 end
 
 --- Friendly NPCs near the player, nearest first, not yet tried.
-local function friendly_npcs(player, tried)
+local function friendly_npcs(player, tried, radius)
+    radius = radius or FIND_RADIUS
     local list = targeting.visible_objects and targeting.visible_objects() or nil
     local out = {}
     if type(list) ~= "table" then
@@ -500,7 +506,7 @@ local function friendly_npcs(player, tried)
             and safe(function() return player:can_attack(u) end) == false then
             local g = safe(function() return u:get_guid() end)
             local d = safe(function() return player:distance_to(u) end)
-            if g and not tried[g] and type(d) == "number" and d <= FIND_RADIUS then
+            if g and not tried[g] and type(d) == "number" and d <= radius then
                 out[#out + 1] = { unit = u, guid = g, d = d }
             end
         end
@@ -516,6 +522,14 @@ local function hearth_tick(player)
         local ready = item and safe(function() return item:in_inventory() end) == true
             and safe(function() return item:cooldown_up() end) ~= false
         if not ready then
+            if ht.want_repair then
+                -- The stone is not ready: walk to the zone merchant instead,
+                -- if this zone has one (the normal trip below).
+                core.log_warning("[Master Farmer - Grindbot] Gear needs repair but the Hearthstone is not ready - walking to a merchant if one is known.")
+                ht = nil
+                ht_skip_until = now + 120
+                return false
+            end
             core.log_warning("[Master Farmer - Grindbot] Bags full, no merchant known here, and the Hearthstone is not ready - carrying on.")
             ht = nil
             state.vendor.done_until = now + 60
@@ -523,9 +537,10 @@ local function hearth_tick(player)
         end
         movement.nav_stop()
         local ok = safe(function() return item:use_self("Hearthstone - bags full") end) == true
-        core.log("[Master Farmer - Grindbot] Bags full and no merchant known here - Hearthstone to the inn.")
+        local why = ht.want_repair and "gear needs repair" or "bags full and no merchant known here"
+        core.log("[Master Farmer - Grindbot] " .. why .. " - Hearthstone to the inn.")
         ht.stage, ht.t = "casting", now
-        state.set_note("Vendor", ok and "Hearthstone - bags full" or "Hearthstone refused")
+        state.set_note("Vendor", ok and ("Hearthstone - " .. why) or "Hearthstone refused")
         return true
     end
     if ht.stage == "casting" then
@@ -537,12 +552,23 @@ local function hearth_tick(player)
         ht.stage, ht.started = "find", now
         return true
     end
-    -- find: talk to the nearest friendly NPCs until a merchant window opens.
+    -- find: talk to the nearest friendly NPCs until a merchant window opens -
+    -- for a repair trip, one that can repair.
+    local max_tries = ht.want_repair and FIND_MAX_REPAIR or FIND_MAX
     if merchant_open() then
-        ht = nil               -- the merchant-window trip takes over below
-        return false
+        local can_fix = safe(function() return core.inventory.can_merchant_repair() end) == true
+        if not ht.want_repair or can_fix then
+            ht = nil           -- the merchant-window trip takes over below
+            return false
+        end
+        -- A merchant that cannot repair (an innkeeper): not this one.
+        if ht.cur then
+            ht.tried[ht.cur] = true
+            ht.cur = nil
+        end
+        close_vendor()
     end
-    if (now - (ht.started or now)) > FIND_TIMEOUT or (ht.tries or 0) >= FIND_MAX then
+    if (now - (ht.started or now)) > FIND_TIMEOUT or (ht.tries or 0) >= max_tries then
         core.log_warning("[Master Farmer - Grindbot] Hearthed with full bags but found no merchant nearby.")
         ht = nil
         state.vendor.done_until = now + DONE_COOLDOWN
@@ -563,10 +589,10 @@ local function hearth_tick(player)
         ht.cur = nil
         close_vendor()
     end
-    local npcs = friendly_npcs(player, ht.tried)
+    local npcs = friendly_npcs(player, ht.tried, ht.want_repair and FIND_RADIUS_REPAIR or FIND_RADIUS)
     local n = npcs[1]
     if not n then
-        ht.tries = FIND_MAX
+        ht.tries = max_tries
         return true
     end
     if n.d > 4 then
@@ -622,6 +648,17 @@ function vendor.tick(player)
     if not state.vendor.active then
         if not vendor.needs_trip(player) then
             return false
+        end
+        -- LOW DURABILITY -> HEARTHSTONE AND REPAIR (2.49.0). Out of combat,
+        -- stop questing and hearth to the inn to find a merchant that can
+        -- repair - even when a zone merchant is known. A stone not ready
+        -- falls through to walking to the zone merchant below.
+        if gui.is_on("repair") and izi.now() >= ht_skip_until then
+            local ratio, broken = worst_durability()
+            if broken or ratio <= gui.slider("repair_pct", 10) / 100 then
+                ht = { stage = "cast", t = izi.now(), tried = {}, tries = 0, want_repair = true }
+                return hearth_tick(player)
+            end
         end
         local info = current_merchant(player)
         if not info or not merchant_pos(info) then

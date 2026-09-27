@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.49.0
+-- Version: 2.50.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -353,11 +353,22 @@ end
 ---   2. the waypoint's title, which RestedXP sets to the NPC it points at
 ---   3. the player's own target, when it is a friendly creature
 ---   4. the nearest friendly unit standing at the waypoint
+-- NPCs that did not offer this goal's quest, or ran out of tries (2.50.0).
+-- GUID -> true; cleared when the goal changes. find_giver skips them, so a
+-- guard picked as "nearest at the waypoint" is not retried until the
+-- watchdog steps in.
+local g_bad_givers = {}
+
+local function bad(unit)
+    local g = unit and safe(function() return unit:get_guid() end)
+    return g ~= nil and g_bad_givers[g] == true
+end
+
 local function find_giver(player, goal, kind, wps)
     local known = guide.known_quest_npc(kind, goal.quest_id, goal.text)
     if known then
         local unit = targeting.find_npc(player, known, 80)
-        if unit then
+        if unit and not bad(unit) then
             return unit, "learned id " .. tostring(known)
         end
     end
@@ -365,23 +376,23 @@ local function find_giver(player, goal, kind, wps)
         local title = wps[i].title
         if title then
             local unit = targeting.find_named(player, title, nil, 80)
-            if unit then
+            if unit and not bad(unit) then
                 return unit, "waypoint title '" .. title .. "'"
             end
         end
     end
     local tid, tunit = guide.target_npc_id(player)
-    if tid and tunit and safe(function() return player:can_attack(tunit) end) == false then
+    if tid and tunit and not bad(tunit) and safe(function() return player:can_attack(tunit) end) == false then
         return tunit, "player target"
     end
     for i = 1, #wps do
-        local unit = guide.nearest_talkable(player, TALK_SEARCH, wps[i].pos)
+        local unit = guide.nearest_talkable(player, TALK_SEARCH, wps[i].pos, g_bad_givers)
         if unit then
             return unit, "nearest at waypoint"
         end
     end
     if #wps == 0 then
-        local unit = guide.nearest_talkable(player, TALK_SEARCH)
+        local unit = guide.nearest_talkable(player, TALK_SEARCH, nil, g_bad_givers)
         if unit then
             return unit, "nearest"
         end
@@ -432,12 +443,24 @@ local function dialog_goal(player, goal, kind, wps, label)
         g_pending = { kind = kind, quest_id = goal.quest_id, npc_id = npc_id }
         state.quest.id = goal.quest_id
         local title = quest_title(goal, kind)
+        local result
         if kind == "accept" then
             state.set_note("Quest", "Guide: accept " .. tostring(title or goal.quest_id))
-            npc.accept(player, goal.quest_id, title, npc_id, unit)
+            result = npc.accept(player, goal.quest_id, title, npc_id, unit)
         else
             state.set_note("Quest", "Guide: turn in " .. tostring(title or goal.quest_id))
-            npc.turn_in(player, goal.quest_id, title, npc_id, unit)
+            result = npc.turn_in(player, goal.quest_id, title, npc_id, unit)
+        end
+        if result == "not_offered" or result == "gave_up" then
+            -- Not this NPC: rule it out and let find_giver pick the next.
+            local g = safe(function() return unit:get_guid() end)
+            if g then
+                g_bad_givers[g] = true
+            end
+            trail("act", "%s: %s does not have quest %d (%s) - trying another NPC", kind,
+                tostring(safe(function() return unit:get_name() end)), goal.quest_id, result)
+            npc.close()
+            g_pending = nil
         end
         debug("%s quest %d at %s (npc %s)", kind, goal.quest_id, tostring(how), tostring(npc_id))
         return true
@@ -675,6 +698,7 @@ tick_inner = function(player)
         g_kill_until = 0
         g_nosource_since = 0
         g_talk_opened = 0
+        g_bad_givers = {}
         -- A step change mid-fight keeps the fight; only an idle target is
         -- dropped.
         if safe(function() return player:is_in_combat() end) ~= true then

@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.49.0
+-- Version: 2.50.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -346,7 +346,11 @@ function loot.tick(player)
     end
 
     -- Nearest queued corpse that still exists and can still be looted.
-    local best_i, best_obj, best_d = nil, nil, nil
+    -- The best ENTRY is kept, not its index (2.50.0): dropping a lower entry
+    -- later in this backward pass shifts every index above it, and
+    -- queue[best_i] came back nil - "attempt to index local 'e'" every tick,
+    -- which aborted the whole cascade (quest, NPCs, everything) behind it.
+    local best_e, best_obj, best_d = nil, nil, nil
     for i = #queue, 1, -1 do
         local e = queue[i]
         local obj = resolve(e.guid)
@@ -377,15 +381,15 @@ function loot.tick(player)
         else
             local d = safe(function() return player:distance_to(obj) end)
             if type(d) == "number" and (best_d == nil or d < best_d) then
-                best_i, best_obj, best_d = i, obj, d
+                best_e, best_obj, best_d = e, obj, d
             end
         end
     end
-    if not best_i then
+    if not best_e then
         return false
     end
 
-    local e = queue[best_i]
+    local e = best_e
     if not lootable(best_obj) and (now - e.added) <= FLAG_GRACE then
         -- Fresh corpse, flag not set yet: walk over, but do not fire yet.
         if best_d <= LOOT_REACH then
@@ -412,7 +416,12 @@ function loot.tick(player)
             state.set_note("Loot", string.format("Walking to corpse  %.0fy", best_d))
             return true
         end
-        drop(best_i)
+        for k = #queue, 1, -1 do
+            if queue[k] == e then
+                drop(k)
+                break
+            end
+        end
         return false
     end
 

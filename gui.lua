@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.68.0
+-- Version: 2.69.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -291,10 +291,12 @@ menu:checkbox("mfg_quest_path_pull", true, {
     tab = "questing",
     tooltip = "While walking to a quest waypoint or NPC, fight hostile mobs within 20 yards ahead on the way (4 levels below to 3 above you, no critters, nothing tagged by another player), loot them, then carry on.",
 })
+-- On the General tab (2.69.0): it covers grinding as well as questing, and
+-- on the Questing tab it could not be found when a grinding crash needed it.
 menu:checkbox("mfg_crash_recorder", false, {
     label = "Crash recorder (slows the game)",
-    tab = "questing",
-    tooltip = "For hunting a game crash only. For 90 seconds after Start it writes a line to scripts_log/MASTER_FARMER_ERRORS for every step of every frame, so the last line names the call the game died in. Each line is a disk write: with this on the game runs at a fraction of its frame rate. Leave it off otherwise.",
+    tab = "general",
+    tooltip = "For hunting a game crash only. After Start, and through every grinding fight, it writes a line to scripts_log/MASTER_FARMER_ERRORS for every step of every frame, so the last line names the call the game died in. Each line is a disk write: with this on the game runs at a fraction of its frame rate. Leave it off otherwise.",
 })
 menu:checkbox("mfg_quest_debug", false, {
     label = "Log quest and guide steps",

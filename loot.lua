@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.54.0
+-- Version: 2.55.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -50,6 +50,13 @@ local SETTLE = 0.6            -- seconds after an attempt before judging it
 local MAX_FIRES = 3           -- attempts per corpse
 local ENTRY_TIMEOUT = 15.0    -- seconds a corpse may take, walk included
 local ENTRY_TTL = 120.0       -- seconds a queued corpse is remembered
+-- 30 SECONDS AND MOVE ON (2.55.0): a corpse not looted within GIVE_UP of the
+-- kill is dropped - whatever held it up - and the bot carries on questing.
+-- It is then IGNORED for IGNORE_FOR, so the fallback scan cannot queue it
+-- again and restart the wait.
+local GIVE_UP = 30.0
+local IGNORE_FOR = 600.0
+local ignored = {}            -- guid -> ignored until
 -- The game sets a corpse's lootable flag a moment AFTER the mob dies. A corpse
 -- queued in the kill tick used to be dropped on the next tick as "never ours"
 -- because can_be_looted was still false (2.38.0).
@@ -178,6 +185,9 @@ local function enqueue(guid, pos, mine)
     if type(guid) ~= "string" or guid == "" then
         return false
     end
+    if (ignored[guid] or 0) > izi.now() then
+        return false
+    end
     local at = find_entry(guid)
     if at then
         if mine then
@@ -238,7 +248,12 @@ function loot.has_work(player)
     end
     local now = izi.now()
     for i = #queue, 1, -1 do
-        if (now - queue[i].added) > ENTRY_TTL then
+        local e = queue[i]
+        if (now - e.added) > GIVE_UP then
+            ltrail("done %s: gave up after %.0f s", e.guid, GIVE_UP)
+            ignored[e.guid] = now + IGNORE_FOR
+            drop(i)
+        elseif (now - e.added) > ENTRY_TTL then
             drop(i)
         end
     end
@@ -248,6 +263,7 @@ end
 --- Forget the queue (Stop, mode change).
 function loot.reset()
     queue = {}
+    ignored = {}
     close_at = nil
 end
 
@@ -355,7 +371,10 @@ function loot.tick(player)
         local e = queue[i]
         local obj = resolve(e.guid)
         local why = nil
-        if obj == nil then
+        if (now - e.added) > GIVE_UP then
+            why = string.format("gave up after %.0f s", GIVE_UP)
+            ignored[e.guid] = now + IGNORE_FOR
+        elseif obj == nil then
             why = "corpse not found"
         elseif safe(function() return obj:is_dead() end) ~= true then
             why = "not dead"

@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.59.0
+-- Version: 2.60.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -573,8 +573,19 @@ function Menu:retry_font()
 end
 
 ---Cache a GPU texture from ZIP / scripts_data bytes. Failures are not sticky.
+-- LOGO (2.60.0). The texture id was only kept when type(id) == "number";
+-- whatever else the native hands back was thrown away every half second and
+-- the logo never drew. Any non-nil id is kept now (as FB_Fury does), and a
+-- load that fails says why, once.
+local _logo_warned = {}
+local function logo_warn(key, text)
+    if _logo_warned[key] then return end
+    _logo_warned[key] = true
+    pcall(function() core.log_warning("[Master Farmer - Grindbot] Logo: " .. text) end)
+end
+
 function Menu:ensure_logo()
-    if self._logo_tex and type(self._logo_tex.id) == "number" then
+    if self._logo_tex and self._logo_tex.id ~= nil then
         return self._logo_tex
     end
     local now = core.time()
@@ -585,6 +596,8 @@ function Menu:ensure_logo()
 
     local bytes = load_pack_bytes(resolve_pack_path(self.logo))
     if type(bytes) ~= "string" then
+        logo_warn("read", "could not read " .. tostring(resolve_pack_path(self.logo))
+            .. " from scripts_data (assets pack not downloaded yet?) - retrying.")
         return nil
     end
 
@@ -592,7 +605,10 @@ function Menu:ensure_logo()
     local ok = pcall(function()
         tex_id, w, h = core.graphics.load_texture(bytes)
     end)
-    if ok and type(tex_id) == "number" then
+    if not ok or tex_id == nil then
+        logo_warn("decode", string.format("core.graphics.load_texture rejected the %d-byte image - retrying.", #bytes))
+    end
+    if ok and tex_id ~= nil then
         self._logo_tex = {
             id = tex_id,
             w = (type(w) == "number" and w > 0) and w or self.logo_width,
@@ -614,7 +630,7 @@ function Menu:draw_logo_texture(win, lx, ly, dw, dh)
     log_assets_once()
 
     local logo = self:ensure_logo()
-    if not logo or type(logo.id) ~= "number" then
+    if not logo or logo.id == nil then
         return false
     end
 
@@ -632,6 +648,15 @@ function Menu:draw_logo_texture(win, lx, ly, dw, dh)
     local ok = pcall(function()
         core.graphics.draw_texture(logo.id, pos, dw, dh, tint, true)
     end)
+    if not ok then
+        -- The call FB_Fury draws its window logo with.
+        ok = pcall(function()
+            core.graphics.draw_texture_rect(logo.id, pos, dw, dh, 0, 0, 1, 1, tint, true)
+        end)
+        if not ok then
+            logo_warn("draw", "draw_texture and draw_texture_rect both failed.")
+        end
+    end
     return ok == true
 end
 

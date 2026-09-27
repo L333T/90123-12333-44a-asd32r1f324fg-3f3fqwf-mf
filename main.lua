@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.29.0
+-- Version: 2.30.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -734,6 +734,16 @@ local function on_update()
         return
     end
 
+    -- Questing enabled: keep the guide snapshot current from here, the update
+    -- callback, so the Questing tab has live data without reading RestedXP
+    -- from the render hook - started or not.
+    if modes and gui.mode() == modes.QUEST then
+        local ok_g, g = pcall(require, "quest/guide")
+        if ok_g and type(g) == "table" and type(g.update) == "function" then
+            pcall(g.update)
+        end
+    end
+
     if not gui.is_started() then
         halt_bot_movement()
         if vendor then
@@ -914,8 +924,24 @@ if errorlog then
     end)
 end
 
+-- RestedXP may only be read inside this callback (quest/guide.lua,
+-- allow_reads): never from a render hook.
+local quest_guide = nil
+do
+    local ok, mod = pcall(require, "quest/guide")
+    if ok and type(mod) == "table" and type(mod.allow_reads) == "function" then
+        quest_guide = mod
+    end
+end
+
 core.register_on_update_callback(function()
+    if quest_guide then
+        quest_guide.allow_reads(true)
+    end
     guarded("on_update", on_update)
+    if quest_guide then
+        quest_guide.allow_reads(false)
+    end
     probe("-")
 end)
 core.register_on_render_callback(function()

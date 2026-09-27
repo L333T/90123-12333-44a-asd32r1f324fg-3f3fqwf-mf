@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.49.0
+-- Version: 2.50.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -522,7 +522,7 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
 
     if dlg.stage == "interact" then
         if dlg.tries >= MAX_TRIES then
-            return
+            return "gave_up"
         end
         dlg.tries = dlg.tries + 1
         interact_once(player, npc_id, unit)
@@ -537,7 +537,13 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
             dlg.stage = "done"
             return
         end
-        select_quest(quest_id, quest_name, "available")
+        -- The NPC lists quests and this one is not among them: wrong NPC
+        -- (2.50.0). Say so, so the engine tries another giver instead of
+        -- re-interacting with this one until the tries run out.
+        if not select_quest(quest_id, quest_name, "available") then
+            dlg.stage = "done"
+            return "not_offered"
+        end
         dlg_to("accept", now)
         return
     end
@@ -584,7 +590,7 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
             warn_once("turnin_giveup:" .. tostring(quest_id),
                 "Gave up handing in quest %s after %d attempts.",
                 tostring(quest_name or quest_id), MAX_TRIES)
-            return
+            return "gave_up"
         end
         dlg.tries = dlg.tries + 1
         interact_once(player, npc_id, unit)
@@ -594,7 +600,10 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
     end
 
     if dlg.stage == "select" then
-        select_quest(quest_id, quest_name, "active")
+        if not select_quest(quest_id, quest_name, "active") then
+            dlg.stage = "done"
+            return "not_offered"
+        end
         dlg_to("wait", now)
         return
     end
@@ -613,10 +622,33 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
             return  -- choices are there but not rated yet; look again next tick
         end
         if (now - dlg.t) >= FRAME_WAIT then
-            quest_debug("turn in %s: no reward choice offered, completing", tostring(quest_name or quest_id))
+            -- complete_quest is the PROGRESS window's "Continue". The quest is
+            -- not handed in until the completion window is finished too
+            -- (2.50.0) - that is the finish stage. Going straight to verify
+            -- left the completion window open: the quest stayed in the log,
+            -- the bot re-interacted every 8 s and gave up after three tries.
+            quest_debug("turn in %s: no reward choice yet - Continue", tostring(quest_name or quest_id))
             pcall(function() core.quests.complete_quest() end)
-            dlg_to("verify", now)
+            dlg_to("finish", now)
         end
+        return
+    end
+
+    -- The completion window: take the best reward choice, or finish with
+    -- none (get_quest_reward(0) is "Complete Quest" with no choice).
+    if dlg.stage == "finish" then
+        if (now - dlg.t) < 0.8 then
+            return
+        end
+        local idx = best_choice(player)
+        if idx then
+            dlg.picked = idx
+            dlg_to("reward", now)
+            return
+        end
+        pcall(function() core.quests.get_quest_reward(0) end)
+        quest_debug("turn in %s: completed with no reward choice", tostring(quest_name or quest_id))
+        dlg_to("verify", now)
         return
     end
 

@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.49.0
+-- Version: 2.50.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -190,6 +190,27 @@ local function as_bool(v)
     return v == true or v == 1
 end
 
+--- Guide text without WoW escape codes (2.50.0).
+---
+--- RestedXP colours its lines: |cFFrrggbb...|r, its own |cRXP_ENEMY_...
+--- tags, textures |T...|t, atlases |A...|a, links |H...|h. The quest title
+--- matched against an NPC's quest list and the names matched against mobs
+--- come from this text; wrapped in codes they never matched.
+local function clean_text(s)
+    if type(s) ~= "string" or s == "" then
+        return s
+    end
+    s = s:gsub("|c%x%x%x%x%x%x%x%x", "")
+    s = s:gsub("|cRXP_[%u_]-_", "")
+    s = s:gsub("|r", "")
+    s = s:gsub("|T.-|t", "")
+    s = s:gsub("|A.-|a", "")
+    s = s:gsub("|H.-|h", "")
+    s = s:gsub("|h", "")
+    s = s:gsub("^%s+", ""):gsub("%s+$", "")
+    return s
+end
+
 local function as_str(v)
     if type(v) == "string" and v ~= "" then
         return v
@@ -221,7 +242,7 @@ local function plain_goal(raw)
     return {
         action = as_str(get(raw, "action")) or "",
         quest_id = as_id(get(raw, "quest_id")),
-        text = as_str(get(raw, "text")),
+        text = clean_text(as_str(get(raw, "text"))),
         is_complete = as_bool(get(raw, "is_complete")),
         text_only = as_bool(get(raw, "text_only")),
         ids = ids,
@@ -256,7 +277,7 @@ local function plain_waypoint(raw)
         x = tonumber(get(raw, "x")),
         y = tonumber(get(raw, "y")),
         dist = tonumber(get(raw, "dist")),
-        title = as_str(get(raw, "title")),
+        title = clean_text(as_str(get(raw, "title"))),
         type = as_str(get(raw, "type")),
         goal_num = tonumber(get(raw, "goal_num")),
         is_manual = as_bool(get(raw, "is_manual")),
@@ -269,7 +290,7 @@ local function plain_objective(raw)
         return nil
     end
     return {
-        text = as_str(get(raw, "text")),
+        text = clean_text(as_str(get(raw, "text"))),
         type = as_str(get(raw, "type")),
         num_required = tonumber(get(raw, "num_required")) or 0,
         num_fulfilled = tonumber(get(raw, "num_fulfilled")) or 0,
@@ -1631,7 +1652,7 @@ end
 --- cannot attack is a quest giver, a vendor or a guard rather than a mob.
 --- Deliberately short ranged: it is a guess, and a guess is only reasonable
 --- once standing where the guide pointed.
-function guide.nearest_talkable(player, range, center)
+function guide.nearest_talkable(player, range, center, exclude)
     if not player then
         return nil, nil
     end
@@ -1649,7 +1670,8 @@ function guide.nearest_talkable(player, range, center)
             and call(u.is_unit, u) == true
             and call(u.is_dead_or_ghost, u) ~= true
             and call(u.is_player, u) ~= true then
-            if call(player.can_attack, player, u) == false then
+            if call(player.can_attack, player, u) == false
+                and not (exclude and exclude[call(u.get_guid, u) or ""]) then
                 local d
                 if center then
                     local pos = call(u.get_position, u)

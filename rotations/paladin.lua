@@ -3,7 +3,7 @@
 -- Paladin grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.35.0
+-- Version: 2.36.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THE AURA IS A DROPDOWN AND NOT SIX CHECKBOXES
@@ -384,13 +384,9 @@ function paladin.buffs_ooc(player)
         end
     end
 
-    if gui.is_on("seal") and learned(seal_righteous) then
-        if not has_aura(player, SOR_IDS) then
-            if cast_self(seal_righteous, player, "Seal of Righteousness") then
-                return true
-            end
-        end
-    end
+    -- Seal of Righteousness (21084 and its ranks) is NOT pre-cast out of
+    -- combat (2.36.0): it is only cast once the fight has started - see
+    -- paladin.tick.
 
     return false
 end
@@ -461,9 +457,12 @@ function paladin.tick(player, target, ctx)
         return true
     end
 
-    -- The seal is the damage engine and falls off on a timer, so it is
-    -- maintained in combat too, not only out of it.
-    if gui.is_on("seal") and learned(seal_righteous) and not has_aura(player, SOR_IDS) then
+    -- The seal is the damage engine and falls off on a timer, so it is kept
+    -- up during the fight - but only once the player is actually in combat
+    -- (2.36.0). paladin.tick also runs while closing on a mob, and the seal
+    -- used to go up on the walk in, or out of combat from buffs_ooc.
+    local in_combat = safe(function() return player:is_in_combat() end) == true
+    if in_combat and gui.is_on("seal") and learned(seal_righteous) and not has_aura(player, SOR_IDS) then
         if cast_self(seal_righteous, player, "Seal of Righteousness") then
             return true
         end

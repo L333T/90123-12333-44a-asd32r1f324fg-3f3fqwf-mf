@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.85.0
+-- Version: 2.86.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -419,6 +419,7 @@ end
 local REPAIR_TRIES = 3
 
 local function finish_trip(note)
+    state.vendor.idle_since = 0
     state.vendor.repair_tries = 0
     sell_pending = nil
     sell_fails = {}
@@ -667,6 +668,34 @@ local function hearth_tick(player)
 end
 
 -- ----------------------------------------------------------------------------
+-- IDLE AT THE VENDOR (2.86.0)
+-- ----------------------------------------------------------------------------
+-- At a merchant - its window open, or standing next to it trying to open it -
+-- with nothing sold, bought or repaired for IDLE_LIMIT seconds, the trip is
+-- over and grinding / questing carries on. Walking to a merchant is not idle.
+local IDLE_LIMIT = 15
+
+--- Something was done at the merchant: the idle clock restarts.
+local function vendor_progress(now)
+    state.vendor.idle_since = now
+end
+
+--- At the merchant this tick. True when the idle limit ended the trip.
+local function idle_check(now)
+    local since = state.vendor.idle_since
+    if type(since) ~= "number" or since <= 0 then
+        state.vendor.idle_since = now
+        return false
+    end
+    if (now - since) >= IDLE_LIMIT then
+        trail("idle at the vendor for %ds - moving on", IDLE_LIMIT)
+        finish_trip("Idle at the vendor - moving on")
+        return true
+    end
+    return false
+end
+
+-- ----------------------------------------------------------------------------
 -- FOOD / WATER SELLER (2.73.0)
 -- ----------------------------------------------------------------------------
 local SUPPLIER_RANGE = 80
@@ -701,9 +730,13 @@ local function supplier_tick(player)
             return false
         end
         state.set_note("Vendor", "Travel to " .. tostring(state.vendor.supplier_name))
+        state.vendor.idle_since = 0
         return true
     end
     movement.nav_stop()
+    if idle_check(now) then
+        return false
+    end
     if now < (state.vendor.interact_until or 0) then
         return true
     end
@@ -806,6 +839,9 @@ function vendor.tick(player)
                 safe(function() return core.game_ui.get_vendor_item_count() end) or 0,
                 tostring(safe(function() return core.inventory.can_merchant_repair() end) == true))
         end
+        if idle_check(now) then
+            return false
+        end
         if now < (state.vendor.interact_until or 0) then
             state.set_note("Vendor", "Selling")
             return true
@@ -814,6 +850,7 @@ function vendor.tick(player)
             local sold, item_id = sell_one(player)
             if sold then
                 state.vendor.sold = (state.vendor.sold or 0) + 1
+                vendor_progress(now)
                 state.vendor.interact_until = now + SELL_GAP
                 state.set_note("Vendor", "Sold " .. tostring(item_id))
                 return true
@@ -823,6 +860,7 @@ function vendor.tick(player)
         -- is what forces the next trip. Buying first spends what is left over
         -- after selling instead of after repairing.
         if supplies.tick(player) then
+            vendor_progress(now)
             return true
         end
 
@@ -857,6 +895,7 @@ function vendor.tick(player)
                 pcall(function()
                     core.input.repair_all_items(false)
                 end)
+                vendor_progress(now)
                 state.set_note("Vendor", "Repair")
             end
             state.vendor.interact_until = now + 0.60
@@ -940,9 +979,13 @@ function vendor.tick(player)
     local d = safe(function() return player:distance_to(unit) end) or 99
     if type(d) == "number" and d > 5 then
         local p = safe(function() return unit:get_position() end) or dest
+        state.vendor.idle_since = 0
         return movement.nav_to(p) == true
     end
 
+    if idle_check(now) then
+        return false
+    end
     if now < (state.vendor.interact_until or 0) then
         return true
     end

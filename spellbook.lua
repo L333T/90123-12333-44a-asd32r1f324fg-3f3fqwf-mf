@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.51.0
+-- Version: 2.52.0
 -- Folder: Master_Farmer_Grindbot
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan every 2 seconds. DEFS are rank-1 IDs; highest matching ID wins.
@@ -29,6 +29,10 @@ local scanned = false
 local id_known = {}
 local spell_known = {}
 local watched = {}
+-- Best-rank proxies and their binder (see BEST KNOWN RANK below). Declared
+-- here because run_scan, defined before that section, re-binds them.
+local proxies = {}
+local rebind
 local book_count = 0
 local book_ids = {}
 local book_names = {}
@@ -317,6 +321,12 @@ local function evaluate_spell(spell)
     if type(spell) ~= "table" or not scanned then
         return false
     end
+    -- A best-rank proxy is learned exactly when a rank of it is in the book.
+    if rawget(spell, "_ids") ~= nil then
+        local known = rawget(spell, "_best") ~= nil
+        spell_known[spell] = known or nil
+        return known
+    end
     if spell_known[spell] == true then
         return true
     end
@@ -413,6 +423,10 @@ local function run_scan()
     scanned = true
     last_scan = izi.now()
     rank_families()
+    spell_known = {}                  -- re-judged against the new ranks
+    for i = 1, #proxies do
+        rebind(proxies[i])
+    end
     for i = 1, #watched do
         evaluate_spell(watched[i])
     end
@@ -429,12 +443,105 @@ function spellbook.define(map)
     end
 end
 
-function spellbook.watch(spell)
+-- ----------------------------------------------------------------------------
+-- BEST KNOWN RANK (2.52.0)
+-- ----------------------------------------------------------------------------
+-- Every rotation builds a spell from a rank list, highest first, and the
+-- "is it learned" test answered yes when ANY rank was in the book - but the
+-- cast went out as the spell object's own id, which was not necessarily a
+-- rank the character had. At low level the rotation kept casting a rank it
+-- had not learned: "spell not learned", over and over.
+--
+-- watch() now returns a thin proxy. Rotation code calls it exactly as before
+-- (spell:cast_safe(...), spell:cooldown_up(), ...); the proxy forwards to an
+-- izi spell bound to ONE id. After every scan - start-up, a level-up, a
+-- trainer purchase - each proxy is re-bound to the highest rank of its list
+-- that is actually in the spellbook, with its buff / debuff tracking re-applied
+-- over the whole list, so an aura from any rank still counts. A spell with no
+-- known rank stays unbound and reads as not learned, so it is never cast.
+rebind = function(proxy)
+    local ids = rawget(proxy, "_ids")
+    if type(ids) ~= "table" then
+        return
+    end
+    local best = nil
+    for i = 1, #ids do               -- highest rank first
+        if id_in_book(ids[i]) then
+            best = ids[i]
+            break
+        end
+    end
+    rawset(proxy, "_best", best)
+    if not best or rawget(proxy, "_bound") == best then
+        return
+    end
+    local sp = safe(function() return izi.spell(best) end)
+    if type(sp) ~= "table" then
+        return
+    end
+    if rawget(proxy, "_buff") and type(sp.track_buff) == "function" then
+        pcall(sp.track_buff, sp, ids)
+    end
+    if rawget(proxy, "_debuff") and type(sp.track_debuff) == "function" then
+        pcall(sp.track_debuff, sp, ids)
+    end
+    rawset(proxy, "_cur", sp)
+    rawset(proxy, "_bound", best)
+    rawset(proxy, "_fn", {})
+end
+
+local proxy_mt = {
+    __index = function(t, k)
+        local cur = rawget(t, "_cur")
+        local v = cur[k]
+        if type(v) ~= "function" then
+            return v
+        end
+        -- A method: call it on whatever the proxy is bound to NOW.
+        local cache = rawget(t, "_fn")
+        local f = cache[k]
+        if not f then
+            f = function(self, ...)
+                local target = rawget(t, "_cur")
+                local m = target[k]
+                if self == t then
+                    return m(target, ...)
+                end
+                return m(self, ...)
+            end
+            cache[k] = f
+        end
+        return f
+    end,
+}
+
+--- Register a spell for the scan. `ids` is its rank list (highest first);
+--- `track_buff` / `track_debuff` say whether the rotation tracks an aura
+--- from it. Returns the proxy the rotation keeps.
+function spellbook.watch(spell, ids, track_buff, track_debuff)
     if type(spell) ~= "table" then
         return spell
     end
-    watched[#watched + 1] = spell
-    return spell
+    if type(ids) ~= "table" then
+        watched[#watched + 1] = spell
+        return spell
+    end
+    local proxy = setmetatable({
+        _cur = spell, _ids = ids, _buff = track_buff == true, _debuff = track_debuff == true,
+        _fn = {}, _bound = nil, _best = nil,
+        ids = ids,
+    }, proxy_mt)
+    proxies[#proxies + 1] = proxy
+    watched[#watched + 1] = proxy
+    if scanned then
+        rebind(proxy)
+    end
+    return proxy
+end
+
+--- The rank id a watched spell is cast as, or nil when no rank is known.
+function spellbook.bound_id(proxy)
+    return type(proxy) == "table" and rawget(proxy, "_best") or nil
 end
 
 function spellbook.ready()

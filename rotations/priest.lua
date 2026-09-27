@@ -3,7 +3,7 @@
 -- Priest grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.51.0
+-- Version: 2.52.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference grindbot's Buff_Check Priest branch, which kept
@@ -66,7 +66,7 @@ local function make(ids, track_buff, track_debuff)
     if track_debuff and spell.track_debuff then
         spell:track_debuff(ids)
     end
-    return spellbook.watch(spell)
+    return spellbook.watch(spell, ids, track_buff, track_debuff)
 end
 
 local PWF_IDS        = { 25389, 10938, 10937, 2791, 1245, 1244, 1243 }

@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.51.0
+-- Version: 2.52.0
 -- Folder: Master_Farmer_Grindbot
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -88,7 +88,7 @@ local function make(ids, track_buff, track_debuff)
     if track_debuff and spell.track_debuff then
         spell:track_debuff(ids)
     end
-    return spellbook.watch(spell)
+    return spellbook.watch(spell, ids, track_buff, track_debuff)
 end
 
 local frostbolt = make({ 27072, 27071, 25304, 10181, 10180, 10179, 8408, 8407, 8406, 7322, 837, 205, 116 })

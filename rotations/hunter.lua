@@ -3,7 +3,7 @@
 -- Hunter grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.51.0
+-- Version: 2.52.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Warlock.
@@ -55,7 +55,7 @@ local function make(ids, track_buff, track_debuff)
     if not spell then return nil end
     if track_buff and spell.track_buff then spell:track_buff(ids) end
     if track_debuff and spell.track_debuff then spell:track_debuff(ids) end
-    return spellbook.watch(spell)
+    return spellbook.watch(spell, ids, track_buff, track_debuff)
 end
 
 local HAWK_IDS      = { 27044, 25296, 14322, 14321, 14320, 13165 }

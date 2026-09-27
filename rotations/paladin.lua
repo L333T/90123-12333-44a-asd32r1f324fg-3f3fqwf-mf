@@ -3,7 +3,7 @@
 -- Paladin grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.51.0
+-- Version: 2.52.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THE AURA IS A DROPDOWN AND NOT SIX CHECKBOXES
@@ -52,7 +52,7 @@ local function make(ids, track_buff, track_debuff)
     if track_debuff and spell.track_debuff then
         spell:track_debuff(ids)
     end
-    return spellbook.watch(spell)
+    return spellbook.watch(spell, ids, track_buff, track_debuff)
 end
 
 -- Auras. Index order must match AURA_LABELS below.
@@ -87,9 +87,10 @@ local SOR_IDS = { 27155, 20293, 20292, 20291, 20290, 20289, 20288, 20287, 21084 
 
 local blessing_might  = make(BOM_IDS, true, false)
 local blessing_wisdom = make(BOW_IDS, true, false)
--- Cast as rank 1, spell 21084, ONLY (2.45.0). SOR_IDS still lists every rank
--- so the "already up" check recognises any Seal of Righteousness.
-local seal_righteous  = make({ 21084 }, true, false)
+-- The best KNOWN rank of the list is cast (2.52.0): spellbook.watch binds it
+-- after every scan. Forcing one id (2.45.0) cast a rank the character may
+-- not have - "spell not learned" on every attempt.
+local seal_righteous  = make(SOR_IDS, true, false)
 
 local judgement     = make({ 20271 })
 local crusader_strike = make({ 35395 })

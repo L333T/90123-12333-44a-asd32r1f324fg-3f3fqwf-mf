@@ -3,7 +3,7 @@
 -- Warrior grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.51.0
+-- Version: 2.52.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RAGE IS NOT MANA AND NOT ENERGY
@@ -77,7 +77,7 @@ local function make(ids, track_buff, track_debuff)
     if not spell then return nil end
     if track_buff and spell.track_buff then spell:track_buff(ids) end
     if track_debuff and spell.track_debuff then spell:track_debuff(ids) end
-    return spellbook.watch(spell)
+    return spellbook.watch(spell, ids, track_buff, track_debuff)
 end
 
 local BATTLE_SHOUT_IDS = { 2048, 11551, 11550, 11549, 6673 }

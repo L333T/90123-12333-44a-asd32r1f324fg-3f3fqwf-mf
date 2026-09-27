@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.58.0
+-- Version: 2.59.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -237,18 +237,10 @@ function N.move(p, why)
     end
     local c = client()
     if not c or type(p) ~= "table" then return false end
-    -- Never a path request longer than MAX_LEG (2.25.0), whoever asks.
-    local px, py, pz = xyz(p)
-    if not px then return false end
-    local hx, hy, hz = U.here_xyz()
-    if hx then
-        local dx, dy = px - hx, py - hy
-        local d = math.sqrt(dx * dx + dy * dy)
-        if d > K.MAX_LEG then
-            local s = K.MAX_LEG / d
-            p = pt(P_DEST, hx + dx * s, hy + dy * s, hz + (pz - hz) * s)
-        end
-    end
+    -- No MAX_LEG clamp here (2.59.0): Sentinel plans the whole path itself,
+    -- and a straight-line midpoint can be off the mesh. The one-request-per-
+    -- SN_MIN_GAP rate limit above is what guards against flooding.
+    if not xyz(p) then return false end
     R.sn_last_issue_t = now
     R.sn_issued = R.sn_issued + 1
     local okl, elog = pcall(require, "errorlog")
@@ -361,5 +353,243 @@ function N.node_reachable(pos, index)
     end
     return true
 end
+
+-- ============================================================================
+-- SENTINEL-FIRST MOVEMENT (2.59.0)
+-- ============================================================================
+-- The rest of the plugin asks these, never the client directly. Every call is
+-- feature-detected and non-blocking: while an answer is pending, or with no
+-- server, the caller gets "no opinion" and carries on as before.
+
+-- Result parsing. The Sentinel docs name the arguments but not every result
+-- shape, so a point is anything with numeric x / y / z - or such a table under
+-- position / pos / point / target / destination - and a path is an array of
+-- points, or such an array under waypoints / path / points.
+local function as_point(v)
+    if type(v) ~= "table" and type(v) ~= "userdata" then return nil end
+    local x, y, z = xyz(v)
+    if x then return vec3.new(x, y, z) end
+    if type(v) == "table" then
+        local keys = { "position", "pos", "point", "target", "destination", "result" }
+        for i = 1, #keys do
+            local inner = v[keys[i]]
+            if inner ~= nil then
+                local p = as_point(inner)
+                if p then return p end
+            end
+        end
+    end
+    return nil
+end
+
+local function as_points(v)
+    if type(v) ~= "table" then return nil end
+    if v[1] ~= nil then
+        local out = {}
+        for i = 1, #v do
+            local p = as_point(v[i])
+            if p then out[#out + 1] = p end
+        end
+        if #out > 0 then return out end
+        return nil
+    end
+    local keys = { "waypoints", "path", "points" }
+    for i = 1, #keys do
+        if v[keys[i]] ~= nil then
+            local pts = as_points(v[keys[i]])
+            if pts then return pts end
+        end
+    end
+    return nil
+end
+
+local function nav_service()
+    local c = client()
+    if not c or type(c.nav_client) ~= "table" then return nil end
+    return c.nav_client
+end
+
+-- ----------------------------------------------------------------------------
+-- 1. REACHABILITY  (validate_destination, cached)
+-- ----------------------------------------------------------------------------
+-- reach[key] = { ok = true|false|nil (pending), t = when }. Keyed on a 4-yard
+-- grid so nearby asks share one answer; answers live REACH_TTL.
+local REACH_TTL = 300
+local REACH_GAP = 0.5          -- seconds between new requests
+local reach = {}
+local reach_n = 0
+local reach_next = 0
+
+local function reach_key(x, y)
+    return string.format("%d|%d", math.floor(x / 4), math.floor(y / 4))
+end
+
+--- false only once Sentinel has said "unreachable"; true while pending,
+--- unknown, or with no server - never blocks the caller.
+function N.reachable(pos)
+    local x, y, z = xyz(pos)
+    if not x then return true end
+    local key = reach_key(x, y)
+    local now = izi.now()
+    local e = reach[key]
+    if e and (now - e.t) < REACH_TTL then
+        return e.ok ~= false
+    end
+    local c = client()
+    if not c or now < reach_next then return true end
+    reach_next = now + REACH_GAP
+    if reach_n > 200 then reach, reach_n = {}, 0 end
+    e = { ok = nil, t = now }
+    reach[key] = e
+    reach_n = reach_n + 1
+    local ok = pcall(c.validate_destination, c, vec3.new(x, y, z), function(reachable)
+        e.ok = reachable == true
+        e.t = izi.now()
+    end)
+    if not ok then e.ok = true end
+    return true
+end
+
+-- ----------------------------------------------------------------------------
+-- 2. FOLLOW A WAYPOINT LIST  (follow_path)
+-- ----------------------------------------------------------------------------
+--- Hand a recorded route to Sentinel so it gets Sentinel's stuck recovery.
+--- Same gates and rate limit as N.move; false means "walk it yourself".
+function N.follow(points, why)
+    if R.cur_owner == OWNER.COMBAT then return false end
+    if type(points) ~= "table" or #points < 2 then return false end
+    local now = izi.now()
+    if (now - R.sn_last_issue_t) < SN_MIN_GAP then
+        R.sn_refused = R.sn_refused + 1
+        return false
+    end
+    local c = client()
+    if not c or type(c.follow_path) ~= "function" then return false end
+    local pts = {}
+    for i = 1, #points do
+        local x, y, z = xyz(points[i])
+        if x then pts[#pts + 1] = vec3.new(x, y, z) end
+    end
+    if #pts < 2 then return false end
+    R.sn_last_issue_t = now
+    R.sn_issued = R.sn_issued + 1
+    local last = pts[#pts]
+    W.halt()
+    W.begin_issue(last.x, last.y, last.z)
+    R.sn_active, R.sn_reason = true, nil
+    R.sn_why = why or "path"
+    R.sn_leash_hold = true
+    R.sn_watch_t = now
+    local ok = pcall(c.follow_path, c, pts, on_nav_done)
+    if not ok then
+        R.sn_active, R.sn_reason = false, nil
+        R.sn_leash_hold = false
+        W.clear_dest()
+        return false
+    end
+    dlog("issue", string.format("sentinel follow_path %s (%d pts)", tostring(why or ""), #pts))
+    return true
+end
+
+-- ----------------------------------------------------------------------------
+-- 4. CHASE PATH  (nav_client.find_path, driven by the local walker)
+-- ----------------------------------------------------------------------------
+-- A blocked line to a mob mid-fight: Sentinel plans, the walker walks (it is
+-- not deferred while casting, as a Sentinel move is). One cached path per
+-- target; asked again when the target has moved CHASE_REPATH yards from the
+-- path's end, or it is CHASE_AGE old, never more than once per CHASE_GAP.
+local CHASE_GAP, CHASE_AGE, CHASE_REPATH = 1.0, 3.0, 5.0
+local chase = { key = nil, t = -1e9, asked = -1e9, pts = nil, pending = false }
+
+function N.chase_path(from, to, key)
+    local fx, fy, fz = xyz(from)
+    local tx, ty, tz = xyz(to)
+    if not fx or not tx then return nil end
+    local now = izi.now()
+    local have = chase.key == key and chase.pts
+    if have then
+        local last = chase.pts[#chase.pts]
+        local moved = math.sqrt((last.x - tx) ^ 2 + (last.y - ty) ^ 2)
+        if moved <= CHASE_REPATH and (now - chase.t) <= CHASE_AGE then
+            return chase.pts
+        end
+    end
+    if chase.pending and (now - chase.asked) < 5 then return have and chase.pts or nil end
+    if (now - chase.asked) < CHASE_GAP then return have and chase.pts or nil end
+    local nav = nav_service()
+    if not nav or type(nav.find_path) ~= "function" then return nil end
+    chase.asked, chase.pending = now, true
+    local want = key
+    local ok = pcall(nav.find_path, nav, vec3.new(fx, fy, fz), vec3.new(tx, ty, tz), function(...)
+        chase.pending = false
+        local pts = nil
+        for i = 1, select("#", ...) do
+            pts = as_points((select(i, ...)))
+            if pts then break end
+        end
+        if pts and #pts >= 2 then
+            chase.key, chase.t, chase.pts = want, izi.now(), pts
+        end
+    end)
+    if not ok then chase.pending = false end
+    return have and chase.pts or nil
+end
+
+-- ----------------------------------------------------------------------------
+-- 5. KITE / FLEE POINTS  (nav_client.kite / flee)
+-- ----------------------------------------------------------------------------
+-- A mesh-aware retreat spot for the combat retreat. The answer is used while
+-- fresh (ESCAPE_FRESH); a new one is asked at most every ESCAPE_GAP. nil
+-- means "use the geometric fallback".
+local ESCAPE_GAP, ESCAPE_FRESH = 1.0, 1.5
+local escape = { t = -1e9, asked = -1e9, p = nil }
+
+local function escape_request(method, a, b)
+    local nav = nav_service()
+    if not nav or type(nav[method]) ~= "function" then return end
+    escape.asked = izi.now()
+    pcall(nav[method], nav, a, b, function(...)
+        for i = 1, select("#", ...) do
+            local p = as_point((select(i, ...)))
+            if p then
+                escape.p, escape.t = p, izi.now()
+                return
+            end
+        end
+    end)
+end
+
+local function escape_point(method, a, b)
+    local now = izi.now()
+    if escape.p and (now - escape.t) <= ESCAPE_FRESH then
+        return escape.p
+    end
+    if (now - escape.asked) >= ESCAPE_GAP then
+        escape_request(method, a, b)
+    end
+    return nil
+end
+
+--- Where to step to keep `target_pos` at range (one target).
+function N.kite_point(player_pos, target_pos)
+    local px, py, pz = xyz(player_pos)
+    local tx, ty, tz = xyz(target_pos)
+    if not px or not tx then return nil end
+    return escape_point("kite", vec3.new(px, py, pz), vec3.new(tx, ty, tz))
+end
+
+--- Where to run from several threats (positions).
+function N.flee_point(player_pos, threats)
+    local px, py, pz = xyz(player_pos)
+    if not px or type(threats) ~= "table" or #threats == 0 then return nil end
+    local list = {}
+    for i = 1, #threats do
+        local x, y, z = xyz(threats[i])
+        if x then list[#list + 1] = vec3.new(x, y, z) end
+    end
+    if #list == 0 then return nil end
+    return escape_point("flee", vec3.new(px, py, pz), list)
+end
+
 
 return N

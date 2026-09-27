@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.58.0
+-- Version: 2.59.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -186,7 +186,26 @@ local function retreat_from(player, target)
     if need < MIN_NAV then need = MIN_NAV end
     if need > STEER_HOP * 2 then need = STEER_HOP * 2 end
 
-    local spot = G.away_from(P_TMP, here, threat, need)
+    -- A mesh-aware spot from Sentinel first (2.59.0): flee from the pack when
+    -- several are on us, kite a single target otherwise. The geometric
+    -- away-vector is the fallback while no answer is fresh.
+    local spot = nil
+    local sn_spot
+    if mc > 1 and type(mlist) == "table" then
+        local threats = {}
+        for i = 1, #mlist do
+            local ex, ey, ez = unit_xyz(mlist[i])
+            if ex then threats[#threats + 1] = { x = ex, y = ey, z = ez } end
+        end
+        sn_spot = N.flee_point(here, threats)
+    else
+        sn_spot = N.kite_point(here, { x = ux, y = uy, z = uz })
+    end
+    if sn_spot then
+        spot = pt(P_TMP, sn_spot.x, sn_spot.y, sn_spot.z)
+    else
+        spot = G.away_from(P_TMP, here, threat, need)
+    end
     if spot and S.cand_ok(here, spot, nil, false) then
         R.retreat_x, R.retreat_y, R.retreat_z = spot.x, spot.y, spot.z
         R.retreat_until = izi.now() + 2.0
@@ -494,6 +513,19 @@ function C.combat_engage(player, unit, yards)
     if not hx then hx, hy, hz = unit_xyz(player) end
     if not hx then return false end
     local here, goal = pt(P_HERE, hx, hy, hz), pt(P_DEST, ux, uy, ground_z(ux, uy, uz))
+
+    -- 4b. BLOCKED LINE: a Sentinel-planned path, walked by the local walker
+    -- (2.59.0). Sentinel's own move would be deferred while the rotation
+    -- casts; the walker is not. Steering below is the fallback while the
+    -- path is pending or there is no server.
+    if O.nav_gap_ok() and not walk_open(here, goal) then
+        local pts = N.chase_path(here, goal, R.combat_guid)
+        if pts and #pts >= 2 and W.ensure() and W.navigate_path(pts) then
+            R.chase_fail_key, R.chase_fail_t = nil, 0
+            Rg.face(unit)
+            return false
+        end
+    end
 
     -- steering only when a move could actually be issued; a failed search backs
     -- off for STEER_BACKOFF so the trace budget is not burnt every frame

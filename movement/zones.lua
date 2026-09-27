@@ -3,7 +3,7 @@
 -- movement/zones.lua - blacklist zones
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.58.0
+-- Version: 2.59.0
 -- ============================================================================
 -- Areas movement refuses to path into, pruned in place on a TTL. Nothing here
 -- issues a command, so every other module may require it freely.
@@ -26,6 +26,42 @@ local xyz, dist2, log = U.xyz, U.dist2, U.log
 
 local Z = {}
 
+-- ----------------------------------------------------------------------------
+-- SENTINEL AVOIDANCE ZONES (2.59.0)
+-- ----------------------------------------------------------------------------
+-- Every blacklisted area is mirrored into Sentinel's ObstacleService so its
+-- paths go AROUND it - our own list only refuses destinations. Read straight
+-- from the global (requiring movement/sentinel here would close a cycle).
+-- When our list shrinks, Sentinel's is cleared and re-filled from it.
+local sn_count = 0
+
+local function obstacle()
+    local S = rawget(_G, "SentinelNavClient")
+    local c = type(S) == "table" and S.client or nil
+    if type(c) ~= "table" or type(c.obstacle) ~= "table" then return nil end
+    return c.obstacle
+end
+
+local function sn_add(z)
+    local ob = obstacle()
+    if not ob or type(ob.add_zone) ~= "function" then return end
+    local ok_v, vec3 = pcall(require, "common/geometry/vector_3")
+    local pos = (ok_v and type(vec3) == "table") and vec3.new(z.x, z.y, z.z) or { x = z.x, y = z.y, z = z.z }
+    if pcall(ob.add_zone, ob, pos, z.r) then
+        sn_count = sn_count + 1
+    end
+end
+
+local function sn_resync(zones)
+    local ob = obstacle()
+    if not ob or type(ob.clear) ~= "function" then return end
+    pcall(ob.clear, ob)
+    sn_count = 0
+    for i = 1, #zones do
+        sn_add(zones[i])
+    end
+end
+
 function Z.prune(t, force)
     if not force and (t - R.zones_pruned_t) < ZONE_PRUNE_EVERY then return end
     R.zones_pruned_t = t
@@ -39,6 +75,9 @@ function Z.prune(t, force)
         end
     end
     for i = w + 1, n do zones[i] = nil end
+    if w < n and sn_count > 0 then
+        sn_resync(zones)
+    end
 end
 
 --- Is (x, y) inside any blacklist zone? Squared distances, no allocation.
@@ -69,8 +108,17 @@ function Z.blacklist_area(pos, radius, why)
             return true
         end
     end
-    if #zones >= MAX_ZONES then table.remove(zones, 1) end
+    local evicted = false
+    if #zones >= MAX_ZONES then
+        table.remove(zones, 1)
+        evicted = true
+    end
     zones[#zones + 1] = { x = x, y = y, z = z, r = radius, t = t, hits = 1, why = why }
+    if evicted then
+        sn_resync(zones)
+    else
+        sn_add(zones[#zones])
+    end
     log(string.format("Blacklist area (%.1f, %.1f, %.1f) r=%.0f%s", x, y, z, radius,
         why and (" - " .. tostring(why)) or ""))
     return true

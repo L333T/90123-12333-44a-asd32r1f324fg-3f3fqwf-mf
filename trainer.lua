@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -226,6 +226,10 @@ function trainer.tick(player)
                 tostring(name), math.floor(cost / 10000), math.floor((cost % 10000) / 100)))
             bought[name] = true
             pcall(function() core.quests.buy_trainer_service(idx) end)
+            local ok_sb, spellbook = pcall(require, "spellbook")
+            if ok_sb and spellbook and type(spellbook.request_rescan) == "function" then
+                spellbook.request_rescan()
+            end
             return true
         end
 

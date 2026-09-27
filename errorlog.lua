@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -49,6 +49,12 @@ local lines = 0
 local seen = {}               -- error key -> count
 local last_trail = {}         -- tag -> last text
 local context_fn = nil
+-- Heartbeat state (see HEARTBEAT below). Declared up here because
+-- errorlog.probe reads it and is defined first: declared below, these were
+-- globals inside probe - always nil - and no BEAT ever listed a stage.
+local beat_on = false
+local beat_tags = {}
+local beat_n = 0
 
 local function stamp()
     local ok, t = pcall(function() return core.get_local_time() end)
@@ -370,9 +376,6 @@ end
 -- (10 a second): the stages that tick ran through, and a short snapshot of
 -- what the bot was doing. The last BEAT before a crash is the last complete
 -- tick. Probe tags are only collected while a bot tick is open.
-local beat_on = false
-local beat_tags = {}
-local beat_n = 0
 local beat_count = 0
 local beat_extra = nil
 

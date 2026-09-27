@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -144,17 +144,23 @@ end
 --- fight - dead, gone, unreachable or timed out.
 local function fight_unit(player, unit, note)
     local now = izi.now()
-    -- Dead first: a corpse whose object reports invalid at the moment of death
-    -- used to fall into the "gone" branch below and was never recorded as a
-    -- kill, so "Loot My Kills Only" refused it for good.
-    if unit and (safe(function() return unit:is_dead() end) == true
-        or safe(function() return unit:is_dead_or_ghost() end) == true) then
-        state.mark_killed(state.target.guid or safe(function() return unit:get_guid() end))
-        trail("act", "killed %s", tostring(safe(function() return unit:get_name() end)))
+    -- VALID FIRST, ALWAYS (2.32.0). The unit is held across ticks; once the
+    -- game frees the object behind it, any other method is a native read of
+    -- freed memory - pcall cannot catch that, the game dies. 2.31.0 asked
+    -- is_dead before is_valid. An engaged target that has gone invalid most
+    -- likely died and was cleaned up, so it is recorded as a kill from the
+    -- saved GUID, never by touching the object.
+    if not unit or safe(function() return unit:is_valid() end) ~= true then
+        if state.target.kind == "kill" and state.target.guid then
+            state.mark_killed(state.target.guid)
+        end
         release_combat()
         return false
     end
-    if not unit or safe(function() return unit:is_valid() end) ~= true then
+    if safe(function() return unit:is_dead() end) == true
+        or safe(function() return unit:is_dead_or_ghost() end) == true then
+        state.mark_killed(state.target.guid or safe(function() return unit:get_guid() end))
+        trail("act", "killed %s", tostring(safe(function() return unit:get_name() end)))
         release_combat()
         return false
     end
@@ -174,9 +180,7 @@ local function fight_unit(player, unit, note)
         return false
     end
     probe("f:set_target")
-    pcall(function()
-        core.input.set_target(unit)
-    end)
+    targeting.ensure_target(player, unit)
     probe("f:combat_range")
     local yards = combat_yards(player)
     probe("f:start_auto_attack")
@@ -416,6 +420,9 @@ local function item_goal(player, goal, label)
     if now >= g_act_until then
         g_act_until = now + ACT_GAP
         local on = state.target.unit
+        if on and safe(function() return on:is_valid() end) ~= true then
+            on = nil
+        end
         if guide.use_bag_item(entry, on) then
             state.set_note("Quest", "Guide: use " .. label)
             return true

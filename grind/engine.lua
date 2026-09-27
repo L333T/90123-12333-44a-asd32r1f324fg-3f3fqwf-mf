@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -334,17 +334,21 @@ function grind.tick(player)
     end
 
     local unit = state.target.unit
-    if unit and (safe(function() return unit:is_dead() end) == true
-        or safe(function() return unit:is_dead_or_ghost() end) == true) then
-        -- Recorded before the validity test, as in quest/engine (2.31.0).
-        state.mark_killed(state.target.guid or safe(function() return unit:get_guid() end))
+    -- Valid first, always (2.32.0): see quest/engine fight_unit. An engaged
+    -- target gone invalid is recorded as a kill from its saved GUID.
+    if not unit or safe(function() return unit:is_valid() end) ~= true then
+        if state.target.kind == "kill" and state.target.guid then
+            state.mark_killed(state.target.guid)
+        end
         movement.nav_stop()
         movement.combat_release()
         state.reset_target()
         state.grind.step = 1
         return
     end
-    if not unit or safe(function() return unit:is_valid() end) ~= true then
+    if safe(function() return unit:is_dead() end) == true
+        or safe(function() return unit:is_dead_or_ghost() end) == true then
+        state.mark_killed(state.target.guid or safe(function() return unit:get_guid() end))
         movement.nav_stop()
         movement.combat_release()
         state.reset_target()
@@ -375,9 +379,7 @@ function grind.tick(player)
         state.grind.step = 1
         return
     end
-    pcall(function()
-        core.input.set_target(unit)
-    end)
+    targeting.ensure_target(player, unit)
     local yards = 30
     if type(rotation.combat_range) == "function" then
         yards = rotation.combat_range(player)

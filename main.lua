@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -399,9 +399,6 @@ local function path_fight(player, unit, scan_range, pack)
     end
     pause_path_for_combat()
     targeting.set_current(unit, "kill")
-    pcall(function()
-        core.input.set_target(unit)
-    end)
     targeting.start_auto_attack(player, unit)
 
     -- Combat movement owns the player from here: it faces the target, holds the
@@ -946,6 +943,9 @@ if errorlog then
         local cbt = me and safe(function() return me:is_in_combat() end)
         local tgt = "-"
         local u = state and state.target and state.target.unit
+        if u and safe(function() return u:is_valid() end) ~= true then
+            u = nil
+        end
         if u then
             local name = safe(function() return u:get_name() end)
             local d = me and safe(function() return me:distance_to(u) end)

@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- Folder: Master_Farmer_Grindbot
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan every 2 seconds. DEFS are rank-1 IDs; highest matching ID wins.
@@ -15,7 +15,14 @@ local izi = require("common/izi_sdk")
 local spellbook = {}
 
 local WAIT_SEC = 5.0
-local SCAN_GAP = 2.0
+-- A full scan is a native call per spell in the book - several hundred at
+-- level 60 - and it used to run every 2 seconds for the whole session. The
+-- book only changes at a trainer or on a level-up, so a rescan now waits for
+-- one of those (spellbook.request_rescan, or the player's level changing),
+-- with RESCAN_GAP as the safety net.
+local SCAN_GAP = 60.0
+local rescan_wanted = false
+local last_level = nil
 local started_at = izi.now()
 local last_scan = 0
 local scanned = false
@@ -459,11 +466,31 @@ function spellbook.tick()
         ))
         return true
     end
-    if (now - last_scan) < SCAN_GAP then
+    local level = nil
+    local okp, me = pcall(izi.me)
+    if okp and me then
+        local okl, l = pcall(me.get_level, me)
+        if okl and type(l) == "number" then
+            level = l
+        end
+    end
+    if level and last_level and level ~= last_level then
+        rescan_wanted = true
+    end
+    if level then
+        last_level = level
+    end
+    if not rescan_wanted and (now - last_scan) < SCAN_GAP then
         return true
     end
+    rescan_wanted = false
     run_scan()
     return true
+end
+
+--- Ask for a rescan on the next tick - after a spell was bought, say.
+function spellbook.request_rescan()
+    rescan_wanted = true
 end
 
 function spellbook.spell_known(spec)

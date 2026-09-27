@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -24,7 +24,10 @@ local state = require("state")
 
 local targeting = {}
 
-local OBJ_CACHE_GAP = 0.50
+-- One bot tick, not five (2.32.0): every finder walks this list calling
+-- methods on its handles, and a handle half a second old can belong to an
+-- object the game has since freed.
+local OBJ_CACHE_GAP = 0.10
 local obj_cache_t = -1
 local obj_cache_list = nil
 
@@ -542,6 +545,34 @@ local function start_wand_or_melee(player, unit, types)
     return start_attack_type(unit, types.MELEE)
 end
 
+--- Target `unit` unless it already is the player's target.
+---
+--- set_target was issued up to three times a bot tick on the same unit -
+--- set_current, the engine's fight_unit and start_auto_attack each asserted
+--- it - which is a stream of targeting input for a target that never changed.
+function targeting.ensure_target(player, unit)
+    if not unit then
+        return false
+    end
+    local cur = player and call(player.get_target, player)
+    if indexable(cur) then
+        local a = call(cur.get_guid, cur)
+        local b = call(unit.get_guid, unit)
+        if a ~= nil and a == b then
+            return true
+        end
+    end
+    pcall(core.input.set_target, unit)
+    return true
+end
+
+-- Auto-attack is started at most once per AUTO_GAP per target, and only
+-- within AUTO_REACH: it was re-issued every bot tick, including all the way
+-- in from 10+ yards while the character was still walking up.
+local AUTO_GAP = 1.0
+local AUTO_REACH = 6.0
+local auto_guid, auto_t = nil, -1e9
+
 function targeting.start_auto_attack(player, unit)
     if not player or not unit then
         return false
@@ -550,9 +581,17 @@ function targeting.start_auto_attack(player, unit)
     if type(types) ~= "table" or type(types.MELEE) ~= "number" then
         return false
     end
-    pcall(function()
-        core.input.set_target(unit)
-    end)
+    local d = call(player.distance_to, player, unit)
+    if type(d) == "number" and d > AUTO_REACH then
+        return false
+    end
+    local g = call(unit.get_guid, unit)
+    local now = izi.now()
+    if g ~= nil and g == auto_guid and (now - auto_t) < AUTO_GAP then
+        return true
+    end
+    auto_guid, auto_t = g, now
+    targeting.ensure_target(player, unit)
     local attacking = safe(function() return auto_attack:is_auto_attacking(player) end) == true
     local current = safe(function() return player:get_target() end)
     local same = false
@@ -581,9 +620,9 @@ function targeting.set_current(unit, kind)
         state.target.y = pos.y
         state.target.z = pos.z
     end
-    pcall(function()
-        core.input.set_target(unit)
-    end)
+    local player = nil
+    pcall(function() player = izi.me() end)
+    targeting.ensure_target(player, unit)
 end
 
 local function names_match(got, want)

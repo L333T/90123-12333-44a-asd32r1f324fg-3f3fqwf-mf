@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -325,6 +325,20 @@ function rotation.tick(player, target, ctx)
     local pack = ctx.enemies
     if type(pack) ~= "table" then
         pack = nil
+    end
+    -- A grind / quest / path engine (ctx.no_move) decides what to fight. If
+    -- the target it handed over has died, stop here: combat.acquire would
+    -- otherwise pick a new one and set_current it, and the engine and the
+    -- rotation would be choosing targets against each other.
+    if ctx.no_move and target ~= nil then
+        local ok_v, valid = pcall(target.is_valid, target)
+        if not (ok_v and valid == true) then
+            return false
+        end
+        local ok_d, dead = pcall(target.is_dead_or_ghost, target)
+        if ok_d and dead == true then
+            return false
+        end
     end
     local resolved, scanned = combat.acquire(player, rotation.combat_range(player), target, pack)
     if resolved then

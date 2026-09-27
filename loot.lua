@@ -3,7 +3,7 @@
 -- Corpse loot after a kill (IZI: enemies_if, can_be_looted, has_loot, loot_object)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -197,6 +197,13 @@ end
 
 pick_corpse_raw = function(player, mine_only)
     local current = state.target and state.target.unit or nil
+    if current then
+        -- The kill target is held across ticks: valid before anything else.
+        local ok_v, valid = pcall(current.is_valid, current)
+        if not (ok_v and valid == true) then
+            current = nil
+        end
+    end
     if current then
         local ok_dead, dead = pcall(current.is_dead, current)
         if ok_dead == true and dead == true and is_lootable(current) and not exhausted(current) then

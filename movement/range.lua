@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.31.0
+-- Version: 2.32.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach
@@ -47,6 +47,11 @@ local Rg = {}
 function Rg.face(target)
     if not unit_valid(target) then return false end
     if not O.can_act() then return false end
+    -- While the walker or Sentinel is moving the character, it steers the
+    -- facing itself (the walker runs look_at every frame). A look_at lock
+    -- from here on top of it was two controllers turning the character at
+    -- once. Facing the target resumes the moment the character stops.
+    if R.walker_moving or R.sn_active then return false end
     local t = izi.now()
     if (t - R.last_face_t) < FACE_GAP then return false end
     R.last_face_t = t

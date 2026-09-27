@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.81.0
+-- Version: 2.82.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -47,6 +47,56 @@ local F = {}
 -- ============================================================================
 -- STUCK WATCH
 -- ============================================================================
+-- ============================================================================
+-- LOOK-AHEAD AVOIDANCE (2.82.0)
+-- ============================================================================
+-- A walker move was checked once, when it was issued, and then walked blind.
+-- Every LOOK_GAP while the walker (not Sentinel) is moving and nothing has it
+-- paused, the body corridor LOOKAHEAD yards ahead toward the destination is
+-- re-checked; when it has closed, a detour hop is steered and issued at once,
+-- so the character turns before it walks into the obstacle. The caller
+-- re-issues its real destination when the detour hop is done.
+local LOOKAHEAD = K.LOOKAHEAD
+local LOOK_GAP = K.LOOK_GAP
+local look_next = 0
+local S_mod = nil
+
+local function look_ahead(t)
+    if t < look_next then return end
+    look_next = t + LOOK_GAP
+    if not R.walker_moving or R.sn_active or not R.has_dest or R.rest_lock then return end
+    local pr = R.pause_reason
+    if pr.cast or pr.restrict or pr.rest or pr.loot or pr.nav then return end
+    local x, y, z = here_xyz()
+    if not x then return end
+    local remain = dist2(x, y, R.dest_x, R.dest_y)
+    if remain <= 1.5 then return end
+    local here = pt(R.P_HERE, x, y, z)
+    -- A plain table, not a pool slot: the steering search below reuses the pool.
+    local dest = { x = R.dest_x, y = R.dest_y, z = R.dest_z }
+    local ahead = dest
+    if remain > LOOKAHEAD then
+        local s = LOOKAHEAD / remain
+        ahead = pt(R.P_MID, x + (R.dest_x - x) * s, y + (R.dest_y - y) * s, z + (R.dest_z - z) * s)
+    end
+    if U.corridor(here, ahead) ~= false then return end     -- clear, or no budget: keep going
+    if not S_mod then
+        local ok, m = pcall(require, "movement/steer")
+        S_mod = ok and m or false
+    end
+    if not S_mod then return end
+    local hop = S_mod.pick_steer(here, dest, K.STEER_HOP, false, true)
+    if hop then
+        local keep_x, keep_y, keep_z = R.dest_x, R.dest_y, R.dest_z
+        dlog("avoid", string.format("obstacle ahead - detour to (%.1f, %.1f)", hop.x, hop.y))
+        if W.move(hop, "avoid") then
+            -- keep the real destination known for the next look-ahead / stuck check
+            R.dest_x, R.dest_y, R.dest_z = keep_x, keep_y, keep_z
+            R.avoid_hops = (R.avoid_hops or 0) + 1
+        end
+    end
+end
+
 local function watch_stuck(t)
     local x, y = here_xyz()
     if not R.pending or R.rest_lock or not x then
@@ -181,6 +231,7 @@ function F.pulse()
     end
 
     watch_stuck(t)
+    look_ahead(t)
     if R.leash and not R.leash_armed and not R.rest_lock then
         local _, _, _, d = L.here_on_leash()
         if d and d <= PATH_LEASH then R.leash_armed = true end

@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.81.0
+-- Version: 2.82.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -78,7 +78,7 @@ K.STUCK_MOVE       = 1.5    -- yards of progress that resets the stuck timer
 
 -- geometry
 K.EYE_Z            = 1.6
-K.TRACE_BUDGET     = 10     -- trace lines per pulse
+K.TRACE_BUDGET     = 40     -- trace lines per pulse (2.82.0: body corridor = up to 4)
 K.SIDESTEP_YARDS   = { 4, 8 }
 K.OFFSET_DEGREES   = { 35, -35, 70, -70 }
 K.ORBIT_DEGREES    = { 45, -45, 90, -90 }
@@ -143,13 +143,27 @@ K.SN_NEED = { "move_to", "follow_path", "stop", "is_moving", "get_state", "valid
 -- ----------------------------------------------------------------------------
 -- ENGINE FLAGS
 -- ----------------------------------------------------------------------------
-K.FLAG_COLLISION, K.FLAG_LOS = nil, nil
+K.FLAG_COLLISION, K.FLAG_LOS, K.FLAG_OBSTACLE = nil, nil, nil
 do
     local cf = type(enums) == "table" and enums.collision_flags
     if type(cf) == "table" then
         if type(cf.Collision) == "number" then K.FLAG_COLLISION = cf.Collision end
         if type(cf.LineOfSight) == "number" then K.FLAG_LOS = cf.LineOfSight end
+        -- Objects only, no terrain (2.82.0): doodads (rocks, fences, crates,
+        -- trees), buildings and entities. Used for the knee-height and
+        -- shoulder rays, where terrain would read every slope as a wall.
+        local d, w, e = cf.DoodadCollision, cf.WmoCollision, cf.EntityCollision
+        if type(d) == "number" and type(w) == "number" and type(e) == "number" then
+            K.FLAG_OBSTACLE = d + w + e
+        end
     end
 end
+
+-- Avoidance corridor geometry (2.82.0), yards.
+K.BODY_HALF   = 0.5    -- half the body width: the shoulder rays' offset
+K.KNEE_Z      = 0.5    -- low obstacles: rocks, fences, crates, stumps
+K.CHEST_Z     = 1.3    -- walls, trees, cliffs (with terrain)
+K.LOOKAHEAD   = 4.0    -- how far ahead a walking move is re-checked
+K.LOOK_GAP    = 0.25   -- seconds between look-ahead checks
 
 return K

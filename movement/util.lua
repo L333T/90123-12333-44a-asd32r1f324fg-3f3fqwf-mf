@@ -3,7 +3,7 @@
 -- movement/util.lua - logging, position input, distance, ground and traces
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.81.0
+-- Version: 2.82.0
 -- ============================================================================
 -- The bottom layer. Depends only on const + rt, so every other movement module
 -- may require it without creating a cycle.
@@ -25,6 +25,10 @@ local EYE_Z          = K.EYE_Z
 local TRACE_BUDGET   = K.TRACE_BUDGET
 local FLAG_COLLISION = K.FLAG_COLLISION
 local FLAG_LOS       = K.FLAG_LOS
+local FLAG_OBSTACLE  = K.FLAG_OBSTACLE
+local BODY_HALF      = K.BODY_HALF
+local KNEE_Z         = K.KNEE_Z
+local CHEST_Z        = K.CHEST_Z
 
 local sqrt, abs = math.sqrt, math.abs
 
@@ -156,9 +160,75 @@ function U.trace(a, b, flags)
     return ok and clear == true
 end
 
-function U.walk_open(a, b)
+-- ============================================================================
+-- AVOIDANCE CORRIDOR (2.82.0)
+-- ============================================================================
+-- "Can the BODY walk from a to b", not "can an eye see from a to b". The old
+-- test was one ray at eye height (EYE_Z) with the Collision flags, so a
+-- knee-high rock, a fence or a crate was invisible to it, and a gap narrower
+-- than the character read as open. The corridor is up to four
+-- core.graphics.trace_line rays, cheapest-to-fail first, stopping at the
+-- first hit:
+--   1. chest height, centre, Collision flags (walls, trees, cliffs, terrain)
+--   2. knee height, centre, objects only (rocks, fences, crates, stumps)
+--   3. knee height, left shoulder, objects only
+--   4. knee height, right shoulder, objects only
+-- trace_line returns TRUE for a clear line (see movement/probe.lua).
+-- Answers are cached for CORRIDOR_TTL on a half-yard grid, because the
+-- steering search asks about the same segments many times in one tick.
+local CORRIDOR_TTL = 0.3
+local corridor_cache, corridor_n = {}, 0
+
+local function ray(ax, ay, az, bx, by, bz, flags)
+    if R.traces_used >= TRACE_BUDGET then return nil end
+    R.traces_used = R.traces_used + 1
+    local A, B = R.TRACE_A, R.TRACE_B
+    A.x, A.y, A.z = ax, ay, az
+    B.x, B.y, B.z = bx, by, bz
+    local ok, clear = pcall(core.graphics.trace_line, A, B, flags)
+    return ok and clear == true
+end
+
+local function corridor_key(a, b)
+    return string.format("%d|%d|%d|%d|%d|%d",
+        math.floor(a.x * 2), math.floor(a.y * 2), math.floor(a.z),
+        math.floor(b.x * 2), math.floor(b.y * 2), math.floor(b.z))
+end
+
+--- true = the body fits from a to b; false = blocked; nil = out of budget.
+function U.corridor(a, b)
     if FLAG_COLLISION == nil then return true end
-    return U.trace(a, b, FLAG_COLLISION) == true
+    local key = corridor_key(a, b)
+    local t = izi.now()
+    local e = corridor_cache[key]
+    if e and (t - e.t) < CORRIDOR_TTL then return e.v end
+
+    local v = ray(a.x, a.y, a.z + CHEST_Z, b.x, b.y, b.z + CHEST_Z, FLAG_COLLISION)
+    if v == true and FLAG_OBSTACLE then
+        v = ray(a.x, a.y, a.z + KNEE_Z, b.x, b.y, b.z + KNEE_Z, FLAG_OBSTACLE)
+        if v == true then
+            local dx, dy = b.x - a.x, b.y - a.y
+            local len = sqrt(dx * dx + dy * dy)
+            if len > 0.5 then
+                -- left normal of the direction, scaled to half the body width
+                local nx, ny = -dy / len * BODY_HALF, dx / len * BODY_HALF
+                v = ray(a.x + nx, a.y + ny, a.z + KNEE_Z, b.x + nx, b.y + ny, b.z + KNEE_Z, FLAG_OBSTACLE)
+                if v == true then
+                    v = ray(a.x - nx, a.y - ny, a.z + KNEE_Z, b.x - nx, b.y - ny, b.z + KNEE_Z, FLAG_OBSTACLE)
+                end
+            end
+        end
+    end
+    if v ~= nil then
+        if corridor_n > 400 then corridor_cache, corridor_n = {}, 0 end
+        if not corridor_cache[key] then corridor_n = corridor_n + 1 end
+        corridor_cache[key] = { t = t, v = v }
+    end
+    return v
+end
+
+function U.walk_open(a, b)
+    return U.corridor(a, b) == true
 end
 
 function U.los_open(a, b)

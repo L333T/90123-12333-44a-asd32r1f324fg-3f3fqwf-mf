@@ -3,7 +3,7 @@
 -- Superseded route index
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.46.0
+-- Version: 2.47.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Deliberately empty.

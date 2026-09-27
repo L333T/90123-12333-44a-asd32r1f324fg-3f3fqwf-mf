@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.46.0
+-- Version: 2.47.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -196,7 +196,11 @@ do
         local unit = ev.unit
         if unit == nil then return true end        -- no unit field: player event
         local ok, me = pcall(izi.me)
-        return ok and me ~= nil and unit == me
+        if not ok or me == nil then return false end
+        -- GUIDs, not `unit == me`: object __eq throws on a freed object.
+        local ok1, g1 = pcall(unit.get_guid, unit)
+        local ok2, g2 = pcall(me.get_guid, me)
+        return ok1 and ok2 and g1 ~= nil and g1 == g2
     end
 
     if type(izi.on_combat_start) == "function" then
@@ -215,7 +219,10 @@ do
             if type(ev) ~= "table" then return end
             local caster = ev.caster
             local okp, me = pcall(izi.me)
-            if not okp or not me or caster ~= me then return end
+            if not okp or not me or not caster then return end
+            local ok1, g1 = pcall(caster.get_guid, caster)
+            local ok2, g2 = pcall(me.get_guid, me)
+            if not (ok1 and ok2) or g1 == nil or g1 ~= g2 then return end
             R.last_spell_id = ev.spell_id
             R.last_spell_target = ev.target
             R.last_spell_t = izi.now()

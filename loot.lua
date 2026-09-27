@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.46.0
+-- Version: 2.47.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -85,6 +85,16 @@ local function ltrail(fmt, ...)
     if ok and type(elog) == "table" and type(elog.trail) == "function" then
         elog.trail("loot", fmt, ...)
     end
+end
+
+--- A vendor trip under way - including a Hearthstone trip, whose cast a
+--- walk to a corpse would cancel.
+local function vendor_busy()
+    local v = package.loaded["vendor"]
+    if type(v) == "table" and type(v.is_busy) == "function" then
+        return v.is_busy() == true
+    end
+    return state.vendor and state.vendor.active == true
 end
 
 local function enabled()
@@ -221,7 +231,9 @@ function loot.has_work(player)
         return false
     end
     -- No resting gate (2.46.0): loot comes BEFORE eating, not after.
-    if bags_too_full() or (state.vendor and state.vendor.active) then
+    -- No full-bags gate (2.47.0): stackables, quest items and gold still
+    -- loot into full bags, and full bags switched looting off altogether.
+    if vendor_busy() then
         return false
     end
     local now = izi.now()
@@ -288,7 +300,7 @@ function loot.tick(player)
         end
     end
 
-    if bags_too_full() or (state.vendor and state.vendor.active) then
+    if vendor_busy() then
         return false
     end
     if safe(function() return player:is_dead() end) == true then

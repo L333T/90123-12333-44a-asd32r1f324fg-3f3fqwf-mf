@@ -3,7 +3,7 @@
 -- movement/rt.lua - shared mutable runtime state
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.46.0
+-- Version: 2.47.0
 -- ============================================================================
 -- Upvalues cannot cross a chunk boundary, so every piece of state that more
 -- than one movement module touches lives here as a field of R. Values that only
@@ -65,6 +65,7 @@ R.lock_gen       = 0
 R.combat_req     = false    -- a caller asked for combat movement this tick
 R.combat_req_t   = 0
 R.combat_target  = nil
+R.combat_guid    = nil      -- the combat target's GUID: compare this, never the object
 R.combat_yards   = 20
 R.combat_ok_since = 0       -- when every combat-end condition started holding
 R.combat_stopped = false    -- we are in position and have halted

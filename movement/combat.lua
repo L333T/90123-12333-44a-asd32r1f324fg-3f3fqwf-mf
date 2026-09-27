@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.46.0
+-- Version: 2.47.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -271,7 +271,13 @@ function C.combat_engage(player, unit, yards)
     local melee = yards <= MELEE_YARDS
 
     R.combat_req, R.combat_req_t = true, izi.now()
-    if R.combat_target ~= unit then
+    -- By GUID, never `R.combat_target ~= unit` (2.47.0): comparing two game
+    -- objects runs the native __eq, which THROWS "Invalid game object!" once
+    -- the stored one has been freed - it aborted combat movement every tick
+    -- (150+ times in the 22:54 log) until the target changed.
+    local ok_g, guid = pcall(unit.get_guid, unit)
+    if not ok_g then guid = nil end
+    if guid == nil or R.combat_guid ~= guid then
         -- new target: the hysteresis latch and the retreat latch describe the
         -- old one, so carrying them over would mis-band the first approach.
         R.combat_stopped = false
@@ -279,7 +285,7 @@ function C.combat_engage(player, unit, yards)
         R.chase_fail_key, R.chase_fail_t = nil, 0
         R.combat_ok_since = 0
     end
-    R.combat_target, R.combat_yards = unit, yards
+    R.combat_target, R.combat_yards, R.combat_guid = unit, yards, guid
     if R.cur_state == STATE.RESTRICTED then
         -- rooted: we cannot reposition, but we can still turn and cast
         if R.restrict_why ~= RESTRICT.ROOT then return false end
@@ -579,6 +585,7 @@ end
 function C.combat_release()
     R.combat_req = false
     R.combat_target = nil
+    R.combat_guid = nil
     R.combat_stopped = false
     R.retreat_until = 0
     R.combat_ok_since = 0

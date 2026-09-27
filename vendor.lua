@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.46.0
+-- Version: 2.47.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -49,6 +49,19 @@ local SELL_GAP = 0.40
 local INTERACT_GAP = 1.20
 local DONE_COOLDOWN = 90.0
 local HERE_COOLDOWN = 60.0    -- a merchant window already worked is left alone this long
+
+-- FULL BAGS, NO KNOWN MERCHANT -> HEARTHSTONE (2.47.0). Zones without merchant
+-- data ("No merchant for this zone") left full bags full for good. Hearth to
+-- the inn - an innkeeper is a merchant - then find one by talking to the
+-- nearest friendly NPCs until a merchant window opens; the merchant-window
+-- trip (2.42.0) sells, restocks and repairs from there.
+local HEARTH_ID = 6948
+local HEARTH_CAST = 12.0      -- seconds held still for the 10 s cast
+local FIND_RADIUS = 30
+local FIND_MAX = 8            -- NPCs tried before giving up
+local FIND_TIMEOUT = 90.0
+local TALK_WAIT = 1.5         -- seconds after an interact before judging it
+local ht = nil                -- hearth trip: { stage, t, tried = {}, cur, tries, started }
 local ARRIVE = 5.0
 local FIND_RANGE = 12.0
 
@@ -380,7 +393,7 @@ end
 --- Is a vendor trip under way? The quest engine waits on it before it counts
 --- a ".vendor" step as done.
 function vendor.is_busy()
-    return state.vendor.active == true
+    return state.vendor.active == true or ht ~= nil
 end
 
 --- Is a merchant window open right now?
@@ -389,6 +402,7 @@ function vendor.merchant_open()
 end
 
 function vendor.reset()
+    ht = nil
     state.vendor.active = false
     state.vendor.repaired = false
     state.vendor.sold = 0
@@ -470,9 +484,115 @@ function vendor.needs_trip(player)
     return false
 end
 
+--- Friendly NPCs near the player, nearest first, not yet tried.
+local function friendly_npcs(player, tried)
+    local list = targeting.visible_objects and targeting.visible_objects() or nil
+    local out = {}
+    if type(list) ~= "table" then
+        return out
+    end
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_unit() end) == true
+            and safe(function() return u:is_player() end) ~= true
+            and safe(function() return u:is_dead_or_ghost() end) ~= true
+            and safe(function() return player:can_attack(u) end) == false then
+            local g = safe(function() return u:get_guid() end)
+            local d = safe(function() return player:distance_to(u) end)
+            if g and not tried[g] and type(d) == "number" and d <= FIND_RADIUS then
+                out[#out + 1] = { unit = u, guid = g, d = d }
+            end
+        end
+    end
+    table.sort(out, function(a, b) return a.d < b.d end)
+    return out
+end
+
+local function hearth_tick(player)
+    local now = izi.now()
+    if ht.stage == "cast" then
+        local item = safe(function() return izi.item(HEARTH_ID) end)
+        local ready = item and safe(function() return item:in_inventory() end) == true
+            and safe(function() return item:cooldown_up() end) ~= false
+        if not ready then
+            core.log_warning("[Master Farmer - Grindbot] Bags full, no merchant known here, and the Hearthstone is not ready - carrying on.")
+            ht = nil
+            state.vendor.done_until = now + 60
+            return false
+        end
+        movement.nav_stop()
+        local ok = safe(function() return item:use_self("Hearthstone - bags full") end) == true
+        core.log("[Master Farmer - Grindbot] Bags full and no merchant known here - Hearthstone to the inn.")
+        ht.stage, ht.t = "casting", now
+        state.set_note("Vendor", ok and "Hearthstone - bags full" or "Hearthstone refused")
+        return true
+    end
+    if ht.stage == "casting" then
+        movement.nav_stop()
+        if (now - ht.t) < HEARTH_CAST then
+            state.set_note("Vendor", "Hearthstone - bags full")
+            return true
+        end
+        ht.stage, ht.started = "find", now
+        return true
+    end
+    -- find: talk to the nearest friendly NPCs until a merchant window opens.
+    if merchant_open() then
+        ht = nil               -- the merchant-window trip takes over below
+        return false
+    end
+    if (now - (ht.started or now)) > FIND_TIMEOUT or (ht.tries or 0) >= FIND_MAX then
+        core.log_warning("[Master Farmer - Grindbot] Hearthed with full bags but found no merchant nearby.")
+        ht = nil
+        state.vendor.done_until = now + DONE_COOLDOWN
+        return false
+    end
+    if ht.cur and (now - ht.t) < TALK_WAIT then
+        if gossip_open() then
+            if not select_vendor_gossip() then
+                close_vendor()
+                ht.cur = nil
+            end
+        end
+        state.set_note("Vendor", "Looking for a merchant")
+        return true
+    end
+    if ht.cur then
+        ht.tried[ht.cur] = true    -- talked to, no merchant window
+        ht.cur = nil
+        close_vendor()
+    end
+    local npcs = friendly_npcs(player, ht.tried)
+    local n = npcs[1]
+    if not n then
+        ht.tries = FIND_MAX
+        return true
+    end
+    if n.d > 4 then
+        local p = safe(function() return n.unit:get_position() end)
+        if p and not movement.is_moving() then
+            movement.nav_to(p, true)
+        end
+        state.set_note("Vendor", "Looking for a merchant")
+        return true
+    end
+    movement.nav_stop()
+    ht.cur, ht.t, ht.tries = n.guid, now, (ht.tries or 0) + 1
+    pcall(function() core.input.interact_with_object(n.unit) end)
+    state.set_note("Vendor", "Looking for a merchant")
+    return true
+end
+
 function vendor.tick(player)
     if not player then
         return false
+    end
+    if ht then
+        local in_combat_h = safe(function() return player:is_in_combat() end) == true
+        if not in_combat_h and hearth_tick(player) then
+            return true
+        end
     end
     if not gui.is_on("sell") and not gui.is_on("repair") then
         if state.vendor.active then
@@ -505,6 +625,12 @@ function vendor.tick(player)
         end
         local info = current_merchant(player)
         if not info or not merchant_pos(info) then
+            -- No merchant data here. Full bags cannot wait for one: hearth to
+            -- the inn and find a merchant there (2.47.0).
+            if gui.is_on("sell") and bag_free() <= gui.slider("bag_free", 1) then
+                ht = { stage = "cast", t = izi.now(), tried = {}, tries = 0 }
+                return hearth_tick(player)
+            end
             state.set_note("Vendor", "No merchant for this zone")
             state.vendor.done_until = izi.now() + 30
             return false

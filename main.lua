@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.45.0
+-- Version: 2.46.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -783,16 +783,20 @@ local function on_update()
     -- reports empty bags, and the bot stands at low mana next to a spell that
     -- would have fixed it. conjure.tick refuses to fire mid-meal, so it cannot
     -- interrupt a rest that is already under way.
+    -- LOOT FIRST (2.46.0): once a mob is dead its corpse is looted before
+    -- any other action - conjuring, eating and drinking, buffs, trainer,
+    -- vendor, equip, the next pull. loot.tick still steps aside for anything
+    -- attacking the player.
+    probe("u:loot")
+    if loot and loot.tick(player) then
+        return
+    end
     probe("u:conjure")
     if conjure and type(conjure.tick) == "function" and conjure.tick(player) then
         return
     end
     probe("u:healing")
     if healing.tick(player) then
-        return
-    end
-    probe("u:loot")
-    if loot and loot.tick(player) then
         return
     end
     -- Self-buff upkeep. Sits with the class buffs because it answers the

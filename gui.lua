@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.86.0
+-- Version: 2.87.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -283,6 +283,12 @@ menu:checkbox("mfg_quest_path_pull", true, {
     tab = "questing",
     tooltip = "While walking to a quest waypoint or NPC, fight hostile mobs within 20 yards ahead on the way (4 levels below to 3 above you, no critters, nothing tagged by another player), loot them, then carry on.",
 })
+-- Light, automatic crash capture (2.87.0) - see errorlog.arm_light.
+menu:checkbox("mfg_crash_capture", true, {
+    label = "Auto crash capture",
+    tab = "general",
+    tooltip = "Records every step for 1.5 s whenever the bot starts closing on a new target or finishes a rest - the moments every recent game shutdown happened in - so the log names the call. Costs a brief hitch at those moments. Leave on until the shutdowns are fixed.",
+})
 -- On the General tab (2.69.0): it covers grinding as well as questing, and
 -- on the Questing tab it could not be found when a grinding crash needed it.
 menu:checkbox("mfg_crash_recorder", false, {
@@ -472,6 +478,7 @@ local aliases = {
     rest_debug = "mfg_rest_debug",
     quest_debug = "mfg_quest_debug",
     crash_recorder = "mfg_crash_recorder",
+    crash_capture = "mfg_crash_capture",
     quest_path_pull = "mfg_quest_path_pull",
     skip_trivial = "mfg_skip_trivial",
     train = "mfg_train",

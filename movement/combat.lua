@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.44.0
+-- Version: 2.45.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -44,6 +44,7 @@ local DEFAULT_MELEE_DANGER = K.DEFAULT_MELEE_DANGER
 local PULL_RETRY           = K.PULL_RETRY
 local MELEE_YARDS          = K.MELEE_YARDS
 local MELEE_REACH          = K.MELEE_REACH
+local MELEE_HOLD           = K.MELEE_HOLD
 local MELEE_STANDOFF       = K.MELEE_STANDOFF
 local MELEE_MIN_HOP        = K.MELEE_MIN_HOP
 local CHASE_REISSUE        = K.CHASE_REISSUE
@@ -298,8 +299,8 @@ function C.combat_engage(player, unit, yards)
 
     local ready, range, has_los = Rg.in_fight_range(player, unit, yards)
     if melee then
-        -- In swing range means within MELEE_REACH, not merely "in range".
-        ready = has_los and type(range) == "number" and range <= MELEE_REACH
+        -- Swinging range: MELEE_HOLD (5 yd) once in position.
+        ready = has_los and type(range) == "number" and range <= MELEE_HOLD
     end
     local t = izi.now()
 
@@ -329,9 +330,13 @@ function C.combat_engage(player, unit, yards)
     if hold_in < 5 then hold_in = yards end
     local in_band
     if melee then
-        -- No hysteresis past MELEE_REACH: a melee fighter outside it cannot
-        -- swing, so it chases again the moment the target steps away.
-        in_band = range <= MELEE_REACH
+        -- Arrive inside MELEE_REACH (4 yd); once there, hold until the target
+        -- is past MELEE_HOLD (5 yd). The gap is what stops the circling.
+        if R.combat_stopped then
+            in_band = range <= MELEE_HOLD
+        else
+            in_band = range <= MELEE_REACH
+        end
     elseif R.combat_stopped then
         in_band = range <= yards            -- holding: leave only past max range
     else

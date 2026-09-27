@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.44.0
+-- Version: 2.45.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -109,9 +109,16 @@ K.MAX_LEG          = 300    -- yards: no navigation leg or path request is longe
 -- re-issued the same hop every half second for the whole fight. Aiming at the
 -- target makes every hop at least MELEE_REACH long, and the walker stops
 -- within 1 yard of it - inside MELEE_REACH.
+--
+-- 2.45.0: aiming AT the target ran the character into and through it; it
+-- overshot, turned back and circled, re-chasing each time the gap opened past
+-- 2 yards. Melee now aims MELEE_STANDOFF (3 yd) short, is in position within
+-- MELEE_REACH (4 yd), and only chases again past MELEE_HOLD (5 yd) - still
+-- inside swing range - so small shuffles of the target do not restart it.
 K.MELEE_YARDS      = 5.0
-K.MELEE_REACH      = 2.0
-K.MELEE_STANDOFF   = 0.0    -- aim AT the target: see combat.lua (2.27.0)
+K.MELEE_REACH      = 4.0
+K.MELEE_HOLD       = 5.0
+K.MELEE_STANDOFF   = 3.0
 K.MELEE_MIN_HOP    = 1.0    -- the walker's final threshold: shorter hops are not issued
 K.CHASE_REISSUE    = 2.0    -- yards the target must shift before a direct chase is re-aimed
 K.PULL_RETRY       = 3.0    -- seconds before re-trying a combat pull-in leg

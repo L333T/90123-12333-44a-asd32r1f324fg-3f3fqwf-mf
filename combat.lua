@@ -3,7 +3,7 @@
 -- Combat engine - pack scan, target latch, kill-first priority, class hooks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.80.0
+-- Version: 2.81.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared by every class rotation. Class modules opt in by exposing interrupt,
@@ -279,6 +279,16 @@ function combat.pick(player, pack)
         end
     end
 
+    -- A mob the player can see first (2.81.0); the nearest otherwise, since a
+    -- pack member out of sight may still be the one hitting us.
+    local targeting = targeting_ref()
+    if targeting and type(targeting.can_see) == "function" then
+        for i = 1, #pack do
+            if targeting.can_see(player, pack[i]) then
+                return pack[i]
+            end
+        end
+    end
     return pack[1]
 end
 

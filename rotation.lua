@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.89.0
+-- Version: 2.90.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -253,35 +253,10 @@ function rotation.buffs_ooc(player)
     return smart.upkeep(player) == true
 end
 
-function rotation.combat_range(player)
-    local mod = rotation.active(player)
-    -- The ticked spells can make a hybrid melee (a druid's Cat / Bear form,
-    -- a shaman's Stormstrike) or keep it a caster (2.64.0).
-    local sm = smart.is_melee(player)
-    if sm == true then
-        return 5
-    end
-    if sm == nil and mod and type(mod.is_melee) == "function" then
-        local ok, v = pcall(mod.is_melee, player)
-        if ok and v == true then
-            return 5
-        end
-    end
-    if mod and type(mod.combat_range) == "function" then
-        local yards = mod.combat_range(player)
-        if type(yards) == "number" and yards > 0 then
-            return yards
-        end
-    end
-    return 30
-end
-
---- Does the active rotation fight in melee?
----
---- A rotation may say so itself (is_melee); otherwise a combat range of 5
---- yards or less means melee - every melee rotation reports exactly 5.
---- Combat movement closes melee to 2 yards of the target (2.26.0).
-function rotation.is_melee(player)
+--- Melee or not: the ticked spells first (a druid's Cat / Bear form, a
+--- shaman's Stormstrike), then the class module, then the class module's own
+--- range (5 or less = melee).
+local function fights_in_melee(player)
     local sm = smart.is_melee(player)
     if type(sm) == "boolean" then
         return sm
@@ -293,7 +268,52 @@ function rotation.is_melee(player)
             return v
         end
     end
-    return rotation.combat_range(player) <= 5
+    if mod and type(mod.combat_range) == "function" then
+        local ok, yards = pcall(mod.combat_range, player)
+        if ok and type(yards) == "number" then
+            return yards <= 5
+        end
+    end
+    return false
+end
+
+local function slider(key, fallback)
+    local gui = get_gui()
+    if gui and type(gui.slider) == "function" then
+        local v = gui.slider(key, fallback)
+        if type(v) == "number" then return v end
+    end
+    return fallback
+end
+
+--- ENGAGE DISTANCE (2.90.0): how close the bot closes before the rotation
+--- starts. Melee: the "Melee attack distance" slider (1-5 yd). Ranged: the
+--- "Ranged attack distance" slider, never farther than the longest ticked
+--- damage spell reaches (1 yd inside it). Combat movement closes to this, and
+--- smart.combat holds offensive spells beyond it until the fight has begun.
+function rotation.combat_range(player)
+    rotation.active(player)
+    if fights_in_melee(player) then
+        local m = slider("melee_yards", 3)
+        if m < 1 then m = 1 elseif m > 5 then m = 5 end
+        return m
+    end
+    local want = slider("ranged_yards", 25)
+    local reach = smart.max_range(player)
+    if type(reach) == "number" and reach > 6 and want > reach - 1 then
+        want = reach - 1
+    end
+    if want < 6 then want = 6 end
+    return want
+end
+
+--- Does the active rotation fight in melee?
+---
+--- A rotation may say so itself (is_melee); otherwise a combat range of 5
+--- yards or less means melee - every melee rotation reports exactly 5.
+--- Combat movement closes melee to 2 yards of the target (2.26.0).
+function rotation.is_melee(player)
+    return fights_in_melee(player)
 end
 
 function rotation.tick(player, target, ctx)
@@ -380,6 +400,11 @@ function rotation.tick(player, target, ctx)
             xprobe("r:face")
             movement.face(target)
         end
+    end
+    -- The engage distance, for smart.combat's "not before" gate - not in
+    -- Rotation Only, where the player decides when the fight starts.
+    if not rotation_only then
+        ctx.engage = rotation.combat_range(player)
     end
     xprobe("r:smart")
     local acted = smart.combat(player, target, ctx) == true

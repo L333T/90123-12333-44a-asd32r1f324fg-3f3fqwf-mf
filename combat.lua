@@ -3,7 +3,7 @@
 -- Combat engine - pack scan, target latch, kill-first priority, class hooks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.89.0
+-- Version: 2.90.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared by every class rotation. Class modules opt in by exposing interrupt,
@@ -194,6 +194,7 @@ function combat.scan(player, range)
     end
 
     local yards = tonumber(range) or DEFAULT_RANGE
+    if yards < 10 then yards = 10 end        -- 2.90.0: melee engage distance is 1-5 yd
     local list = nil
     local targeting = targeting_ref()
     if targeting and type(targeting.enemy_list) == "function" then

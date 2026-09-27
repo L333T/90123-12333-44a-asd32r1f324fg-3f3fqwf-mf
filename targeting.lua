@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.89.0
+-- Version: 2.90.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -442,7 +442,9 @@ function targeting.attacker_to_switch(player, current_guid, range)
 end
 
 function targeting.combat_scan(player, range)
-    range = cap(range)
+    -- At least 10 yd (2.90.0): callers pass the engage distance, which for
+    -- melee is now 1-5 yd - too tight to see what is hitting us.
+    range = cap(math.max(tonumber(range) or 40, 10))
     local found = {}
     if not player then
         return found

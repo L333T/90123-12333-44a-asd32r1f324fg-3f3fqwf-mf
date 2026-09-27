@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.89.0
+-- Version: 2.90.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -427,6 +427,20 @@ end
 
 -- SPELLS TAB SETTINGS (2.64.0). The tab lists the known class spells and
 -- racials; these four tune how smart.lua uses them.
+-- ENGAGE DISTANCE (2.90.0): how close the bot gets before the rotation starts
+-- on a target. Melee classes (and a Cat / Bear druid, a Stormstrike shaman)
+-- use the melee distance; casters and hunters the ranged one, capped just
+-- inside the longest ticked damage spell's own range.
+menu:slider_int("mfg_melee_yards", 1, 5, 3, {
+    label = "Melee attack distance (yd)",
+    tab = "class",
+    tooltip = "Melee classes walk this close to the target before attacking.",
+})
+menu:slider_int("mfg_ranged_yards", 10, 40, 25, {
+    label = "Ranged attack distance (yd)",
+    tab = "class",
+    tooltip = "Casters and hunters get this close before opening. Never farther than the longest ticked damage spell reaches.",
+})
 menu:slider_int("mfg_sp_heal", 20, 90, 50, {
     label = "Self-heal below %",
     tab = "class",
@@ -638,6 +652,8 @@ local aliases = {
 
 local slider_aliases = {
     sp_heal = "mfg_sp_heal",
+    melee_yards = "mfg_melee_yards",
+    ranged_yards = "mfg_ranged_yards",
     sp_def = "mfg_sp_def",
     sp_aoe = "mfg_sp_aoe",
     sp_wand = "mfg_sp_wand",

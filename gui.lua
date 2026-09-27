@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.63.0
+-- Version: 2.64.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -419,28 +419,27 @@ local function profile_popup_height()
     return h
 end
 
--- Height from the spellbook, the same way the profile picker sizes from the
--- catalog. A caster at 60 knows well over a hundred spells, so this one is
--- capped and scrolls; the count in the footer says how much is below the fold.
-local SPELL_ROW = 22
-
--- Mage buff upkeep. skip_draw because the Spells tab draws its own row for
--- this: registering it here is what gives it a persisted element to live in,
--- since a plain Lua table would not survive a reload.
-menu:checkbox("mfg_mage_buffs", true, {
-    label = "Mage buffs (Arcane Intellect, armour, Mana Shield)",
-    tab = "spells",
-    skip_draw = true,
+-- SPELLS TAB SETTINGS (2.64.0). The tab lists the known class spells and
+-- racials; these four tune how smart.lua uses them.
+menu:slider_int("mfg_sp_heal", 20, 90, 50, {
+    label = "Self-heal below %",
+    tab = "class",
+    tooltip = "Ticked healing spells are cast on yourself below this health.",
 })
-
-menu:add_popup({
-    id = "spells",
-    title = "All Known Spells",
-    tab = "spells",
-    w = 460,
-    h = 700,
-    x = 700,
-    y = 60,
+menu:slider_int("mfg_sp_def", 10, 70, 35, {
+    label = "Defensives below %",
+    tab = "class",
+    tooltip = "Ticked defensive spells (Evasion, Shield Wall, Barkskin...) are used below this health.",
+})
+menu:slider_int("mfg_sp_aoe", 2, 6, 3, {
+    label = "Area of effect at enemies",
+    tab = "class",
+    tooltip = "Ticked AoE spells are used when at least this many enemies are in reach.",
+})
+menu:slider_int("mfg_sp_wand", 0, 60, 20, {
+    label = "Wand below mana %",
+    tab = "class",
+    tooltip = "Casters shoot their wand (Shoot) once mana drops below this.",
 })
 
 menu:add_popup({
@@ -474,7 +473,6 @@ local keybinds = {
 
 local aliases = {
     enable = "mfg_enable",
-    mage_buffs = "mfg_mage_buffs",
     player_detect = "mfg_player_detect",
     eat_drink = "mfg_eat_drink",
     potions = "mfg_potions",
@@ -633,6 +631,10 @@ local aliases = {
 
 local slider_aliases = {
     player_yards = "mfg_player_yards",
+    sp_heal = "mfg_sp_heal",
+    sp_def = "mfg_sp_def",
+    sp_aoe = "mfg_sp_aoe",
+    sp_wand = "mfg_sp_wand",
     eat_hp = "mfg_eat_hp",
     drink_mana = "mfg_drink_mana",
     hp_pot = "mfg_hp_pot",
@@ -760,40 +762,6 @@ local function pick_name_for(id)
     end
     pick_name_cache[id] = name
     return name
-end
-
---- Is this character a mage that actually knows the buffs the toggle governs?
----
---- Both halves matter. A non-mage should never see the row, and a mage at
---- level 1 knows none of these yet, so showing it then would be a control
---- that does nothing.
-local MAGE_BUFF_NAMES = {
-    "Arcane Intellect", "Frost Armor", "Ice Armor", "Mage Armor",
-    "Molten Armor", "Mana Shield", "Ice Barrier",
-}
-
-function gui.mage_buffs_available()
-    -- The class the menu is already tracking, set by gui.sync_player. Reading
-    -- it here rather than calling the player object keeps this cheap enough
-    -- to run every frame from the tab.
-    local class_id = nil
-    pcall(function() class_id = menu:player_class() end)
-    local want = 8
-    pcall(function() want = require("common/enums").class_id.MAGE end)
-    if class_id ~= want then
-        return false
-    end
-    if type(spellbook.family) ~= "function" then
-        return false
-    end
-    for i = 1, #MAGE_BUFF_NAMES do
-        local fam = nil
-        pcall(function() fam = spellbook.family(MAGE_BUFF_NAMES[i]) end)
-        if fam then
-            return true
-        end
-    end
-    return false
 end
 
 --- Forget the resolved names. The scan replaces the book, so a name that did
@@ -1937,184 +1905,6 @@ menu:on_tab("profiles", function(win, x, y, w, h)
         string.format("%d routes - click one to load it.", #entries))
 end)
 
--- ============================================================================
--- ALL KNOWN SPELLS
--- ============================================================================
--- Everything the scanner found, one row per rank family rather than one per
--- rank - eleven Frostbolts is not a list, it is a wall. The rank count is
--- shown instead, and the id is the best rank.
-menu:on_tab("spells", function(win, x, y, w, h)
-    local gold = C(232, 222, 196, 255)
-    local mute = C(180, 170, 150, 255)
-    local ok_col = C(90, 210, 110, 255)
-    local warn = C(220, 176, 56, 255)
-    local head = C(96, 150, 235, 255)
-
-    if not spellbook.ready() then
-        win:render_text(FONT_SMALL, vec2.new(x + 12, y + 8), warn,
-            string.format("Scanning the spellbook... %.1fs", spellbook.wait_left()))
-        return
-    end
-
-    -- ------------------------------------------------------------------
-    -- MAGE BUFF UPKEEP
-    -- ------------------------------------------------------------------
-    -- Drawn only when the character IS a mage and the spellbook actually
-    -- holds the buffs it governs. A toggle for something the character
-    -- cannot cast is worse than no toggle: it reads as a setting that does
-    -- nothing, which is indistinguishable from a bug.
-    local mage_row = nil
-    if type(gui.mage_buffs_available) == "function" and gui.mage_buffs_available() then
-        local on = is_on("mage_buffs")
-        local bmin = vec2.new(x + 12, y + 4)
-        local bmax = vec2.new(x + 24, y + 16)
-        pcall(function()
-            win:render_rect_filled(bmin, bmax,
-                on and C(90, 210, 110, 220) or C(38, 40, 48, 220), 2.0)
-        end)
-        pcall(function()
-            win:render_rect(bmin, bmax, C(120, 130, 150, 220), 2.0, 1.0)
-        end)
-        local hit = false
-        pcall(function()
-            hit = win:is_rect_clicked(vec2.new(x + 8, y + 2), vec2.new(x + w - 10, y + 20)) == true
-        end)
-        if hit then
-            set_on("mage_buffs", not on)
-            mark_settings_dirty()
-        end
-        win:render_text(FONT_SMALL, vec2.new(x + 32, y + 3), on and ok_col or gold,
-            "When class is a mage and spells are known")
-        win:render_text(FONT_SMALL, vec2.new(x + 32, y + 19), mute,
-            "Keep Arcane Intellect, armour and Mana Shield up.")
-        mage_row = 38
-    end
-    local top = y + (mage_row or 0)
-
-    local groups = spellbook.categories and spellbook.categories() or {}
-    if #groups == 0 then
-        win:render_text(FONT_SMALL, vec2.new(x + 12, y + 8), warn, "No spells found.")
-        return
-    end
-
-    local ok_b, buffs = pcall(require, "buffs")
-    local ok_p, picks = pcall(require, "picks")
-    local ok_c, cats = pcall(require, "data/spell_categories")
-    local buff_key = (ok_c and cats and cats.BUFF) or "buff"
-
-    local row_y = top + 4
-    local bottom = y + h - 40
-    local shown = 0
-
-    for gi = 1, #groups do
-        if row_y > bottom then break end
-        local grp = groups[gi]
-
-        -- Category heading, so the book reads as sections rather than one
-        -- alphabetical run.
-        win:render_text(FONT_SMALL, vec2.new(x + 10, row_y), head,
-            string.format("%s  (%d)", tostring(grp.label), #grp.spells))
-        row_y = row_y + SPELL_ROW
-
-        for si = 1, #grp.spells do
-            if row_y > bottom then break end
-            local fam = grp.spells[si]
-            local n = (type(fam.ranks) == "table") and #fam.ranks or 1
-
-            -- EVERY row is a tick box now, not just the buffs: this tab is
-            -- where the rotation is set.
-            --
-            -- A buff is two-state, because "keep this up" has no sensible
-            -- default and untouched means off. Everything else is THREE
-            -- state - on, off, and untouched - so a spell nobody has clicked
-            -- keeps whatever the class rotation already decided, and clicking
-            -- round once more hands it back.
-            local is_buff = (grp.key == buff_key) and ok_b and buffs
-            local st
-            if is_buff then
-                st = buffs.is_enabled(fam.name)
-            else
-                st = ok_p and picks and picks.state(fam.name) or nil
-            end
-
-            local box
-            if st == true then
-                box = C(90, 210, 110, 220)      -- on
-            elseif st == false then
-                box = C(190, 80, 80, 220)       -- deliberately off
-            else
-                box = C(38, 40, 48, 220)        -- untouched
-            end
-
-            local bmin = vec2.new(x + 16, row_y + 2)
-            local bmax = vec2.new(x + 28, row_y + 14)
-            pcall(function()
-                win:render_rect_filled(bmin, bmax, box, 2.0)
-            end)
-            pcall(function()
-                win:render_rect(bmin, bmax, C(120, 130, 150, 220), 2.0, 1.0)
-            end)
-
-            local hit = false
-            pcall(function()
-                hit = win:is_rect_clicked(vec2.new(x + 12, row_y), vec2.new(x + w - 10, row_y + 18)) == true
-            end)
-            if hit then
-                if is_buff then
-                    buffs.toggle(fam.name)
-                elseif ok_p and picks then
-                    picks.cycle(fam.name)
-                    mark_settings_dirty()
-                end
-            end
-
-            local label_col = gold
-            if st == true then
-                label_col = ok_col
-            elseif st == false then
-                label_col = mute
-            end
-            win:render_text(FONT_SMALL, vec2.new(x + 34, row_y), label_col, tostring(fam.name))
-
-            -- One row per spell, at its HIGHEST rank. fam.id is the top rank
-            -- and n is how many exist behind it, so a mage sees one Frostbolt
-            -- labelled "top of 11" rather than eleven Frostbolt rows.
-            win:render_text(FONT_SMALL, vec2.new(x + w - 118, row_y), mute,
-                (n > 1) and string.format("top of %d", n) or "1 rank")
-            win:render_text(FONT_SMALL, vec2.new(x + w - 60, row_y), mute, tostring(fam.id))
-
-            row_y = row_y + SPELL_ROW
-            shown = shown + 1
-        end
-        row_y = row_y + 4
-    end
-
-    local ids, distinct = 0, 0
-    if spellbook.counts then
-        ids, distinct = spellbook.counts()
-    end
-    local pick_on, pick_off = 0, 0
-    if ok_p and picks and type(picks.count) == "function" then
-        pick_on, pick_off = picks.count()
-    end
-    win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 2), mute,
-        string.format("%d of %d spells shown at highest rank, %d ranks in the book.",
-            shown, distinct, ids))
-    win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 18), mute,
-        string.format("%d on, %d off, the rest left to the class rotation. Click a row to cycle.",
-            pick_on, pick_off))
-
-    -- Ids the client would neither name nor give a base spell for. They are
-    -- counted rather than listed: one row each would be a screen of numbers,
-    -- and that is what made the list look like it was showing every rank.
-    local nameless = (spellbook.unnamed_count and spellbook.unnamed_count()) or 0
-    if nameless > 0 then
-        win:render_text(FONT_SMALL, vec2.new(x + 12, row_y + 18), mute,
-            string.format("%d further id%s the client would not name.",
-                nameless, nameless == 1 and "" or "s"))
-    end
-end)
-
 menu:on_tab("grinding", function(win, x, y, w, h)
     local gold = C(232, 222, 196, 255)
     local mute = C(180, 170, 150, 255)
@@ -2374,58 +2164,125 @@ menu:on_tab("questing", function(win, x, y, w, h)
     text(mute, "Bot: " .. tostring(info.note or ""))
 end)
 
+-- ============================================================================
+-- SPELLS TAB (2.64.0)
+-- ============================================================================
+-- Every spell of the character's class that it knows - DPS, healing and
+-- tanking only, from data/class_spells.lua - and the race's castable
+-- racials, grouped by what they do. A tick means smart.lua uses it; the
+-- rotation for Rotation Only, grinding and questing is built from exactly
+-- these. Groups that cannot stack (aura, seal, armor, stance, pet...) use the
+-- first ticked spell and show the rest as "standby".
+local SPELL_ROW = 22
+local SPELL_HEAD = 24
+
 menu:on_tab("class", function(win, x, y, w, h)
+    local gold = C(232, 222, 196, 255)
+    local mute = C(150, 142, 128, 255)
+    local ok_col = C(90, 210, 110, 255)
+    local warn = C(220, 176, 56, 255)
+    local head = C(96, 150, 235, 255)
+    local yy = y + 6
+
     local class_id = menu:player_class()
+    if type(class_id) ~= "number" then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, yy), mute, "Waiting for player class...")
+        return 30
+    end
+    if not spellbook.ready() then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, yy), warn,
+            string.format("Scanning the spellbook... %.1fs", spellbook.wait_left()))
+        win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 18), mute,
+            "Your castable spells appear here once the scan is done.")
+        return 48
+    end
+
+    local ok_s, smart = pcall(require, "smart")
+    local player = izi.me()
+    local rows = ok_s and smart and player and smart.rows(player) or nil
     local idx = menu:get("mfg_class") or 7
     local name = CLASS_LABELS[idx] or "Unknown"
-    local yy = y + 8
-    if type(class_id) ~= "number" then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, yy), C(180, 170, 150, 255), "Waiting for player class...")
-        return
+    if type(rows) ~= "table" or #rows == 0 then
+        win:render_text(FONT_SMALL, vec2.new(x + 10, yy), warn,
+            name .. ": no castable class spells known yet.")
+        return 30
     end
-    local ok, rotation = pcall(require, "rotation")
-    local ready = ok and rotation and rotation.supported(class_id) == true
-    local line = name .. (ready and "  -  rotation loaded" or "  -  no rotation for this class")
-    local col = ready and C(90, 210, 110, 255) or C(220, 176, 56, 255)
-    win:render_text(FONT_SMALL, vec2.new(x + 10, yy), col, line)
-    if not spellbook.ready() then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 22), C(220, 176, 56, 255), string.format("Waiting for spellbook scan  %.1fs", spellbook.wait_left()))
-        win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 40), C(180, 170, 150, 255), "Spells appear after the one-time 5 second load scan.")
-        return
-    end
-    -- What the scan actually found, rather than a promise about it.
-    local ids, distinct = 0, 0
-    if spellbook.counts then
-        ids, distinct = spellbook.counts()
-    end
-    win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 22), C(180, 170, 150, 255),
-        string.format("%d spells known, %d ranks in the spellbook.", distinct, ids))
 
-    -- The toggles below are the ones the rotation drives. The full book is a
-    -- click away rather than inlined: a level 60 caster has well over a
-    -- hundred spells and this header has 72px.
-    local bmin = vec2.new(x + 10, yy + 40)
-    local bmax = vec2.new(x + 190, yy + 66)
-    local hover = false
-    pcall(function()
-        hover = win:is_mouse_hovering_rect(bmin, bmax) == true
-    end)
-    pcall(function()
-        win:render_rect_filled(bmin, bmax,
-            hover and C(52, 58, 72, 235) or C(38, 40, 48, 220), 4.0)
-    end)
-    pcall(function()
-        win:render_rect(bmin, bmax, C(96, 150, 235, hover and 255 or 150), 4.0, 1.0)
-    end)
-    win:render_text(FONT_SMALL, vec2.new(x + 22, yy + 46), C(232, 222, 196, 255),
-        "View all known spells")
-    local pressed = false
-    pcall(function()
-        pressed = win:is_rect_clicked(bmin, bmax) == true
-    end)
-    if pressed then
-        menu:open_popup("spells")
+    local ticked = 0
+    for i = 1, #rows do
+        if smart.row_state(rows[i]) then
+            ticked = ticked + 1
+        end
     end
+    win:render_text(FONT_SMALL, vec2.new(x + 10, yy), ok_col,
+        string.format("%s rotation - %d of %d known spells ticked", name, ticked, #rows))
+    win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 18), mute,
+        "Click a spell to tick or untick it. Used by Rotation Only, Grinding and Questing.")
+    yy = yy + 44
+
+    local ok_c, cats = pcall(require, "data/class_spells")
+    local sections = (ok_c and cats and cats.sections) or {}
+    for si = 1, #sections do
+        local sec = sections[si]
+        local count = 0
+        for i = 1, #rows do
+            if rows[i].section == sec.key then
+                count = count + 1
+            end
+        end
+        if count > 0 then
+            win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 2), head,
+                string.format("%s  (%d)", sec.label, count))
+            yy = yy + SPELL_HEAD
+            for i = 1, #rows do
+                local row = rows[i]
+                if row.section == sec.key then
+                    local on, active = smart.row_state(row)
+                    local bmin = vec2.new(x + 16, yy + 2)
+                    local bmax = vec2.new(x + 28, yy + 14)
+                    local rmin, rmax = vec2.new(x + 10, yy), vec2.new(x + w - 10, yy + SPELL_ROW - 2)
+                    local hover = false
+                    pcall(function() hover = win:is_mouse_hovering_rect(rmin, rmax) == true end)
+                    if hover then
+                        pcall(function() win:render_rect_filled(rmin, rmax, C(52, 58, 72, 120), 3.0) end)
+                    end
+                    pcall(function()
+                        win:render_rect_filled(bmin, bmax, on and C(90, 210, 110, 220) or C(38, 40, 48, 220), 2.0)
+                    end)
+                    pcall(function() win:render_rect(bmin, bmax, C(120, 130, 150, 220), 2.0, 1.0) end)
+                    win:render_text(FONT_SMALL, vec2.new(x + 36, yy + 1),
+                        (on and active) and gold or mute, tostring(row.name))
+
+                    local tag
+                    if not on then
+                        tag = "off"
+                    elseif row.group and not active then
+                        tag = "standby"
+                    elseif row.group then
+                        tag = "in use"
+                    else
+                        tag = "on"
+                    end
+                    win:render_text(FONT_SMALL, vec2.new(x + w - 190, yy + 1), mute,
+                        (row.ranks or 1) > 1 and string.format("rank %d", row.ranks) or "")
+                    win:render_text(FONT_SMALL, vec2.new(x + w - 100, yy + 1),
+                        (on and active) and ok_col or mute, tag)
+
+                    if hover and row.tip then
+                        pcall(function() win:render_tooltip_text_only(row.tip, gold) end)
+                    end
+                    local hit = false
+                    pcall(function() hit = win:is_rect_clicked(rmin, rmax) == true end)
+                    if hit then
+                        smart.toggle(row)
+                    end
+                    yy = yy + SPELL_ROW
+                end
+            end
+            yy = yy + 6
+        end
+    end
+    return (yy - y) + 10
 end)
 
 menu:on_tab("path", function(win, x, y, w, h)

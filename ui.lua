@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.63.0
+-- Version: 2.64.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -533,6 +533,7 @@ function ui.new(config)
     self.visible = true
     self._closed = false
     self._tab_scroll = {}
+    self._tab_custom_h = {}
     self._scroll_drag = nil
     self.popups = {}
     self._player_class_id = nil
@@ -1982,7 +1983,10 @@ function Menu:tab_content_height(tab_id)
         end
     end
     local h = 10 + n * (row + gap) + 10
-    if self.tab_draw[tab_id] then
+    local custom = self._tab_custom_h and self._tab_custom_h[tab_id]
+    if type(custom) == "number" then
+        h = h + custom + 24
+    elseif self.tab_draw[tab_id] then
         h = h + ((row + gap) * 8) + 24
     end
     return h
@@ -2105,14 +2109,6 @@ function Menu:draw_tab_scroll_area(win, tab_id, x, y, w, h)
     local start_y = y + 6 - scroll
     local inner_w = view_w - 12
     local extra_top = 0
-    if tab_id == "class" and self.tab_draw[tab_id] then
-        -- 72 was exactly the two status lines. The Spells tab now also carries
-        -- the button that opens the full spellbook, which ends at ~74px, so
-        -- the reserve has to cover it or the button is clipped and the first
-        -- toggle draws on top of it.
-        extra_top = 104
-        pcall(self.tab_draw[tab_id], win, start_x, start_y, inner_w, extra_top, self)
-    end
     if tab_id == "path" and self.tab_draw[tab_id] then
         extra_top = 380
         pcall(self.tab_draw[tab_id], win, start_x, start_y, inner_w, extra_top, self)
@@ -2122,8 +2118,13 @@ function Menu:draw_tab_scroll_area(win, tab_id, x, y, w, h)
         pcall(self.tab_draw[tab_id], win, start_x, start_y, inner_w, extra_top, self)
     end
     local cy = self:render_tab_controls(win, tab_id, start_x, start_y + extra_top, inner_w)
-    if tab_id ~= "class" and tab_id ~= "path" and tab_id ~= "quest" and self.tab_draw[tab_id] then
-        pcall(self.tab_draw[tab_id], win, start_x, cy, inner_w, h, self)
+    if tab_id ~= "path" and tab_id ~= "quest" and self.tab_draw[tab_id] then
+        -- A tab draw may return the height it used (the Spells tab's list,
+        -- 2.64.0), so the scroll area fits it instead of a fixed guess.
+        local ok_d, used = pcall(self.tab_draw[tab_id], win, start_x, cy, inner_w, h, self)
+        if ok_d and type(used) == "number" and used >= 0 then
+            self._tab_custom_h[tab_id] = used
+        end
     end
     if clipped then
         pcall(function()

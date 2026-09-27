@@ -3,7 +3,7 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.63.0
+-- Version: 2.64.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED
@@ -190,7 +190,14 @@ end
 -- ----------------------------------------------------------------------------
 --- Keep the enabled buffs up. Returns true when it cast something, so the
 --- caller can hold the rest of its tick.
+--- Buff upkeep moved to smart.upkeep (2.64.0), which keeps every buff
+--- ticked in the Spells tab up in and out of combat, with one-at-a-time
+--- groups (aura, armor, seal...) this generic pass could not know about.
+--- Left as a no-op so older callers stay harmless.
 function buffs.tick(player)
+    do
+        return false
+    end
     if not player then
         return false
     end

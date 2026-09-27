@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.63.0
+-- Version: 2.64.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -32,7 +32,6 @@
 local izi = require("common/izi_sdk")
 
 local data = require("data/racials")
-local gui = require("gui")
 local spellbook = require("spellbook")
 local state = require("state")
 
@@ -126,6 +125,16 @@ local function for_player(player)
     end
     resolved, resolved_race = out, race
     return resolved
+end
+
+--- Ticked in the Spells tab (2.64.0)? Racials are listed there by name with
+--- the rest of the character's spells; untouched means on.
+local function wanted(def)
+    local ok, picks = pcall(require, "picks")
+    if ok and type(picks) == "table" and type(picks.wants) == "function" then
+        return picks.wants(def.label, true)
+    end
+    return true
 end
 
 local function learned(spell)
@@ -245,20 +254,6 @@ end
 -- ----------------------------------------------------------------------------
 -- PUBLIC
 -- ----------------------------------------------------------------------------
---- Register this race's racial toggles. Called with the shared menu; the
---- `race_id` field is what keeps another race's racials off the tab.
-function racials.register_gui(menu)
-    for i = 1, #data.list do
-        local def = data.list[i]
-        menu:checkbox("mfg_" .. def.key, true, {
-            label = def.label,
-            tab = "class",
-            race_id = def.race,
-            tooltip = def.tooltip,
-        })
-    end
-end
-
 --- Combat racials. Returns true when one was cast, so the rotation can hold
 --- the rest of its cascade for a tick.
 function racials.tick(player, target, ctx)
@@ -276,7 +271,7 @@ function racials.tick(player, target, ctx)
     for i = 1, #list do
         local entry = list[i]
         local def = entry.def
-        if gui.is_on(def.key) and learned(entry.spell) and ready(entry.spell) then
+        if wanted(def) and learned(entry.spell) and ready(entry.spell) then
             if wants(entry, player, target, ctx) then
                 local unit = target_for(entry, player, target)
                 if unit and cast(entry.spell, unit, def.label) then
@@ -306,7 +301,7 @@ function racials.ooc(player)
         local entry = list[i]
         local def = entry.def
         if def.kind == "free_cc" and def.cc ~= "bleed"
-            and gui.is_on(def.key) and learned(entry.spell) and ready(entry.spell) then
+            and wanted(def) and learned(entry.spell) and ready(entry.spell) then
             if cc_on_us(player, def.cc) then
                 if cast(entry.spell, player, def.label) then
                     return true

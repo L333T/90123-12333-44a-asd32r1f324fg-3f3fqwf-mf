@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.63.0
+-- Version: 2.64.0
 -- Folder: Master_Farmer_Grindbot
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan every 2 seconds. DEFS are rank-1 IDs; highest matching ID wins.
@@ -415,12 +415,15 @@ local function rank_families()
     end
 end
 
+local scan_count = 0
+
 local function run_scan()
     ingest_book(safe(function()
         return core.spell_book.get_spells()
     end))
     group_families()
     scanned = true
+    scan_count = scan_count + 1
     last_scan = izi.now()
     rank_families()
     spell_known = {}                  -- re-judged against the new ranks
@@ -639,6 +642,13 @@ end
 
 function spellbook.generation()
     return generation
+end
+
+--- How many scans have run. Moves on EVERY scan, so a cache built from the
+--- families (the Spells tab / smart rotation, 2.64.0) knows to rebuild after a
+--- trainer visit or a level-up even when no defined key changed rank.
+function spellbook.scan_count()
+    return scan_count
 end
 
 -- ============================================================================

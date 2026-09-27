@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.63.0
+-- Version: 2.64.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -58,6 +58,8 @@ local PLUGIN_MODULES = {
     "data/factions",
     "events",
     "buffs",
+    "smart",
+    "data/class_spells",
     "settings",
     "data/spell_categories",
     "config",
@@ -254,15 +256,10 @@ if gui and equip and type(equip.register_gui) == "function" then
     pcall(equip.register_gui, gui.get_menu())
 end
 
+-- The class and racial checkboxes are gone (2.64.0): the Spells tab lists
+-- the known class spells and racials itself, and smart.lua builds the
+-- rotation from the ones ticked there.
 local racials = load_mod("racials")
-if gui and racials and type(racials.register_gui) == "function" then
-    pcall(racials.register_gui, gui.get_menu())
-end
-if gui and rotation and type(rotation.register_gui) == "function" then
-    pcall(function()
-        rotation.register_gui(gui.get_menu())
-    end)
-end
 
 local nav_halted = false
 local move_debug_on = false

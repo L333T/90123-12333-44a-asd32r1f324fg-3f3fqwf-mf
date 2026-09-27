@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.63.0
+-- Version: 2.64.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -16,6 +16,11 @@ local enums = require("common/enums")
 
 local targeting = require("targeting")
 local combat = require("combat")
+-- The rotation itself (2.64.0): built from the spells ticked in the Spells
+-- tab. The class modules below still supply the class's shape - combat
+-- range, melee or not, scan range, combat-movement profile, rest thresholds
+-- and food - but no longer the spells.
+local smart = require("smart")
 
 -- ============================================================================
 -- CLASS MODULES ARE LOADED ON DEMAND
@@ -214,44 +219,6 @@ function rotation.active(player)
     return mod
 end
 
---- Register the class checkboxes.
----
---- Only the player's own class is registered, which is the whole point: the
---- other seven modules are never loaded. The class is read here, at load,
---- because Sylvanas takes its menu elements at load - registering them later
---- is the mismatch picks.lua exists to work around, and is not something to
---- rely on.
----
---- If the player cannot be read yet, every class is registered instead. That
---- is exactly the old behaviour, so the fallback costs memory rather than
---- function, and the menu is never short of a checkbox.
-function rotation.register_gui(menu)
-    local class_id = nil
-    pcall(function()
-        local me = izi.me()
-        if me then
-            class_id = me:get_class()
-        end
-    end)
-
-    if type(class_id) == "number" and CLASS_MODULES[class_id] then
-        local mod = module_for_class(class_id)
-        if mod and type(mod.register_gui) == "function" then
-            pcall(mod.register_gui, menu)
-            return
-        end
-    end
-
-    core.log_warning(
-        "[Master Farmer - Grindbot] Class unknown at load; registering every rotation")
-    for id, _ in pairs(CLASS_MODULES) do
-        local mod = module_for_class(id)
-        if mod and type(mod.register_gui) == "function" then
-            pcall(mod.register_gui, menu)
-        end
-    end
-end
-
 function rotation.buffs_ooc(player)
     -- Buff casts cancel eating and drinking exactly like combat casts do.
     local healing = get_healing()
@@ -261,16 +228,25 @@ function rotation.buffs_ooc(player)
         end
     end
 
-    local mod = rotation.active(player)
-    if not mod or type(mod.buffs_ooc) ~= "function" then
-        return false
+    -- Racial escapes (a root or a fear) first, then every buff ticked in the
+    -- Spells tab - in AND out of combat (2.64.0).
+    rotation.active(player)       -- keeps the class's movement profile synced
+    local ok_r, racials = pcall(require, "racials")
+    if ok_r and racials and type(racials.ooc) == "function" and racials.ooc(player) then
+        return true
     end
-    return mod.buffs_ooc(player) == true
+    return smart.upkeep(player) == true
 end
 
 function rotation.combat_range(player)
     local mod = rotation.active(player)
-    if mod and type(mod.is_melee) == "function" then
+    -- The ticked spells can make a hybrid melee (a druid's Cat / Bear form,
+    -- a shaman's Stormstrike) or keep it a caster (2.64.0).
+    local sm = smart.is_melee(player)
+    if sm == true then
+        return 5
+    end
+    if sm == nil and mod and type(mod.is_melee) == "function" then
         local ok, v = pcall(mod.is_melee, player)
         if ok and v == true then
             return 5
@@ -291,6 +267,10 @@ end
 --- yards or less means melee - every melee rotation reports exactly 5.
 --- Combat movement closes melee to 2 yards of the target (2.26.0).
 function rotation.is_melee(player)
+    local sm = smart.is_melee(player)
+    if type(sm) == "boolean" then
+        return sm
+    end
     local mod = rotation.active(player)
     if mod and type(mod.is_melee) == "function" then
         local ok, v = pcall(mod.is_melee, player)
@@ -350,12 +330,8 @@ function rotation.tick(player, target, ctx)
         return true
     end
 
-    -- Interrupt / taunt / aggro dump across the whole pack, before the damage
-    -- rotation. Each rotation only ever interrupted its CURRENT target, so a
-    -- mob casting behind the one being hit finished its cast unchallenged.
-    if combat.assist(player, target, ctx.enemies, mod) then
-        return true
-    end
+    -- Interrupts across the whole pack now happen inside smart.combat, with
+    -- the interrupt spells ticked in the Spells tab (2.64.0).
 
     if player and target and targeting and type(targeting.start_auto_attack) == "function" then
         targeting.start_auto_attack(player, target)
@@ -386,7 +362,7 @@ function rotation.tick(player, target, ctx)
             movement.face(target)
         end
     end
-    return mod.tick(player, target, ctx) == true
+    return smart.combat(player, target, ctx) == true
 end
 
 function rotation.preferred_food_ids(player)

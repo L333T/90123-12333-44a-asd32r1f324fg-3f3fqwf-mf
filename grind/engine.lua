@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.36.0
+-- Version: 2.37.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -331,6 +331,19 @@ function grind.tick(player)
         end
         grind.kill_mobs(player)
         return
+    end
+
+    -- Whatever is attacking the player comes before the target being chased
+    -- (2.37.0): switch to it, and keep the current target only while it is
+    -- one of the attackers (or nothing is attacking).
+    do
+        local cur_guid = (state.target.kind == "kill") and state.target.guid or nil
+        local attacker = targeting.attacker_to_switch(player, cur_guid, gui.slider("fight_back_yards", 30))
+        if attacker then
+            targeting.set_current(attacker, "kill")
+            state.grind.black_until = now + gui.slider("max_kill", 60)
+            state.set_note("Grind", "Fight back")
+        end
     end
 
     local unit = state.target.unit

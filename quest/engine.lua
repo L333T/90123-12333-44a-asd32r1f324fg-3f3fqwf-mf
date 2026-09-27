@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.36.0
+-- Version: 2.37.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -235,6 +235,15 @@ end
 --- Anything already fighting us comes first, whatever the goal is: walking on
 --- to a quest giver with three mobs on your back is how a character dies.
 local function fight_back(player, label)
+    -- Whatever is attacking the player comes before the target being chased
+    -- (2.37.0), not only when there is no target at all.
+    local cur_guid = (state.target.kind == "kill") and state.target.guid or nil
+    local attacker = targeting.attacker_to_switch(player, cur_guid, combat_yards(player) + 10)
+    if attacker then
+        trail("act", "switch to attacker %s", tostring(safe(function() return attacker:get_name() end)))
+        engage(player, attacker, "Guide: defending")
+        return true
+    end
     local unit = state.target.unit
     if unit and state.target.kind == "kill" then
         if fight_unit(player, unit, "Guide: " .. label) then

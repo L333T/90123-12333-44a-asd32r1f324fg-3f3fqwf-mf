@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.36.0
+-- Version: 2.37.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -46,6 +46,7 @@ local MELEE_YARDS          = K.MELEE_YARDS
 local MELEE_REACH          = K.MELEE_REACH
 local MELEE_STANDOFF       = K.MELEE_STANDOFF
 local MELEE_MIN_HOP        = K.MELEE_MIN_HOP
+local CHASE_REISSUE        = K.CHASE_REISSUE
 local PULL_MAX_TRIES       = K.PULL_MAX_TRIES
 
 local pt = R.pt
@@ -413,13 +414,58 @@ function C.combat_engage(player, unit, yards)
         end
     end
 
+    -- 4a. DIRECT CHASE (2.37.0). When the straight line to the target is
+    -- clear, walk straight at it in ONE move - to melee contact, or to the
+    -- class's range - and only re-aim when the target has shifted more than
+    -- CHASE_REISSUE from where that move is headed.
+    --
+    -- The steering search below hands out STEER_HOP (5 yd) hops chosen from
+    -- angled offsets and side-steps, re-planned about every half second from
+    -- wherever the last one ended; a chain of slightly angled hops is the S
+    -- the character weaved in on a mob in open ground. Steering is kept for
+    -- when something is actually in the way. The path leash still applies.
+    do
+        local ux, uy, uz = unit_xyz(unit)
+        local hx, hy, hz = here_xyz()
+        if not hx then hx, hy, hz = unit_xyz(player) end
+        if ux and hx and O.owns(OWNER.COMBAT) and not R.rest_lock then
+            local stand = MELEE_STANDOFF
+            if not melee then
+                stand = yards - CHASE_BAND
+                if stand < 5 then stand = yards end
+            end
+            local remain = dist2(hx, hy, ux, uy)
+            if remain > 0 and (remain - stand) >= MELEE_MIN_HOP then
+                local s = (remain - stand) / remain
+                local dx, dy = hx + (ux - hx) * s, hy + (uy - hy) * s
+                local moving = R.pending or O.is_moving()
+                local shifted = not R.has_dest or dist2(R.dest_x, R.dest_y, dx, dy) > CHASE_REISSUE
+                if moving and not shifted then
+                    -- Already walking the straight line: keep going.
+                    R.chase_fail_key, R.chase_fail_t = nil, 0
+                    return false
+                end
+                if O.nav_gap_ok() and not L.needs_rejoin() then
+                    local here = pt(P_HERE, hx, hy, hz)
+                    local goal = pt(P_DEST, ux, uy, ground_z(ux, uy, uz))
+                    local dest = pt(P_ALT, dx, dy, hz + (goal.z - hz) * s)
+                    if L.allows(here, dest) and walk_open(here, goal) and W.ensure()
+                        and W.move(dest, "chase_direct") then
+                        R.chase_fail_key, R.chase_fail_t = nil, 0
+                        return false
+                    end
+                end
+            end
+        end
+    end
+
     if R.pending or O.is_moving() then
         R.chase_fail_key, R.chase_fail_t = nil, 0
         Rg.face(unit)
         return false
     end
 
-    -- 4. close the gap
+    -- 4. close the gap (line blocked: steer around it)
     local ux, uy, uz = unit_xyz(unit)
     if not ux then return false end
     local hx, hy, hz = here_xyz()

@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.36.0
+-- Version: 2.37.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -113,6 +113,7 @@ K.MELEE_YARDS      = 5.0
 K.MELEE_REACH      = 2.0
 K.MELEE_STANDOFF   = 0.0    -- aim AT the target: see combat.lua (2.27.0)
 K.MELEE_MIN_HOP    = 1.0    -- the walker's final threshold: shorter hops are not issued
+K.CHASE_REISSUE    = 2.0    -- yards the target must shift before a direct chase is re-aimed
 K.PULL_RETRY       = 3.0    -- seconds before re-trying a combat pull-in leg
 K.PULL_MAX_TRIES   = 3      -- pull-in legs per mob before it counts as unreachable
 

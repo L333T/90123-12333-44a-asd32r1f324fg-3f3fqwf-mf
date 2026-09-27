@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.69.0
+-- Version: 2.70.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -268,9 +268,60 @@ end
 -- ============================================================================
 -- WATCHDOG  (called from pulse while Sentinel is driving)
 -- ============================================================================
+-- STALLED LEG (2.70.0). A Sentinel leg that stops moving the character
+-- without ever reporting "arrived" or "failed" - a "pull" leg deferred by a
+-- cast and never resumed, say - kept R.sn_active true for good: the walker
+-- stays silent while Sentinel drives, and every later move (the walk to a
+-- corpse, the vendor trip) was refused as "already moving". The 12:15 log
+-- shows the character standing still for over two minutes that way. The
+-- leg is now dropped once the character has not moved SN_STALL_YD in
+-- SN_STALL_SEC while not casting, and the next move is issued afresh.
+local SN_STALL_SEC = 4.0
+local SN_STALL_YD = 1.5
+local stall_x, stall_y, stall_t = nil, nil, 0
+
+local function stall_check(t)
+    local me = nil
+    pcall(function() me = izi.me() end)
+    if not me then return false end
+    local casting = false
+    pcall(function() casting = me:is_channeling_or_casting() == true end)
+    local pos = nil
+    pcall(function() pos = me:get_position() end)
+    if casting or not pos then
+        stall_x, stall_y, stall_t = nil, nil, t
+        return false
+    end
+    if stall_x == nil then
+        stall_x, stall_y, stall_t = pos.x, pos.y, t
+        return false
+    end
+    local dx, dy = pos.x - stall_x, pos.y - stall_y
+    if dx * dx + dy * dy >= SN_STALL_YD * SN_STALL_YD then
+        stall_x, stall_y, stall_t = pos.x, pos.y, t
+        return false
+    end
+    return (t - stall_t) >= SN_STALL_SEC
+end
+
 function N.watch(t)
     if (t - R.sn_watch_t) < 1.0 then return end
     R.sn_watch_t = t
+    if R.sn_active and stall_check(t) then
+        local why = tostring(R.sn_why or "")
+        dlog("sentinel", "leg '" .. why .. "' stalled - dropped")
+        local ok_e, el = pcall(require, "errorlog")
+        if ok_e and type(el) == "table" and type(el.trail) == "function" then
+            pcall(el.trail, "move", "Sentinel leg '%s' made no progress for %.0fs - dropped", why, SN_STALL_SEC)
+        end
+        stall_x, stall_y = nil, nil
+        N.stop()
+        W.clear_dest()
+        return
+    end
+    if not R.sn_active then
+        stall_x, stall_y = nil, nil
+    end
     local c = R.sn_client
     if type(c) == "table" then
         local ok, st = pcall(c.get_state, c)

@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.69.0
+-- Version: 2.70.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -626,6 +626,13 @@ end
 --- abandon a fight; the state machine also calls it once every end condition
 --- has held for COMBAT_EXIT_HOLD.
 function C.combat_release()
+    -- The fight is over: a leg issued to close on its target has nothing
+    -- left to do (2.70.0). Left running, it held Sentinel "active" and
+    -- blocked every move after the fight.
+    if R.sn_active and R.sn_why == "pull" then
+        N.stop()
+        W.clear_dest()
+    end
     R.combat_req = false
     R.combat_target = nil
     R.combat_guid = nil

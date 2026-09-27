@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.26.0
+-- Version: 2.27.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -99,11 +99,18 @@ K.MAX_LEG          = 300    -- yards: no navigation leg or path request is longe
 
 -- Melee contact (2.26.0). A combat range at or below MELEE_YARDS marks the
 -- fighter as melee; melee counts as in position only within MELEE_REACH of
--- the target and approaches to MELEE_STANDOFF, so the walker's own 1-yard
--- arrival tolerance still leaves it inside MELEE_REACH.
+-- the target.
+--
+-- It aims at the target's own position (MELEE_STANDOFF 0), not a point short
+-- of it. 2.26.0 aimed 1 yard short, and the walker treats a destination
+-- within its 1-yard final threshold as already reached: from 2-2.5 yards out
+-- the hop "arrived" without moving, the range never dropped to 2, and the bot
+-- re-issued the same hop every half second for the whole fight. Aiming at the
+-- target makes every hop at least MELEE_REACH long, and the walker stops
+-- within 1 yard of it - inside MELEE_REACH.
 K.MELEE_YARDS      = 5.0
 K.MELEE_REACH      = 2.0
-K.MELEE_STANDOFF   = 1.0
+K.MELEE_STANDOFF   = 0.0    -- aim AT the target: see combat.lua (2.27.0)
 K.MELEE_MIN_HOP    = 1.0    -- the walker's final threshold: shorter hops are not issued
 K.PULL_RETRY       = 3.0    -- seconds before re-trying a combat pull-in leg
 K.PULL_MAX_TRIES   = 3      -- pull-in legs per mob before it counts as unreachable

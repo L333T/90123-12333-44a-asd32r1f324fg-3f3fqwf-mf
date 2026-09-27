@@ -3,12 +3,28 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.26.0
+-- Version: 2.27.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
 ---@type color
 local color = require("common/color")
+
+-- Every colour this file draws with, built once (2.27.0). They were created
+-- inside the draw functions - 54 call sites, every frame - and the GUI draw
+-- was the largest source of garbage in the plugin: about 83 KB a frame, 60%
+-- of everything allocated, in the 20:25 session log.
+local COLOR_CACHE = {}
+local function C(r, g, b, a)
+    a = a or 255
+    local key = ((r * 256 + g) * 256 + b) * 256 + a
+    local c = COLOR_CACHE[key]
+    if c == nil then
+        c = color.new(r, g, b, a)
+        COLOR_CACHE[key] = c
+    end
+    return c
+end
 
 ---@type vec2
 local vec2 = require("common/geometry/vector_2")
@@ -1662,9 +1678,9 @@ menu:set_status({
         end,
         color = function()
             if gui.is_started() then
-                return color.new(90, 210, 110, 255)
+                return C(90, 210, 110, 255)
             end
-            return color.new(210, 78, 78, 255)
+            return C(210, 78, 78, 255)
         end,
     },
     { label = "Class", value = class_status },
@@ -1760,8 +1776,8 @@ local FACTION_TINT = {
 --- Grinding tab meant two widgets disagreeing about what was selected.
 --- Returns the y below the button.
 local function draw_route_button(win, x, y, width, entry)
-    local gold = color.new(232, 222, 196, 255)
-    local mute = color.new(180, 170, 150, 255)
+    local gold = C(232, 222, 196, 255)
+    local mute = C(180, 170, 150, 255)
     local bmin = vec2.new(x, y)
     local bmax = vec2.new(x + width, y + 30)
 
@@ -1771,10 +1787,10 @@ local function draw_route_button(win, x, y, width, entry)
     end)
     pcall(function()
         win:render_rect_filled(bmin, bmax,
-            hover and color.new(52, 58, 72, 235) or color.new(38, 40, 48, 220), 4.0)
+            hover and C(52, 58, 72, 235) or C(38, 40, 48, 220), 4.0)
     end)
     pcall(function()
-        win:render_rect(bmin, bmax, color.new(96, 150, 235, hover and 255 or 150), 4.0, 1.0)
+        win:render_rect(bmin, bmax, C(96, 150, 235, hover and 255 or 150), 4.0, 1.0)
     end)
 
     local label = entry and tostring(entry.label or entry.id) or "Choose a route..."
@@ -1803,18 +1819,18 @@ end
 
 local function faction_colour(key)
     local c = FACTION_TINT[key] or FACTION_TINT.alliance
-    return color.new(c[1], c[2], c[3], 255)
+    return C(c[1], c[2], c[3], 255)
 end
 
 -- ============================================================================
 -- PROFILE PICKER POPUP
 -- ============================================================================
 menu:on_tab("profiles", function(win, x, y, w, h)
-    local gold = color.new(232, 222, 196, 255)
-    local mute = color.new(180, 170, 150, 255)
-    local ok_col = color.new(90, 210, 110, 255)
-    local warn = color.new(220, 176, 56, 255)
-    local sel_col = color.new(96, 150, 235, 255)
+    local gold = C(232, 222, 196, 255)
+    local mute = C(180, 170, 150, 255)
+    local ok_col = C(90, 210, 110, 255)
+    local warn = C(220, 176, 56, 255)
+    local sel_col = C(96, 150, 235, 255)
 
     local key = gui.faction_key()
     local entries = {}
@@ -1849,11 +1865,11 @@ menu:on_tab("profiles", function(win, x, y, w, h)
         end)
         if is_sel then
             pcall(function()
-                win:render_rect_filled(rmin, rmax, color.new(46, 62, 92, 210), 3.0)
+                win:render_rect_filled(rmin, rmax, C(46, 62, 92, 210), 3.0)
             end)
         elseif hover then
             pcall(function()
-                win:render_rect_filled(rmin, rmax, color.new(40, 40, 48, 160), 3.0)
+                win:render_rect_filled(rmin, rmax, C(40, 40, 48, 160), 3.0)
             end)
         end
 
@@ -1892,11 +1908,11 @@ end)
 -- rank - eleven Frostbolts is not a list, it is a wall. The rank count is
 -- shown instead, and the id is the best rank.
 menu:on_tab("spells", function(win, x, y, w, h)
-    local gold = color.new(232, 222, 196, 255)
-    local mute = color.new(180, 170, 150, 255)
-    local ok_col = color.new(90, 210, 110, 255)
-    local warn = color.new(220, 176, 56, 255)
-    local head = color.new(96, 150, 235, 255)
+    local gold = C(232, 222, 196, 255)
+    local mute = C(180, 170, 150, 255)
+    local ok_col = C(90, 210, 110, 255)
+    local warn = C(220, 176, 56, 255)
+    local head = C(96, 150, 235, 255)
 
     if not spellbook.ready() then
         win:render_text(FONT_SMALL, vec2.new(x + 12, y + 8), warn,
@@ -1918,10 +1934,10 @@ menu:on_tab("spells", function(win, x, y, w, h)
         local bmax = vec2.new(x + 24, y + 16)
         pcall(function()
             win:render_rect_filled(bmin, bmax,
-                on and color.new(90, 210, 110, 220) or color.new(38, 40, 48, 220), 2.0)
+                on and C(90, 210, 110, 220) or C(38, 40, 48, 220), 2.0)
         end)
         pcall(function()
-            win:render_rect(bmin, bmax, color.new(120, 130, 150, 220), 2.0, 1.0)
+            win:render_rect(bmin, bmax, C(120, 130, 150, 220), 2.0, 1.0)
         end)
         local hit = false
         pcall(function()
@@ -1987,11 +2003,11 @@ menu:on_tab("spells", function(win, x, y, w, h)
 
             local box
             if st == true then
-                box = color.new(90, 210, 110, 220)      -- on
+                box = C(90, 210, 110, 220)      -- on
             elseif st == false then
-                box = color.new(190, 80, 80, 220)       -- deliberately off
+                box = C(190, 80, 80, 220)       -- deliberately off
             else
-                box = color.new(38, 40, 48, 220)        -- untouched
+                box = C(38, 40, 48, 220)        -- untouched
             end
 
             local bmin = vec2.new(x + 16, row_y + 2)
@@ -2000,7 +2016,7 @@ menu:on_tab("spells", function(win, x, y, w, h)
                 win:render_rect_filled(bmin, bmax, box, 2.0)
             end)
             pcall(function()
-                win:render_rect(bmin, bmax, color.new(120, 130, 150, 220), 2.0, 1.0)
+                win:render_rect(bmin, bmax, C(120, 130, 150, 220), 2.0, 1.0)
             end)
 
             local hit = false
@@ -2064,10 +2080,10 @@ menu:on_tab("spells", function(win, x, y, w, h)
 end)
 
 menu:on_tab("grinding", function(win, x, y, w, h)
-    local gold = color.new(232, 222, 196, 255)
-    local mute = color.new(180, 170, 150, 255)
-    local ok_col = color.new(90, 210, 110, 255)
-    local warn = color.new(220, 176, 56, 255)
+    local gold = C(232, 222, 196, 255)
+    local mute = C(180, 170, 150, 255)
+    local ok_col = C(90, 210, 110, 255)
+    local warn = C(220, 176, 56, 255)
 
     -- One grid for the whole page. Every row is placed from LEFT and LINE
     -- rather than by adding ad-hoc offsets, which is what left the uneven gaps.
@@ -2184,11 +2200,11 @@ end)
 local show_quest_diag = false
 
 menu:on_tab("questing", function(win, x, y, w, h)
-    local gold = color.new(232, 222, 196, 255)
-    local mute = color.new(180, 170, 150, 255)
-    local hi = color.new(248, 226, 132, 255)
-    local ok_col = color.new(90, 210, 110, 255)
-    local warn = color.new(220, 176, 56, 255)
+    local gold = C(232, 222, 196, 255)
+    local mute = C(180, 170, 150, 255)
+    local hi = C(248, 226, 132, 255)
+    local ok_col = C(90, 210, 110, 255)
+    local warn = C(220, 176, 56, 255)
 
     -- ui.lua reserves eight control rows (~360px) under the registered
     -- checkboxes for this content; h is the whole viewport, not what is left.
@@ -2328,17 +2344,17 @@ menu:on_tab("class", function(win, x, y, w, h)
     local name = CLASS_LABELS[idx] or "Unknown"
     local yy = y + 8
     if type(class_id) ~= "number" then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, yy), color.new(180, 170, 150, 255), "Waiting for player class...")
+        win:render_text(FONT_SMALL, vec2.new(x + 10, yy), C(180, 170, 150, 255), "Waiting for player class...")
         return
     end
     local ok, rotation = pcall(require, "rotation")
     local ready = ok and rotation and rotation.supported(class_id) == true
     local line = name .. (ready and "  -  rotation loaded" or "  -  no rotation for this class")
-    local col = ready and color.new(90, 210, 110, 255) or color.new(220, 176, 56, 255)
+    local col = ready and C(90, 210, 110, 255) or C(220, 176, 56, 255)
     win:render_text(FONT_SMALL, vec2.new(x + 10, yy), col, line)
     if not spellbook.ready() then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 22), color.new(220, 176, 56, 255), string.format("Waiting for spellbook scan  %.1fs", spellbook.wait_left()))
-        win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 40), color.new(180, 170, 150, 255), "Spells appear after the one-time 5 second load scan.")
+        win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 22), C(220, 176, 56, 255), string.format("Waiting for spellbook scan  %.1fs", spellbook.wait_left()))
+        win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 40), C(180, 170, 150, 255), "Spells appear after the one-time 5 second load scan.")
         return
     end
     -- What the scan actually found, rather than a promise about it.
@@ -2346,7 +2362,7 @@ menu:on_tab("class", function(win, x, y, w, h)
     if spellbook.counts then
         ids, distinct = spellbook.counts()
     end
-    win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 22), color.new(180, 170, 150, 255),
+    win:render_text(FONT_SMALL, vec2.new(x + 10, yy + 22), C(180, 170, 150, 255),
         string.format("%d spells known, %d ranks in the spellbook.", distinct, ids))
 
     -- The toggles below are the ones the rotation drives. The full book is a
@@ -2360,12 +2376,12 @@ menu:on_tab("class", function(win, x, y, w, h)
     end)
     pcall(function()
         win:render_rect_filled(bmin, bmax,
-            hover and color.new(52, 58, 72, 235) or color.new(38, 40, 48, 220), 4.0)
+            hover and C(52, 58, 72, 235) or C(38, 40, 48, 220), 4.0)
     end)
     pcall(function()
-        win:render_rect(bmin, bmax, color.new(96, 150, 235, hover and 255 or 150), 4.0, 1.0)
+        win:render_rect(bmin, bmax, C(96, 150, 235, hover and 255 or 150), 4.0, 1.0)
     end)
-    win:render_text(FONT_SMALL, vec2.new(x + 22, yy + 46), color.new(232, 222, 196, 255),
+    win:render_text(FONT_SMALL, vec2.new(x + 22, yy + 46), C(232, 222, 196, 255),
         "View all known spells")
     local pressed = false
     pcall(function()
@@ -2393,7 +2409,7 @@ menu:on_tab("path", function(win, x, y, w, h)
         picker_cache_key = ""
         gui.sync_profile_list(false)
     end
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2), color.new(180, 170, 150, 255), "Grind profile")
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y2), C(180, 170, 150, 255), "Grind profile")
     local y3 = draw_route_button(win, x + 10, y2 + 16, field_w, current_route_entry())
     path_source = "leveling"
     local loaded = armed_path
@@ -2410,11 +2426,11 @@ menu:on_tab("path", function(win, x, y, w, h)
     if ok_pr and path_runner and type(path_runner.status_text) == "function" then
         status = path_runner.status_text()
     end
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y3), color.new(232, 222, 196, 255), string.format("%s   wp:%d   map:%s", tostring(name), count, tostring(map_id)))
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y3), C(232, 222, 196, 255), string.format("%s   wp:%d   map:%s", tostring(name), count, tostring(map_id)))
     local ready_text = ready and ("Ready for Play - " .. tostring(name)) or "Select a path, then press Load."
-    local ready_col = ready and color.new(90, 210, 110, 255) or color.new(180, 170, 150, 255)
+    local ready_col = ready and C(90, 210, 110, 255) or C(180, 170, 150, 255)
     win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 18), ready_col, ready_text)
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 36), color.new(180, 170, 150, 255), "Status: " .. tostring(status))
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y3 + 36), C(180, 170, 150, 255), "Status: " .. tostring(status))
 
     local gap = 10
     local btn_w = math.floor((w - 20 - gap) / 3)
@@ -2494,10 +2510,10 @@ menu:on_tab("vendor", function(win, x, y, w, h)
     elseif state.note_head == "Vendor" then
         line = tostring(state.note or "")
     end
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 16), color.new(248, 226, 132, 255), line)
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 40), color.new(232, 222, 196, 255), "Grind and Quest walk to the zone merchant from Grind_Information.")
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 62), color.new(180, 170, 150, 255), "Keeps hearthstone plus mage food and water. Path mode does not vendor.")
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 84), color.new(180, 170, 150, 255), "Repair uses core.input.repair_all_items. Greys/whites sell via use_container_item.")
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 16), C(248, 226, 132, 255), line)
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 40), C(232, 222, 196, 255), "Grind and Quest walk to the zone merchant from Grind_Information.")
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 62), C(180, 170, 150, 255), "Keeps hearthstone plus mage food and water. Path mode does not vendor.")
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 84), C(180, 170, 150, 255), "Repair uses core.input.repair_all_items. Greys/whites sell via use_container_item.")
 end)
 
 menu:on_tab("grind", function(win, x, y, w, h)
@@ -2508,37 +2524,55 @@ menu:on_tab("grind", function(win, x, y, w, h)
     elseif band == 5 then
         line = "Pulls enemies 5 levels below to 5 levels above you."
     end
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 8), color.new(232, 222, 196, 255), line)
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 28), color.new(180, 170, 150, 255), "Only one level option can be on. Loot Corpses pulls loot after a kill.")
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 8), C(232, 222, 196, 255), line)
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 28), C(180, 170, 150, 255), "Only one level option can be on. Loot Corpses pulls loot after a kill.")
 end)
 
 menu:on_tab("settings", function(win, x, y, w, h)
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 8), color.new(232, 222, 196, 255), "Show / hide GUI: Numpad 4.")
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 28), color.new(180, 170, 150, 255), "Path combat stays on the loaded path (10 yards) and hits the closest enemy in rotation range.")
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 8), C(232, 222, 196, 255), "Show / hide GUI: Numpad 4.")
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 28), C(180, 170, 150, 255), "Path combat stays on the loaded path (10 yards) and hits the closest enemy in rotation range.")
 end)
 
+local draw_probe = nil
+local function dprobe(tag)
+    if draw_probe == nil then
+        local ok, mod = pcall(require, "errorlog")
+        draw_probe = (ok and type(mod) == "table" and type(mod.probe) == "function") and mod.probe or false
+    end
+    if draw_probe then
+        draw_probe(tag)
+    end
+end
+
+local function draw_menu()
+    menu:draw()
+end
+
 function gui.draw()
-    pcall(function()
-        gui.sync_player(izi.me())
-    end)
+    dprobe("gui:sync_player")
+    pcall(gui.sync_player, izi.me())
     if not is_on("show_gui") then
         menu:set_visible(false)
         return
     end
     menu:set_visible(true)
+    -- Once per frame, not three times: is_started walks the quest guide, the
+    -- rotation registry and the player object.
+    local started = gui.is_started()
     local start_btn = menu.actions[1]
     local pause_btn = menu.actions[2]
     if start_btn then
-        start_btn.label = gui.is_started() and "Running" or "Start"
-        start_btn.style = gui.is_started() and "neutral" or "start"
+        start_btn.label = started and "Running" or "Start"
+        start_btn.style = started and "neutral" or "start"
     end
     if pause_btn then
-        pause_btn.label = gui.is_started() and "Pause" or "Paused"
+        pause_btn.label = started and "Pause" or "Paused"
     end
-    local ok, err = pcall(function()
-        menu:draw()
-    end)
+    dprobe("gui:menu.draw")
+    local ok, err = pcall(draw_menu)
+    dprobe("gui:sync_attack_level")
     gui.sync_attack_level()
+    dprobe("gui:done")
     if not ok then
         core.log_error("[Master Farmer - Grindbot] GUI draw failed: " .. tostring(err))
     end

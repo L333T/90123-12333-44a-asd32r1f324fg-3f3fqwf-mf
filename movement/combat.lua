@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.26.0
+-- Version: 2.27.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -441,12 +441,10 @@ function C.combat_engage(player, unit, yards)
             -- in to MELEE_STANDOFF on the line to the target. The steering
             -- search would otherwise hand back a point short of it.
             local remain = dist2(hx, hy, ux, uy)
-            if remain <= STEER_HOP + MELEE_STANDOFF and walk_open(here, goal) then
+            if remain > 0 and remain <= STEER_HOP + MELEE_STANDOFF and walk_open(here, goal) then
                 local s = (remain - MELEE_STANDOFF) / remain
-                if s > 0 then
-                    dest = pt(P_ALT, hx + (ux - hx) * s, hy + (uy - hy) * s,
-                              hz + (goal.z - hz) * s)
-                end
+                dest = pt(P_ALT, hx + (ux - hx) * s, hy + (uy - hy) * s,
+                          hz + (goal.z - hz) * s)
             end
         end
         if not dest then

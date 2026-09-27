@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.26.0
+-- Version: 2.27.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -648,16 +648,19 @@ local function on_update()
     if is_stale() then
         return
     end
+    probe("u:begin")
     pcall(collectgarbage, "step", GC_STEP)
     if errorlog then
         errorlog.tick(safe(function() return izi.now() end))
     end
+    probe("u:izi.on_update")
     pcall(function()
         izi.on_update()
     end)
     if not gui then
         return
     end
+    probe("u:keybinds")
     gui.process_keybinds()
     if movement then
         local want_debug = gui.is_on("move_debug") == true

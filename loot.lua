@@ -3,7 +3,7 @@
 -- Corpse loot after a kill (IZI: enemies_if, can_be_looted, has_loot, loot_object)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.26.0
+-- Version: 2.27.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -158,7 +158,32 @@ local function exhausted(corpse)
     return st ~= nil and (st.cycles or 0) >= MAX_CYCLES
 end
 
+-- The corpse pick is shared for PICK_TTL (2.27.0): loot.tick and the quest
+-- engine's loot.has_work both asked every frame, and each ask scans every
+-- visible object and queries every corpse in range.
+local PICK_TTL = 0.2
+local pick_t, pick_mine, pick_best, pick_d = -1, nil, nil, 99
+
+local pick_corpse_raw
+
 local function pick_corpse(player, mine_only)
+    local now = izi.now()
+    if pick_t >= 0 and now >= pick_t and (now - pick_t) < PICK_TTL and pick_mine == mine_only then
+        if pick_best == nil then
+            return nil, pick_d
+        end
+        local ok_v, valid = pcall(pick_best.is_valid, pick_best)
+        if ok_v and valid == true then
+            local ok_d, dist = pcall(player.distance_to, player, pick_best)
+            return pick_best, (ok_d and type(dist) == "number") and dist or pick_d
+        end
+    end
+    pick_best, pick_d = pick_corpse_raw(player, mine_only)
+    pick_t, pick_mine = now, mine_only
+    return pick_best, pick_d
+end
+
+pick_corpse_raw = function(player, mine_only)
     local current = state.target and state.target.unit or nil
     if current then
         local ok_dead, dead = pcall(current.is_dead, current)

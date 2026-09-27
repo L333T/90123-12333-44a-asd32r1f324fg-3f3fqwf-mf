@@ -3,7 +3,7 @@
 -- movement/steer.lua - candidate steering
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.81.0
+-- Version: 2.82.0
 -- ============================================================================
 -- Everything that decides WHERE to hop next. Nothing in this file issues a
 -- command - it only returns pool points for an actuator module to act on.
@@ -83,7 +83,12 @@ function S.pick_steer(from, goal, travel, need_los, require_clear)
         if level.hop and travel < level.hop then
             seed = extend(P_MID, from, goal, level.hop)
         end
-        -- two passes: the remembered side first, then the other side
+        -- two passes: the remembered side first, then the other side.
+        -- LEADS ON (2.82.0): a detour hop whose way onward toward the goal is
+        -- also open wins over one that ends in a pocket; the first open one
+        -- is only kept as the fallback. Stops the walk into a dead-end nook
+        -- beside an obstacle and back out again.
+        local fallback, fallback_side = nil, 0
         for pass = 1, 2 do
             for i = 1, #angles do
                 local deg = angles[i]
@@ -93,11 +98,22 @@ function S.pick_steer(from, goal, travel, need_los, require_clear)
                     local alt = rotate(P_ALT, seed, from, deg)
                     evaluated = evaluated + 1
                     if cand_ok(from, alt, goal, need_los) then
-                        R.detour_side = side
-                        return alt
+                        local onward = extend(P_SEED, alt, goal, STEER_HOP)
+                        if walk_open(alt, onward) then
+                            R.detour_side = side
+                            return alt
+                        end
+                        if not fallback then
+                            fallback = pt(P_STEP, alt.x, alt.y, alt.z)
+                            fallback_side = side
+                        end
                     end
                 end
             end
+        end
+        if fallback then
+            R.detour_side = fallback_side
+            return fallback
         end
         for i = 1, #SIDESTEP_YARDS do
             local yards = SIDESTEP_YARDS[i]

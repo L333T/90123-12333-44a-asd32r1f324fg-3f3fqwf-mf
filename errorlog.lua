@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.26.0
+-- Version: 2.27.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -240,23 +240,42 @@ end
 --
 -- Bounded by a line budget rather than time, so a burst costs a fixed amount
 -- of disk however fast frames run, and re-arming only tops the budget up.
-local probe_left = 0
-local PROBE_BURST = 2500
+-- TIME-BASED (2.27.0). A 2,500-line burst lasted ten seconds at the frame
+-- rate the recorder itself costs, and the 20:25 crash came about fifteen
+-- seconds after it ran out. The recorder now runs for PROBE_WINDOW seconds
+-- from the last arm, bounded only by the session's MAX_LINES.
+local PROBE_WINDOW = 90
+local probe_until = -1
+local probe_on = false
 
---- Arm (or top up) the recorder for another burst.
+local function now_s()
+    local ok, t = pcall(function() return core.time() end)
+    if ok and type(t) == "number" then
+        return t
+    end
+    return 0
+end
+
+--- Arm (or extend) the recorder for another PROBE_WINDOW seconds.
 function errorlog.arm(why)
-    if probe_left < PROBE_BURST then
-        probe_left = PROBE_BURST
-        write("INFO", "flight recorder armed: " .. tostring(why))
+    local until_t = now_s() + PROBE_WINDOW
+    if until_t > probe_until then
+        probe_until = until_t
+        probe_on = true
+        write("INFO", string.format("flight recorder armed for %ds: %s", PROBE_WINDOW, tostring(why)))
     end
 end
 
 --- A probe point. Free when the recorder is not armed.
 function errorlog.probe(tag)
-    if probe_left <= 0 then
+    if not probe_on then
         return
     end
-    probe_left = probe_left - 1
+    if now_s() > probe_until then
+        probe_on = false
+        write("INFO", "flight recorder window finished")
+        return
+    end
     -- The heap at each probe: a jump between two lines is what the stage in
     -- between allocated (less whatever the collector freed meanwhile).
     local ok, kb = pcall(collectgarbage, "count")
@@ -264,9 +283,6 @@ function errorlog.probe(tag)
         write("PROBE", string.format("%-40s heap %.0f KB", tostring(tag), kb))
     else
         write("PROBE", tag)
-    end
-    if probe_left == 0 then
-        write("INFO", "flight recorder burst finished")
     end
 end
 

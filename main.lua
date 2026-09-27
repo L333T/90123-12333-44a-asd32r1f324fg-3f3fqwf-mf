@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.19.0
+-- Version: 2.20.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -23,6 +23,7 @@ local PLUGIN_MODULES = {
     "conjure",
     "quest/guide",
     "debuglog",
+    "errorlog",
     "pets",
     "ui",
     "version",
@@ -77,6 +78,25 @@ local izi = require("common/izi_sdk")
 
 local identity = require("version")
 
+-- First, so everything after it can be guarded. Required with pcall: a
+-- logger that fails to load must not take the plugin with it.
+local errorlog = nil
+do
+    local ok, mod = pcall(require, "errorlog")
+    if ok and type(mod) == "table" then
+        errorlog = mod
+        errorlog.start(identity.version)
+    end
+end
+
+--- Run fn under the error log, or under a bare pcall without one.
+local function guarded(where, fn, ...)
+    if errorlog then
+        return errorlog.guard(where, fn, ...)
+    end
+    return pcall(fn, ...)
+end
+
 _G.MasterFarmer_Grindbot = _G.MasterFarmer_Grindbot or {}
 local NS = _G.MasterFarmer_Grindbot
 NS.meta = NS.meta or {
@@ -108,6 +128,9 @@ local function load_mod(name)
         return mod
     end
     core.log_error("[Master Farmer - Grindbot] require failed (" .. name .. "): " .. tostring(mod))
+    if errorlog then
+        errorlog.error("require " .. name, mod)
+    end
     return nil
 end
 
@@ -119,12 +142,7 @@ else
         if is_stale() then
             return
         end
-        local ok, err = pcall(function()
-            gui.draw()
-        end)
-        if not ok then
-            core.log_error("[Master Farmer - Grindbot] GUI: " .. tostring(err))
-        end
+        guarded("gui.draw", gui.draw)
     end)
     core.log(string.format("[Master Farmer - Grindbot] v%s GUI ready", identity.version))
 end
@@ -790,7 +808,36 @@ local function on_render()
     end
 end
 
-core.register_on_update_callback(on_update)
-core.register_on_render_callback(on_render)
+-- What the bot was doing, attached to every error in the log.
+if errorlog then
+    errorlog.set_context(function()
+        local ctx = {}
+        ctx.mode = gui and gui.mode() or "-"
+        ctx.started = gui and gui.is_started() or false
+        ctx.status = state and (tostring(state.note_head or "") .. " " .. tostring(state.note or "")) or "-"
+        local me = safe(function() return izi.me() end)
+        if me then
+            local p = safe(function() return me:get_position() end)
+            if p then
+                ctx.position = string.format("%.1f, %.1f, %.1f", p.x or 0, p.y or 0, p.z or 0)
+            end
+            ctx.level = safe(function() return me:get_level() end)
+            ctx.in_combat = safe(function() return me:is_in_combat() end)
+        end
+        ctx.map_id = safe(function() return core.get_map_id() end)
+        ctx.map = safe(function() return core.get_map_name() end)
+        if state and state.target then
+            ctx.target = state.target.kind
+        end
+        local ok_g, guide = pcall(require, "quest/guide")
+        if ok_g and type(guide) == "table" and type(guide.describe) == "function" then
+            ctx.guide = safe(guide.describe)
+        end
+        return ctx
+    end)
+end
+
+core.register_on_update_callback(function() guarded("on_update", on_update) end)
+core.register_on_render_callback(function() guarded("on_render", on_render) end)
 
 core.log(string.format("[Master Farmer - Grindbot] v%s loaded by %s", identity.version, identity.authors))

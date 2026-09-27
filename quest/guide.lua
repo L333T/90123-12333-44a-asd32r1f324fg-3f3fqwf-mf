@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.19.0
+-- Version: 2.20.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1393,6 +1393,88 @@ local function usable(wp)
 end
 
 --- Convert one waypoint into a world position, or nil.
+---
+--- WHY NOT coords_helper:map_to_world EVERY FRAME (2.20.0)
+---   map_to_world is not a pure conversion: it runs a terrain raycast at the
+---   target x,y, starting from the PLAYER's height. It was called for every
+---   step waypoint on every frame, for points that can be across the zone on
+---   terrain the client has not loaded, and it was handed a plain {x, y}
+---   table where the API declares a vec2. Questing crashed the game on start;
+---   this was the one native call that began running every frame at that
+---   moment and not in grind mode.
+---
+--- Now:
+---   * x,y come from core.game_ui.get_world_pos_from_map_pos, which converts
+---     without touching terrain, given a real vec2.
+---   * each waypoint is converted ONCE and cached.
+---   * height is only queried once the point is within HEIGHT_RANGE of the
+---     player, where its terrain is certainly loaded. Until then the player's
+---     own height stands in, which is all a far-away walk target needs.
+---   * map_to_world remains as a fallback only when the pure conversion is
+---     missing, and then at most once per waypoint.
+local HEIGHT_RANGE = 120      -- yards
+local WORLD_LIMIT = 20000     -- no WoW coordinate is larger than this
+local CONV_MAX = 400          -- cached waypoints before the cache is dropped
+
+local vec2_mod = nil
+local conv = {}               -- "map|x|y" -> { x, y, z, final } or false
+local conv_n = 0
+
+local function vec2_new(x, y)
+    if vec2_mod == nil then
+        local ok, mod = pcall(require, "common/geometry/vector_2")
+        vec2_mod = (ok and type(mod) == "table") and mod or false
+    end
+    if vec2_mod and type(vec2_mod.new) == "function" then
+        local ok, v = pcall(vec2_mod.new, x, y)
+        if ok and v ~= nil then
+            return v
+        end
+    end
+    return nil
+end
+
+local function elog()
+    local ok, mod = pcall(require, "errorlog")
+    if ok and type(mod) == "table" then
+        return mod
+    end
+    return nil
+end
+
+local function finite(n)
+    return type(n) == "number" and n == n and n > -WORLD_LIMIT and n < WORLD_LIMIT
+end
+
+local function convert(map_id, x, y)
+    local mp = vec2_new(x, y)
+    if not mp then
+        return nil
+    end
+    local gui = safe(function() return core.game_ui end)
+    if gui and type(gui.get_world_pos_from_map_pos) == "function" then
+        local ok, w = pcall(gui.get_world_pos_from_map_pos, map_id, mp)
+        if ok and w ~= nil then
+            local wx, wy = tonumber(get(w, "x")), tonumber(get(w, "y"))
+            if finite(wx) and finite(wy) and not (wx == 0 and wy == 0) then
+                return { x = wx, y = wy, z = nil, final = false }
+            end
+        end
+    end
+    -- Fallback: the raycasting helper, once for this waypoint.
+    local helper = coords()
+    if helper and type(helper.map_to_world) == "function" then
+        local ok, w = pcall(helper.map_to_world, helper, map_id, mp, 0)
+        if ok and w ~= nil then
+            local wx, wy, wz = tonumber(get(w, "x")), tonumber(get(w, "y")), tonumber(get(w, "z"))
+            if finite(wx) and finite(wy) and finite(wz) then
+                return { x = wx, y = wy, z = wz, final = true }
+            end
+        end
+    end
+    return nil
+end
+
 local function to_world(wp)
     if not usable(wp) then
         return nil
@@ -1400,26 +1482,54 @@ local function to_world(wp)
     local map_id = tonumber(wp.map_id)
     local x = tonumber(wp.x)
     local y = tonumber(wp.y)
-    if not x or not y then
+    if not x or not y or x ~= x or y ~= y or x < 0 or x > 1 or y < 0 or y > 1 then
         return nil
     end
 
-    local helper = coords()
-    if not helper or type(helper.map_to_world) ~= "function" then
+    local key = string.format("%d|%.4f|%.4f", map_id, x, y)
+    local e = conv[key]
+    if e == false then
         return nil
+    end
+    if e == nil then
+        if conv_n >= CONV_MAX then
+            conv, conv_n = {}, 0
+        end
+        e = convert(map_id, x, y)
+        conv[key] = e or false
+        conv_n = conv_n + 1
+        local log = elog()
+        if log then
+            if e then
+                log.trail("waypoint", "map %d (%.4f, %.4f) -> world (%.1f, %.1f)%s",
+                    map_id, x, y, e.x, e.y, e.final and string.format(" z %.1f", e.z) or "")
+            else
+                log.warn("waypoint map %d (%.4f, %.4f) could not be converted", map_id, x, y)
+            end
+        end
+        if not e then
+            return nil
+        end
     end
 
-    local world = safe(function()
-        return helper:map_to_world(map_id, { x = x, y = y }, 0)
-    end)
-    if type(world) ~= "table" then
-        return nil
+    local z = e.z
+    if not e.final then
+        local me = safe(function() return izi.me():get_position() end)
+        local mx, my, mz = tonumber(get(me, "x")), tonumber(get(me, "y")), tonumber(get(me, "z"))
+        if not mx or not my or not mz then
+            return nil
+        end
+        z = mz
+        local dx, dy = e.x - mx, e.y - my
+        if dx * dx + dy * dy <= HEIGHT_RANGE * HEIGHT_RANGE then
+            local ok, h = pcall(izi.get_terrain_height, e.x, e.y)
+            if ok and finite(h) and math.abs(h - mz) < 200 then
+                e.z, e.final = h, true
+                z = h
+            end
+        end
     end
-    local wx, wy, wz = tonumber(world.x), tonumber(world.y), tonumber(world.z)
-    if not wx or not wy or not wz then
-        return nil
-    end
-    return vec3.new(wx, wy, wz)
+    return vec3.new(e.x, e.y, z)
 end
 
 local function raw_waypoint()

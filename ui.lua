@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.60.0
+-- Version: 2.61.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -324,6 +324,21 @@ end
 
 local _assets_logged = false
 
+-- 2.61.0: strings handed to the native texture / font loaders are KEPT.
+-- Since 2.21.0 main.lua runs a garbage-collector step every frame; the logo
+-- is uploaded from the Lua string's memory, and once that string had been
+-- collected the logo came out blank.
+local _asset_keep = {}
+
+-- Logo steps also go to the MASTER_FARMER_ERRORS session log, so a missing
+-- logo says why in a file we can read.
+local function elog(fmt, ...)
+    local el = package.loaded["errorlog"]
+    if type(el) == "table" and type(el.info) == "function" then
+        pcall(el.info, fmt, ...)
+    end
+end
+
 local function looks_like_html(data)
     if type(data) ~= "string" or data == "" then
         return false
@@ -413,6 +428,7 @@ local function load_custom_font(path, size)
         return core.graphics.load_font(data, size)
     end)
     if type(font_id) == "number" and font_id ~= 0 then
+        _asset_keep["font" .. tostring(size)] = data
         return font_id
     end
     return nil
@@ -582,6 +598,7 @@ local function logo_warn(key, text)
     if _logo_warned[key] then return end
     _logo_warned[key] = true
     pcall(function() core.log_warning("[Master Farmer - Grindbot] Logo: " .. text) end)
+    elog("logo: %s", text)
 end
 
 function Menu:ensure_logo()
@@ -609,7 +626,11 @@ function Menu:ensure_logo()
         logo_warn("decode", string.format("core.graphics.load_texture rejected the %d-byte image - retrying.", #bytes))
     end
     if ok and tex_id ~= nil then
+        _asset_keep.logo = bytes
+        elog("logo: texture loaded - id %s (%s), %sx%s, %d bytes",
+            tostring(tex_id), type(tex_id), tostring(w), tostring(h), #bytes)
         self._logo_tex = {
+            bytes = bytes,
             id = tex_id,
             w = (type(w) == "number" and w > 0) and w or self.logo_width,
             h = (type(h) == "number" and h > 0) and h or self.logo_height,
@@ -656,6 +677,10 @@ function Menu:draw_logo_texture(win, lx, ly, dw, dh)
         if not ok then
             logo_warn("draw", "draw_texture and draw_texture_rect both failed.")
         end
+    end
+    if ok and not _logo_warned.first_draw then
+        _logo_warned.first_draw = true
+        elog("logo: first draw at %.0f,%.0f size %dx%d", sx, sy, dw, dh)
     end
     return ok == true
 end

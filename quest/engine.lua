@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.75.0
+-- Version: 2.76.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -719,6 +719,13 @@ local function kill_goal(player, goal, kind, wps, label)
     g_scan_until = now + SCAN_GAP
     -- A mob RestedXP has marked with a raid icon comes first (2.53.0).
     local unit = guide.find_marked(player, MOB_RANGE, "hostile")
+    -- Not one combat movement has given up on (2.76.0): it was re-engaged
+    -- every 0.8 s - engage, "Skip unreachable", engage - for as long as the
+    -- mark stayed on it.
+    if unit and type(state.is_unreachable) == "function"
+        and state.is_unreachable(safe(function() return unit:get_guid() end)) then
+        unit = nil
+    end
     if unit then
         trail("act", "raid-marked target %s", tostring(safe(function() return unit:get_name() end)))
     else

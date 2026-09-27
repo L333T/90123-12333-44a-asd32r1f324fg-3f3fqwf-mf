@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.50.0
+-- Version: 2.51.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -278,6 +278,11 @@ menu:checkbox("mfg_skip_trivial", true, {
     tab = "questing",
     tooltip = "Skip a quest the NPC reports as trivial (grey). The bot moves on to the step's next goal; advance the RestedXP guide yourself if the whole step was that quest.",
 })
+menu:checkbox("mfg_quest_path_pull", true, {
+    label = "Kill mobs on the way",
+    tab = "questing",
+    tooltip = "While walking to a quest waypoint or NPC, fight hostile mobs within 20 yards ahead on the way (4 levels below to 3 above you, no critters, nothing tagged by another player), loot them, then carry on.",
+})
 menu:checkbox("mfg_crash_recorder", false, {
     label = "Crash recorder (slows the game)",
     tab = "questing",
@@ -456,6 +461,7 @@ local aliases = {
     rest_debug = "mfg_rest_debug",
     quest_debug = "mfg_quest_debug",
     crash_recorder = "mfg_crash_recorder",
+    quest_path_pull = "mfg_quest_path_pull",
     skip_trivial = "mfg_skip_trivial",
     train = "mfg_train",
     vendor_each_lap = "mfg_vendor_each_lap",

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.88.0
+-- Version: 2.89.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -284,7 +284,13 @@ menu:checkbox("mfg_quest_path_pull", true, {
     tooltip = "While walking to a quest waypoint or NPC, fight hostile mobs within 20 yards ahead on the way (4 levels below to 3 above you, no critters, nothing tagged by another player), loot them, then carry on.",
 })
 -- Light, automatic crash capture (2.87.0) - see errorlog.arm_light.
-menu:checkbox("mfg_crash_capture", true, {
+menu:checkbox("mfg_session_detail", false, {
+    label = "Detailed session log",
+    tab = "general",
+    tooltip = "Writes a heartbeat line to scripts_log/MASTER_FARMER_ERRORS every bot tick (10 a second). Off by default: frequent disk writes into a OneDrive folder are a suspect in the game shutdowns. Errors, warnings and trail lines are always written.",
+})
+-- Off by default since 2.89.0 (see the session log box above).
+menu:checkbox("mfg_crash_capture", false, {
     label = "Auto crash capture",
     tab = "general",
     tooltip = "Records every step for 1.5 s whenever the bot starts closing on a new target or finishes a rest - the moments every recent game shutdown happened in - so the log names the call. Costs a brief hitch at those moments. Leave on until the shutdowns are fixed.",
@@ -479,6 +485,7 @@ local aliases = {
     quest_debug = "mfg_quest_debug",
     crash_recorder = "mfg_crash_recorder",
     crash_capture = "mfg_crash_capture",
+    session_detail = "mfg_session_detail",
     quest_path_pull = "mfg_quest_path_pull",
     skip_trivial = "mfg_skip_trivial",
     train = "mfg_train",

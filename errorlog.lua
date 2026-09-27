@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.86.0
+-- Version: 2.87.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -287,6 +287,47 @@ local function now_s()
     return 0
 end
 
+-- ----------------------------------------------------------------------------
+-- LIGHT CAPTURE (2.87.0)
+-- ----------------------------------------------------------------------------
+-- Every game shutdown traced on 2026-09-27 came 0.6-1 s after the bot began
+-- closing on a target (a new engage / pull, or a rest ending) - and the full
+-- recorder, being opt-in and heavy, was never on. The light capture is armed
+-- for a short window at exactly those moments. It writes every bot-decision
+-- probe, but not the per-frame window drawing, and each per-frame movement
+-- probe at most every LIGHT_FRAME_GAP s - a short hitch per pull rather than
+-- a game at a fraction of its frame rate. The last PROBE line before a
+-- shutdown names the call it happened in.
+local light_until = -1
+local light_last = {}          -- per-frame tag -> last write time
+local LIGHT_FRAME_GAP = 0.1
+
+local function light_skip(tag)
+    if tag == "-" or tag == "on_render" or tag == "u:begin" or tag == "u:keybinds"
+        or tag == "u:izi.on_update" or tag == "gui.draw" or tag:find("^gui:") then
+        return true
+    end
+    if tag:find("^mv:") or tag == "u:movement.pulse" then
+        local t = now_s()
+        if (t - (light_last[tag] or -1)) < LIGHT_FRAME_GAP then
+            return true
+        end
+        light_last[tag] = t
+    end
+    return false
+end
+
+--- Arm the light capture for `seconds` (extends, never shortens).
+function errorlog.arm_light(seconds, why)
+    local until_t = now_s() + (tonumber(seconds) or 1.5)
+    if until_t > light_until then
+        if light_until < now_s() then
+            write("INFO", "light capture: " .. tostring(why))
+        end
+        light_until = until_t
+    end
+end
+
 --- Arm (or extend) the recorder for another PROBE_WINDOW seconds.
 function errorlog.arm(why)
     local until_t = now_s() + PROBE_WINDOW
@@ -380,6 +421,9 @@ function errorlog.probe(tag)
         beat_tags[beat_n] = (tag:gsub("^u:", ""))
     end
     if not probe_on then
+        if light_until > 0 and now_s() <= light_until and not light_skip(tag) then
+            write("PROBE", tag)
+        end
         return
     end
     if now_s() > probe_until then

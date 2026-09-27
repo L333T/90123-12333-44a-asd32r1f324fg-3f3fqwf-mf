@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.86.0
+-- Version: 2.87.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -735,6 +735,12 @@ function resting_mod.tick(player, opts)
             hp, eat_at, mana, has_mana and drink_at or 0)
         if resting then
             rtrail("done - HP %.0f MP %.0f", hp, mana)
+            -- The fight resumes right after a rest: capture its first moments.
+            local el = elog()
+            local ok_g, gui_m = pcall(require, "gui")
+            if el and type(el.arm_light) == "function" and ok_g and gui_m and gui_m.is_on("crash_capture") then
+                pcall(el.arm_light, 1.5, "rest done")
+            end
             reset_use_state()
             if movement and type(movement.set_resting) == "function" then
                 movement.set_resting(false)

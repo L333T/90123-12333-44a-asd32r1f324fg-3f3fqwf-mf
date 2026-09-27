@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.86.0
+-- Version: 2.87.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -299,6 +299,14 @@ function C.combat_engage(player, unit, yards)
     local ok_g, guid = pcall(unit.get_guid, unit)
     if not ok_g then guid = nil end
     if guid == nil or R.combat_guid ~= guid then
+        -- Light crash capture over the first moments of the approach (2.87.0).
+        local ok_gui, gui_m = pcall(require, "gui")
+        if ok_gui and gui_m and type(gui_m.is_on) == "function" and gui_m.is_on("crash_capture") then
+            local ok_e, el = pcall(require, "errorlog")
+            if ok_e and type(el) == "table" and type(el.arm_light) == "function" then
+                el.arm_light(1.5, "approach a new target")
+            end
+        end
         -- new target: the hysteresis latch and the retreat latch describe the
         -- old one, so carrying them over would mis-band the first approach.
         R.combat_stopped = false

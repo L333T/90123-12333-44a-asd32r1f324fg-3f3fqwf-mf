@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.66.0
+-- Version: 2.67.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -152,6 +152,35 @@ local function rest_debug(fmt, ...)
     end
     dbg_last_msg, dbg_last_t = msg, t
     core.log("[Master Farmer - Grindbot] rest: " .. msg)
+end
+
+-- The session log (2.67.0). rest_debug only reaches the in-game console,
+-- and only with the Rest debug box ticked, so a rest that never started - no
+-- water in the bags, a threat nearby, the client refusing the item - left
+-- nothing in scripts_log. These go to MASTER_FARMER_ERRORS as TRAIL lines
+-- (written only when they change), and the item use itself is probed, so an
+-- armed flight recorder names it if the game dies there.
+local errorlog_mod = nil
+local function elog()
+    if errorlog_mod == nil then
+        local ok, m = pcall(require, "errorlog")
+        errorlog_mod = (ok and type(m) == "table") and m or false
+    end
+    return errorlog_mod or nil
+end
+
+local function rtrail(fmt, ...)
+    local el = elog()
+    if el and type(el.trail) == "function" then
+        pcall(el.trail, "rest", fmt, ...)
+    end
+end
+
+local function rprobe(tag)
+    local el = elog()
+    if el and type(el.probe) == "function" then
+        pcall(el.probe, tag)
+    end
 end
 
 local function pcall_item(id)
@@ -315,6 +344,7 @@ local function use_first(ids)
             local ready = safe(function() return item:cooldown_up() end) == true
             if count > 0 and ready then
                 held = held + 1
+                rprobe("rest:use " .. tostring(ids[i]))
                 local ok = safe(function()
                     return item:use_self_safe("Consume", USE_OPTS)
                 end)
@@ -325,7 +355,9 @@ local function use_first(ids)
                     -- the plain use rather than stall the whole rest.
                     ok = safe(function() return item:use_self("Consume") end)
                 end
+                rprobe("rest:used")
                 if ok == true then
+                    rtrail("used %s", tostring(safe(function() return item:name() end) or ids[i]))
                     return true
                 end
                 refused = refused or (safe(function() return item:name() end) or ids[i])
@@ -598,6 +630,7 @@ local function consume_one(st, kind, ids, aura_up, now, aura_list)
     -- is stalled. Say so - once per rest, naming the reason.
     if st.use_failed ~= why then
         st.use_failed = why
+        rtrail("%s: %s", kind, tostring(why))
         core.log_warning(string.format(
             "[Master Farmer - Grindbot] Tried to use %s and nothing happened: %s.", kind, tostring(why)))
     end
@@ -682,6 +715,7 @@ function resting_mod.tick(player, opts)
             miss_logged = true
             core.log_warning("[Master Farmer - Grindbot] Eat/drink skipped - no usable food in bags.")
         end
+        rtrail("HP %.0f is at the eat line but there is no usable food in the bags - not resting", hp)
     end
     if rest_drink == true and drinking ~= true and mana < REST_DONE and has_usable(waters) ~= true then
         end_kind(drink_state)
@@ -690,6 +724,7 @@ function resting_mod.tick(player, opts)
             miss_logged = true
             core.log_warning("[Master Farmer - Grindbot] Eat/drink skipped - no usable water in bags.")
         end
+        rtrail("MP %.0f is at the drink line but there is no usable water in the bags - not resting", mana)
     end
     if rest_eat == true or rest_drink == true then
         miss_logged = false
@@ -699,6 +734,7 @@ function resting_mod.tick(player, opts)
         rest_debug("no rest needed - HP %.0f (eat at %.0f) MP %.0f (drink at %.0f)",
             hp, eat_at, mana, has_mana and drink_at or 0)
         if resting then
+            rtrail("done - HP %.0f MP %.0f", hp, mana)
             reset_use_state()
             if movement and type(movement.set_resting) == "function" then
                 movement.set_resting(false)
@@ -720,6 +756,8 @@ function resting_mod.tick(player, opts)
             local name = safe(function() return threat:get_name() end) or "mob"
             rest_debug("hostile %s within %d yards - moving away to rest", tostring(name), REST_CLEAR_YARDS)
             state.set_note("Rest", string.format("Moving away from %s to rest", tostring(name)))
+            rtrail("rest needed (HP %.0f MP %.0f) - moving away from %s", hp, mana, tostring(name))
+            rprobe("rest:move_away")
             move_away_from(player, threat)
             return true               -- hold the tick: no new pull at low health
         end
@@ -727,7 +765,18 @@ function resting_mod.tick(player, opts)
     end
     move_since = 0
 
+    if not resting then
+        rtrail("start - HP %.0f (eat %s) MP %.0f (drink %s)", hp, tostring(rest_eat), mana, tostring(rest_drink))
+        -- The flight recorder, when its box is ticked, covers the start of
+        -- every rest: the halt, the sit and the first item use.
+        local el = elog()
+        local ok_g, gui_m = pcall(require, "gui")
+        if el and type(el.arm) == "function" and ok_g and gui_m and gui_m.is_on("crash_recorder") then
+            pcall(el.arm, "rest start")
+        end
+    end
     resting = true
+    rprobe("rest:halt")
     rest_debug("resting - HP %.0f MP %.0f - eat=%s drink=%s - %d food / %d water ids known",
         hp, mana, tostring(rest_eat), tostring(rest_drink), #foods, #waters)
     halt_for_rest(player)

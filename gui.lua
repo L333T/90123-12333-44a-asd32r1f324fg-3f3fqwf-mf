@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.43.0
+-- Version: 2.44.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1519,6 +1519,11 @@ local function stop_bot()
     if ok_vendor and vendor and type(vendor.reset) == "function" then
         vendor.reset()
     end
+end
+
+--- Stop the bot, as the Stop button does. Used by the NPC-stuck watchdog.
+function gui.stop()
+    stop_bot()
 end
 
 local function toggle_gui()

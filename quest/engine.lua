@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.43.0
+-- Version: 2.44.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -71,6 +71,7 @@ local g_loot_wait = false
 local g_label = "fighting"
 -- Talk goals: when the NPC's frame first showed open. 0 while it is not.
 local g_talk_opened = 0
+local g_in_dialog = false      -- the last tick was spent on an NPC dialog goal
 local TALK_DONE = 2.0         -- seconds a frame is left open before the goal counts
 
 -- The NPC the bot opened a dialog with, remembered until the goal changes so
@@ -608,6 +609,7 @@ function quest.tick(player)
 end
 
 tick_inner = function(player)
+    g_in_dialog = false
     -- FIGHT FIRST (2.38.0). Anything attacking the player, and the fight
     -- already under way, come before every other branch of this tick. The
     -- early returns below (RestedXP not loaded, no active step, step
@@ -701,6 +703,7 @@ tick_inner = function(player)
 
     if kind == "accept" or kind == "turnin" or kind == "talk" then
         if dialog_goal(player, goal, kind, wps, label) then
+            g_in_dialog = true
             return
         end
     elseif kind == "item" then
@@ -754,6 +757,23 @@ end
 -- ----------------------------------------------------------------------------
 -- STATUS
 -- ----------------------------------------------------------------------------
+
+--- Was the last tick spent on an accept / turn in / talk goal at an NPC?
+--- Read by the NPC-stuck watchdog.
+function quest.in_npc_interaction()
+    return g_in_dialog == true
+end
+
+--- Count the current guide goal as done - the watchdog's way out of an NPC
+--- the bot has been stuck at.
+function quest.skip_current_goal()
+    local goal = guide.goal()
+    if goal and goal.index then
+        guide.mark_goal_done(guide.step_num(), goal.index)
+    end
+    g_talk_opened = 0
+    g_key = nil
+end
 
 function quest.is_ready(player)
     return player ~= nil and guide.is_loaded()

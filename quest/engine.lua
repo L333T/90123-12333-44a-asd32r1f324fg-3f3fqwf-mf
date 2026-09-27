@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.41.0
+-- Version: 2.42.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -69,6 +69,9 @@ local SOURCE_PATIENCE = 30.0  -- seconds of walking before any camp mob will do
 local g_armed_engage = false
 local g_loot_wait = false
 local g_label = "fighting"
+-- Talk goals: when the NPC's frame first showed open. 0 while it is not.
+local g_talk_opened = 0
+local TALK_DONE = 2.0         -- seconds a frame is left open before the goal counts
 
 -- The NPC the bot opened a dialog with, remembered until the goal changes so
 -- it can be recorded as that quest's giver once the accept or turnin lands.
@@ -440,9 +443,37 @@ local function dialog_goal(player, goal, kind, wps, label)
     -- Talk / trainer / vendor / flight master: open the frame, and let the
     -- trainer, vendor and dialog modules act on it. Rate limited, because
     -- re-interacting tears down the frame that just opened.
+    --
+    -- DONE ONCE THE FRAME HAS OPENED (2.42.0). This interacted every ACT_GAP
+    -- unless a GOSSIP frame was open - a merchant window is not one - and
+    -- RestedXP does not tick every vendor / trainer / flight step off by
+    -- itself, so the bot stood at the NPC re-interacting after the vendor had
+    -- long finished. Now: once any NPC frame is open (gossip, merchant,
+    -- trainer) and the vendor trip is over, the goal counts as done after
+    -- TALK_DONE and the bot moves on.
     local now = izi.now()
-    local open = safe(function() return core.quests.is_gossip_frame_shown() end) == true
-    if not open and now >= g_act_until then
+    local gossip = safe(function() return core.quests.is_gossip_frame_shown() end) == true
+    local ok_v, vendor = pcall(require, "vendor")
+    local merchant = ok_v and type(vendor) == "table" and type(vendor.merchant_open) == "function"
+        and vendor.merchant_open() == true
+    local trainer_n = safe(function() return core.quests.get_num_trainer_services() end)
+    local trainer = type(trainer_n) == "number" and trainer_n > 0
+    if gossip or merchant or trainer then
+        if g_talk_opened == 0 then
+            g_talk_opened = now
+        end
+        local busy = ok_v and type(vendor) == "table" and type(vendor.is_busy) == "function" and vendor.is_busy()
+        if not busy and (now - g_talk_opened) >= TALK_DONE then
+            trail("act", "talk goal done at %s", tostring(safe(function() return unit:get_name() end)))
+            guide.mark_goal_done(guide.step_num(), goal.index)
+            pcall(function() core.quests.close_gossip() end)
+            g_talk_opened = 0
+            return true
+        end
+        state.set_note("Quest", "Guide: at " .. label)
+        return true
+    end
+    if now >= g_act_until then
         g_act_until = now + ACT_GAP
         pcall(function() core.input.interact_with_object(unit) end)
         debug("talk to %s", tostring(how))
@@ -638,6 +669,7 @@ tick_inner = function(player)
         g_act_until = 0
         g_kill_until = 0
         g_nosource_since = 0
+        g_talk_opened = 0
         -- A step change mid-fight keeps the fight; only an idle target is
         -- dropped.
         if safe(function() return player:is_in_combat() end) ~= true then

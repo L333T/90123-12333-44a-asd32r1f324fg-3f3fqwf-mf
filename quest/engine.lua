@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.44.0
+-- Version: 2.45.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -72,6 +72,7 @@ local g_label = "fighting"
 -- Talk goals: when the NPC's frame first showed open. 0 while it is not.
 local g_talk_opened = 0
 local g_in_dialog = false      -- the last tick was spent on an NPC dialog goal
+local g_in_travel = false      -- the last tick was spent walking to a waypoint
 local TALK_DONE = 2.0         -- seconds a frame is left open before the goal counts
 
 -- The NPC the bot opened a dialog with, remembered until the goal changes so
@@ -316,6 +317,7 @@ local function walk_to(pos, note)
         return true
     end
     state.set_note("Quest", "Guide: " .. note)
+    g_in_travel = true
     if not movement.is_moving() then
         movement.nav_to(pos, true)
     end
@@ -610,6 +612,7 @@ end
 
 tick_inner = function(player)
     g_in_dialog = false
+    g_in_travel = false
     -- FIGHT FIRST (2.38.0). Anything attacking the player, and the fight
     -- already under way, come before every other branch of this tick. The
     -- early returns below (RestedXP not loaded, no active step, step
@@ -757,6 +760,11 @@ end
 -- ----------------------------------------------------------------------------
 -- STATUS
 -- ----------------------------------------------------------------------------
+
+--- Was the last tick spent walking toward a waypoint? Read by the watchdog.
+function quest.in_travel()
+    return g_in_travel == true
+end
 
 --- Was the last tick spent on an accept / turn in / talk goal at an NPC?
 --- Read by the NPC-stuck watchdog.

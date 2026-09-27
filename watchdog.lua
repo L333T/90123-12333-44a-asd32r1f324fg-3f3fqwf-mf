@@ -3,7 +3,7 @@
 -- NPC-stuck watchdog
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.44.0
+-- Version: 2.45.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY NOT A GAME RELOAD
@@ -170,12 +170,110 @@ local function recover(player, now)
     state.set_note("Watchdog", "Was stuck at an NPC - reset and walked away")
 end
 
+-- ----------------------------------------------------------------------------
+-- STUCK TRAVELLING -> HEARTHSTONE (2.45.0)
+-- ----------------------------------------------------------------------------
+-- Travelling (the quest engine walking to a waypoint, or navigation moving
+-- the character) for TRAVEL_STUCK seconds without getting TRAVEL_PROGRESS
+-- yards from where the stretch began. Fights, rests, loot and NPC visits are
+-- not travel and restart the clock. The fix is Hearthstone 6948: stop, cast
+-- (10 s), and hold every tick for HEARTH_HOLD so nothing moves the character
+-- and cancels it; the guide re-routes from home. With the stone on cooldown
+-- or missing, log it, walk off 20 yd to try another line, and start again.
+local HEARTHSTONE = 6948
+local TRAVEL_STUCK = 300.0
+local TRAVEL_PROGRESS = 20
+local HEARTH_HOLD = 12.0
+local travel_since = 0
+local travel_anchor = nil
+local hearth_until = 0
+
+local function travelling()
+    local quest = loaded("quest/engine")
+    if quest and type(quest.in_travel) == "function" and quest.in_travel() then
+        return true
+    end
+    local movement = req("movement")
+    return movement and type(movement.is_navigating) == "function" and movement.is_navigating() == true
+end
+
+local function use_hearthstone(player)
+    local item = safe(function() return izi.item(HEARTHSTONE) end)
+    if not item then
+        return false, "no hearthstone API"
+    end
+    if safe(function() return item:in_inventory() end) ~= true then
+        return false, "Hearthstone is not in the bags"
+    end
+    if safe(function() return item:cooldown_up() end) == false then
+        local left = safe(function() return item:cooldown_remains() end)
+        return false, string.format("Hearthstone on cooldown (%s s)", tostring(left and math.floor(left) or "?"))
+    end
+    local movement = req("movement")
+    if movement and type(movement.nav_stop) == "function" then
+        movement.nav_stop()
+    end
+    local ok = safe(function() return item:use_self("Hearthstone - stuck travelling") end) == true
+    if not ok then
+        ok = safe(function() return item:use_self_safe("Hearthstone - stuck travelling") end) == true
+    end
+    return ok, ok and nil or "Hearthstone use was refused"
+end
+
+local function travel_tick(player, now)
+    -- A hearth cast in progress: stand still until it has had time to land.
+    if now < hearth_until then
+        local movement = req("movement")
+        if movement and type(movement.nav_stop) == "function" then
+            movement.nav_stop()
+        end
+        state.set_note("Watchdog", "Hearthstone - stuck travelling")
+        return true
+    end
+    local in_combat = safe(function() return player:is_in_combat() end) == true
+    if in_combat or not travelling() then
+        travel_since, travel_anchor = 0, nil
+        return false
+    end
+    local pos = safe(function() return player:get_position() end)
+    if not pos then
+        return false
+    end
+    if travel_since == 0 or not travel_anchor then
+        travel_since, travel_anchor = now, { x = pos.x, y = pos.y }
+        return false
+    end
+    local dx, dy = pos.x - travel_anchor.x, pos.y - travel_anchor.y
+    if dx * dx + dy * dy >= TRAVEL_PROGRESS * TRAVEL_PROGRESS then
+        travel_since, travel_anchor = now, { x = pos.x, y = pos.y }
+        return false
+    end
+    if (now - travel_since) < TRAVEL_STUCK then
+        return false
+    end
+    travel_since, travel_anchor = 0, nil
+    local ok, why = use_hearthstone(player)
+    if ok then
+        log("Stuck travelling to a waypoint for %d minutes - using the Hearthstone.", math.floor(TRAVEL_STUCK / 60))
+        hearth_until = now + HEARTH_HOLD
+        state.set_note("Watchdog", "Hearthstone - stuck travelling")
+        return true
+    end
+    log("Stuck travelling to a waypoint for %d minutes, and %s - walking off to try another line.",
+        math.floor(TRAVEL_STUCK / 60), tostring(why))
+    walk_away(player)
+    return true
+end
+
 --- Called once per bot tick while the bot is running.
 function watchdog.tick(player)
     if not player then
         return false
     end
     local now = izi.now()
+    if travel_tick(player, now) then
+        return true
+    end
     if at_npc() then
         if since == 0 or (now - last_seen) > GAP_FORGIVE then
             since = now
@@ -195,6 +293,7 @@ end
 --- Forget the current stretch (bot stopped or restarted).
 function watchdog.reset()
     since, last_seen = 0, 0
+    travel_since, travel_anchor, hearth_until = 0, nil, 0
 end
 
 return watchdog

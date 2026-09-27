@@ -3,7 +3,7 @@
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.34.0
+-- Version: 2.35.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
@@ -63,6 +63,10 @@ local MAX_FAILS = 2           -- failed attempts before an item is skipped
 local attempt = nil           -- { bag, slot, item_id, label, t }
 local fail_count = {}         -- item id -> failed attempts
 local failed_ids = {}         -- item id -> true: skipped this session
+-- After any weapon-slot equip, no other for WEAPON_COOLDOWN (2.35.0): a
+-- belt-and-braces stop on main-hand / off-hand oscillation.
+local WEAPON_COOLDOWN = 30.0
+local weapon_until = 0
 
 -- Far in the past, not 0: the first tick must be able to act regardless of what
 -- izi.now() happens to be, instead of sitting out the gap once at startup.
@@ -331,6 +335,34 @@ local function equipped_info(player, slot)
     return item_info(id)
 end
 
+--- equip_loc of whatever is worn in `slot`, or nil when the slot is empty.
+local function equipped_loc(player, slot)
+    local info = equipped_info(player, slot)
+    return info and info.equip_loc or nil
+end
+
+local OFFHAND_LOCS = {
+    INVTYPE_SHIELD = true, INVTYPE_HOLDABLE = true, INVTYPE_WEAPONOFFHAND = true,
+}
+local WEAPON_SLOT_SET = { [SLOT.MAINHAND] = true, [SLOT.OFFHAND] = true, [SLOT.RANGED] = true }
+
+--- Would equipping an item of `loc` make the game swap another hand out?
+---
+--- A shield / off-hand / held item unequips a worn two-hander, and a
+--- two-hander unequips whatever is in the off-hand. find_upgrade judged each
+--- slot on its own, so it equipped a shield (two-hander goes to the bags),
+--- then saw an empty main hand and equipped the two-hander (shield goes to
+--- the bags), and so on - the swap the 21:20 crash happened on.
+local function hands_conflict(player, loc)
+    if OFFHAND_LOCS[loc] then
+        return equipped_loc(player, SLOT.MAINHAND) == "INVTYPE_2HWEAPON"
+    end
+    if loc == "INVTYPE_2HWEAPON" then
+        return equipped_info(player, SLOT.OFFHAND) ~= nil
+    end
+    return false
+end
+
 --- Best target slot for a candidate: an empty one if there is any, otherwise
 --- the one holding the weakest item.
 local function pick_slot(player, slots)
@@ -408,6 +440,10 @@ local function find_upgrade(player)
                         slots = WEAPON_SLOTS[loc]
                     end
                 end
+                local weapon_slot = slots and WEAPON_SLOT_SET[slots[1]] == true
+                if slots and weapon_slot and (izi.now() < weapon_until or hands_conflict(player, loc)) then
+                    slots = nil
+                end
                 if slots then
                     local usable, _, why_not = equip.usable_by(player, info)
                     if usable then
@@ -416,7 +452,7 @@ local function find_upgrade(player)
                             local ok, why = better_than(info, cur)
                             if ok then
                                 local name = info.name or ("item " .. tostring(item_id))
-                                return entry.bag, entry.slot, name .. " (" .. tostring(why) .. ")", item_id
+                                return entry.bag, entry.slot, name .. " (" .. tostring(why) .. ")", item_id, weapon_slot
                             end
                         end
                     elseif gui.is_on("equip_debug") then
@@ -462,6 +498,26 @@ function equip.tick(player)
     if safe(function() return player:is_dead_or_ghost() end) == true then
         return false
     end
+    -- Only between fights (2.35.0). The in-combat check alone let it swap a
+    -- shield in while closing on a wolf at 2.8 yards - not yet "in combat",
+    -- but the rotation already starting auto-attack. No equip while there is
+    -- a live kill target, while combat movement owns the player, or while a
+    -- corpse is waiting to be looted.
+    local tgt = state.target and state.target.unit
+    if tgt and state.target.kind == "kill"
+        and safe(function() return tgt:is_valid() end) == true
+        and safe(function() return tgt:is_dead() end) ~= true then
+        return false
+    end
+    local ok_m, movement = pcall(require, "movement")
+    if ok_m and movement and type(movement.in_combat_movement) == "function"
+        and movement.in_combat_movement() then
+        return false
+    end
+    local ok_l, loot = pcall(require, "loot")
+    if ok_l and loot and type(loot.has_work) == "function" and loot.has_work(player) then
+        return false
+    end
 
     local now = izi.now()
 
@@ -502,9 +558,12 @@ function equip.tick(player)
     end
     last_scan = now
 
-    local bag, slot, label, item_id = find_upgrade(player)
+    local bag, slot, label, item_id, weapon_slot = find_upgrade(player)
     if not bag then
         return false
+    end
+    if weapon_slot then
+        weapon_until = now + WEAPON_COOLDOWN
     end
 
     last_act = now

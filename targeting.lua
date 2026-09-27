@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.77.0
+-- Version: 2.78.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -661,6 +661,12 @@ function targeting.start_auto_attack(player, unit)
     end
     local d = call(player.distance_to, player, unit)
     if type(d) == "number" and d > AUTO_REACH then
+        return false
+    end
+    -- Not through a wall (2.78.0).
+    local ok_m, movement = pcall(require, "movement")
+    if ok_m and type(movement) == "table" and type(movement.has_los) == "function"
+        and movement.has_los(player, unit) ~= true then
         return false
     end
     local g = call(unit.get_guid, unit)

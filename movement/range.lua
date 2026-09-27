@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.77.0
+-- Version: 2.78.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach
@@ -75,15 +75,16 @@ end
 -- ============================================================================
 --- Distance + LoS to a unit, with every verified LoS path tried in turn.
 --- Returns in_range, distance, has_los.
-function Rg.in_fight_range(player, unit, yards)
-    yards = tonumber(yards) or 20
-    if yards < 5 then yards = 5 end
-    if not player or not unit then return false, 99, false end
-    local ok, range = pcall(player.distance_to, player, unit)
-    if not ok or type(range) ~= "number" then return false, 99, false end
+-- LINE OF SIGHT, shared (2.78.0). The rotation checked only range before a
+-- cast, so it kept casting into walls ("Target not in line of sight") while
+-- combat movement - which did check LoS - was still repositioning. Answers
+-- are cached per unit for LOS_TTL so several spells checked in one tick cost
+-- one set of native calls.
+local LOS_TTL = 0.25
+local los_cache = { guid = nil, t = -1, v = false }
 
-    local has_los
-    ok, has_los = pcall(player.los_to, player, unit)
+local function raw_los(player, unit, range)
+    local ok, has_los = pcall(player.los_to, player, unit)
     has_los = ok and has_los == true
     if not has_los and type(izi.is_los) == "function" then
         ok, has_los = pcall(izi.is_los, player, unit)
@@ -103,7 +104,36 @@ function Rg.in_fight_range(player, unit, yards)
                             pt(P_DEST, ux, uy, uz + uh - EYE_Z), FLAG_LOS) == true
         end
     end
-    if range <= 3 then has_los = true end
+    if type(range) == "number" and range <= 3 then has_los = true end
+    return has_los == true
+end
+
+--- Can the player see `unit`? Cached briefly per unit.
+function Rg.has_los(player, unit)
+    if not player or not unit then return false end
+    local okg, guid = pcall(unit.get_guid, unit)
+    local t = izi.now()
+    if okg and guid ~= nil and guid == los_cache.guid and (t - los_cache.t) < LOS_TTL then
+        return los_cache.v
+    end
+    local okd, range = pcall(player.distance_to, player, unit)
+    local v = raw_los(player, unit, okd and range or nil)
+    los_cache.guid, los_cache.t, los_cache.v = okg and guid or nil, t, v
+    return v
+end
+
+function Rg.in_fight_range(player, unit, yards)
+    yards = tonumber(yards) or 20
+    if yards < 5 then yards = 5 end
+    if not player or not unit then return false, 99, false end
+    local ok, range = pcall(player.distance_to, player, unit)
+    if not ok or type(range) ~= "number" then return false, 99, false end
+
+    local has_los = raw_los(player, unit, range)
+    local okg, guid = pcall(unit.get_guid, unit)
+    if okg and guid ~= nil then
+        los_cache.guid, los_cache.t, los_cache.v = guid, izi.now(), has_los
+    end
 
     -- `range` is centre to centre, so comparing it straight against `yards`
     -- puts a large mob out of the fight while the player is standing in its

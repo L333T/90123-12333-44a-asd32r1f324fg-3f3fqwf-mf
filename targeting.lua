@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.80.0
+-- Version: 2.81.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -143,6 +143,63 @@ local function tap_denied(unit)
     return false
 end
 
+-- ----------------------------------------------------------------------------
+-- CAN THE PLAYER SEE IT? (2.81.0)
+-- ----------------------------------------------------------------------------
+-- New targets only: a mob behind a wall, down a mine shaft under the player,
+-- or on a ledge overhead was picked, walked at and cast at ("Target not in
+-- line of sight") while a visible one stood nearby.
+--   * Another level: more than VERT_MAX yards above or below AND close in
+--     plan (horizontal < VERT_RATIO x the height gap) - a tunnel under the
+--     player, not a hillside a long way off.
+--   * No line of sight at eye height - the same check the casts use
+--     (movement.has_los).
+-- Answers are cached SEE_TTL per unit, so a scan over a camp costs one set
+-- of native calls per mob per second.
+local SEE_TTL = 1.0
+local VERT_MAX = 12
+local VERT_RATIO = 3
+local see_cache, see_n = {}, 0
+
+function targeting.can_see(player, unit)
+    if not player or not indexable(unit) then
+        return false
+    end
+    local g = call(unit.get_guid, unit)
+    local now = izi.now()
+    local e = g and see_cache[g]
+    if e and (now - e.t) < SEE_TTL then
+        return e.v
+    end
+    local v = true
+    local pp = call(player.get_position, player)
+    local up = call(unit.get_position, unit)
+    if pp and up and type(pp.z) == "number" and type(up.z) == "number" then
+        local dz = math.abs(up.z - pp.z)
+        local dx, dy = up.x - pp.x, up.y - pp.y
+        local flat = math.sqrt(dx * dx + dy * dy)
+        if dz > VERT_MAX and flat < dz * VERT_RATIO then
+            v = false
+        end
+    end
+    if v then
+        local ok_m, movement = pcall(require, "movement")
+        if ok_m and type(movement) == "table" and type(movement.has_los) == "function" then
+            v = movement.has_los(player, unit) == true
+        end
+    end
+    if g then
+        if see_n > 300 then
+            see_cache, see_n = {}, 0
+        end
+        if not see_cache[g] then
+            see_n = see_n + 1
+        end
+        see_cache[g] = { t = now, v = v }
+    end
+    return v
+end
+
 local function id_wanted(npc_id, mobs)
     if type(mobs) ~= "table" or #mobs == 0 then
         return true
@@ -232,6 +289,10 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
                                 local reach_ok = upos ~= nil
                                 if (not skip_reach) and reach_ok and movement and type(movement.can_reach) == "function" then
                                     reach_ok = movement.can_reach(pos, upos) == true
+                                end
+                                -- Visible from here (2.81.0).
+                                if reach_ok and opts.skip_los ~= true then
+                                    reach_ok = targeting.can_see(player, u)
                                 end
                                 if reach_ok then
                                     found[#found + 1] = u

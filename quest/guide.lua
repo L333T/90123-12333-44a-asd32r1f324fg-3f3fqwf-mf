@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.80.0
+-- Version: 2.81.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1236,12 +1236,26 @@ end
 
 --- Can the bot fight this unit? Alive, not a player, attackable.
 local function fightable(player, u)
-    return indexable(u) and call(u.is_valid, u) == true
+    if not (indexable(u) and call(u.is_valid, u) == true
         and call(u.is_unit, u) == true
         and call(u.is_dead_or_ghost, u) ~= true
         and call(u.is_player, u) ~= true
         and call(u.is_tap_denied, u) ~= true
-        and call(player.can_attack, player, u) ~= false
+        and call(player.can_attack, player, u) ~= false) then
+        return false
+    end
+    -- Not behind a wall, down a mine under the player or on a ledge overhead
+    -- (2.81.0) - targeting.can_see, cached per mob.
+    local t = targeting_mod
+    if t == nil then
+        local ok, m = pcall(require, "targeting")
+        t = (ok and type(m) == "table") and m or false
+        targeting_mod = t
+    end
+    if t and type(t.can_see) == "function" then
+        return t.can_see(player, u) == true
+    end
+    return true
 end
 
 --- The nearest unit this goal wants to fight, or nil.

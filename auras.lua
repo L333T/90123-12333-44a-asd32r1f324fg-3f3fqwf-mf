@@ -3,7 +3,7 @@
 -- Aura queries - one implementation, used by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.39.0
+-- Version: 2.40.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Everything in this project asked about auras the same way:
@@ -140,7 +140,14 @@ function auras.buff(unit, spec, cache_ms)
         local got = shape(safe(function()
             return m:get_buff_data(unit, spec, cache_ms or DEFAULT_MS)
         end))
-        if got then
+        if got and got.is_active then
+            return got
+        end
+        -- "Not active" is confirmed below before it is believed (2.40.0):
+        -- buff_manager answering false for ids it does not track made a buff
+        -- that WAS up read as missing, and it was re-cast every global.
+        local ids_c = ids_of(spec)
+        if got and not (ids_c and safe(function() return unit:has_buff(ids_c) end) == true) then
             return got
         end
     end
@@ -163,7 +170,11 @@ function auras.debuff(unit, spec, cache_ms)
         local got = shape(safe(function()
             return m:get_debuff_data(unit, spec, cache_ms or DEFAULT_MS)
         end))
-        if got then
+        if got and got.is_active then
+            return got
+        end
+        local ids_c = ids_of(spec)
+        if got and not (ids_c and safe(function() return unit:has_debuff(ids_c) end) == true) then
             return got
         end
     end
@@ -186,7 +197,12 @@ function auras.aura(unit, spec, cache_ms)
         local got = shape(safe(function()
             return m:get_aura_data(unit, spec, cache_ms or DEFAULT_MS)
         end))
-        if got then
+        if got and got.is_active then
+            return got
+        end
+        local ids_c = ids_of(spec)
+        if got and not (ids_c and (safe(function() return unit:has_buff(ids_c) end) == true
+            or safe(function() return unit:has_aura(ids_c) end) == true)) then
             return got
         end
     end

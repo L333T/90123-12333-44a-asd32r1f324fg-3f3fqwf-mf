@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.40.0
+-- Version: 2.41.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -425,6 +425,93 @@ local function clear_rest()
     end
 end
 
+-- ----------------------------------------------------------------------------
+-- A CLEAR SPOT TO REST (2.41.0)
+-- ----------------------------------------------------------------------------
+-- The rest used to be cancelled outright while anything attackable stood
+-- within REST_CLEAR_YARDS - rabbits and neutral mobs included - and the tick
+-- fell through to the quest engine, which pulled the next mob at 30% health.
+-- Quest objectives sit in camps, so there nearly always was something close.
+--
+-- Now only a real threat counts (hostile to the player or already in combat,
+-- not a critter), and instead of giving up the bot walks REST_STEP yards
+-- straight away from it and rests there, holding the tick so nothing else can
+-- start a fight. After REST_MOVE_MAX of that it sits down regardless: eating
+-- next to a mob is still better than fighting at low health.
+local REST_STEP = 20
+local REST_MOVE_MAX = 12.0
+local move_since = 0
+
+local CRITTER = nil
+local function is_critter(u)
+    if CRITTER == nil then
+        local ok, enums = pcall(require, "common/enums")
+        CRITTER = (ok and type(enums) == "table" and enums.creature_type and enums.creature_type.CRITTER) or false
+    end
+    if not CRITTER then
+        return false
+    end
+    local ok, t = pcall(u.get_creature_type, u)
+    return ok and t == CRITTER
+end
+
+--- The nearest real threat within `yards`, or nil.
+local function rest_threat(player, yards)
+    local list = safe(function() return core.object_manager.get_visible_objects() end)
+    local ok_t, targeting = pcall(require, "targeting")
+    if ok_t and targeting and type(targeting.visible_objects) == "function" then
+        list = targeting.visible_objects() or list
+    end
+    if type(list) ~= "table" then
+        return nil
+    end
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_unit() end) == true
+            and safe(function() return u:is_player() end) ~= true
+            and safe(function() return u:is_dead_or_ghost() end) ~= true
+            and not is_critter(u) then
+            local hostile = safe(function() return u:is_enemy_with(player) end) == true
+                or safe(function() return u:is_in_combat() end) == true
+            if hostile and safe(function() return player:can_attack(u) end) ~= false then
+                local d = safe(function() return player:distance_to(u) end)
+                if type(d) == "number" and d <= yards and (best_d == nil or d < best_d) then
+                    best, best_d = u, d
+                end
+            end
+        end
+    end
+    return best
+end
+
+--- Walk REST_STEP yards straight away from `threat`. True when a move is on.
+local function move_away_from(player, threat)
+    local me = safe(function() return player:get_position() end)
+    local tp = safe(function() return threat:get_position() end)
+    if not me or not tp then
+        return false
+    end
+    local dx, dy = me.x - tp.x, me.y - tp.y
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 0.5 then
+        dx, dy, len = 1, 0, 1
+    end
+    local ok_v, vec3 = pcall(require, "common/geometry/vector_3")
+    if not ok_v or type(vec3) ~= "table" then
+        return false
+    end
+    local spot = vec3.new(me.x + dx / len * REST_STEP, me.y + dy / len * REST_STEP, me.z)
+    if movement and type(movement.set_resting) == "function" then
+        movement.set_resting(false)   -- the rest lock would refuse the walk
+    end
+    if movement and type(movement.is_moving) == "function" and movement.is_moving() then
+        return true
+    end
+    return movement and type(movement.nav_to) == "function" and movement.nav_to(spot, true) == true
+end
+
 local function resource_full(pct)
     return pct >= REST_DONE
 end
@@ -546,6 +633,20 @@ function resting_mod.tick(player, opts)
 
     local eat_at = start_pct(opts, "eat_pct", REST_DEFAULT)
     local drink_at = start_pct(opts, "drink_pct", REST_DEFAULT)
+    -- The Healing tab's sliders win over the rotation's built-in numbers
+    -- (2.41.0): every rotation hard-coded 30%, so "Eat Below HP %" did
+    -- nothing. A rotation that passes drink_pct 0 (no mana) keeps it off.
+    local ok_g, gui = pcall(require, "gui")
+    if ok_g and gui and type(gui.slider) == "function" then
+        local e = gui.slider("eat_hp", nil)
+        if type(e) == "number" then
+            eat_at = start_pct({ v = e }, "v", eat_at)
+        end
+        local d = gui.slider("drink_mana", nil)
+        if type(d) == "number" and not (opts and opts.drink_pct == 0) then
+            drink_at = start_pct({ v = d }, "v", drink_at)
+        end
+    end
 
     local hp = health_pct(player)
     local mana = mana_pct(player)
@@ -573,20 +674,6 @@ function resting_mod.tick(player, opts)
         return false
     end
 
-    -- Out of combat is not the same as clear. Lazy require: targeting pulls in
-    -- a good deal and resting sits below it in the load order.
-    local ok_t, targeting = pcall(require, "targeting")
-    if ok_t and targeting and type(targeting.threat_nearby) == "function" then
-        if safe(function()
-            return targeting.threat_nearby(player, REST_CLEAR_YARDS)
-        end) == true then
-            rest_debug("hostile within %d yards - holding off the rest", REST_CLEAR_YARDS)
-            state.set_note("Rest", string.format("Waiting to eat - mob within %dy", REST_CLEAR_YARDS))
-            -- Not a rest: the caller must be free to fight or walk away.
-            clear_rest()
-            return false
-        end
-    end
 
     if rest_eat == true and eating ~= true and hp < REST_DONE and has_usable(foods) ~= true then
         end_kind(food_state)
@@ -620,6 +707,25 @@ function resting_mod.tick(player, opts)
         resting = false
         return false
     end
+
+    -- A rest is needed. Out of combat is not the same as clear: find a spot
+    -- with no real threat within REST_CLEAR_YARDS first.
+    local threat = (eating or drinking) and nil or rest_threat(player, REST_CLEAR_YARDS)
+    if threat then
+        local now_m = izi.now()
+        if move_since == 0 then
+            move_since = now_m
+        end
+        if (now_m - move_since) < REST_MOVE_MAX then
+            local name = safe(function() return threat:get_name() end) or "mob"
+            rest_debug("hostile %s within %d yards - moving away to rest", tostring(name), REST_CLEAR_YARDS)
+            state.set_note("Rest", string.format("Moving away from %s to rest", tostring(name)))
+            move_away_from(player, threat)
+            return true               -- hold the tick: no new pull at low health
+        end
+        rest_debug("no clear spot after %.0fs - resting where it stands", REST_MOVE_MAX)
+    end
+    move_since = 0
 
     resting = true
     rest_debug("resting - HP %.0f MP %.0f - eat=%s drink=%s - %d food / %d water ids known",

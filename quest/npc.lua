@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.18.0
+-- Version: 2.19.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -263,8 +263,16 @@ end
 
 --- Open the NPC's dialog. Called once per state-machine attempt, never on a
 --- timer: every call replaces the frame that is currently open.
-local function interact_once(player, npc_id)
-    local unit = targeting.find_npc(player, npc_id, 10)
+---
+--- `unit` is used when the caller already found the NPC - a RestedXP goal
+--- names no NPC id, so the engine finds the giver itself and hands it over.
+--- It must still be valid and in reach; otherwise the id is searched for.
+local function interact_once(player, npc_id, unit)
+    if unit and (safe(function() return unit:is_valid() end) ~= true
+        or (safe(function() return player:distance_to(unit) end) or 99) > 10) then
+        unit = nil
+    end
+    unit = unit or targeting.find_npc(player, npc_id, 10)
     if not unit then
         return false
     end
@@ -366,8 +374,8 @@ local function is_trivial_quest(player, quest_id, quest_name)
     return (plevel - qlevel) >= TRIVIAL_GAP
 end
 
---- Put the quest in the same bag the GUI's manual skip uses, so `pick` in
---- quest/engine.lua moves on to the next one.
+--- Put the quest in the skip bag, so guide.goal passes over it and the
+--- engine moves on to the step's next goal.
 local function mark_skipped(quest_id, quest_name)
     if type(state.quest.skipped) ~= "table" then
         state.quest.skipped = {}
@@ -501,7 +509,8 @@ end
 -- ACCEPT
 -- ----------------------------------------------------------------------------
 --- Accept `quest_id`. Call every tick while standing at the NPC.
-function npc.accept(player, quest_id, quest_name, npc_id)
+--- `unit` is optional: the NPC when the caller already has it.
+function npc.accept(player, quest_id, quest_name, npc_id, unit)
     local key = "accept:" .. tostring(quest_id)
     if dlg.key ~= key then
         dlg_reset(key)
@@ -516,7 +525,7 @@ function npc.accept(player, quest_id, quest_name, npc_id)
             return
         end
         dlg.tries = dlg.tries + 1
-        interact_once(player, npc_id)
+        interact_once(player, npc_id, unit)
         quest_debug("accept %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
         dlg_to("select", now)
         return
@@ -559,7 +568,8 @@ end
 -- TURN IN
 -- ----------------------------------------------------------------------------
 --- Hand in `quest_id`. Call every tick while standing at the NPC.
-function npc.turn_in(player, quest_id, quest_name, npc_id)
+--- `unit` is optional: the NPC when the caller already has it.
+function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
     local key = "turnin:" .. tostring(quest_id)
     if dlg.key ~= key then
         dlg_reset(key)
@@ -577,7 +587,7 @@ function npc.turn_in(player, quest_id, quest_name, npc_id)
             return
         end
         dlg.tries = dlg.tries + 1
-        interact_once(player, npc_id)
+        interact_once(player, npc_id, unit)
         quest_debug("turn in %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
         dlg_to("select", now)
         return

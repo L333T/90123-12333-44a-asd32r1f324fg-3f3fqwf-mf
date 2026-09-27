@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.18.0
+-- Version: 2.19.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -747,7 +747,7 @@ local function on_update()
         if quest.is_ready(player) then
             quest.tick(player)
         else
-            state.set_note("Quest", "No starter quests for this race")
+            state.set_note("Quest", "RestedXP Guides is not loaded")
         end
         return
     end

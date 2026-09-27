@@ -70,6 +70,14 @@ def syntax_check(paths):
         from luaparser import ast
     except ImportError:
         raise SystemExit("luaparser is not installed: pip install luaparser")
+    # A real Lua compiler as well, when lupa is installed (2.65.0): luaparser
+    # accepted a newline inside a quoted string, which the game rejects.
+    try:
+        import lupa
+        lua_rt = lupa.LuaRuntime()
+        compile_fn = lua_rt.eval("function(src, name) local f, err = load(src, '@' .. name) return err end")
+    except Exception:
+        compile_fn = None
     bad = 0
     lua = [p for p in paths if p.endswith(".lua")]
     for rel in lua:
@@ -80,6 +88,12 @@ def syntax_check(paths):
         except Exception as exc:  # luaparser raises several error types
             bad += 1
             print("  SYNTAX  %s: %s" % (rel, str(exc).splitlines()[0][:200]))
+            continue
+        if compile_fn is not None:
+            err = compile_fn(src, rel)
+            if err:
+                bad += 1
+                print("  COMPILE %s: %s" % (rel, str(err)[:200]))
     print("syntax: %d .lua file(s), %d failed" % (len(lua), bad))
     return bad == 0
 

@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.64.0
+-- Version: 2.65.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -39,10 +39,16 @@ local errorlog = {}
 local unpack = table.unpack or unpack
 
 local FOLDER = "MASTER_FARMER_ERRORS"
-local MAX_LINES = 20000       -- per session; beyond this only ERRORs are written
+-- Lines per FILE (2.65.0). At the cap the session rolls over into
+-- "<session>_part2.log", "_part3" ... instead of going quiet: the 20000-line
+-- cap used to stop the log after about half an hour of heartbeats, so a
+-- crash later in a long session left no trail at all.
+local MAX_LINES = 20000
 local REPEAT_NOTE = 50        -- re-log a repeating error every N occurrences
 
 local path = nil              -- this session's file, relative to scripts_log
+local base_path = nil         -- the first file's name without ".log"
+local part = 1
 local opened = false
 local disabled = false
 local lines = 0
@@ -53,6 +59,10 @@ local context_fn = nil
 -- errorlog.probe reads it and is defined first: declared below, these were
 -- globals inside probe - always nil - and no BEAT ever listed a stage.
 local beat_on = false
+local BEAT_SAME = 2.0         -- seconds an unchanged BEAT line is held back
+local beat_last_body = nil
+local beat_last_t = 0
+local beat_same = 0
 local beat_tags = {}
 local beat_n = 0
 
@@ -87,8 +97,23 @@ local function open()
     end
     pcall(function() core.create_log_folder(FOLDER) end)
     local name = stamp():gsub("[: ]", function(c) return c == " " and "_" or "-" end)
-    path = FOLDER .. "/session_" .. name .. ".log"
+    base_path = FOLDER .. "/session_" .. name
+    path = base_path .. ".log"
     pcall(function() core.create_log_file(path) end)
+    return true
+end
+
+--- Continue the session in the next part file.
+local function roll_over()
+    part = part + 1
+    local next_path = base_path .. "_part" .. part .. ".log"
+    local ok = pcall(function() core.create_log_file(next_path) end)
+    if not ok then
+        return false
+    end
+    pcall(core.write_log_file, path, string.format("%s  (continued in %s)\n", stamp(), next_path))
+    path = next_path
+    lines = 0
     return true
 end
 
@@ -96,7 +121,7 @@ local function write(kind, text)
     if disabled or not open() then
         return
     end
-    if lines >= MAX_LINES and kind ~= "ERROR" then
+    if lines >= MAX_LINES and not roll_over() and kind ~= "ERROR" then
         return
     end
     lines = lines + 1
@@ -404,8 +429,20 @@ function errorlog.tick_end()
             extra = s
         end
     end
-    write("BEAT", string.format("#%d %s | %s", beat_count,
-        table.concat(beat_tags, ">", 1, beat_n), extra))
+    -- A tick identical to the last one is not written again for BEAT_SAME
+    -- seconds (2.65.0): an idle bot wrote the same line ten times a second.
+    -- The count of skipped ticks rides on the next line written, so the
+    -- record still shows the bot was alive right up to its last line.
+    local body = table.concat(beat_tags, ">", 1, beat_n) .. " | " .. extra
+    local now = 0
+    pcall(function() now = core.time() end)
+    if body == beat_last_body and (now - beat_last_t) < BEAT_SAME then
+        beat_same = beat_same + 1
+        return
+    end
+    local same = beat_same > 0 and string.format(" (+%d same)", beat_same) or ""
+    beat_last_body, beat_last_t, beat_same = body, now, 0
+    write("BEAT", string.format("#%d %s%s", beat_count, body, same))
 end
 
 -- ----------------------------------------------------------------------------

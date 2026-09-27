@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.82.0
+-- Version: 2.83.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -2433,9 +2433,135 @@ local function draw_menu()
     menu:draw()
 end
 
+-- ============================================================================
+-- MINI STATUS WINDOW (2.83.0)
+-- ============================================================================
+-- While grinding, questing or Rotation Only runs, the main window is hidden
+-- and this 200x100 window shows the time since the start and the player's
+-- level, with a Stop button: Stop ends the run (grinding / questing and
+-- Rotation Only), closes this window and brings the main window back. The
+-- main window also comes back by itself when the run ends any other way
+-- (Numpad 2, the NPC watchdog...). Its close cross only brings the main
+-- window back - the run carries on.
+local MINI_W, MINI_H = 200, 100
+local mini = { win = nil, on = false, since = 0, was_running = false, shown = false }
+
+local function fmt_elapsed(sec)
+    sec = math.max(0, math.floor(sec))
+    return string.format("%02d:%02d:%02d", math.floor(sec / 3600), math.floor(sec / 60) % 60, sec % 60)
+end
+
+local function restore_main()
+    mini.on = false
+    set_on("show_gui", true)
+    menu:set_visible(true)
+    if mini.win and mini.shown then
+        pcall(function() mini.win:set_visibility(false) end)
+        mini.shown = false
+    end
+end
+
+local function mini_stop()
+    stop_bot()
+    set_on("rotation_only", false)
+    restore_main()
+end
+
+local function draw_mini()
+    local WE = enums.window_enums
+    if not mini.win then
+        mini.win = core.menu.window("mfg_mini_status")
+        pcall(function() mini.win:set_initial_size(vec2.new(MINI_W, MINI_H)) end)
+        pcall(function() mini.win:set_initial_position(vec2.new(80, 180)) end)
+    end
+    local win = mini.win
+    if not mini.shown then
+        pcall(function() win:set_visibility(true) end)
+        mini.shown = true
+    end
+    pcall(function() win:force_window_size(vec2.new(MINI_W, MINI_H)) end)
+    pcall(function() win:set_next_window_padding(vec2.new(0, 0)) end)
+
+    local elapsed = fmt_elapsed(izi.now() - mini.since)
+    local level = "?"
+    pcall(function()
+        local me = izi.me()
+        local l = me and me:get_level()
+        if type(l) == "number" then level = tostring(l) end
+    end)
+    local mode = is_on("rotation_only") and "Rotation Only"
+        or (is_on("use_quest") and "Questing" or "Grinding")
+
+    local gold = C(232, 222, 196, 255)
+    local mute = C(180, 170, 150, 255)
+    local ok_col = C(90, 210, 110, 255)
+    local restore = false
+    local stop = false
+    pcall(function()
+        win:begin(WE.window_resizing_flags.NO_RESIZE, true,
+            C(22, 24, 30, 240), C(96, 150, 235, 200), WE.window_cross_visuals.BLUE_THEME,
+            function()
+                pcall(function()
+                    local b = win:get_close_cross_bounds()
+                    if type(b) == "table" and b.min and b.max and win:is_rect_clicked(b.min, b.max) then
+                        restore = true
+                    end
+                end)
+                win:render_text(FONT_SMALL, vec2.new(10, 6), ok_col, mode)
+                win:render_text(FONT_SMALL, vec2.new(10, 26), gold, "Time   " .. elapsed)
+                win:render_text(FONT_SMALL, vec2.new(10, 44), gold, "Level  " .. level)
+
+                local bmin, bmax = vec2.new(10, 66), vec2.new(MINI_W - 10, MINI_H - 8)
+                local hover = false
+                pcall(function() hover = win:is_mouse_hovering_rect(bmin, bmax) == true end)
+                pcall(function()
+                    win:render_rect_filled(bmin, bmax, hover and C(200, 70, 70, 240) or C(160, 50, 50, 230), 4.0)
+                    win:render_rect(bmin, bmax, C(230, 120, 120, 255), 4.0, 1.0)
+                end)
+                win:render_text(FONT_SMALL, vec2.new(MINI_W / 2 - 14, 71), gold, "Stop")
+                pcall(function()
+                    if win:is_rect_clicked(bmin, bmax) then
+                        stop = true
+                    end
+                end)
+            end)
+    end)
+    if stop then
+        mini_stop()
+    elseif restore then
+        restore_main()
+    end
+    local _ = mute
+end
+
+--- Run the mini window; true when it has the screen (main window hidden).
+local function mini_tick()
+    local running = gui.is_started() or is_on("rotation_only")
+    if running and not mini.was_running then
+        mini.on = true
+        mini.since = izi.now()
+    elseif not running and mini.was_running and mini.on then
+        restore_main()
+    end
+    mini.was_running = running
+    if not mini.on then
+        if mini.win and mini.shown then
+            pcall(function() mini.win:set_visibility(false) end)
+            mini.shown = false
+        end
+        return false
+    end
+    menu:set_visible(false)
+    draw_mini()
+    return true
+end
+
 function gui.draw()
     dprobe("gui:sync_player")
     pcall(gui.sync_player, izi.me())
+    if mini_tick() then
+        return
+    end
     if not is_on("show_gui") then
         menu:set_visible(false)
         return

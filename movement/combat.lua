@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.75.0
+-- Version: 2.76.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -23,6 +23,8 @@ local L  = require("movement/leash")
 local S  = require("movement/steer")
 local W  = require("movement/walker")
 local N  = require("movement/sentinel")
+-- Sentinel "pull" legs toward a target - off, see the pull-in below (2.76.0).
+local SENTINEL_PULL = false
 local O  = require("movement/own")
 local Rg = require("movement/range")
 local Z  = require("movement/zones")
@@ -414,7 +416,16 @@ function C.combat_engage(player, unit, yards)
     if R.pull_key ~= pull_key then
         R.pull_key, R.pull_next_t, R.pull_tries = pull_key, 0, 0
     end
-    if not (okc and in_cbt == true) and type(range) == "number" and range > 30
+    -- SENTINEL PULL-IN OFF (2.76.0). Every game crash of 2026-09-27 whose
+    -- log reaches the moment (11:49:55, 12:45:04, 13:31:22) came within about
+    -- a second of a Sentinel "pull" leg starting toward a fresh target 44-50
+    -- yd away - out in the open and inside the Echo Ridge mine alike - and
+    -- pull legs had also been seen hanging (2.70.0). While such a leg runs this
+    -- plugin does almost nothing per frame; Sentinel drives. Closing on a
+    -- target is left to the local walker (direct chase, steering, and the
+    -- find_path-planned chase below), which is how every in-combat approach
+    -- already works. Sentinel keeps long-distance travel.
+    if SENTINEL_PULL and not (okc and in_cbt == true) and type(range) == "number" and range > 30
         and t >= R.pull_next_t and O.nav_gap_ok() then
         local ux, uy, uz = unit_xyz(unit)
         local hx, hy, hz = here_xyz()

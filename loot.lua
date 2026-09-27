@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.45.0
+-- Version: 2.46.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -60,6 +60,8 @@ local SCAN_YARDS = 40        -- the combat lock's range: every fight's corpses a
 
 local queue = {}              -- { guid, x, y, z, added, started, fires, fired_t }
 local next_scan = 0
+-- (fallback-scanned corpses are not "mine": they are only looted when the
+-- game says they are lootable)
 local close_at = nil          -- when to close a loot window left open
 
 local function safe(fn)
@@ -74,6 +76,14 @@ local function elog_probe(tag)
     local ok, elog = pcall(require, "errorlog")
     if ok and type(elog) == "table" and type(elog.probe) == "function" then
         elog.probe(tag)
+    end
+end
+
+--- A loot breadcrumb in scripts_log (errorlog.trail skips repeats).
+local function ltrail(fmt, ...)
+    local ok, elog = pcall(require, "errorlog")
+    if ok and type(elog) == "table" and type(elog.trail) == "function" then
+        elog.trail("loot", fmt, ...)
     end
 end
 
@@ -98,18 +108,35 @@ local function resting()
 end
 
 --- The corpse behind a GUID, freshly resolved, or nil when it is gone.
+---
+--- BY SCANNING (2.46.0). core.object_manager.get_object_from_guid hands its
+--- string to the client's UNIT-TOKEN resolver ("target", "nameplate7"...). A
+--- corpse has no unit token - dead mobs have no nameplate and the bot has
+--- dropped its target - so it came back nil, and every queued corpse was
+--- dropped as "gone" on the next tick. The visible-object list (targeting's
+--- per-tick cache) is searched for the GUID instead; the token resolver is
+--- only tried first, and only trusted when its object carries the same GUID.
 local function resolve(guid)
     if type(guid) ~= "string" or guid == "" then
         return nil
     end
     local obj = safe(function() return core.object_manager.get_object_from_guid(guid) end)
-    if not obj then
+    if obj and safe(function() return obj:is_valid() end) == true
+        and safe(function() return obj:get_guid() end) == guid then
+        return obj
+    end
+    local list = targeting.visible_objects and targeting.visible_objects() or nil
+    if type(list) ~= "table" then
         return nil
     end
-    if safe(function() return obj:is_valid() end) ~= true then
-        return nil
+    for i = 1, #list do
+        local o = list[i]
+        if o and safe(function() return o:is_valid() end) == true
+            and safe(function() return o:get_guid() end) == guid then
+            return o
+        end
     end
-    return obj
+    return nil
 end
 
 local function lootable(obj)
@@ -134,9 +161,18 @@ local function drop(i)
     table.remove(queue, i)
 end
 
---- Queue a corpse by GUID. Returns true when it was added.
-local function enqueue(guid, pos)
-    if type(guid) ~= "string" or guid == "" or find_entry(guid) then
+--- Queue a corpse by GUID. `mine` marks the bot's own kills: those always
+--- get a loot attempt, whatever the lootable flag says. Returns true when
+--- it was added.
+local function enqueue(guid, pos, mine)
+    if type(guid) ~= "string" or guid == "" then
+        return false
+    end
+    local at = find_entry(guid)
+    if at then
+        if mine then
+            queue[at].mine = true
+        end
         return false
     end
     if #queue >= QUEUE_MAX then
@@ -146,8 +182,9 @@ local function enqueue(guid, pos)
     queue[#queue + 1] = {
         guid = guid,
         x = pos and pos.x or nil, y = pos and pos.y or nil, z = pos and pos.z or nil,
-        added = now, started = nil, fires = 0, fired_t = -1e9,
+        added = now, started = nil, fires = 0, fired_t = -1e9, mine = mine == true,
     }
+    ltrail("queued %s (%s)", guid, mine and "our kill" or "found nearby")
     return true
 end
 
@@ -166,7 +203,7 @@ function loot.note_kill(unit)
     end
     local guid = safe(function() return unit:get_guid() end)
     local pos = safe(function() return unit:get_position() end)
-    return enqueue(guid, pos)
+    return enqueue(guid, pos, true)
 end
 
 --- Queue a corpse from a saved GUID and position - for a target that went
@@ -175,7 +212,7 @@ function loot.note_kill_guid(guid, pos)
     if not enabled() then
         return false
     end
-    return enqueue(guid, pos)
+    return enqueue(guid, pos, true)
 end
 
 --- Is anything queued that is still worth going to?
@@ -183,7 +220,8 @@ function loot.has_work(player)
     if not enabled() or #queue == 0 then
         return false
     end
-    if resting() or bags_too_full() or (state.vendor and state.vendor.active) then
+    -- No resting gate (2.46.0): loot comes BEFORE eating, not after.
+    if bags_too_full() or (state.vendor and state.vendor.active) then
         return false
     end
     local now = izi.now()
@@ -224,7 +262,7 @@ local function fallback_scan(player, now)
         if safe(function() return c:is_valid() end) == true and lootable(c) then
             local guid = safe(function() return c:get_guid() end)
             local pos = safe(function() return c:get_position() end)
-            enqueue(guid, pos)
+            enqueue(guid, pos, false)
         end
     end
 end
@@ -241,11 +279,16 @@ function loot.tick(player)
         close_at = nil
         local n = safe(function() return core.game_ui.get_loot_item_count() end)
         if type(n) == "number" and n > 0 then
+            -- Auto loot left items behind: take each slot (0 based), then
+            -- close the window.
+            for i = 0, n - 1 do
+                pcall(function() core.input.loot_item(i) end)
+            end
             pcall(function() core.input.close_loot() end)
         end
     end
 
-    if resting() or bags_too_full() or (state.vendor and state.vendor.active) then
+    if bags_too_full() or (state.vendor and state.vendor.active) then
         return false
     end
     if safe(function() return player:is_dead() end) == true then
@@ -266,18 +309,29 @@ function loot.tick(player)
     for i = #queue, 1, -1 do
         local e = queue[i]
         local obj = resolve(e.guid)
-        local gone = obj == nil
-            or safe(function() return obj:is_dead() end) ~= true
-            or (e.started and (now - e.started) > ENTRY_TIMEOUT)
-            or e.fires >= MAX_FIRES and (now - e.fired_t) > SETTLE
+        local why = nil
+        if obj == nil then
+            why = "corpse not found"
+        elseif safe(function() return obj:is_dead() end) ~= true then
+            why = "not dead"
+        elseif e.started and (now - e.started) > ENTRY_TIMEOUT then
+            why = "timed out"
+        elseif e.fires >= MAX_FIRES and (now - e.fired_t) > SETTLE then
+            why = "attempts used up"
+        end
+        local gone = why ~= nil
         if not gone and not lootable(obj) then
-            -- Looted (after a fire), or never ours to loot - but only judged
-            -- once the flag has had FLAG_GRACE to appear on a fresh corpse.
-            if e.fires > 0 or (now - e.added) > FLAG_GRACE then
-                gone = true
+            -- Looted (after a fire), or never ours to loot - judged only once
+            -- the flag has had FLAG_GRACE to appear. The bot's own kills get
+            -- at least one attempt regardless: the flag is advisory.
+            if e.fires > 0 and (now - e.fired_t) > SETTLE then
+                gone, why = true, "looted"
+            elseif not e.mine and (now - e.added) > FLAG_GRACE then
+                gone, why = true, "not lootable"
             end
         end
         if gone then
+            ltrail("done %s: %s after %d attempt(s)", e.guid, tostring(why), e.fires)
             drop(i)
         else
             local d = safe(function() return player:distance_to(obj) end)
@@ -291,8 +345,8 @@ function loot.tick(player)
     end
 
     local e = queue[best_i]
-    if not lootable(best_obj) then
-        -- Fresh corpse, flag not set yet: walk over, but do not fire.
+    if not lootable(best_obj) and (now - e.added) <= FLAG_GRACE then
+        -- Fresh corpse, flag not set yet: walk over, but do not fire yet.
         if best_d <= LOOT_REACH then
             movement.nav_stop()
             state.set_note("Loot", "Waiting for the corpse to be lootable")
@@ -326,6 +380,7 @@ function loot.tick(player)
         e.fires = e.fires + 1
         e.fired_t = now
         elog_probe("loot:fire")
+        ltrail("loot attempt %d on %s at %.1f yd", e.fires, e.guid, best_d)
         pcall(function() core.input.loot_object(best_obj, true) end)
         close_at = now + 1.5
     end

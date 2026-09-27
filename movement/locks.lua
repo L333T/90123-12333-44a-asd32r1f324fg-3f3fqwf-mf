@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest lock and cast / channel / loot locks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.71.0
+-- Version: 2.72.0
 -- ============================================================================
 -- Locks pause the walker by reason, so a cast finishing can never un-pause a
 -- stun or a food break. Releasing a cast lock touches only the cast and loot
@@ -92,9 +92,14 @@ local function begin_lock(sec, light, target, pos)
     else
         pcall(handler.pause_movement, handler, sec + 0.5)
     end
-    if target then
-        pcall(handler.look_at_target, handler, sec, 0, target)
-    elseif pos then
+    -- The target's position, not the unit (2.72.0) - see Rg.face: the
+    -- handler keeps what it is given across frames, and a freed unit there
+    -- is a native crash.
+    if target and not pos then
+        local ok, p = pcall(target.get_position, target)
+        if ok and p then pos = p end
+    end
+    if pos then
         pcall(handler.look_at_position, handler, sec, 0, pos)
     end
     arm_unlock(light and sec or (sec + 0.5))

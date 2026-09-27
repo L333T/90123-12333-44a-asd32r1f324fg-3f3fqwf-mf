@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.71.0
+-- Version: 2.72.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach
@@ -55,9 +55,18 @@ function Rg.face(target)
     local t = izi.now()
     if (t - R.last_face_t) < FACE_GAP then return false end
     R.last_face_t = t
-    pcall(handler.look_at_target, handler, FACE_LOCK, 0, target)
+    -- A POSITION, never the unit (2.72.0). look_at_target hands the SDK's
+    -- movement handler the game object, which it keeps across frames (and
+    -- its on_render reads it every frame). A mob freed meanwhile - a corpse
+    -- despawning, a mob leaving view - is then touched after its memory is
+    -- gone, which is a native crash, not a Lua error. The crashes of
+    -- 2026-09-27 all came while facing / casting at a mob. The position is
+    -- re-read on every call (every FACE_GAP), so the facing still follows.
     local ok, pos = pcall(target.get_position, target)
-    if ok and pos then pcall(core.input.look_at, pos) end
+    if ok and pos then
+        pcall(handler.look_at_position, handler, FACE_LOCK, 0, pos)
+        pcall(core.input.look_at, pos)
+    end
     return true
 end
 

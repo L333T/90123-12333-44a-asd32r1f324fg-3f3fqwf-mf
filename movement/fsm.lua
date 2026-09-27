@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.71.0
+-- Version: 2.72.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -197,7 +197,12 @@ function F.pulse()
 end
 
 function F.on_render()
-    pcall(handler.on_render, handler)
+    -- Only with the movement debug box ticked (2.72.0): the handler's render
+    -- pass only draws its own debug lines, and it reads whatever it was last
+    -- told to look at - every frame, for the whole session.
+    if R.debug_on then
+        pcall(handler.on_render, handler)
+    end
 end
 
 function F.set_debug(on)

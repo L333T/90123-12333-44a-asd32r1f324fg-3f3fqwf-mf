@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.84.0
+-- Version: 2.85.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -552,6 +552,51 @@ end
 -- not deferred while casting, as a Sentinel move is). One cached path per
 -- target; asked again when the target has moved CHASE_REPATH yards from the
 -- path's end, or it is CHASE_AGE old, never more than once per CHASE_GAP.
+-- ----------------------------------------------------------------------------
+-- PREFETCH (2.85.0) - a re-aim without stopping
+-- ----------------------------------------------------------------------------
+-- A re-aimed Sentinel leg used to be a fresh move_to, which drops Sentinel
+-- into "awaiting_path" - standing still - until its server answers, up to
+-- once a second on a moving goal. Now the path to the new goal is asked for in
+-- the background while the current leg keeps running, and the switch is made
+-- with follow_path once the points are in: the character never stands.
+local PRE_GAP, PRE_AGE, PRE_NEAR = 1.0, 2.5, 4.0
+local pre = { t = -1e9, asked = -1e9, pts = nil, pending = false, gx = nil, gy = nil }
+
+--- A fresh planned path from `from` to `to`, or nil (asked for if needed).
+function N.prefetch(from, to)
+    local fx, fy, fz = xyz(from)
+    local tx, ty, tz = xyz(to)
+    if not fx or not tx then return nil end
+    local now = izi.now()
+    if pre.pts and pre.gx and (now - pre.t) <= PRE_AGE then
+        local dx, dy = pre.gx - tx, pre.gy - ty
+        if dx * dx + dy * dy <= PRE_NEAR * PRE_NEAR then
+            local pts = pre.pts
+            pre.pts = nil
+            return pts
+        end
+    end
+    if pre.pending and (now - pre.asked) < 5 then return nil end
+    if (now - pre.asked) < PRE_GAP then return nil end
+    local nav = nav_service()
+    if not nav or type(nav.find_path) ~= "function" then return nil end
+    pre.asked, pre.pending = now, true
+    local gx, gy = tx, ty
+    local ok = pcall(nav.find_path, nav, vec3.new(fx, fy, fz), vec3.new(tx, ty, tz), function(...)
+        pre.pending = false
+        for i = 1, select("#", ...) do
+            local pts = as_points((select(i, ...)))
+            if pts and #pts >= 2 then
+                pre.pts, pre.t, pre.gx, pre.gy = pts, izi.now(), gx, gy
+                return
+            end
+        end
+    end)
+    if not ok then pre.pending = false end
+    return nil
+end
+
 local CHASE_GAP, CHASE_AGE, CHASE_REPATH = 1.0, 3.0, 5.0
 local chase = { key = nil, t = -1e9, asked = -1e9, pts = nil, pending = false }
 

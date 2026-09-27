@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.84.0
+-- Version: 2.85.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -95,6 +95,66 @@ local function look_ahead(t)
             R.dest_x, R.dest_y, R.dest_z = keep_x, keep_y, keep_z
             R.avoid_hops = (R.avoid_hops or 0) + 1
         end
+    end
+end
+
+-- ============================================================================
+-- HOP CHAINING (2.85.0)
+-- ============================================================================
+-- Steering walks in hops of a few yards. When one ended the character
+-- stopped, the move was cleared 0.3 s later and the caller re-issued after
+-- the move gap - up to a second standing still per hop. Now, while a hop is
+-- walked, the NEXT hop toward the leg's real end (R.goal_*) is planned from
+-- this hop's end point, and issued as soon as the character is within
+-- CHAIN_DIST of it, so the walk flows on. Navigation only (combat re-issues
+-- every COMBAT_GAP by itself).
+local CHAIN_DIST = K.CHAIN_DIST
+local chain_next = 0
+local planned = nil          -- { x, y, z } of the pre-computed next hop
+
+local function chain_hops(t)
+    if not R.walker_moving or R.sn_active or not R.has_dest or not R.goal_x then
+        planned = nil
+        return
+    end
+    if R.cur_owner ~= K.OWNER.NAV then planned = nil return end
+    local pr = R.pause_reason
+    if pr.cast or pr.restrict or pr.rest or pr.loot or pr.nav then return end
+    local x, y, z = here_xyz()
+    if not x then return end
+    -- the leg is done: nothing to chain
+    if dist2(R.dest_x, R.dest_y, R.goal_x, R.goal_y) < 1.0
+        or dist2(x, y, R.goal_x, R.goal_y) <= CHAIN_DIST then
+        planned = nil
+        return
+    end
+    if not S_mod then
+        local ok, m = pcall(require, "movement/steer")
+        S_mod = ok and m or false
+    end
+    if not S_mod then return end
+    -- plan the next hop from THIS hop's end, while walking (every LOOK_GAP)
+    if t >= chain_next or not planned then
+        chain_next = t + LOOK_GAP
+        local from = { x = R.dest_x, y = R.dest_y, z = R.dest_z }
+        local goal = { x = R.goal_x, y = R.goal_y, z = R.goal_z }
+        local hop = S_mod.steer(from, goal, K.PATROL_HOP)
+        planned = hop and { x = hop.x, y = hop.y, z = hop.z } or nil
+    end
+    if not planned then return end
+    if dist2(x, y, R.dest_x, R.dest_y) > CHAIN_DIST then return end
+    -- about to arrive: go straight on to the next hop, if the body fits
+    local here = pt(R.P_HERE, x, y, z)
+    if U.corridor(here, planned) == false then
+        planned = nil
+        return
+    end
+    local gx, gy, gz = R.goal_x, R.goal_y, R.goal_z
+    local hop = pt(P_TMP, planned.x, planned.y, planned.z)
+    planned = nil
+    if W.move(hop, "chain") then
+        R.goal_x, R.goal_y, R.goal_z = gx, gy, gz
+        dlog("chain", string.format("next hop (%.1f, %.1f) - no stop", hop.x, hop.y))
     end
 end
 
@@ -241,6 +301,7 @@ function F.pulse()
 
     watch_stuck(t)
     look_ahead(t)
+    chain_hops(t)
     RP.update(t)
     if R.leash and not R.leash_armed and not R.rest_lock then
         local _, _, _, d = L.here_on_leash()

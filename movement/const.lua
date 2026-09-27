@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.84.0
+-- Version: 2.85.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -165,5 +165,8 @@ K.KNEE_Z      = 0.5    -- low obstacles: rocks, fences, crates, stumps
 K.CHEST_Z     = 1.3    -- walls, trees, cliffs (with terrain)
 K.LOOKAHEAD   = 4.0    -- how far ahead a walking move is re-checked
 K.LOOK_GAP    = 0.25   -- seconds between look-ahead checks
+-- 2.85.0: moving without stopping
+K.BODY_HALF_TIGHT = 0.25  -- narrow-passage retry half width
+K.CHAIN_DIST  = 1.8    -- yards before a hop's end at which the next hop is issued
 
 return K

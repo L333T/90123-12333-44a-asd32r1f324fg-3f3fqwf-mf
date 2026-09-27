@@ -3,7 +3,7 @@
 -- movement/steer.lua - candidate steering
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.84.0
+-- Version: 2.85.0
 -- ============================================================================
 -- Everything that decides WHERE to hop next. Nothing in this file issues a
 -- command - it only returns pool points for an actuator module to act on.
@@ -60,6 +60,26 @@ function S.pick_steer(from, goal, travel, need_los, require_clear)
         return primary
     end
 
+    -- Shorter straight hops before turning (2.85.0: for every hop, not only
+    -- long ones) - a bend in a tunnel or a doorway fits a 2-3 yd hop where a
+    -- 5 yd one clips the wall, and turning there zig-zags.
+    -- Taken at once only when the way on from it is open too; otherwise it
+    -- is the fallback after the detour search (no walking up to a wall).
+    local short_fallback = nil
+    if travel <= STEER_HOP then
+        local half = travel * 0.5
+        if half >= MIN_NAV then
+            local shorter = extend(P_MID, from, goal, half)
+            if cand_ok(from, shorter, goal, need_los) then
+                local onward = extend(P_SEED, shorter, goal, STEER_HOP)
+                if walk_open(shorter, onward) then
+                    R.detour_side, R.block_streak = 0, 0
+                    return shorter
+                end
+                short_fallback = pt(P_ON, shorter.x, shorter.y, shorter.z)
+            end
+        end
+    end
     -- a long hop that failed: try shorter straight hops before turning
     if travel > STEER_HOP then
         local shorter = extend(P_MID, from, goal, travel * 0.5)
@@ -115,6 +135,9 @@ function S.pick_steer(from, goal, travel, need_los, require_clear)
             R.detour_side = fallback_side
             return fallback
         end
+        if short_fallback then
+            return short_fallback
+        end
         for i = 1, #SIDESTEP_YARDS do
             local yards = SIDESTEP_YARDS[i]
             local left_first = R.detour_side >= 0
@@ -133,6 +156,17 @@ function S.pick_steer(from, goal, travel, need_los, require_clear)
             local mid = extend(P_MID, from, goal, hop)
             evaluated = evaluated + 1
             if cand_ok(from, mid, goal, need_los) then return mid end
+        end
+    end
+    -- TIGHT PASSAGE (2.85.0): nothing fits the body-width corridor. Once,
+    -- try again with the narrow half width - squeezing through a doorway or a
+    -- mine tunnel beats backing off in front of it.
+    if not R.tight_corridor and R.traces_used < TRACE_BUDGET then
+        R.tight_corridor = true
+        local ok, hop = pcall(S.pick_steer, from, goal, math.min(travel, STEER_HOP), need_los, true)
+        R.tight_corridor = false
+        if ok and hop then
+            return hop
         end
     end
     R.block_streak = R.block_streak + 1

@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.72.0
+-- Version: 2.73.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -418,6 +418,10 @@ end
 local function finish_trip(note)
     sell_pending = nil
     sell_fails = {}
+    state.vendor.supplier_guid = nil
+    state.vendor.supplier_name = nil
+    state.vendor.supplier_skip = nil
+    state.vendor.window_seen = false
     -- However this trip ended - sold, repaired, merchant missing, out of gold -
     -- the lap that asked for it is dealt with. Leaving the flag set would make
     -- the bot turn round and try again immediately.
@@ -658,6 +662,65 @@ local function hearth_tick(player)
     return true
 end
 
+-- ----------------------------------------------------------------------------
+-- FOOD / WATER SELLER (2.73.0)
+-- ----------------------------------------------------------------------------
+local SUPPLIER_RANGE = 80
+
+local function supplier_unit(player)
+    local want = state.vendor.supplier_guid
+    local ok_t, list = pcall(function() return targeting.visible_objects() end)
+    if not ok_t or type(list) ~= "table" then
+        return nil
+    end
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:get_guid() end) == want then
+            return u
+        end
+    end
+    return nil
+end
+
+local function supplier_tick(player)
+    local unit = supplier_unit(player)
+    if not unit then
+        finish_trip("Food / water seller not found")
+        return false
+    end
+    local now = izi.now()
+    local d = safe(function() return player:distance_to(unit) end) or 99
+    if d > 5 then
+        local p = safe(function() return unit:get_position() end)
+        if not p or not movement.nav_to(p) then
+            return false
+        end
+        state.set_note("Vendor", "Travel to " .. tostring(state.vendor.supplier_name))
+        return true
+    end
+    movement.nav_stop()
+    if now < (state.vendor.interact_until or 0) then
+        return true
+    end
+    state.vendor.tries = (state.vendor.tries or 0) + 1
+    if state.vendor.tries > 8 then
+        finish_trip("Food / water seller did not open")
+        return false
+    end
+    state.vendor.interact_until = now + INTERACT_GAP
+    targeting.set_current(unit, "vendor")
+    pcall(function() core.input.interact_with_object(unit) end)
+    if gossip_open() then
+        if not select_vendor_gossip() then
+            close_vendor()
+            state.set_note("Vendor", "No vendor gossip")
+        end
+    end
+    state.set_note("Vendor", "Interact " .. tostring(state.vendor.supplier_name))
+    return true
+end
+
 function vendor.tick(player)
     if not player then
         return false
@@ -732,6 +795,10 @@ function vendor.tick(player)
         movement.nav_stop()
         state.vendor.tries = 0
         local now = izi.now()
+        if not state.vendor.window_seen then
+            state.vendor.window_seen = true
+            supplies.new_merchant()
+        end
         if now < (state.vendor.interact_until or 0) then
             state.set_note("Vendor", "Selling")
             return true
@@ -770,8 +837,33 @@ function vendor.tick(player)
             state.vendor.interact_until = now + 0.60
             return true
         end
+        -- FOOD AND WATER ELSEWHERE (2.73.0). The zone merchant (an armorer /
+        -- weaponsmith) stocks neither; an innkeeper or general-goods NPC in
+        -- sight does. Go there next, once per trip per NPC.
+        if supplies.needs_supplier(player) then
+            state.vendor.supplier_skip = state.vendor.supplier_skip or {}
+            local cur = state.vendor.supplier_guid
+            if cur then
+                state.vendor.supplier_skip[cur] = true
+            end
+            local unit = supplies.find_supplier(player, SUPPLIER_RANGE, state.vendor.supplier_skip)
+            if unit then
+                state.vendor.supplier_guid = safe(function() return unit:get_guid() end)
+                state.vendor.supplier_name = safe(function() return unit:get_name() end)
+                state.vendor.window_seen = false
+                state.vendor.tries = 0
+                close_vendor()
+                state.set_note("Vendor", "Food / water at " .. tostring(state.vendor.supplier_name))
+                return true
+            end
+        end
         finish_trip("Vendor done")
         return false
+    end
+
+    -- On the way to the food / water seller picked above.
+    if state.vendor.supplier_guid then
+        return supplier_tick(player)
     end
 
     local info = current_merchant(player)

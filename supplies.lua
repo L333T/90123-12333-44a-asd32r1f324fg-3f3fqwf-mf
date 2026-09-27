@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.72.0
+-- Version: 2.73.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -56,6 +56,23 @@ local MAX_PER_TRIP = 40      -- hard stop so a bad probe cannot drain the purse
 local last_buy = -1e9
 local bought_this_trip = 0
 local debug_done = false
+
+-- 2.73.0: what the merchant that is open now did NOT stock, so the vendor trip
+-- can go on to an innkeeper / general-goods NPC for it. Every zone merchant in
+-- grind/zones is an armorer or weaponsmith, which stocks neither food nor
+-- water - buying could never succeed at them.
+local missing = { food = false, drink = false }
+-- A buy that does not raise the bag count is not repeated for ever.
+local pending = nil            -- { reason, have } of the last buy sent
+local refused = {}             -- reason -> failed buys at this merchant
+local MAX_REFUSED = 3
+
+local function trail(fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, "supplies", fmt, ...)
+    end
+end
 
 local function safe(fn)
     local ok, result = pcall(fn)
@@ -198,31 +215,53 @@ local function restock(ids, target, reason)
     end
 
     local have = carried(ids)
+    if pending and pending.reason == reason then
+        if have <= pending.have then
+            refused[reason] = (refused[reason] or 0) + 1
+            trail("bought %s but the bag count did not rise (%d) - attempt %d", reason, have, refused[reason])
+        else
+            refused[reason] = 0
+        end
+        pending = nil
+    end
     if have >= target then
         return false
+    end
+    if (refused[reason] or 0) >= MAX_REFUSED then
+        state.set_note("Vendor", "Merchant would not sell " .. reason)
+        return false, "stock"
     end
 
     local index, price = find_on_vendor(ids)
     if not index then
         state.set_note("Vendor", "No " .. reason .. " stocked here")
+        trail("no %s stocked at this merchant (%d vendor items)", reason, vendor_count())
         return false, "stock"
     end
 
     -- Gold and stock are separate failures. Reporting "out of money" for an
     -- unstocked vendor, as the source does, sends the operator hunting the
     -- wrong problem.
+    -- Up to 5 per call (2.73.0): one item per 0.8 s made a 20 + 20 restock a
+    -- 30-second stand at the counter. Never more than the gold covers.
+    local qty = math.min(target - have, 5)
     if type(price) == "number" and price > 0 then
         local gold = safe(function() return core.inventory.get_gold() end)
-        if type(gold) == "number" and gold < price then
-            state.set_note("Vendor", "Not enough gold for " .. reason)
-            return false, "gold"
+        if type(gold) == "number" then
+            if gold < price then
+                state.set_note("Vendor", "Not enough gold for " .. reason)
+                return false, "gold"
+            end
+            qty = math.max(1, math.min(qty, math.floor(gold / price)))
         end
     end
 
     bought_this_trip = bought_this_trip + 1
     last_buy = izi.now()
+    pending = { reason = reason, have = have }
     state.set_note("Vendor", string.format("Buying %s (%d/%d)", reason, have, target))
-    pcall(function() core.input.buy_item(index, 1) end)
+    trail("buy %d %s at vendor index %d", qty, reason, index)
+    pcall(function() core.input.buy_item(index, qty) end)
     return true
 end
 
@@ -244,6 +283,7 @@ function supplies.tick(player)
 
     local food_target = gui.slider("food_target", 20) or 20
     local acted, failure = restock(consumables.FOOD_ITEM_IDS, food_target, "food")
+    missing.food = failure == "stock"
     if acted then
         return true
     end
@@ -258,7 +298,9 @@ function supplies.tick(player)
     local no_mana = (class_id == 1) or (class_id == 4)   -- WARRIOR, ROGUE
     if not no_mana then
         local drink_target = gui.slider("drink_target", 20) or 20
-        if restock(consumables.WATER_ITEM_IDS, drink_target, "drink") then
+        local d_acted, d_failure = restock(consumables.WATER_ITEM_IDS, drink_target, "drink")
+        missing.drink = d_failure == "stock"
+        if d_acted then
             return true
         end
     end
@@ -270,6 +312,69 @@ end
 function supplies.reset()
     bought_this_trip = 0
     last_buy = -1e9
+    missing.food, missing.drink = false, false
+    pending = nil
+    refused = {}
+end
+
+--- A new merchant window: its stock is judged afresh.
+function supplies.new_merchant()
+    missing.food, missing.drink = false, false
+    pending = nil
+    refused = {}
+end
+
+--- Did the merchant just worked lack food or drink we still need?
+function supplies.needs_supplier(player)
+    if not player or not gui.is_on("buy_supplies") then
+        return false
+    end
+    if missing.food then
+        return true
+    end
+    if missing.drink then
+        local class_id = safe(function() return player:get_class() end)
+        return class_id ~= 1 and class_id ~= 4
+    end
+    return false
+end
+
+-- NPCs that sell food and water. Every innkeeper does; these general-goods
+-- vendors stand beside the starting zones' armorers.
+local SUPPLIER_NAMES = {
+    ["Brother Danil"] = true,         -- Northshire Abbey
+    ["Adlin Pridedrift"] = true,      -- Coldridge Valley
+}
+
+--- The nearest friendly food / water seller in sight, skipping `skip` GUIDs.
+function supplies.find_supplier(player, range, skip)
+    local ok_t, targeting = pcall(require, "targeting")
+    local list = ok_t and targeting and type(targeting.visible_objects) == "function"
+        and targeting.visible_objects() or nil
+    if type(list) ~= "table" then
+        return nil
+    end
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_unit() end) == true
+            and safe(function() return u:is_player() end) ~= true
+            and safe(function() return u:is_dead_or_ghost() end) ~= true
+            and safe(function() return player:can_attack(u) end) ~= true then
+            local name = safe(function() return u:get_name() end)
+            if type(name) == "string" and (SUPPLIER_NAMES[name] or name:find("^Innkeeper ")) then
+                local g = safe(function() return u:get_guid() end)
+                if not (skip and g and skip[g]) then
+                    local d = safe(function() return player:distance_to(u) end)
+                    if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+                        best, best_d = u, d
+                    end
+                end
+            end
+        end
+    end
+    return best, best_d
 end
 
 function supplies.register_gui(menu)

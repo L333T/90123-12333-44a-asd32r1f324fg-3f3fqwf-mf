@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.32.0
+-- Version: 2.33.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -117,6 +117,13 @@ menu:checkbox("mfg_player_detect", false, {
 menu:slider_int("mfg_player_yards", 10, 80, 30, {
     label = "Player Detect Range",
     tab = "general",
+})
+-- One switch for all looting, on the always-visible General tab: grinding,
+-- questing and path mode all loot through loot.lua.
+menu:checkbox("mfg_loot", true, {
+    label = "Auto Loot Corpses",
+    tab = "general",
+    tooltip = "After each kill, walk to the corpse and auto loot everything on it (core.input.loot_object). Also picks up any lootable corpse within 15 yards. Anything attacking you is fought first. Turn off to leave corpses alone.",
 })
 menu:checkbox("mfg_rotation_only", false, {
     label = "Enable Rotation Only",
@@ -262,16 +269,6 @@ menu:checkbox("mfg_atk_3", true, {
 menu:checkbox("mfg_untapped", true, {
     label = "Skip Tapped Mobs",
     tab = "grind",
-})
-menu:checkbox("mfg_loot", true, {
-    label = "Loot Corpses",
-    tab = "grind",
-    tooltip = "Loot dead enemies after a kill. Walks in if the corpse is within 40 yards (my kills) or 10 yards (all nearby).",
-})
-menu:checkbox("mfg_loot_mine", true, {
-    label = "Loot My Kills Only",
-    tab = "grind",
-    tooltip = "Only loot corpses this bot marked as killed. Off = loot any lootable corpse within 10 yards.",
 })
 
 -- Every questing setting lives on the Questing tab, under Enable Questing.
@@ -466,7 +463,6 @@ local aliases = {
     fight_back = "mfg_fight_back",
     untapped = "mfg_untapped",
     loot = "mfg_loot",
-    loot_mine = "mfg_loot_mine",
     sell = "mfg_vendor_sell",
     repair = "mfg_repair",
     sell_grey = "mfg_sell_grey",
@@ -2535,7 +2531,7 @@ menu:on_tab("grind", function(win, x, y, w, h)
         line = "Pulls enemies 5 levels below to 5 levels above you."
     end
     win:render_text(FONT_SMALL, vec2.new(x + 10, y + 8), C(232, 222, 196, 255), line)
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 28), C(180, 170, 150, 255), "Only one level option can be on. Loot Corpses pulls loot after a kill.")
+    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 28), C(180, 170, 150, 255), "Only one level option can be on. Looting is the Auto Loot Corpses box on the General tab.")
 end)
 
 menu:on_tab("settings", function(win, x, y, w, h)

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.32.0
+-- Version: 2.33.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -470,6 +470,9 @@ local function path_handle_combat(player)
     if unit then
         if safe(function() return unit:is_dead_or_ghost() end) == true or safe(function() return unit:is_dead() end) == true then
             state.mark_killed(state.target.guid or safe(function() return unit:get_guid() end))
+            if loot and type(loot.note_kill) == "function" then
+                loot.note_kill(unit)
+            end
             movement.nav_stop()
             if type(movement.combat_release) == "function" then
                 movement.combat_release()

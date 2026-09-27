@@ -1,16 +1,40 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- Corpse loot after a kill (IZI: enemies_if, can_be_looted, has_loot, loot_object)
+-- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.32.0
+-- Version: 2.33.0
 -- Folder: Master_Farmer_Grindbot
+-- ============================================================================
+-- HOW IT WORKS
+--   1. An engine that sees its target die calls loot.note_kill(unit) in that
+--      same tick. The corpse's GUID and position go on the queue, so
+--      loot.has_work() is already true before the engine considers its next
+--      pull. (2.31.0 found corpses by scanning AFTER the kill: loot.tick ran
+--      before the engine noticed the death, cached "no corpse", and the
+--      engine pulled the next mob in the same tick - nothing was looted.)
+--   2. loot.tick resolves the queued GUID with
+--      core.object_manager.get_object_from_guid every tick. No object handle
+--      is ever kept between ticks: the API says to store the GUID and resolve
+--      it fresh, and a stale handle is a native read of freed memory.
+--   3. It walks to within LOOT_REACH, stops, and calls
+--      core.input.loot_object(corpse, true) - auto loot, which takes the
+--      whole window in one call. At most one attempt per FIRE_GAP, MAX_FIRES
+--      in all. The job is done when the corpse stops being lootable; a loot
+--      window left open is closed with core.input.close_loot.
+--   4. Anything attacking the player comes first: the tick steps aside and
+--      the engine fights. Each corpse gets ENTRY_TIMEOUT, and the queue
+--      forgets entries after ENTRY_TTL, so looting can never stall the bot.
+--   5. A fallback scan once per SCAN_GAP queues any lootable corpse within
+--      SCAN_YARDS - kills the engines did not report. can_be_looted is only
+--      true for the player holding loot rights, so these are ours.
+--
+-- The whole feature is the "Auto Loot Corpses" checkbox on the General tab.
 -- ============================================================================
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
 
----@type inventory_helper
 local inventory_helper = require("common/utility/inventory_helper")
 
 local gui = require("gui")
@@ -20,57 +44,37 @@ local movement = require("movement")
 
 local loot = {}
 
-local INTERACT_YARDS = 5
-local NEAR_SCAN_YARDS = 10
-local KILL_SCAN_YARDS = 40
-local PAUSE_SEC = 0.5
-local ATTEMPT3_GAP = 0.02
-local CYCLE_COOLDOWN = 0.4
-local MAX_CYCLES = 6
-local STATE_CAP = 48
+local LOOT_REACH = 3.5        -- yards: close enough to loot
+local FIRE_GAP = 1.0          -- seconds between loot_object attempts
+local SETTLE = 0.6            -- seconds after an attempt before judging it
+local MAX_FIRES = 3           -- attempts per corpse
+local ENTRY_TIMEOUT = 15.0    -- seconds a corpse may take, walk included
+local ENTRY_TTL = 60.0        -- seconds a queued corpse is remembered
+local QUEUE_MAX = 8
+local SCAN_GAP = 1.0          -- seconds between fallback corpse scans
+local SCAN_YARDS = 15
 
--- guid -> { cycle_attempt, last_attempt, blocked_until, cycles }
-local looted_units = {}
-local loot_order = {}
+local queue = {}              -- { guid, x, y, z, added, started, fires, fired_t }
+local next_scan = 0
+local close_at = nil          -- when to close a loot window left open
 
-local function guid_of(unit)
-    if not unit then
-        return nil
-    end
-    local ok, guid = pcall(unit.get_guid, unit)
-    if ok and type(guid) == "string" and guid ~= "" then
-        return guid
+local function safe(fn)
+    local ok, res = pcall(fn)
+    if ok then
+        return res
     end
     return nil
 end
 
-local function prune_states()
-    if #loot_order <= STATE_CAP then
-        return
-    end
-    while #loot_order > STATE_CAP do
-        local old = table.remove(loot_order, 1)
-        if old then
-            looted_units[old] = nil
-        end
+local function elog_probe(tag)
+    local ok, elog = pcall(require, "errorlog")
+    if ok and type(elog) == "table" and type(elog.probe) == "function" then
+        elog.probe(tag)
     end
 end
 
-local function unit_state(guid)
-    local st = looted_units[guid]
-    if st then
-        return st
-    end
-    st = {
-        cycle_attempt = 0,
-        last_attempt = 0,
-        blocked_until = 0,
-        cycles = 0,
-    }
-    looted_units[guid] = st
-    loot_order[#loot_order + 1] = guid
-    prune_states()
-    return st
+local function enabled()
+    return gui and gui.is_on("loot") == true
 end
 
 local function bags_too_full()
@@ -84,261 +88,224 @@ local function bags_too_full()
     return free <= 1
 end
 
-local function is_lootable(corpse)
-    if not corpse then
-        return false
+local function resting()
+    local ok_h, healing = pcall(require, "healing")
+    return ok_h and healing and type(healing.is_resting) == "function" and healing.is_resting() == true
+end
+
+--- The corpse behind a GUID, freshly resolved, or nil when it is gone.
+local function resolve(guid)
+    if type(guid) ~= "string" or guid == "" then
+        return nil
     end
-    local ok_valid, valid = pcall(corpse.is_valid, corpse)
-    if not ok_valid or valid ~= true then
-        return false
+    local obj = safe(function() return core.object_manager.get_object_from_guid(guid) end)
+    if not obj then
+        return nil
     end
-    -- can_be_looted is the corpse's lootable flag, which the game only sets
-    -- for whoever holds loot rights - it is the test. has_loot (does it hold
-    -- items) was required as well, and it is not reliably populated before
-    -- a loot window has opened: corpses were rejected and never looted.
-    -- has_loot is only consulted on a build without can_be_looted.
-    local ok_can, can = pcall(corpse.can_be_looted, corpse)
-    if ok_can and type(can) == "boolean" then
+    if safe(function() return obj:is_valid() end) ~= true then
+        return nil
+    end
+    return obj
+end
+
+local function lootable(obj)
+    local ok, can = pcall(obj.can_be_looted, obj)
+    if ok and type(can) == "boolean" then
         return can
     end
-    local ok_has, has = pcall(corpse.has_loot, corpse)
-    return ok_has == true and has == true
+    local ok2, has = pcall(obj.has_loot, obj)
+    return ok2 and has == true
 end
 
-local function fire_loot(corpse)
-    local ok_e, elog = pcall(require, "errorlog")
-    if ok_e and type(elog) == "table" then
-        elog.probe("loot:fire")
-    end
-    if core.input and type(core.input.loot_object) == "function" then
-        pcall(core.input.loot_object, corpse, true)
-    end
-    if movement and type(movement.pause_for_loot) == "function" then
-        movement.pause_for_loot(PAUSE_SEC)
-    elseif movement and type(movement.nav_stop) == "function" then
-        movement.nav_stop()
-    end
-end
-
--- Attempt 1 instant, attempt 2 next frame, attempt 3 after 20ms, then 400ms cooldown.
--- Returns "fired", "wait", or "skip".
-local function attempt_loot(corpse, now)
-    local guid = guid_of(corpse)
-    if not guid then
-        return "skip"
-    end
-    local st = unit_state(guid)
-    if st.cycles >= MAX_CYCLES then
-        return "skip"
-    end
-    if st.blocked_until > 0 and now < st.blocked_until then
-        return "wait"
-    end
-    if st.blocked_until > 0 and now >= st.blocked_until and st.cycle_attempt ~= 0 then
-        st.cycle_attempt = 0
-        st.blocked_until = 0
-    end
-
-    local attempt = st.cycle_attempt or 0
-    if attempt == 0 or attempt == 1 then
-        st.cycle_attempt = attempt + 1
-        st.last_attempt = now
-        fire_loot(corpse)
-        return "fired"
-    end
-    if attempt == 2 then
-        if now - (st.last_attempt or 0) < ATTEMPT3_GAP then
-            return "wait"
+local function find_entry(guid)
+    for i = 1, #queue do
+        if queue[i].guid == guid then
+            return i
         end
-        st.cycle_attempt = 0
-        st.last_attempt = now
-        st.blocked_until = now + CYCLE_COOLDOWN
-        st.cycles = (st.cycles or 0) + 1
-        fire_loot(corpse)
-        return "fired"
     end
-    st.cycle_attempt = 0
-    st.blocked_until = 0
-    return "wait"
+    return nil
 end
 
---- Has this corpse used up its loot attempts? Such a corpse is never picked:
---- returning it would stall anything waiting on loot.has_work for good.
-local function exhausted(corpse)
-    local guid = guid_of(corpse)
-    local st = guid and looted_units[guid] or nil
-    return st ~= nil and (st.cycles or 0) >= MAX_CYCLES
+local function drop(i)
+    table.remove(queue, i)
 end
 
--- The corpse pick is shared for PICK_TTL (2.27.0): loot.tick and the quest
--- engine's loot.has_work both asked every frame, and each ask scans every
--- visible object and queries every corpse in range.
-local PICK_TTL = 0.2
-local pick_t, pick_mine, pick_best, pick_d = -1, nil, nil, 99
-
-local pick_corpse_raw
-
-local function pick_corpse(player, mine_only)
+--- Queue a corpse by GUID. Returns true when it was added.
+local function enqueue(guid, pos)
+    if type(guid) ~= "string" or guid == "" or find_entry(guid) then
+        return false
+    end
+    if #queue >= QUEUE_MAX then
+        table.remove(queue, 1)
+    end
     local now = izi.now()
-    if pick_t >= 0 and now >= pick_t and (now - pick_t) < PICK_TTL and pick_mine == mine_only then
-        if pick_best == nil then
-            return nil, pick_d
-        end
-        local ok_v, valid = pcall(pick_best.is_valid, pick_best)
-        if ok_v and valid == true then
-            local ok_d, dist = pcall(player.distance_to, player, pick_best)
-            return pick_best, (ok_d and type(dist) == "number") and dist or pick_d
-        end
-    end
-    pick_best, pick_d = pick_corpse_raw(player, mine_only)
-    pick_t, pick_mine = now, mine_only
-    return pick_best, pick_d
+    queue[#queue + 1] = {
+        guid = guid,
+        x = pos and pos.x or nil, y = pos and pos.y or nil, z = pos and pos.z or nil,
+        added = now, started = nil, fires = 0, fired_t = -1e9,
+    }
+    return true
 end
 
-pick_corpse_raw = function(player, mine_only)
-    local current = state.target and state.target.unit or nil
-    if current then
-        -- The kill target is held across ticks: valid before anything else.
-        local ok_v, valid = pcall(current.is_valid, current)
-        if not (ok_v and valid == true) then
-            current = nil
-        end
-    end
-    if current then
-        local ok_dead, dead = pcall(current.is_dead, current)
-        if ok_dead == true and dead == true and is_lootable(current) and not exhausted(current) then
-            local ok_d, dist = pcall(player.distance_to, player, current)
-            if ok_d and type(dist) == "number" then
-                return current, dist
-            end
-        end
-    end
+-- ----------------------------------------------------------------------------
+-- PUBLIC
+-- ----------------------------------------------------------------------------
 
-    local scan = mine_only and KILL_SCAN_YARDS or NEAR_SCAN_YARDS
-    local list = targeting.find_corpses(player, scan)
-    if type(list) ~= "table" or #list == 0 then
-        return nil, 99
+--- An engine's target just died: queue its corpse. Call while the unit is
+--- still valid - its GUID and position are read here, once.
+function loot.note_kill(unit)
+    if not unit or not enabled() then
+        return false
     end
-    local best = nil
-    local best_d = 9999
+    if safe(function() return unit:is_valid() end) ~= true then
+        return false
+    end
+    local guid = safe(function() return unit:get_guid() end)
+    local pos = safe(function() return unit:get_position() end)
+    return enqueue(guid, pos)
+end
+
+--- Is anything queued that is still worth going to?
+function loot.has_work(player)
+    if not enabled() or #queue == 0 then
+        return false
+    end
+    if resting() or bags_too_full() or (state.vendor and state.vendor.active) then
+        return false
+    end
+    local now = izi.now()
+    for i = #queue, 1, -1 do
+        if (now - queue[i].added) > ENTRY_TTL then
+            drop(i)
+        end
+    end
+    return #queue > 0
+end
+
+--- Forget the queue (Stop, mode change).
+function loot.reset()
+    queue = {}
+    close_at = nil
+end
+
+local function under_attack(player)
+    if safe(function() return player:is_in_combat() end) ~= true then
+        return false
+    end
+    local pack = targeting.combat_scan(player, 30)
+    return type(pack) == "table" and #pack > 0
+end
+
+local function fallback_scan(player, now)
+    if now < next_scan then
+        return
+    end
+    next_scan = now + SCAN_GAP
+    local list = targeting.find_corpses(player, SCAN_YARDS)
+    if type(list) ~= "table" then
+        return
+    end
     for i = 1, #list do
-        local corpse = list[i]
-        if is_lootable(corpse) and not exhausted(corpse) then
-            local allow = true
-            if mine_only then
-                -- Ours if the bot recorded the kill, or if the corpse is not
-                -- tap-denied: a lootable corpse nobody else tapped can only
-                -- be one we killed. The kill record alone missed corpses
-                -- whose object reported invalid at the moment of death.
-                local guid = guid_of(corpse)
-                allow = (guid and state.was_killed(guid) == true)
-                if not allow then
-                    local ok_t, denied = pcall(corpse.is_tap_denied, corpse)
-                    allow = ok_t and denied == false
-                end
-            end
-            if allow then
-                local ok_d, dist = pcall(player.distance_to, player, corpse)
-                if ok_d and type(dist) == "number" and dist < best_d then
-                    best = corpse
-                    best_d = dist
-                end
-            end
+        local c = list[i]
+        if safe(function() return c:is_valid() end) == true and lootable(c) then
+            local guid = safe(function() return c:get_guid() end)
+            local pos = safe(function() return c:get_position() end)
+            enqueue(guid, pos)
         end
     end
-    return best, best_d
 end
 
+--- One bot tick of looting. Returns true while it owns the tick.
 function loot.tick(player)
-    -- Defence in depth for the cascade order in main.lua. Walking to a corpse
-    -- cancels eating and drinking, so looting never runs during a rest even if
-    -- that ordering is changed later. Required lazily: healing.lua requires
-    -- rotation, so a top-level require here would close a cycle.
-    do
-        local ok_h, healing = pcall(require, "healing")
-        if ok_h and healing and type(healing.is_resting) == "function" then
-            if healing.is_resting() == true then
-                return false
+    if not player or not enabled() then
+        return false
+    end
+    local now = izi.now()
+
+    -- A loot window left open after an auto loot.
+    if close_at and now >= close_at then
+        close_at = nil
+        local n = safe(function() return core.game_ui.get_loot_item_count() end)
+        if type(n) == "number" and n > 0 then
+            pcall(function() core.input.close_loot() end)
+        end
+    end
+
+    if resting() or bags_too_full() or (state.vendor and state.vendor.active) then
+        return false
+    end
+    if safe(function() return player:is_dead() end) == true then
+        return false
+    end
+    -- Fighting comes first; the engine's fight-back handles it.
+    if under_attack(player) then
+        return false
+    end
+
+    fallback_scan(player, now)
+    if not loot.has_work(player) then
+        return false
+    end
+
+    -- Nearest queued corpse that still exists and can still be looted.
+    local best_i, best_obj, best_d = nil, nil, nil
+    for i = #queue, 1, -1 do
+        local e = queue[i]
+        local obj = resolve(e.guid)
+        local gone = obj == nil
+            or safe(function() return obj:is_dead() end) ~= true
+            or (e.started and (now - e.started) > ENTRY_TIMEOUT)
+            or e.fires >= MAX_FIRES and (now - e.fired_t) > SETTLE
+        if not gone and not lootable(obj) then
+            -- Looted (by us, after a fire), or never ours to loot.
+            gone = true
+        end
+        if gone then
+            drop(i)
+        else
+            local d = safe(function() return player:distance_to(obj) end)
+            if type(d) == "number" and (best_d == nil or d < best_d) then
+                best_i, best_obj, best_d = i, obj, d
             end
         end
     end
-    if not gui or not gui.is_on("loot") then
-        return false
-    end
-    if not player then
-        return false
-    end
-    local ok_valid, valid = pcall(player.is_valid, player)
-    if not ok_valid or valid ~= true then
-        return false
-    end
-    local ok_dead, dead = pcall(player.is_dead, player)
-    if ok_dead and dead == true then
-        return false
-    end
-    if state.vendor and state.vendor.active then
-        return false
-    end
-    if bags_too_full() then
+    if not best_i then
         return false
     end
 
-    local mine_only = gui.is_on("loot_mine") == true
-    local corpse, dist = pick_corpse(player, mine_only)
-    if not corpse then
-        return false
-    end
+    local e = queue[best_i]
+    e.started = e.started or now
 
-    if dist > INTERACT_YARDS then
-        local ok_pos, pos = pcall(corpse.get_position, corpse)
-        -- Only claim the tick when movement actually accepted the walk. If the
-        -- combat controller owns the player, nav_to is refused - returning true
-        -- there would swallow the tick and starve the combat rotation.
-        if ok_pos and pos and movement and movement.nav_to(pos) then
-            state.set_note("Loot", "Walking to corpse")
+    if best_d > LOOT_REACH then
+        local pos = safe(function() return best_obj:get_position() end)
+        if pos then
+            elog_probe("loot:walk")
+            -- The fight is over (under_attack said so): give the player
+            -- back from combat movement so the walk is not refused.
+            if type(movement.in_combat_movement) == "function" and movement.in_combat_movement()
+                and type(movement.combat_release) == "function" then
+                movement.combat_release()
+            end
+            if not movement.is_moving() then
+                movement.nav_to(pos, true)
+            end
+            state.set_note("Loot", string.format("Walking to corpse  %.0fy", best_d))
             return true
         end
+        drop(best_i)
         return false
     end
 
-    local now = izi.now()
-    local result = attempt_loot(corpse, now)
-    if result == "fired" then
-        state.set_note("Loot", "Looting")
-        return true
+    movement.nav_stop()
+    if (now - e.fired_t) >= FIRE_GAP and e.fires < MAX_FIRES then
+        e.fires = e.fires + 1
+        e.fired_t = now
+        elog_probe("loot:fire")
+        pcall(function() core.input.loot_object(best_obj, true) end)
+        close_at = now + 1.5
     end
-    if result == "wait" then
-        if movement and type(movement.nav_stop) == "function" then
-            movement.nav_stop()
-        end
-        state.set_note("Loot", "Looting")
-        return true
-    end
-    return false
-end
-
---- Is there a corpse to loot right now, by the same rules loot.tick uses?
----
---- The quest engine asks this before choosing its next mob. It used to pull
---- the next one straight away: combat movement took the player, loot's walk
---- to the corpse was refused, and the bot chained fights without ever looting
---- - so a collect objective like Tough Wolf Meat never moved.
-function loot.has_work(player)
-    if not player or not gui or not gui.is_on("loot") then
-        return false
-    end
-    local ok_h, healing = pcall(require, "healing")
-    if ok_h and healing and type(healing.is_resting) == "function" and healing.is_resting() == true then
-        return false
-    end
-    if state.vendor and state.vendor.active then
-        return false
-    end
-    if bags_too_full() then
-        return false
-    end
-    local corpse = pick_corpse(player, gui.is_on("loot_mine") == true)
-    return corpse ~= nil
+    state.set_note("Loot", "Looting")
+    return true
 end
 
 return loot

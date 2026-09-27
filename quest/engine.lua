@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.32.0
+-- Version: 2.33.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -161,6 +161,11 @@ local function fight_unit(player, unit, note)
         or safe(function() return unit:is_dead_or_ghost() end) == true then
         state.mark_killed(state.target.guid or safe(function() return unit:get_guid() end))
         trail("act", "killed %s", tostring(safe(function() return unit:get_name() end)))
+        -- Queue the corpse now, in this tick, so loot.has_work is already
+        -- true when the engine next looks for something to pull.
+        if loot and type(loot.note_kill) == "function" then
+            loot.note_kill(unit)
+        end
         release_combat()
         return false
     end

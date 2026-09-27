@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.67.0
+-- Version: 2.68.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -85,6 +85,21 @@ local function module_for_class(class_id)
 end
 
 local rotation = {}
+
+-- Flight-recorder probe (2.68.0). Free unless the Crash Recorder box is ticked:
+-- then each one is a disk line, and the last line before a crash names the
+-- native call the game died in.
+local probe_el = nil
+local function xprobe(tag)
+    if probe_el == nil then
+        local ok, m = pcall(require, "errorlog")
+        probe_el = (ok and type(m) == "table" and type(m.probe) == "function") and m or false
+    end
+    if probe_el then
+        pcall(probe_el.probe, tag)
+    end
+end
+
 local last_action = "Idle"
 
 -- ----------------------------------------------------------------------------
@@ -320,12 +335,14 @@ function rotation.tick(player, target, ctx)
             return false
         end
     end
+    xprobe("r:acquire")
     local resolved, scanned = combat.acquire(player, rotation.combat_range(player), target, pack)
     if resolved then
         target = resolved
         ctx.enemies = scanned
     end
 
+    xprobe("r:dismount")
     if combat.dismount(player, target) then
         return true
     end
@@ -334,6 +351,7 @@ function rotation.tick(player, target, ctx)
     -- the interrupt spells ticked in the Spells tab (2.64.0).
 
     if player and target and targeting and type(targeting.start_auto_attack) == "function" then
+        xprobe("r:auto_attack")
         targeting.start_auto_attack(player, target)
     end
     -- Facing is idempotent and throttled inside movement, so asserting it here
@@ -359,10 +377,14 @@ function rotation.tick(player, target, ctx)
     if target and not rotation_only then
         local movement = get_movement()
         if movement then
+            xprobe("r:face")
             movement.face(target)
         end
     end
-    return smart.combat(player, target, ctx) == true
+    xprobe("r:smart")
+    local acted = smart.combat(player, target, ctx) == true
+    xprobe("r:smart done")
+    return acted
 end
 
 function rotation.preferred_food_ids(player)

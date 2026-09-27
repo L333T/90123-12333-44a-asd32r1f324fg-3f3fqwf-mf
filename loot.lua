@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.55.0
+-- Version: 2.56.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -156,6 +156,12 @@ local function resolve(guid)
     return nil
 end
 
+--- has_loot() said NO in so many words (not merely unknown).
+local function empty(obj)
+    local ok, has = pcall(obj.has_loot, obj)
+    return ok and has == false
+end
+
 local function lootable(obj)
     local ok, can = pcall(obj.can_be_looted, obj)
     if ok and type(can) == "boolean" then
@@ -294,7 +300,9 @@ local function fallback_scan(player, now)
             -- other corpse only when the game says it is lootable.
             local mine = guid and ((type(state.was_engaged) == "function" and state.was_engaged(guid))
                 or (type(state.was_killed) == "function" and state.was_killed(guid))) or false
-            if mine or lootable(c) then
+            local can_c = lootable(c)
+            -- Plainly empty (not lootable, and has_loot says no): nothing to queue.
+            if (mine or can_c) and not (not can_c and empty(c)) then
                 local pos = safe(function() return c:get_position() end)
                 enqueue(guid, pos, mine == true)
             end
@@ -384,18 +392,32 @@ function loot.tick(player)
             why = "attempts used up"
         end
         local gone = why ~= nil
-        if not gone and not lootable(obj) then
-            -- Looted (after a fire), or never ours to loot - judged only once
-            -- the flag has had FLAG_GRACE to appear. The bot's own kills get
-            -- at least one attempt regardless: the flag is advisory.
-            if e.fires > 0 and (now - e.fired_t) > SETTLE then
+        local can = (not gone) and lootable(obj)
+        if can then
+            e.seen_lootable = true
+        end
+        if not gone then
+            -- ALREADY LOOTED (2.56.0). Seen lootable once and not any more:
+            -- someone emptied it - the bot, or the player by hand. Done, no
+            -- walk and no attempt.
+            if not can and e.seen_lootable then
+                gone, why = true, "already looted"
+            -- Nothing on it, in so many words, once the flag has had its grace.
+            elseif (now - e.added) > FLAG_GRACE and empty(obj) then
+                gone, why = true, "empty"
+            -- After an attempt: un-lootable or empty means it worked.
+            elseif e.fires > 0 and (now - e.fired_t) > SETTLE and (not can or empty(obj)) then
                 gone, why = true, "looted"
-            elseif not e.mine and (now - e.added) > FLAG_GRACE then
+            elseif not can and not e.mine and (now - e.added) > FLAG_GRACE then
                 gone, why = true, "not lootable"
             end
         end
         if gone then
             ltrail("done %s: %s after %d attempt(s)", e.guid, tostring(why), e.fires)
+            -- Every finished corpse is remembered (2.56.0): the fallback scan
+            -- used to find a looted corpse again - the flag lags, or items
+            -- that are not ours stay on it - and queue it all over again.
+            ignored[e.guid] = now + IGNORE_FOR
             drop(i)
         else
             local d = safe(function() return player:distance_to(obj) end)

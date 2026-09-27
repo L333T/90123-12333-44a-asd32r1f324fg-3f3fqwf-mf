@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.23.0
+-- Version: 2.24.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1197,6 +1197,125 @@ function guide.find_camp_mob(player, center, radius)
                 local d = call(player.distance_to, player, u)
                 if type(d) == "number" and d <= CAMP_REACH and (best_d == nil or d < best_d) then
                     best, best_d = u, d
+                end
+            end
+        end
+    end
+    return best, best_d
+end
+
+-- ============================================================================
+-- DROP SOURCES FROM THE ITEM NAME (2.24.0)
+-- ============================================================================
+-- RestedXP names the ITEM a collect objective wants - "Tough Wolf Meat" - but
+-- not the creature that drops it, and no unit is called "Tough Wolf Meat". The
+-- bot used to fall straight back to fighting whatever stood at the waypoint:
+-- troggs, boars and rabbits for wolf meat, and the quest never moved.
+--
+-- Item names almost always carry the dropper's name: Tough WOLF Meat, BOAR
+-- Meat, KOBOLD Candle, WENDIGO Mane, Crag BOAR Rib. So the words of the item
+-- name, minus the generic ones, are matched against the words of each unit's
+-- name. Plurals are folded to one form on both sides (wolves -> wolf).
+local GENERIC = {}
+for w in ([[
+    a an the of and or in on with for from to
+    tough small large big young old fresh rotten raw cured fine coarse thick
+    thin heavy light broken torn ragged pristine intact whole
+    meat flesh flank rib ribs shank chop steak leg legs haunch loin
+    hide hides pelt pelts skin skins leather fur scale scales feather feathers
+    fang fangs tooth teeth claw claws talon talons tusk tusks horn horns hoof
+    hooves paw paws tail tails ear ears eye eyes heart hearts head heads skull
+    skulls bone bones blood venom sac sacs gland glands wing wings mane manes
+    spine spines stinger stingers carapace shell shells egg eggs gizzard
+    tongue brain liver kidney essence dust powder sample samples shard shards
+    fragment fragments piece pieces chunk chunks scrap scraps bundle bundles
+    sack sacks bag bags crate crates box boxes pouch pouches satchel bottle
+    note letter orders package parcel token tokens badge insignia ring charm
+    slain killed defeated destroyed collected gathered
+]]):gmatch("%a+") do
+    GENERIC[w] = true
+end
+
+local function fold(w)
+    w = string.lower(w)
+    if #w > 4 and w:sub(-3) == "ves" then
+        return w:sub(1, -4) .. "f"           -- wolves -> wolf
+    end
+    if #w > 4 and w:sub(-3) == "ies" then
+        return w:sub(1, -4) .. "y"
+    end
+    if #w > 3 and w:sub(-1) == "s" and w:sub(-2) ~= "ss" then
+        return w:sub(1, -2)                  -- troggs -> trogg
+    end
+    return w
+end
+
+--- The meaningful words of the goal's objective names, as a set, or nil.
+local function source_words(goal)
+    local names = guide.objective_names(goal and goal.quest_id)
+    local text = goal and strip_progress(goal.text)
+    local set, any = {}, false
+    local function take(s)
+        if type(s) ~= "string" then
+            return
+        end
+        for w in s:gmatch("%a+") do
+            local f = fold(w)
+            if #f >= 3 and not GENERIC[f] and not GENERIC[string.lower(w)] then
+                set[f] = true
+                any = true
+            end
+        end
+    end
+    for i = 1, #names do
+        take(names[i])
+    end
+    take(text)
+    return any and set or nil
+end
+
+--- Does the goal's item name give any clue to its drop source?
+function guide.has_source_words(goal)
+    return memo("srcw:" .. tostring(goal and goal.index or 0), function()
+        return source_words(goal) and true or false
+    end) == true
+end
+
+--- The nearest fightable unit whose name shares a meaningful word with the
+--- item the goal collects, or nil.
+function guide.find_source_mob(player, range, goal)
+    if not player then
+        return nil, nil
+    end
+    local words = memo("srcset:" .. tostring(goal and goal.index or 0), function()
+        return source_words(goal)
+    end)
+    if not words then
+        return nil, nil
+    end
+    range = tonumber(range) or 50
+    local list = visible_objects()
+    if type(list) ~= "table" then
+        return nil, nil
+    end
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if fightable(player, u) and not camp_excluded(u) then
+            local name = call(u.get_name, u)
+            if type(name) == "string" then
+                local hit = false
+                for w in name:gmatch("%a+") do
+                    if words[fold(w)] then
+                        hit = true
+                        break
+                    end
+                end
+                if hit then
+                    local d = call(player.distance_to, player, u)
+                    if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+                        best, best_d = u, d
+                    end
                 end
             end
         end

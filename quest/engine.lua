@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.23.0
+-- Version: 2.24.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -55,6 +55,11 @@ local g_move = 1
 local g_scan_until = 0
 local g_act_until = 0
 local g_kill_until = 0
+-- Collect goals: when the search for a mob named like the item began coming
+-- up empty. 0 while one is in sight.
+local g_nosource_since = 0
+local SOURCE_PATIENCE = 30.0  -- seconds of walking before any camp mob will do
+local g_armed_engage = false
 
 -- The NPC the bot opened a dialog with, remembered until the goal changes so
 -- it can be recorded as that quest's giver once the accept or turnin lands.
@@ -187,8 +192,12 @@ local function fight_unit(player, unit, note)
 end
 
 local function engage(player, unit, note)
-    if errorlog then
-        errorlog.arm("engage")
+    -- The first fight after Start is where every crash happened; one burst
+    -- there is enough. Arming on every engage wrote 15,000 lines in five
+    -- minutes of normal play.
+    if errorlog and not g_armed_engage then
+        g_armed_engage = true
+        errorlog.arm("first engage")
     end
     trail("act", "engage %s (%s)", tostring(safe(function() return unit:get_name() end)), tostring(note))
     targeting.set_current(unit, "kill")
@@ -423,6 +432,16 @@ local function object_goal(player, goal, label)
     return false
 end
 
+local function camp_mob(player, wps)
+    for i = 1, #wps do
+        local unit = guide.find_camp_mob(player, wps[i].pos, CAMP_RADIUS)
+        if unit then
+            return unit
+        end
+    end
+    return nil
+end
+
 local function kill_goal(player, goal, kind, wps, label)
     local now = izi.now()
     if now < g_scan_until then
@@ -430,14 +449,28 @@ local function kill_goal(player, goal, kind, wps, label)
     end
     g_scan_until = now + SCAN_GAP
     local unit = guide.find_mob(player, MOB_RANGE, goal)
-    -- An item that drops from something RestedXP does not name: its waypoints
-    -- sit on the camp that drops it, so fight what stands there.
     if not unit and kind == "collect" then
-        for i = 1, #wps do
-            unit = guide.find_camp_mob(player, wps[i].pos, CAMP_RADIUS)
-            if unit then
-                break
+        -- RestedXP names the item, not what drops it. First choice: a mob
+        -- whose name shares a word with the item ("Tough Wolf Meat" ->
+        -- "Ragged Young Wolf").
+        unit = guide.find_source_mob(player, MOB_RANGE, goal)
+        if unit then
+            g_nosource_since = 0
+        elseif guide.has_source_words(goal) then
+            -- The item names its dropper but none is in sight: walk the goal's
+            -- waypoints to find one rather than fight whatever is standing
+            -- there. Only after SOURCE_PATIENCE of finding nothing does the
+            -- camp fallback get a turn - the name may simply not match.
+            if g_nosource_since == 0 then
+                g_nosource_since = now
             end
+            if (now - g_nosource_since) >= SOURCE_PATIENCE then
+                unit = camp_mob(player, wps)
+            end
+        else
+            -- The name gives no clue ("Linen Scraps"): the waypoints sit on
+            -- the camp that drops it, so fight what stands there.
+            unit = camp_mob(player, wps)
         end
     end
     if unit then
@@ -528,6 +561,7 @@ tick_inner = function(player)
         g_scan_until = 0
         g_act_until = 0
         g_kill_until = 0
+        g_nosource_since = 0
         state.reset_target()
         trail("quest", "step %d goal %d: %s [%s] %s (quest %s, %d waypoint%s)",
             guide.step_num(), goal.index or 0, tostring(goal.action), kind, tostring(label),

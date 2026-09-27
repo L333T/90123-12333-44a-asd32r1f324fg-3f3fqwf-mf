@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.21.0
+-- Version: 2.22.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -284,6 +284,17 @@ local function api()
     return ns
 end
 
+local errorlog_mod = nil
+local function probe(tag)
+    if errorlog_mod == nil then
+        local ok, mod = pcall(require, "errorlog")
+        errorlog_mod = (ok and type(mod) == "table") and mod or false
+    end
+    if errorlog_mod then
+        errorlog_mod.probe(tag)
+    end
+end
+
 --- Call one function of the namespace.
 --- Returns result, nil - or nil, reason when it could not be called.
 local function ns_call(name, ...)
@@ -295,6 +306,7 @@ local function ns_call(name, ...)
     if fn == nil then
         return nil, name .. " missing"
     end
+    probe("rxp:" .. name)
     local ok, res = pcall(fn, ...)
     if not ok then
         return nil, tostring(res)
@@ -341,9 +353,28 @@ local function clock()
     return 0
 end
 
+--- Is the player in combat? Read once per refresh.
+local function player_in_combat()
+    local ok, me = pcall(izi.me)
+    if not ok or not me then
+        return false
+    end
+    local ok2, c = pcall(me.is_in_combat, me)
+    return ok2 and c == true
+end
+
 local function refresh()
     local now = clock()
     if snap.t >= 0 and now >= snap.t and (now - snap.t) < WINDOW then
+        return
+    end
+    -- NO ADDON READS IN COMBAT (2.22.0). Both crash logs end within a second
+    -- of the character entering combat, and combat is when the game's UI -
+    -- RestedXP with it - is busiest processing events. The bot needs nothing
+    -- new from the guide mid-fight, so the last snapshot stands until the
+    -- fight is over. Objectives fetched during the window stay cached too.
+    if snap.ready and player_in_combat() then
+        snap.t = now
         return
     end
     snap.t = now
@@ -1122,6 +1153,25 @@ end
 --- grey wildlife around the camp are left alone.
 local LEVEL_GAP = 4
 
+-- Never a camp target: nothing about these drops quest items.
+local NOT_CAMP = nil
+local function camp_excluded(u)
+    if NOT_CAMP == nil then
+        NOT_CAMP = {}
+        local ok, enums = pcall(require, "common/enums")
+        local ct = ok and type(enums) == "table" and enums.creature_type or nil
+        if type(ct) == "table" then
+            for _, k in ipairs({ "CRITTER", "NON_COMBAT_PET", "WILD_PET", "TOTEM", "GAS_CLOUD" }) do
+                if type(ct[k]) == "number" then
+                    NOT_CAMP[ct[k]] = true
+                end
+            end
+        end
+    end
+    local t = call(u.get_creature_type, u)
+    return type(t) == "number" and NOT_CAMP[t] == true
+end
+
 function guide.find_camp_mob(player, center, radius)
     if not player or not center then
         return nil, nil
@@ -1138,7 +1188,7 @@ function guide.find_camp_mob(player, center, radius)
         if fightable(player, u) then
             local lvl = call(u.get_level, u) or 0
             local pos = call(u.get_position, u)
-            if lvl >= my_level - LEVEL_GAP and pos
+            if lvl >= my_level - LEVEL_GAP and pos and not camp_excluded(u)
                 and geometry.distance(center, pos) <= radius then
                 local d = call(player.distance_to, player, u)
                 if type(d) == "number" and (best_d == nil or d < best_d) then

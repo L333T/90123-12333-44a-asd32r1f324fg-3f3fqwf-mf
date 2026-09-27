@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.21.0
+-- Version: 2.22.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -89,6 +89,13 @@ do
     end
 end
 
+--- A flight-recorder probe point (see errorlog.lua). Free when not armed.
+local function probe(tag)
+    if errorlog then
+        errorlog.probe(tag)
+    end
+end
+
 --- Run fn under the error log, or under a bare pcall without one.
 local function guarded(where, fn, ...)
     if errorlog then
@@ -142,6 +149,7 @@ else
         if is_stale() then
             return
         end
+        probe("gui.draw")
         guarded("gui.draw", gui.draw)
     end)
     core.log(string.format("[Master Farmer - Grindbot] v%s GUI ready", identity.version))
@@ -659,6 +667,7 @@ local function on_update()
         end
         -- The movement state machine ticks before anything else reads its state,
         -- so every consumer this frame sees one consistent owner and state.
+        probe("u:movement.pulse")
         pcall(movement.pulse)
     end
 
@@ -670,6 +679,7 @@ local function on_update()
     -- Load once for this character, then flush changes on a debounce. Runs
     -- before the cascade so a restored route is in place for the first tick
     -- that could use it.
+    probe("u:settings")
     if settings and type(settings.tick) == "function" then
         pcall(settings.tick, player)
     end
@@ -709,6 +719,7 @@ local function on_update()
         return
     end
 
+    probe("u:death")
     if death.tick(player) then
         return
     end
@@ -722,24 +733,30 @@ local function on_update()
     -- reports empty bags, and the bot stands at low mana next to a spell that
     -- would have fixed it. conjure.tick refuses to fire mid-meal, so it cannot
     -- interrupt a rest that is already under way.
+    probe("u:conjure")
     if conjure and type(conjure.tick) == "function" and conjure.tick(player) then
         return
     end
+    probe("u:healing")
     if healing.tick(player) then
         return
     end
+    probe("u:loot")
     if loot and loot.tick(player) then
         return
     end
     -- Self-buff upkeep. Sits with the class buffs because it answers the
     -- same question, and after healing.tick so a rest is never interrupted
     -- to refresh something.
+    probe("u:buffs")
     if buffs and type(buffs.tick) == "function" and buffs.tick(player) then
         return
     end
+    probe("u:buffs_ooc")
     if rotation.buffs_ooc(player) then
         return
     end
+    probe("u:busy")
     if player_is_busy(player) then
         state.set_note("Wait", "Casting")
         return
@@ -748,9 +765,11 @@ local function on_update()
     -- Ahead of the vendor trip on purpose: both want the gossip frame, and
     -- selecting the trainer option replaces whatever is open. Training is the
     -- rarer opportunity, and vendor.tick re-opens the merchant by itself.
+    probe("u:trainer")
     if trainer and type(trainer.tick) == "function" and trainer.tick(player) then
         return
     end
+    probe("u:vendor")
     if vendor and vendor.tick(player) then
         return
     end
@@ -758,6 +777,7 @@ local function on_update()
     -- After vendor on purpose: equipping and selling are the same underlying
     -- call (use_container_item), so this must be unreachable while a merchant
     -- window is open or an upgrade gets sold instead of worn.
+    probe("u:equip")
     if equip and type(equip.tick) == "function" and equip.tick(player) then
         return
     end
@@ -774,7 +794,9 @@ local function on_update()
             return
         end
         if quest.is_ready(player) then
+            probe("u:quest.tick")
             quest.tick(player)
+            probe("u:quest.tick done")
         else
             state.set_note("Quest", "RestedXP Guides is not loaded")
         end
@@ -787,7 +809,9 @@ local function on_update()
             state.set_note("Grind", "Grind pack failed to load")
             return
         end
+        probe("u:grind.tick")
         grind.tick(player)
+        probe("u:grind.tick done")
         return
     end
 end
@@ -849,6 +873,9 @@ if errorlog then
 end
 
 core.register_on_update_callback(function() guarded("on_update", on_update) end)
-core.register_on_render_callback(function() guarded("on_render", on_render) end)
+core.register_on_render_callback(function()
+    probe("on_render")
+    guarded("on_render", on_render)
+end)
 
 core.log(string.format("[Master Farmer - Grindbot] v%s loaded by %s", identity.version, identity.authors))

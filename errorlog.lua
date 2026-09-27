@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.21.0
+-- Version: 2.22.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -227,6 +227,40 @@ function errorlog.guard(where, fn, ...)
         errorlog.error(where, res, tb)
     end
     return ok, res
+end
+
+-- ----------------------------------------------------------------------------
+-- FLIGHT RECORDER
+-- ----------------------------------------------------------------------------
+-- TRAIL lines only record changes, and a game crash happens INSIDE a native
+-- call - between two TRAIL lines that look perfectly ordinary. So for a short
+-- burst after something risky starts (questing begins, a mob is engaged),
+-- every probe point writes a PROBE line straight to disk, unfiltered. The
+-- last PROBE line in a crashed session names the call the game died in.
+--
+-- Bounded by a line budget rather than time, so a burst costs a fixed amount
+-- of disk however fast frames run, and re-arming only tops the budget up.
+local probe_left = 0
+local PROBE_BURST = 2500
+
+--- Arm (or top up) the recorder for another burst.
+function errorlog.arm(why)
+    if probe_left < PROBE_BURST then
+        probe_left = PROBE_BURST
+        write("INFO", "flight recorder armed: " .. tostring(why))
+    end
+end
+
+--- A probe point. Free when the recorder is not armed.
+function errorlog.probe(tag)
+    if probe_left <= 0 then
+        return
+    end
+    probe_left = probe_left - 1
+    write("PROBE", tag)
+    if probe_left == 0 then
+        write("INFO", "flight recorder burst finished")
+    end
 end
 
 -- ----------------------------------------------------------------------------

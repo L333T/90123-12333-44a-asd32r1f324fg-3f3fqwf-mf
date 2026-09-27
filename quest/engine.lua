@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.24.0
+-- Version: 2.25.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -35,6 +35,13 @@ local movement = require("movement")
 local healing = require("healing")
 local geometry = require("geometry")
 local guide = require("quest/guide")
+local loot = nil
+do
+    local ok, mod = pcall(require, "loot")
+    if ok and type(mod) == "table" then
+        loot = mod
+    end
+end
 
 local quest = {}
 
@@ -60,6 +67,7 @@ local g_kill_until = 0
 local g_nosource_since = 0
 local SOURCE_PATIENCE = 30.0  -- seconds of walking before any camp mob will do
 local g_armed_engage = false
+local g_loot_wait = false
 
 -- The NPC the bot opened a dialog with, remembered until the goal changes so
 -- it can be recorded as that quest's giver once the accept or turnin lands.
@@ -151,7 +159,7 @@ local function fight_unit(player, unit, note)
         return false
     end
     local dist = safe(function() return player:distance_to(unit) end) or 99
-    if dist > 1000 then
+    if dist > targeting.MAX_RANGE then
         release_combat()
         return false
     end
@@ -573,8 +581,22 @@ tick_inner = function(player)
 
     probe("q:fight_back")
     if fight_back(player, label) then
+        g_loot_wait = false
         return
     end
+
+    -- A corpse of ours to loot comes before the next pull (2.25.0). Stop our
+    -- own walk once, so loot.tick's walk to the corpse is not swallowed by
+    -- navigation's "already moving" answer, then wait for it to finish.
+    if loot and loot.has_work(player) then
+        if not g_loot_wait then
+            g_loot_wait = true
+            movement.nav_stop()
+        end
+        state.set_note("Quest", "Guide: looting before the next pull")
+        return
+    end
+    g_loot_wait = false
     probe("q:act " .. kind)
 
     if kind == "accept" or kind == "turnin" or kind == "talk" then

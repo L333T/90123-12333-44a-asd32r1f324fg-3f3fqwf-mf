@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.24.0
+-- Version: 2.25.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -71,6 +71,29 @@ local function call(fn, a, b)
     return nil
 end
 
+-- ============================================================================
+-- RANGE CEILING (2.25.0)
+-- ============================================================================
+-- No search anywhere in the plugin looks further than MAX_RANGE yards. Every
+-- range argument that reaches a finder in this module is clamped to it, and
+-- quest/guide and movement read the same constant.
+local MAX_RANGE = 300
+targeting.MAX_RANGE = MAX_RANGE
+
+--- A range argument clamped to MAX_RANGE. nil stays nil so each caller's own
+--- default still applies.
+local function cap(r)
+    r = tonumber(r)
+    if r == nil then
+        return nil
+    end
+    if r > MAX_RANGE then
+        return MAX_RANGE
+    end
+    return r
+end
+targeting.cap_range = cap
+
 local function all_objects()
     local now = izi.now()
     if obj_cache_list and (now - obj_cache_t) < OBJ_CACHE_GAP then
@@ -118,6 +141,7 @@ local function tap_denied(unit)
 end
 
 local function player_nearby(player, range)
+    range = cap(range)
     if not gui.is_on("player_detect") then
         return false
     end
@@ -151,6 +175,7 @@ local function id_wanted(npc_id, mobs)
 end
 
 local function enemy_units(player, pos, range)
+    range = cap(range)
     if pos then
         local around = safe(function()
             return unit_helper:get_enemy_list_around(pos, range, true, false, false, false)
@@ -169,6 +194,7 @@ local function enemy_units(player, pos, range)
 end
 
 function targeting.find_mobs(player, mobs, range, pve_only, opts)
+    range = cap(range)
     local found = {}
     if not player then
         return found
@@ -243,6 +269,7 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
 end
 
 function targeting.threat_nearby(player, yards)
+    yards = cap(yards)
     if not player then
         return false
     end
@@ -273,6 +300,7 @@ function targeting.threat_nearby(player, yards)
 end
 
 function targeting.combat_scan(player, range)
+    range = cap(range)
     local found = {}
     if not player then
         return found
@@ -299,13 +327,41 @@ function targeting.combat_scan(player, range)
     return found
 end
 
+--- Dead, lootable-looking units within `range` yards, nearest first not implied.
+---
+--- Read from the visible-object list (2.25.0). This used izi.enemies_if, which
+--- lists ENEMIES - and a corpse is not one any more, so the scan came back
+--- empty and the bot walked away from every kill without looting it. The
+--- only other path was the kill target itself, which the quest engine clears
+--- the moment the mob dies. enemies_if is kept as a fallback for a build
+--- where the object list is unavailable.
 function targeting.find_corpses(player, range)
-    if not player or type(izi.enemies_if) ~= "function" then
-        return {}
+    local found = {}
+    if not player then
+        return found
     end
-    local yards = range or 10
-    if type(yards) ~= "number" or yards < 1 then
+    local yards = cap(range) or 10
+    if yards < 1 then
         yards = 10
+    end
+    local objects = all_objects()
+    if type(objects) == "table" then
+        for i = 1, #objects do
+            local obj = objects[i]
+            if indexable(obj) and call(obj.is_valid, obj) == true
+                and call(obj.is_unit, obj) == true
+                and call(obj.is_player, obj) ~= true
+                and call(obj.is_dead, obj) == true then
+                local d = call(player.distance_to, player, obj)
+                if type(d) == "number" and d <= yards then
+                    found[#found + 1] = obj
+                end
+            end
+        end
+        return found
+    end
+    if type(izi.enemies_if) ~= "function" then
+        return found
     end
     local ok, list = pcall(izi.enemies_if, yards, function(enemy)
         if not enemy then
@@ -319,7 +375,7 @@ function targeting.find_corpses(player, range)
         return ok_dead == true and dead == true
     end)
     if not ok or type(list) ~= "table" then
-        return {}
+        return found
     end
     return list
 end
@@ -541,6 +597,7 @@ local function names_match(got, want)
 end
 
 function targeting.find_named(player, name_a, name_b, range)
+    range = cap(range)
     if not player then
         return nil
     end
@@ -569,6 +626,7 @@ function targeting.find_named(player, name_a, name_b, range)
 end
 
 function targeting.find_npc(player, npc_id, range)
+    range = cap(range)
     if not player or not npc_id then
         return nil
     end

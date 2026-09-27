@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.24.0
+-- Version: 2.25.0
 -- ============================================================================
 -- Out-of-combat travel. Simple Movement owns clear, short legs; Sentinel is the
 -- fallback for long legs and blocked straight lines. Without Sentinel every
@@ -55,9 +55,28 @@ end
 -- ============================================================================
 -- CORE
 -- ============================================================================
+local MAX_LEG = K.MAX_LEG
+
+--- A destination more than MAX_LEG yards away, pulled in to MAX_LEG along the
+--- straight line. Height is interpolated; ground_z settles it once the point
+--- is close. The leg is re-planned every time the last one lands, so a far
+--- target is still reached - in legs no path request has to span in one go.
+local function clamp_leg(x, y, z)
+    local hx, hy, hz = here_xyz()
+    if not hx then return x, y, z end
+    local dx, dy = x - hx, y - hy
+    local d = math.sqrt(dx * dx + dy * dy)
+    if d <= MAX_LEG then return x, y, z end
+    local s = MAX_LEG / d
+    return hx + dx * s, hy + dy * s, hz + (z - hz) * s
+end
+Nv.clamp_leg = clamp_leg
+
 local function navigate(dest, prefer_direct)
     local x, y, z = xyz(dest)
     if not x then return false end
+    x, y, z = clamp_leg(x, y, z)
+    dest = pt(P_DEST, x, y, z)
     if not want_nav() then return false end
     local go, ret = O.may_issue(x, y, z)
     if not go then return ret end

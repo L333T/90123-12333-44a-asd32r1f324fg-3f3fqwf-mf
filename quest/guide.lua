@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.24.0
+-- Version: 2.25.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -50,6 +50,9 @@ local izi = require("common/izi_sdk")
 local vec3 = require("common/geometry/vector_3")
 
 local geometry = require("geometry")
+
+-- The plugin-wide search ceiling; targeting.lua owns the value.
+local MAX_RANGE = 300
 
 -- The visible-object list, through targeting's shared cache: one native scan
 -- serves every finder here and the combat code, instead of each finder
@@ -1046,7 +1049,7 @@ function guide.find_object(player, range, goal)
     if not player then
         return nil, nil
     end
-    range = tonumber(range) or 30
+    range = math.min(tonumber(range) or 30, MAX_RANGE)
 
     local ids, names = guide.targets(goal)
     -- Nothing named means nothing to look for. Returning the nearest object
@@ -1113,7 +1116,7 @@ function guide.find_mob(player, range, goal)
     if not player then
         return nil, nil
     end
-    range = tonumber(range) or 40
+    range = math.min(tonumber(range) or 40, MAX_RANGE)
 
     local ids, names = guide.targets(goal)
     if next(ids) == nil and next(names) == nil then
@@ -1180,7 +1183,7 @@ function guide.find_camp_mob(player, center, radius)
     if not player or not center then
         return nil, nil
     end
-    radius = tonumber(radius) or 40
+    radius = math.min(tonumber(radius) or 40, MAX_RANGE)
     local list = visible_objects()
     if type(list) ~= "table" then
         return nil, nil
@@ -1293,7 +1296,7 @@ function guide.find_source_mob(player, range, goal)
     if not words then
         return nil, nil
     end
-    range = tonumber(range) or 50
+    range = math.min(tonumber(range) or 50, MAX_RANGE)
     local list = visible_objects()
     if type(list) ~= "table" then
         return nil, nil
@@ -1543,7 +1546,7 @@ function guide.nearest_talkable(player, range, center)
     if not player then
         return nil, nil
     end
-    range = tonumber(range) or 8
+    range = math.min(tonumber(range) or 8, MAX_RANGE)
 
     local list = visible_objects()
     if type(list) ~= "table" then

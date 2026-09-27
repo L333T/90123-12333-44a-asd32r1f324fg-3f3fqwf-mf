@@ -3,7 +3,7 @@
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.33.0
+-- Version: 2.34.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
@@ -51,12 +51,18 @@ local izi = require("common/izi_sdk")
 local enums = require("common/enums")
 
 local gui = require("gui")
+local bags = require("bags")
 local state = require("state")
 
 local equip = {}
 
 local SCAN_GAP = 10.0        -- seconds between bag scans
 local ACT_GAP  = 1.5         -- seconds between equip attempts
+local VERIFY_GAP = 1.5        -- seconds after an attempt before checking it took
+local MAX_FAILS = 2           -- failed attempts before an item is skipped
+local attempt = nil           -- { bag, slot, item_id, label, t }
+local fail_count = {}         -- item id -> failed attempts
+local failed_ids = {}         -- item id -> true: skipped this session
 
 -- Far in the past, not 0: the first tick must be able to act regardless of what
 -- izi.now() happens to be, instead of sitting out the gap once at startup.
@@ -188,6 +194,28 @@ local CLASS_RELIC = {
     [enums.class_id.DRUID]   = ARMOR_SUB.IDOL,
     [enums.class_id.SHAMAN]  = ARMOR_SUB.TOTEM,
 }
+
+-- Classes that move up an armour weight at MAIL_LEVEL (2.34.0): in TBC a
+-- Warrior or Paladin wears mail below 40 and learns plate at 40, and a Hunter
+-- or Shaman wears leather below 40 and learns mail at 40. CLASS_ARMOUR is the
+-- level-40 cap; below it these classes are one rank lower.
+local MAIL_LEVEL = 40
+local ARMOUR_STEP_AT_40 = {
+    [enums.class_id.WARRIOR] = true, [enums.class_id.PALADIN] = true,
+    [enums.class_id.HUNTER]  = true, [enums.class_id.SHAMAN]  = true,
+}
+
+--- Heaviest armour rank this class may wear at this level.
+local function max_armour_for(class_id, level)
+    local cap = CLASS_ARMOUR[class_id]
+    if not cap then
+        return nil
+    end
+    if ARMOUR_STEP_AT_40[class_id] and type(level) == "number" and level < MAIL_LEVEL then
+        return cap - 1
+    end
+    return cap
+end
 
 --- Armour rank of an item, or nil when it is not armour we gate on.
 --- Numeric subclass first, localised name only as a fallback.
@@ -355,59 +383,45 @@ end
 -- ----------------------------------------------------------------------------
 -- SCAN
 -- ----------------------------------------------------------------------------
---- Find the first genuine upgrade in the bags. Returns bag, slot_id, label.
+--- Find the first genuine upgrade in the bags.
+--- Returns bag, slot, label, item_id - bag / slot as use_container_item takes
+--- them (bags.lua), never the raw get_items_in_bag slot_id.
+---
+--- Every candidate must pass equip.usable_by: armour weight for the class AND
+--- level, weapon type, shield, relic, required level. find_upgrade used to gate
+--- armour weight only.
 local function find_upgrade(player)
-    local class_id = safe(function() return player:get_class() end)
-    local max_armour = CLASS_ARMOUR[class_id]
-    local level = safe(function() return player:get_level() end)
     local allow_weapons = gui.is_on("equip_weapons")
-
-    for bag = 0, 4 do
-        local items = safe(function() return core.inventory.get_items_in_bag(bag) end)
-        if type(items) == "table" then
-            for i = 1, #items do
-                local entry = items[i]
-                if type(entry) == "table" and entry.object and type(entry.slot_id) == "number" then
-                    local item_id = safe(function() return entry.object:get_item_id() end)
-                    local info = item_info(item_id)
-                    if info then
-                        debug_dump(info, item_id)
-
-                        local loc = info.equip_loc
-                        local slots = nil
-                        if type(loc) == "string" then
-                            slots = LOC_SLOTS[loc]
-                            if not slots and allow_weapons then
-                                slots = WEAPON_SLOTS[loc]
+    local list = bags.list(player)
+    for i = 1, #list do
+        local entry = list[i]
+        local item_id = entry.item_id
+        if item_id and not failed_ids[item_id] then
+            local info = item_info(item_id)
+            if info then
+                debug_dump(info, item_id)
+                local loc = info.equip_loc
+                local slots = nil
+                if type(loc) == "string" then
+                    slots = LOC_SLOTS[loc]
+                    if not slots and allow_weapons then
+                        slots = WEAPON_SLOTS[loc]
+                    end
+                end
+                if slots then
+                    local usable, _, why_not = equip.usable_by(player, info)
+                    if usable then
+                        local slot, cur = pick_slot(player, slots)
+                        if slot then
+                            local ok, why = better_than(info, cur)
+                            if ok then
+                                local name = info.name or ("item " .. tostring(item_id))
+                                return entry.bag, entry.slot, name .. " (" .. tostring(why) .. ")", item_id
                             end
                         end
-
-                        if slots then
-                            -- required level: skip anything we cannot wear yet
-                            local req = required_level(info)
-                            local level_ok = true
-                            if req and type(level) == "number" and req > level then
-                                level_ok = false
-                            end
-
-                            -- armour type: only gate items that ARE armour
-                            local rank = armour_rank(info)
-                            local armour_ok = true
-                            if rank and max_armour and rank > max_armour then
-                                armour_ok = false
-                            end
-
-                            if level_ok and armour_ok then
-                                local slot, cur = pick_slot(player, slots)
-                                if slot then
-                                    local ok, why = better_than(info, cur)
-                                    if ok then
-                                        local name = info.name or ("item " .. tostring(item_id))
-                                        return bag, entry.slot_id, name .. " (" .. tostring(why) .. ")"
-                                    end
-                                end
-                            end
-                        end
+                    elseif gui.is_on("equip_debug") then
+                        core.log(string.format("[Master Farmer - Grindbot] Auto-equip skips %s: %s",
+                            tostring(info.name or item_id), tostring(why_not)))
                     end
                 end
             end
@@ -420,17 +434,23 @@ end
 -- PUBLIC
 -- ----------------------------------------------------------------------------
 --- Called from the main cascade. Returns true when it acted this tick.
+---
+--- VERIFIED, NOT ASSUMED (2.34.0). An attempt is checked VERIFY_GAP later: if
+--- the item is still sitting in the same bag slot, the equip did not take.
+--- After MAX_FAILS such attempts the item is skipped for the rest of the
+--- session and said so in the log. The cascade is no longer held while an
+--- attempt lands - that 1.5 s hold, repeated every scan, was the "Equipping
+--- Ragged Leather Gloves" loop that stopped questing mid-approach. The only
+--- hold left is answering a bind-on-equip prompt.
 function equip.tick(player)
     if not player or not gui.is_on("auto_equip") then
         return false
     end
 
     -- use_container_item SELLS while a merchant is open. Never scan then.
-    if safe(function() return core.game_ui.get_vendor_item_count() end) then
-        local n = safe(function() return core.game_ui.get_vendor_item_count() end) or 0
-        if n > 0 then
-            return false
-        end
+    local n_vendor = safe(function() return core.game_ui.get_vendor_item_count() end)
+    if type(n_vendor) == "number" and n_vendor > 0 then
+        return false
     end
 
     if safe(function() return player:is_in_combat() end) == true then
@@ -446,33 +466,52 @@ function equip.tick(player)
     local now = izi.now()
 
     -- A bind-on-equip item raises a confirmation prompt and the equip stalls
-    -- until it is answered. Answer it before doing anything else, or every
-    -- later attempt queues behind a dialog that is never dismissed.
-    local pending = safe(function() return core.game_ui.get_pending_equip_slot() end)
-    if type(pending) == "number" and pending >= 0 then
+    -- until it is answered.
+    local pending_slot = safe(function() return core.game_ui.get_pending_equip_slot() end)
+    if type(pending_slot) == "number" and pending_slot >= 0 then
         state.set_note("Equip", "Confirming bind-on-equip")
-        pcall(function() core.input.equip_pending_item(pending) end)
+        pcall(function() core.input.equip_pending_item(pending_slot) end)
         last_act = now
         return true
     end
 
-    if (now - last_act) < ACT_GAP then
-        return true          -- an equip is still landing; hold the cascade
+    -- Judge the last attempt once it has had time to land.
+    if attempt and (now - attempt.t) >= VERIFY_GAP then
+        local still = bags.item_at(player, attempt.bag, attempt.slot)
+        if still == attempt.item_id then
+            local n = (fail_count[attempt.item_id] or 0) + 1
+            fail_count[attempt.item_id] = n
+            if n >= MAX_FAILS then
+                failed_ids[attempt.item_id] = true
+                core.log_warning(string.format(
+                    "[Master Farmer - Grindbot] Auto-equip: %s would not equip after %d tries - skipping it this session.",
+                    tostring(attempt.label), n))
+            end
+        else
+            fail_count[attempt.item_id] = nil
+        end
+        attempt = nil
+        last_scan = 0            -- look for the next upgrade straight away
     end
+    if attempt then
+        return false             -- still landing; do not hold the cascade
+    end
+
     if (now - last_scan) < SCAN_GAP then
         return false
     end
     last_scan = now
 
-    local bag, slot_id, label = find_upgrade(player)
+    local bag, slot, label, item_id = find_upgrade(player)
     if not bag then
         return false
     end
 
     last_act = now
+    attempt = { bag = bag, slot = slot, item_id = item_id, label = label, t = now }
     state.set_note("Equip", "Equipping " .. tostring(label))
     core.log("[Master Farmer - Grindbot] Auto-equip: " .. tostring(label))
-    pcall(function() core.input.use_container_item(bag, slot_id) end)
+    bags.use(bag, slot)
     return true
 end
 
@@ -530,9 +569,9 @@ function equip.usable_by(player, info)
     -- Armour: the class may wear its own weight and anything lighter.
     local rank = armour_rank(info)
     if rank then
-        local max_rank = CLASS_ARMOUR[class_id]
+        local max_rank = max_armour_for(class_id, lvl)
         if max_rank and rank > max_rank then
-            return false, slots, "armour too heavy for this class"
+            return false, slots, "armour too heavy for this class at this level"
         end
         return true, slots, nil
     end

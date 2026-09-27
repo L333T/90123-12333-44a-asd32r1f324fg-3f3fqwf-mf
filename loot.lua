@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.38.0
+-- Version: 2.39.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -56,7 +56,7 @@ local ENTRY_TTL = 120.0       -- seconds a queued corpse is remembered
 local FLAG_GRACE = 3.0
 local QUEUE_MAX = 8
 local SCAN_GAP = 1.0          -- seconds between fallback corpse scans
-local SCAN_YARDS = 30        -- casters kill at up to 30 yards
+local SCAN_YARDS = 40        -- the combat lock's range: every fight's corpses are in it
 
 local queue = {}              -- { guid, x, y, z, added, started, fires, fired_t }
 local next_scan = 0
@@ -205,7 +205,8 @@ local function under_attack(player)
     if safe(function() return player:is_in_combat() end) ~= true then
         return false
     end
-    local pack = targeting.combat_scan(player, 30)
+    -- The combat lock's threats: anything on the player OR the pet.
+    local pack = targeting.threats(player, targeting.THREAT_RANGE or 40)
     return type(pack) == "table" and #pack > 0
 end
 

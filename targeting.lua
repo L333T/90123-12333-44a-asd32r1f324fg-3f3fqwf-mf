@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.38.0
+-- Version: 2.39.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -302,6 +302,82 @@ function targeting.threat_nearby(player, yards)
     return false
 end
 
+-- ============================================================================
+-- COMBAT LOCK (2.39.0)
+-- ============================================================================
+-- Everything that is fighting us, and the rule that the bot does not walk off
+-- while a fight is still on.
+local THREAT_RANGE = 40
+targeting.THREAT_RANGE = THREAT_RANGE
+local COMBAT_HOLD = 8.0       -- seconds to hold position in combat with no visible attacker
+local hold_since = 0
+
+--- Every live, attackable mob in combat that is targeting the player OR the
+--- player's pet, within `range` (default THREAT_RANGE).
+---
+--- combat_scan counts only mobs targeting the player, and callers looked out
+--- to combat range + 10 yards: a caster hitting a melee character from 25
+--- yards, or anything on the pet, was not an attacker, and the bot walked
+--- back to its waypoint mid-fight. Mobs already marked unreachable are left
+--- out, so the lock cannot fix on something it cannot get to.
+function targeting.threats(player, range)
+    local found = {}
+    if not player then
+        return found
+    end
+    local pos = state.cached_pos or safe(function() return player:get_position() end)
+    if not pos then
+        return found
+    end
+    local me_guid = safe(function() return player:get_guid() end)
+    local pet_guid = nil
+    local pet = safe(function() return player:get_pet() end)
+    if indexable(pet) and call(pet.is_valid, pet) == true then
+        pet_guid = call(pet.get_guid, pet)
+    end
+    local list = enemy_units(player, pos, cap(range) or THREAT_RANGE)
+    for i = 1, #list do
+        local u = list[i]
+        if indexable(u) and call(u.is_valid, u) == true
+            and call(u.is_dead_or_ghost, u) ~= true
+            and call(u.is_in_combat, u) == true then
+            local tar = call(u.get_target, u)
+            local tguid = indexable(tar) and call(tar.get_guid, tar) or nil
+            if tguid ~= nil and (tguid == me_guid or (pet_guid ~= nil and tguid == pet_guid)) then
+                local g = call(u.get_guid, u)
+                if not (state.is_unreachable and g and state.is_unreachable(g)) then
+                    found[#found + 1] = u
+                end
+            end
+        end
+    end
+    return found
+end
+
+--- Should the bot hold position instead of going back to its route?
+---
+--- True while the player is in combat with no attacker in view, for up to
+--- COMBAT_HOLD seconds: a DoT still ticking, a mob that fled and is coming
+--- back, a caster that has dropped its target for a moment. Walking off to
+--- the next waypoint there drags the fight along or leaves a mob behind.
+--- Call only when there is nothing to fight right now.
+function targeting.combat_hold(player)
+    if not player or call(player.is_in_combat, player) ~= true then
+        hold_since = 0
+        return false
+    end
+    local now = izi.now()
+    if hold_since == 0 then
+        hold_since = now
+    end
+    return (now - hold_since) < COMBAT_HOLD
+end
+
+--- A fight is on: restart the hold window next time nothing is in view.
+function targeting.combat_active()
+    hold_since = 0
+end
+
 --- The nearest unit attacking the player, when the current target is not
 --- one of them - or nil.
 ---
@@ -314,7 +390,7 @@ function targeting.attacker_to_switch(player, current_guid, range)
     if not player or call(player.is_in_combat, player) ~= true then
         return nil
     end
-    local pack = targeting.combat_scan(player, range)
+    local pack = targeting.threats(player, range)
     if type(pack) ~= "table" or #pack == 0 then
         return nil
     end

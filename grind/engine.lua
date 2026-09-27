@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.38.0
+-- Version: 2.39.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -303,13 +303,23 @@ function grind.tick(player)
     local attacked = false
     do
         local cur_guid = (state.target.kind == "kill") and state.target.guid or nil
-        local attacker = targeting.attacker_to_switch(player, cur_guid, gui.slider("fight_back_yards", 30))
+        local range = math.max(gui.slider("fight_back_yards", 30), targeting.THREAT_RANGE or 40)
+        local attacker = targeting.attacker_to_switch(player, cur_guid, range)
         if attacker then
+            targeting.combat_active()
             targeting.set_current(attacker, "kill")
             state.grind.step = 2
             state.grind.black_until = izi.now() + gui.slider("max_kill", 60)
             state.set_note("Grind", "Fight back")
             attacked = true
+        elseif state.grind.step == 1 and targeting.combat_hold(player) then
+            -- In combat with nothing in view: do not walk the route off
+            -- into the next pack while the fight may not be over (2.39.0).
+            if movement and type(movement.nav_stop) == "function" then
+                movement.nav_stop()
+            end
+            state.set_note("Grind", "Holding - combat not over")
+            return
         end
     end
     if not attacked and healing and type(healing.is_resting) == "function" and healing.is_resting() then

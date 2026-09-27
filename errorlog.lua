@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.20.0
+-- Version: 2.21.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -60,10 +60,12 @@ local function stamp()
     return "????-??-?? ??:??:??"
 end
 
+--- Seconds since the game started. core.time() already reports seconds; the
+--- 2.20.0 log divided it by 1000 and every line read "t=0.69".
 local function game_time()
     local ok, t = pcall(function() return core.time() end)
     if ok and type(t) == "number" then
-        return string.format("%.3f", t / 1000)
+        return string.format("%.2f", t)
     end
     return "-"
 end
@@ -225,6 +227,39 @@ function errorlog.guard(where, fn, ...)
         errorlog.error(where, res, tb)
     end
     return ok, res
+end
+
+-- ----------------------------------------------------------------------------
+-- MEMORY
+-- ----------------------------------------------------------------------------
+-- A MEM line every MEM_GAP seconds: the Lua heap now, and the peak since the
+-- session began. A heap that climbs from line to line is a leak; one that
+-- saws up and down is churn the collector is keeping up with.
+local MEM_GAP = 30
+local mem_next = 0
+local mem_peak = 0
+
+local function heap_kb()
+    local ok, kb = pcall(collectgarbage, "count")
+    if ok and type(kb) == "number" then
+        return kb
+    end
+    return nil
+end
+
+--- Called every frame from main.lua. Cheap when it is not time to write.
+function errorlog.tick(now)
+    local kb = heap_kb()
+    if kb and kb > mem_peak then
+        mem_peak = kb
+    end
+    if type(now) ~= "number" or now < mem_next then
+        return
+    end
+    mem_next = now + MEM_GAP
+    if kb then
+        write("MEM", string.format("lua heap %.0f KB  (peak %.0f KB)", kb, mem_peak))
+    end
 end
 
 --- Where this session's file is, for a status line.

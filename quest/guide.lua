@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.20.0
+-- Version: 2.21.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -50,6 +50,26 @@ local izi = require("common/izi_sdk")
 local vec3 = require("common/geometry/vector_3")
 
 local geometry = require("geometry")
+
+-- The visible-object list, through targeting's shared cache: one native scan
+-- serves every finder here and the combat code, instead of each finder
+-- building its own copy of every object in range.
+local targeting_mod = nil
+local function visible_objects()
+    if targeting_mod == nil then
+        local ok, mod = pcall(require, "targeting")
+        targeting_mod = (ok and type(mod) == "table") and mod or false
+    end
+    if targeting_mod and type(targeting_mod.visible_objects) == "function" then
+        local ok, list = pcall(targeting_mod.visible_objects)
+        if ok and type(list) == "table" then
+            return list
+        end
+        return nil
+    end
+    local ok, list = pcall(function() return core.object_manager.get_visible_objects() end)
+    return (ok and type(list) == "table") and list or nil
+end
 
 local guide = {}
 
@@ -282,18 +302,105 @@ local function ns_call(name, ...)
     return res, nil
 end
 
--- One read per frame. The engine asks for the step, the goal, the step
--- number and the targets several times a tick; converting the addon's
--- structures each time would be wasted work.
-local CACHE_TTL = 0.1
-local cache = { t = -1, step = nil, stickies = {} }
+-- ============================================================================
+-- ONE READ PER WINDOW (2.21.0)
+-- ============================================================================
+-- Every native RestedXP call happens in refresh(), at most once per WINDOW,
+-- and everything else reads the plain copy it leaves in `snap`.
+--
+-- Before this, a single quest tick asked the addon for its step, its loaded
+-- flag, its waypoints and a quest's objectives many times over - classify
+-- alone fetched get_objectives on every call, and it was called several times
+-- a tick - and the Questing tab repeated all of it on every rendered frame.
+-- Each call built fresh tables from native data. That was the memory churn,
+-- and it meant reading the addon's state dozens of times a frame, including
+-- while RestedXP was rebuilding it: the crash in 2.20.0 came on a frame where
+-- the step's waypoints changed mid-fight.
+--
+-- Derived values (the current goal, its kind, its targets, its waypoints)
+-- are memoised in the same snapshot, so they are also computed once a window.
+local WINDOW = 0.25           -- seconds
+
+local snap = {
+    t = -1,
+    loaded = false,
+    ready = false,
+    step = nil,
+    stickies = {},
+    wp = nil,                 -- current arrow waypoint, plain
+    step_wps = {},            -- current step's waypoints, plain
+    objectives = {},          -- quest id -> plain objective list
+    memo = {},                -- derived values, cleared with the snapshot
+}
 
 local function clock()
-    return safe(function() return izi.now() end) or 0
+    local ok, t = pcall(izi.now)
+    if ok and type(t) == "number" then
+        return t
+    end
+    return 0
 end
 
-local function read_step()
-    return plain_step((ns_call("get_current_step")))
+local function refresh()
+    local now = clock()
+    if snap.t >= 0 and now >= snap.t and (now - snap.t) < WINDOW then
+        return
+    end
+    snap.t = now
+    snap.loaded = as_bool((ns_call("is_loaded")))
+    snap.ready = false
+    snap.step = nil
+    snap.stickies = {}
+    snap.wp = nil
+    snap.step_wps = {}
+    snap.objectives = {}
+    snap.memo = {}
+    if not snap.loaded then
+        return
+    end
+
+    local step = plain_step((ns_call("get_current_step")))
+    local has = as_bool((ns_call("has_current_step")))
+    -- has_current_step is the documented test; a step with a number or goals
+    -- is the same answer read a second way, kept in case the flag is missing.
+    snap.ready = has or (step ~= nil and (step.num > 0 or #step.goals > 0))
+    if not snap.ready then
+        return
+    end
+    snap.step = step
+
+    local list = to_list((ns_call("get_current_stickies")))
+    for i = 1, #list do
+        local st = plain_step(list[i])
+        if st then
+            snap.stickies[#snap.stickies + 1] = st
+        end
+    end
+    snap.wp = plain_waypoint((ns_call("get_current_waypoint")))
+    local wps = to_list((ns_call("get_step_waypoints")))
+    for i = 1, #wps do
+        local wp = plain_waypoint(wps[i])
+        if wp then
+            snap.step_wps[#snap.step_wps + 1] = wp
+        end
+    end
+end
+
+--- A value derived from this window's snapshot, computed at most once.
+local function memo(key, fn)
+    refresh()
+    local v = snap.memo[key]
+    if v == nil then
+        v = fn()
+        if v == nil then
+            v = false
+        end
+        snap.memo[key] = v
+    end
+    if v == false then
+        return nil
+    end
+    return v
 end
 
 -- ============================================================================
@@ -302,66 +409,43 @@ end
 
 --- Is the addon installed and running?
 function guide.is_loaded()
-    return as_bool((ns_call("is_loaded")))
+    refresh()
+    return snap.loaded
 end
 
 --- Is there a guide step to follow right now?
----
---- has_current_step is the documented test. A step with a number or goals is
---- accepted as well: it is the same answer read a second way, and it keeps
---- the bot working if has_current_step is missing on a build.
 function guide.ready()
-    if not guide.is_loaded() then
-        return false
-    end
-    if as_bool((ns_call("has_current_step"))) then
-        return true
-    end
-    local step = read_step()
-    return step ~= nil and (step.num > 0 or #step.goals > 0)
+    refresh()
+    return snap.ready
 end
 
 -- ============================================================================
 -- THE CURRENT STEP
 -- ============================================================================
 
-local function refresh()
-    local now = clock()
-    if cache.t >= 0 and now >= cache.t and (now - cache.t) < CACHE_TTL then
-        return
-    end
-    cache.t = now
-    cache.step = nil
-    cache.stickies = {}
-    if not guide.ready() then
-        return
-    end
-    cache.step = read_step()
-    local list = to_list((ns_call("get_current_stickies")))
-    for i = 1, #list do
-        local st = plain_step(list[i])
-        if st then
-            cache.stickies[#cache.stickies + 1] = st
-        end
-    end
-end
-
 --- The current step as a plain table { num, is_complete, goals }, or nil.
 function guide.step()
     refresh()
-    return cache.step
+    return snap.step
 end
 
 --- Sticky steps: persistent objectives shown alongside the current one.
 --- The current step is not included in this list.
 function guide.stickies()
     refresh()
-    return cache.stickies or {}
+    return snap.stickies
 end
 
 --- Everything the Questing tab shows about how the addon is being read, so a
 --- "no quest information" report can be answered by looking at the tab.
+local diag_cache, diag_t = nil, -1
+
 function guide.diagnose()
+    local now = clock()
+    if diag_cache and now >= diag_t and (now - diag_t) < 1.0 then
+        return diag_cache
+    end
+    diag_t = now
     local out = {}
     local addons = get(rawget(_G, "core"), "addons")
     out.addons = type(addons)
@@ -395,6 +479,7 @@ function guide.diagnose()
         wp.map_id, wp.x or 0, wp.y or 0, tostring(wp.title or "-"))
         or ("none (" .. type(wraw) .. ")")
     out.step_waypoints = #to_list((ns_call("get_step_waypoints")))
+    diag_cache = out
     return out
 end
 
@@ -456,7 +541,7 @@ end
 --- the bot standing at forever. A text_only goal is still returned when it is
 --- the only thing left, so its waypoint is walked to. A step whose goals are
 --- all complete returns nil; the addon moves on by itself.
-function guide.goal()
+local function compute_goal()
     local step = guide.step()
     if not step or step.is_complete == true then
         return nil
@@ -479,8 +564,15 @@ function guide.goal()
     return fallback
 end
 
+--- The goal to work on now. The same table for the whole window, so callers
+--- can memoise against it.
+function guide.goal()
+    return memo("goal", compute_goal)
+end
+
 --- Every goal of the current step, shaped, for the GUI.
 function guide.goals()
+    return memo("goals", function()
     local out = {}
     local step = guide.step()
     if not step or type(step.goals) ~= "table" then
@@ -493,6 +585,7 @@ function guide.goals()
         end
     end
     return out
+    end)
 end
 
 -- ============================================================================
@@ -598,10 +691,21 @@ end
 --- objective type from RestedXP says whether that means killing, collecting
 --- or clicking. A collect goal on a quest whose objective is a world object
 --- becomes "object", so the bot clicks it instead of fighting for it.
+local classify_raw
+
 function guide.classify(goal)
     if type(goal) ~= "table" then
         return "goto"
     end
+    local k = goal._kind
+    if k == nil then
+        k = classify_raw(goal)
+        goal._kind = k
+    end
+    return k
+end
+
+classify_raw = function(goal)
     local a = goal.action
     if type(a) ~= "string" or a == "" then
         return "goto"
@@ -635,6 +739,11 @@ function guide.objectives(quest_id)
     if not quest_id then
         return out
     end
+    refresh()
+    local hit = snap.objectives[quest_id]
+    if hit then
+        return hit
+    end
     local list = to_list((ns_call("get_objectives", quest_id)))
     for i = 1, #list do
         local o = plain_objective(list[i])
@@ -642,6 +751,7 @@ function guide.objectives(quest_id)
             out[#out + 1] = o
         end
     end
+    snap.objectives[quest_id] = out
     return out
 end
 
@@ -789,6 +899,7 @@ end
 -- ============================================================================
 -- TARGETS
 -- ============================================================================
+local compute_targets
 -- Kinds whose goals name something to fight, collect or click. Only these
 -- contribute target names: an accept line's text is a quest title, and a mob
 -- that happens to share a word with it is not a target.
@@ -803,8 +914,17 @@ local TARGET_KINDS = { kill = true, collect = true, object = true, item = true }
 ---
 --- Returns two sets: ids keyed by number, names keyed by string.
 function guide.targets(goal)
-    local ids, names = {}, {}
     goal = goal or guide.goal()
+    local key = "targets:" .. tostring(goal and goal.index or 0)
+    local pair = memo(key, function()
+        local i, n = compute_targets(goal)
+        return { i, n }
+    end)
+    return pair[1], pair[2]
+end
+
+compute_targets = function(goal)
+    local ids, names = {}, {}
 
     local function take(g, with_objectives)
         if type(g) ~= "table" or g.is_complete == true then
@@ -904,7 +1024,7 @@ function guide.find_object(player, range, goal)
         return nil, nil
     end
 
-    local list = safe(function() return core.object_manager.get_visible_objects() end)
+    local list = visible_objects()
     if type(list) ~= "table" then
         return nil, nil
     end
@@ -949,6 +1069,7 @@ local function fightable(player, u)
         and call(u.is_unit, u) == true
         and call(u.is_dead_or_ghost, u) ~= true
         and call(u.is_player, u) ~= true
+        and call(u.is_tap_denied, u) ~= true
         and call(player.can_attack, player, u) ~= false
 end
 
@@ -968,7 +1089,7 @@ function guide.find_mob(player, range, goal)
         return nil, nil
     end
 
-    local list = safe(function() return core.object_manager.get_visible_objects() end)
+    local list = visible_objects()
     if type(list) ~= "table" then
         return nil, nil
     end
@@ -1006,7 +1127,7 @@ function guide.find_camp_mob(player, center, radius)
         return nil, nil
     end
     radius = tonumber(radius) or 40
-    local list = safe(function() return core.object_manager.get_visible_objects() end)
+    local list = visible_objects()
     if type(list) ~= "table" then
         return nil, nil
     end
@@ -1251,7 +1372,7 @@ function guide.nearest_talkable(player, range, center)
     end
     range = tonumber(range) or 8
 
-    local list = safe(function() return core.object_manager.get_visible_objects() end)
+    local list = visible_objects()
     if type(list) ~= "table" then
         return nil, nil
     end
@@ -1533,25 +1654,13 @@ local function to_world(wp)
 end
 
 local function raw_waypoint()
-    if not guide.ready() then
-        return nil
-    end
-    return plain_waypoint((ns_call("get_current_waypoint")))
+    refresh()
+    return snap.wp
 end
 
 local function raw_step_waypoints()
-    local out = {}
-    if not guide.ready() then
-        return out
-    end
-    local list = to_list((ns_call("get_step_waypoints")))
-    for i = 1, #list do
-        local wp = plain_waypoint(list[i])
-        if wp then
-            out[#out + 1] = wp
-        end
-    end
-    return out
+    refresh()
+    return snap.step_wps
 end
 
 --- Where the guide's arrow is pointing right now, in world coordinates.
@@ -1565,6 +1674,8 @@ function guide.waypoint()
     return pos, tonumber(wp.dist), (type(wp.title) == "string" and wp.title ~= "") and wp.title or nil
 end
 
+local compute_goal_waypoints
+
 --- The waypoints that belong to one goal, as { pos, title } in world space.
 ---
 --- RestedXP tags each active waypoint with the goal it serves (goal_num), so
@@ -1572,6 +1683,11 @@ end
 --- each goal to its own spot rather than everything to the arrow. The arrow
 --- target is used when no step waypoint names the goal.
 function guide.goal_waypoints(goal)
+    local key = "wps:" .. tostring(type(goal) == "table" and goal.index or 0)
+    return memo(key, function() return compute_goal_waypoints(goal) end) or {}
+end
+
+compute_goal_waypoints = function(goal)
     local out = {}
     local index = type(goal) == "table" and goal.index or nil
     if index then
@@ -1641,8 +1757,15 @@ function guide.describe()
     return string.format("%s %s", guide.classify(goal), what)
 end
 
---- Everything the Questing tab shows, in one table. Never throws.
+local compute_snapshot
+
+--- Everything the Questing tab shows, in one table. Never throws. Built once
+--- per window; the tab reads the same table on every frame in between.
 function guide.snapshot()
+    return memo("snapshot", compute_snapshot)
+end
+
+compute_snapshot = function()
     local out = {
         loaded = guide.is_loaded(),
         ready = false,

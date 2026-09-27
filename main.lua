@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.20.0
+-- Version: 2.21.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -629,9 +629,20 @@ local function tick_rotation_only(player)
     rotation.tick(player, target, { enemies = pack, no_move = true })
 end
 
+-- Incremental collection help, every frame. The host's collector runs on
+-- its own schedule; a small step here keeps the heap near what is actually
+-- live instead of letting a frame's garbage pile up until the next cycle.
+-- Cheap: a step this size does a little marking and sweeping, never a full
+-- collection.
+local GC_STEP = 16
+
 local function on_update()
     if is_stale() then
         return
+    end
+    pcall(collectgarbage, "step", GC_STEP)
+    if errorlog then
+        errorlog.tick(safe(function() return izi.now() end))
     end
     pcall(function()
         izi.on_update()

@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.20.0
+-- Version: 2.21.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -83,6 +83,14 @@ local function all_objects()
         return objects
     end
     return nil
+end
+
+--- The visible-object list, from the shared cache. Every scan in the plugin
+--- should come through here: each call to get_visible_objects builds a new
+--- table of every object in range, and quest/guide used to make four of them
+--- a tick on top of this module's own.
+function targeting.visible_objects()
+    return all_objects()
 end
 
 function targeting.cache_player(player)

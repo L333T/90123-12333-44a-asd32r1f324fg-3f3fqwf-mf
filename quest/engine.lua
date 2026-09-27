@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.20.0
+-- Version: 2.21.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -78,6 +78,9 @@ do
         errorlog = mod
     end
 end
+
+local last_walk_x, last_walk_y = nil, nil
+local last_note = nil
 
 local function trail(tag, fmt, ...)
     if errorlog then
@@ -196,9 +199,15 @@ local function walk_to(pos, note)
     if movement.arrived(pos, ARRIVE) then
         return false
     end
-    local me = safe(function() return izi.me():get_position() end)
-    trail("walk", "to (%.0f, %.0f, %.0f) %.0fy away for %s", pos.x, pos.y, pos.z,
-        me and geometry.distance(me, pos) or -1, tostring(note))
+    -- Only when the destination moves to a new yard: formatting the line
+    -- every frame just to have errorlog throw it away is what this avoids.
+    local wx, wy = math.floor(pos.x), math.floor(pos.y)
+    if wx ~= last_walk_x or wy ~= last_walk_y then
+        last_walk_x, last_walk_y = wx, wy
+        local me = safe(function() return izi.me():get_position() end)
+        trail("walk", "to (%.0f, %.0f, %.0f) %.0fy away for %s", pos.x, pos.y, pos.z,
+            me and geometry.distance(me, pos) or -1, tostring(note))
+    end
     if movement.is_blocked(pos) or movement.last_fail_offmesh() then
         movement.clear_fail()
         state.set_note("Quest", "Guide: cannot reach " .. note)
@@ -433,7 +442,20 @@ local function goal_label(goal, wps)
     return tostring(goal.quest_id or goal.action or "?")
 end
 
+local tick_inner
+
+--- The tick, plus a breadcrumb whenever the status line changes - the finest
+--- grained record of what the bot was doing that is cheap enough to keep on.
 function quest.tick(player)
+    tick_inner(player)
+    local note = state.note
+    if note ~= last_note then
+        last_note = note
+        trail("note", "%s", tostring(note))
+    end
+end
+
+tick_inner = function(player)
     if not guide.is_loaded() then
         release_combat()
         trail("quest", "RestedXP not loaded")

@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.33.0
+-- Version: 2.34.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -30,6 +30,7 @@ local izi = require("common/izi_sdk")
 
 ---@type inventory_helper
 local inventory_helper = require("common/utility/inventory_helper")
+local bags = require("bags")
 
 ---@type vec3
 local vec3 = require("common/geometry/vector_3")
@@ -253,24 +254,18 @@ local function should_sell_item(player, item_id)
     return quality_ok(info.quality)
 end
 
+--- Sell the first sellable bag item.
+---
+--- Through bags.lua (2.34.0): the raw get_items_in_bag slot_id is off by one
+--- from what use_container_item takes, so this used to sell the item NEXT to
+--- each grey or white. bags.list hands out inventory_helper's (bag, slot).
 local function sell_one(player)
-    for bag = 0, 4 do
-        local items = safe(function() return core.inventory.get_items_in_bag(bag) end)
-        if type(items) == "table" then
-            for i = 1, #items do
-                local slot = items[i]
-                if type(slot) == "table" then
-                    local obj = slot.object
-                    local slot_id = slot.slot_id
-                    local item_id = obj and safe(function() return obj:get_item_id() end)
-                    if type(slot_id) == "number" and should_sell_item(player, item_id) then
-                        pcall(function()
-                            core.input.use_container_item(bag, slot_id)
-                        end)
-                        return true, item_id
-                    end
-                end
-            end
+    local list = bags.list(player)
+    for i = 1, #list do
+        local e = list[i]
+        if should_sell_item(player, e.item_id) then
+            bags.use(e.bag, e.slot)
+            return true, e.item_id
         end
     end
     return false

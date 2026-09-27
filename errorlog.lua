@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.87.0
+-- Version: 2.88.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -300,14 +300,21 @@ end
 -- shutdown names the call it happened in.
 local light_until = -1
 local light_last = {}          -- per-frame tag -> last write time
-local LIGHT_FRAME_GAP = 0.1
+local LIGHT_FRAME_GAP = 0.05
+
+-- Per-frame stages: written at most every LIGHT_FRAME_GAP. u:izi.on_update is
+-- one of them and is NOT skipped (2.88.0) - it runs izi's spell queue, which
+-- finishes casts, and the 16:40 shutdown came at the end of a Fireball.
+local PER_FRAME = {
+    ["u:begin"] = true, ["u:izi.on_update"] = true, ["u:keybinds"] = true,
+    ["u:movement.pulse"] = true, ["on_render"] = true,
+}
 
 local function light_skip(tag)
-    if tag == "-" or tag == "on_render" or tag == "u:begin" or tag == "u:keybinds"
-        or tag == "u:izi.on_update" or tag == "gui.draw" or tag:find("^gui:") then
+    if tag == "-" or tag == "gui.draw" or tag:find("^gui:") then
         return true
     end
-    if tag:find("^mv:") or tag == "u:movement.pulse" then
+    if tag:find("^mv:") or PER_FRAME[tag] then
         local t = now_s()
         if (t - (light_last[tag] or -1)) < LIGHT_FRAME_GAP then
             return true

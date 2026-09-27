@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.78.0
+-- Version: 2.79.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -678,17 +678,88 @@ local function item_goal(player, goal, label)
     return true
 end
 
+-- QUEST OBJECTS ON THE GROUND (2.79.0)
+--   * use_object, not interact_with_object: the SDK documents use_object as
+--     THE entry point for world objects (chests, nodes, quest crates) and
+--     interact_with_object as not covering everything.
+--   * A "Collecting" cast is left alone - re-clicking every ACT_GAP
+--     interrupted it.
+--   * The loot window the object opens is emptied and closed.
+--   * Reach is measured generously (a big object's centre can be several
+--     yards inside it), and once the walk has stopped next to it the bot
+--     clicks from up to OBJECT_CLICK.
+--   * An object used OBJECT_TRIES times with nothing to show is skipped for
+--     OBJECT_SKIP seconds, so the next one is tried.
+local OBJECT_REACH = 5.0
+local OBJECT_CLICK = 8.0
+local OBJECT_TRIES = 4
+local OBJECT_SKIP = 60
+local g_obj = { guid = nil, uses = 0 }
+local g_obj_skip = {}          -- guid -> until
+
+local function loot_window_open()
+    local n = safe(function() return core.game_ui.get_loot_item_count() end)
+    return type(n) == "number" and n > 0, n
+end
+
+local function object_skip_set()
+    local now = izi.now()
+    local set = {}
+    for g, t in pairs(g_obj_skip) do
+        if t > now then set[g] = true else g_obj_skip[g] = nil end
+    end
+    return set
+end
+
 local function object_goal(player, goal, label)
-    local obj, odist = guide.find_object(player, OBJECT_RANGE, goal)
+    -- 1. The object's loot window: take everything, close it.
+    local open, n = loot_window_open()
+    if open then
+        for i = 0, n - 1 do
+            pcall(function() core.input.loot_item(i) end)
+        end
+        pcall(function() core.input.close_loot() end)
+        g_obj.uses = 0
+        trail("act", "looted %d slot(s) from a quest object", n)
+        state.set_note("Quest", "Guide: looting " .. label)
+        return true
+    end
+    -- 2. Mid "Collecting" / "Opening" cast: wait for it.
+    if safe(function() return player:is_channeling_or_casting() end) == true then
+        state.set_note("Quest", "Guide: using " .. label)
+        return true
+    end
+
+    local obj, odist = guide.find_object(player, OBJECT_RANGE, goal, object_skip_set())
     if not obj then
         return false
     end
-    if type(odist) == "number" and odist <= TALK_REACH then
+    local guid = safe(function() return obj:get_guid() end)
+    if guid ~= g_obj.guid then
+        g_obj.guid, g_obj.uses = guid, 0
+    end
+    local standing = not movement.is_moving()
+    if type(odist) == "number" and (odist <= OBJECT_REACH or (standing and odist <= OBJECT_CLICK)) then
         movement.nav_stop()
         local now = izi.now()
         if now >= g_act_until then
+            if g_obj.uses >= OBJECT_TRIES then
+                if guid then
+                    g_obj_skip[guid] = now + OBJECT_SKIP
+                end
+                trail("act", "quest object %s gave nothing after %d uses - trying another",
+                    tostring(safe(function() return obj:get_name() end)), g_obj.uses)
+                g_obj.guid, g_obj.uses = nil, 0
+                return true
+            end
             g_act_until = now + ACT_GAP
-            pcall(function() core.input.interact_with_object(obj) end)
+            g_obj.uses = g_obj.uses + 1
+            local ok = safe(function() return core.input.use_object(obj) end)
+            if ok ~= true then
+                pcall(function() core.input.interact_with_object(obj) end)
+            end
+            trail("act", "use quest object %s (%.1f yd, use %d)",
+                tostring(safe(function() return obj:get_name() end)), odist, g_obj.uses)
         end
         state.set_note("Quest", "Guide: click " .. label)
         return true
@@ -869,6 +940,7 @@ tick_inner = function(player)
         g_talk_opened = 0
         g_bad_givers = {}
         g_bad_since = 0
+        g_obj.guid, g_obj.uses = nil, 0
         g_dialog_done_at = 0
         g_giver_walk = nil
         -- A step change mid-fight keeps the fight; only an idle target is

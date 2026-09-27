@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.78.0
+-- Version: 2.79.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1147,6 +1147,32 @@ local function name_wanted(name, names)
     return false
 end
 
+-- Object names against objective names, both ways round (2.79.0): an
+-- objective names the ITEM, the object holding it is often longer or plural
+-- ("Crate of ...", "... Candles"). A significant word of 4+ letters in common
+-- also counts.
+local function object_wanted(name, names)
+    if name_wanted(name, names) then
+        return true
+    end
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+    local lower = string.lower(name)
+    for n in pairs(names) do
+        local want = string.lower(n)
+        if string.find(lower, want, 1, true) then
+            return true
+        end
+        for w in want:gmatch("[%a']+") do
+            if #w >= 4 and w ~= "slain" and string.find(lower, w, 1, true) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 -- ============================================================================
 -- FINDING THINGS IN THE WORLD
 -- ============================================================================
@@ -1155,7 +1181,7 @@ end
 ---
 --- Objects are not units: the mob scan will never return a chest or a herb,
 --- so this walks the visible-object list itself.
-function guide.find_object(player, range, goal)
+function guide.find_object(player, range, goal, skip)
     if not player then
         return nil, nil
     end
@@ -1183,11 +1209,12 @@ function guide.find_object(player, range, goal)
         local o = list[i]
         if indexable(o) and call(o.is_valid, o) ~= false then
             -- A unit is handled by the kill path; this is for everything else.
-            if call(o.is_unit, o) ~= true then
+            if call(o.is_unit, o) ~= true and call(o.is_player, o) ~= true
+                and not (skip and skip[call(o.get_guid, o) or false]) then
                 local oid = call(o.get_npc_id, o)
                 local want = type(oid) == "number" and ids[oid] == true
                 if not want then
-                    want = name_wanted(call(o.get_name, o), names)
+                    want = object_wanted(call(o.get_name, o), names)
                 end
                 if want then
                     local pos = call(o.get_position, o)

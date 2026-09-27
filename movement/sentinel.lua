@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.24.0
+-- Version: 2.25.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -237,6 +237,18 @@ function N.move(p, why)
     end
     local c = client()
     if not c or type(p) ~= "table" then return false end
+    -- Never a path request longer than MAX_LEG (2.25.0), whoever asks.
+    local px, py, pz = xyz(p)
+    if not px then return false end
+    local hx, hy, hz = U.here_xyz()
+    if hx then
+        local dx, dy = px - hx, py - hy
+        local d = math.sqrt(dx * dx + dy * dy)
+        if d > K.MAX_LEG then
+            local s = K.MAX_LEG / d
+            p = pt(P_DEST, hx + dx * s, hy + dy * s, hz + (pz - hz) * s)
+        end
+    end
     R.sn_last_issue_t = now
     R.sn_issued = R.sn_issued + 1
     local okl, elog = pcall(require, "errorlog")

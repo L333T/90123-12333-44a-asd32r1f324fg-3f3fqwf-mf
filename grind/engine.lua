@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.24.0
+-- Version: 2.25.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -359,7 +359,7 @@ function grind.tick(player)
     end
 
     local dist = safe(function() return player:distance_to(unit) end) or 99
-    if dist > 1000 then
+    if dist > (targeting.MAX_RANGE or 300) then
         movement.combat_release()
         state.reset_target()
         state.grind.step = 1

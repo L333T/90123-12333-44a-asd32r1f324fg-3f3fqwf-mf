@@ -3,7 +3,7 @@
 -- Corpse loot after a kill (IZI: enemies_if, can_be_looted, has_loot, loot_object)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.24.0
+-- Version: 2.25.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -150,11 +150,19 @@ local function attempt_loot(corpse, now)
     return "wait"
 end
 
+--- Has this corpse used up its loot attempts? Such a corpse is never picked:
+--- returning it would stall anything waiting on loot.has_work for good.
+local function exhausted(corpse)
+    local guid = guid_of(corpse)
+    local st = guid and looted_units[guid] or nil
+    return st ~= nil and (st.cycles or 0) >= MAX_CYCLES
+end
+
 local function pick_corpse(player, mine_only)
     local current = state.target and state.target.unit or nil
     if current then
         local ok_dead, dead = pcall(current.is_dead, current)
-        if ok_dead == true and dead == true and is_lootable(current) then
+        if ok_dead == true and dead == true and is_lootable(current) and not exhausted(current) then
             local ok_d, dist = pcall(player.distance_to, player, current)
             if ok_d and type(dist) == "number" then
                 return current, dist
@@ -171,7 +179,7 @@ local function pick_corpse(player, mine_only)
     local best_d = 9999
     for i = 1, #list do
         local corpse = list[i]
-        if is_lootable(corpse) then
+        if is_lootable(corpse) and not exhausted(corpse) then
             local allow = true
             if mine_only then
                 local guid = guid_of(corpse)
@@ -255,6 +263,30 @@ function loot.tick(player)
         return true
     end
     return false
+end
+
+--- Is there a corpse to loot right now, by the same rules loot.tick uses?
+---
+--- The quest engine asks this before choosing its next mob. It used to pull
+--- the next one straight away: combat movement took the player, loot's walk
+--- to the corpse was refused, and the bot chained fights without ever looting
+--- - so a collect objective like Tough Wolf Meat never moved.
+function loot.has_work(player)
+    if not player or not gui or not gui.is_on("loot") then
+        return false
+    end
+    local ok_h, healing = pcall(require, "healing")
+    if ok_h and healing and type(healing.is_resting) == "function" and healing.is_resting() == true then
+        return false
+    end
+    if state.vendor and state.vendor.active then
+        return false
+    end
+    if bags_too_full() then
+        return false
+    end
+    local corpse = pick_corpse(player, gui.is_on("loot_mine") == true)
+    return corpse ~= nil
 end
 
 return loot

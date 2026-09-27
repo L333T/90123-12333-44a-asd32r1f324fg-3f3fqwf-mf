@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -42,6 +42,10 @@ local PREDICT_AHEAD        = K.PREDICT_AHEAD
 local PREDICT_MARGIN       = K.PREDICT_MARGIN
 local DEFAULT_MELEE_DANGER = K.DEFAULT_MELEE_DANGER
 local PULL_RETRY           = K.PULL_RETRY
+local MELEE_YARDS          = K.MELEE_YARDS
+local MELEE_REACH          = K.MELEE_REACH
+local MELEE_STANDOFF       = K.MELEE_STANDOFF
+local MELEE_MIN_HOP        = K.MELEE_MIN_HOP
 local PULL_MAX_TRIES       = K.PULL_MAX_TRIES
 
 local pt = R.pt
@@ -208,7 +212,8 @@ end
 -- APPROACH
 -- ============================================================================
 --- Issue a combat approach hop toward a computed point.
-local function combat_hop(p)
+local function combat_hop(p, min_hop)
+    min_hop = min_hop or MIN_NAV
     if not O.owns(OWNER.COMBAT) or R.rest_lock then return false end
     if O.is_moving() then return true end
     if not O.nav_gap_ok() then return true end
@@ -227,7 +232,7 @@ local function combat_hop(p)
         if not target or not walk_open(here, target) then return false end
     end
     if not W.ensure() then return false end
-    if dist3(hx, hy, hz, target.x, target.y, target.z) < MIN_NAV then return false end
+    if dist3(hx, hy, hz, target.x, target.y, target.z) < min_hop then return false end
     return W.move(target, "chase")
 end
 
@@ -258,6 +263,10 @@ function C.combat_engage(player, unit, yards)
     if not unit_valid(unit) then return false end
     yards = tonumber(yards) or 20
     if yards < 5 then yards = 5 end
+    -- MELEE (2.26.0): every melee rotation reports a 5-yard combat range.
+    -- Stopping at 5 yards from the target's centre left melee out of swing
+    -- range of anything small, so melee closes to MELEE_REACH instead.
+    local melee = yards <= MELEE_YARDS
 
     R.combat_req, R.combat_req_t = true, izi.now()
     if R.combat_target ~= unit then
@@ -287,6 +296,10 @@ function C.combat_engage(player, unit, yards)
     O.take(OWNER.COMBAT)
 
     local ready, range, has_los = Rg.in_fight_range(player, unit, yards)
+    if melee then
+        -- In swing range means within MELEE_REACH, not merely "in range".
+        ready = has_los and type(range) == "number" and range <= MELEE_REACH
+    end
     local t = izi.now()
 
     -- 1. retreat has priority over everything else while it is latched
@@ -314,7 +327,11 @@ function C.combat_engage(player, unit, yards)
     local hold_in = yards - CHASE_BAND
     if hold_in < 5 then hold_in = yards end
     local in_band
-    if R.combat_stopped then
+    if melee then
+        -- No hysteresis past MELEE_REACH: a melee fighter outside it cannot
+        -- swing, so it chases again the moment the target steps away.
+        in_band = range <= MELEE_REACH
+    elseif R.combat_stopped then
         in_band = range <= yards            -- holding: leave only past max range
     else
         in_band = range <= hold_in          -- closing: arrive well inside it
@@ -414,14 +431,31 @@ function C.combat_engage(player, unit, yards)
     -- off for STEER_BACKOFF so the trace budget is not burnt every frame
     local dest
     if O.nav_gap_ok() and t >= R.steer_backoff_until then
-        -- aim for CHASE_BAND inside max range so we do not stop on the edge
+        -- aim for CHASE_BAND inside max range so we do not stop on the edge;
+        -- melee aims for MELEE_STANDOFF from the target
         local hold = yards - CHASE_BAND
         if hold < 5 then hold = yards end
-        dest = S.approach_unit(here, goal, hold)
-        if not dest and not has_los then dest = S.orbit_for_los(here, goal, hold) end
+        if melee then
+            hold = MELEE_STANDOFF
+            -- Close enough for one hop and nothing in the way: step straight
+            -- in to MELEE_STANDOFF on the line to the target. The steering
+            -- search would otherwise hand back a point short of it.
+            local remain = dist2(hx, hy, ux, uy)
+            if remain <= STEER_HOP + MELEE_STANDOFF and walk_open(here, goal) then
+                local s = (remain - MELEE_STANDOFF) / remain
+                if s > 0 then
+                    dest = pt(P_ALT, hx + (ux - hx) * s, hy + (uy - hy) * s,
+                              hz + (goal.z - hz) * s)
+                end
+            end
+        end
+        if not dest then
+            dest = S.approach_unit(here, goal, hold)
+            if not dest and not has_los then dest = S.orbit_for_los(here, goal, hold) end
+        end
         if not dest then R.steer_backoff_until = t + STEER_BACKOFF end
     end
-    local issued = dest ~= nil and combat_hop(dest)
+    local issued = dest ~= nil and combat_hop(dest, melee and MELEE_MIN_HOP or nil)
     Rg.face(unit)
     if issued or not O.nav_gap_ok() then
         R.chase_fail_key, R.chase_fail_t = nil, 0

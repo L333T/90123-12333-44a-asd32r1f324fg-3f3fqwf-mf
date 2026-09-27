@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -96,6 +96,15 @@ K.COMBAT_EXIT_HOLD = 1.5    -- every combat-end condition must hold this long
 K.CHASE_GIVE_UP    = 10.0   -- blacklist a mob we could not reach for this long
 K.SN_MIN_GAP       = 1.0    -- seconds between any two Sentinel move_to requests
 K.MAX_LEG          = 300    -- yards: no navigation leg or path request is longer
+
+-- Melee contact (2.26.0). A combat range at or below MELEE_YARDS marks the
+-- fighter as melee; melee counts as in position only within MELEE_REACH of
+-- the target and approaches to MELEE_STANDOFF, so the walker's own 1-yard
+-- arrival tolerance still leaves it inside MELEE_REACH.
+K.MELEE_YARDS      = 5.0
+K.MELEE_REACH      = 2.0
+K.MELEE_STANDOFF   = 1.0
+K.MELEE_MIN_HOP    = 1.0    -- the walker's final threshold: shorter hops are not issued
 K.PULL_RETRY       = 3.0    -- seconds before re-trying a combat pull-in leg
 K.PULL_MAX_TRIES   = 3      -- pull-in legs per mob before it counts as unreachable
 

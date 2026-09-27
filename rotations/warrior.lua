@@ -3,7 +3,7 @@
 -- Warrior grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RAGE IS NOT MANA AND NOT ENERGY
@@ -238,6 +238,7 @@ end
 function warrior.class_id() return enums.class_id.WARRIOR end
 function warrior.label() return "Warrior" end
 function warrior.combat_range(player) return 5 end
+function warrior.is_melee(player) return true end
 
 --- How far out to look for something to fight.
 ---

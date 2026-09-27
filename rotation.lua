@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -270,6 +270,12 @@ end
 
 function rotation.combat_range(player)
     local mod = rotation.active(player)
+    if mod and type(mod.is_melee) == "function" then
+        local ok, v = pcall(mod.is_melee, player)
+        if ok and v == true then
+            return 5
+        end
+    end
     if mod and type(mod.combat_range) == "function" then
         local yards = mod.combat_range(player)
         if type(yards) == "number" and yards > 0 then
@@ -277,6 +283,22 @@ function rotation.combat_range(player)
         end
     end
     return 30
+end
+
+--- Does the active rotation fight in melee?
+---
+--- A rotation may say so itself (is_melee); otherwise a combat range of 5
+--- yards or less means melee - every melee rotation reports exactly 5.
+--- Combat movement closes melee to 2 yards of the target (2.26.0).
+function rotation.is_melee(player)
+    local mod = rotation.active(player)
+    if mod and type(mod.is_melee) == "function" then
+        local ok, v = pcall(mod.is_melee, player)
+        if ok and type(v) == "boolean" then
+            return v
+        end
+    end
+    return rotation.combat_range(player) <= 5
 end
 
 function rotation.tick(player, target, ctx)

@@ -3,7 +3,7 @@
 -- Shaman grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WEAPON IMBUES - THE BUG NOT COPIED
@@ -204,6 +204,10 @@ end
 -- ----------------------------------------------------------------------------
 function shaman.class_id() return enums.class_id.SHAMAN end
 function shaman.label() return "Shaman" end
+
+function shaman.is_melee(player)
+    return gui.is_on("enhancement") == true
+end
 
 function shaman.combat_range(player)
     if gui.is_on("enhancement") then return 5 end

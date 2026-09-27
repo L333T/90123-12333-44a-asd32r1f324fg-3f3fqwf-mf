@@ -3,7 +3,7 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
@@ -187,6 +187,7 @@ end
 function rogue.class_id() return enums.class_id.ROGUE end
 function rogue.label() return "Rogue" end
 function rogue.combat_range(player) return 5 end
+function rogue.is_melee(player) return true end
 
 -- Pure melee with no ranged filler: stepping out is a flat DPS loss and the
 -- target simply follows. Never retreats.

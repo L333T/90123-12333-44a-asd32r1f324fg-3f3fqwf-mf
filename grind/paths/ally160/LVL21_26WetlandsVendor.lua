@@ -3,7 +3,7 @@
 -- Wetlands 21-26 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

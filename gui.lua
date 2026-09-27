@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.61.0
+-- Version: 2.62.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -633,7 +633,6 @@ local aliases = {
 
 local slider_aliases = {
     player_yards = "mfg_player_yards",
-    train_reserve = "mfg_train_reserve",
     eat_hp = "mfg_eat_hp",
     drink_mana = "mfg_drink_mana",
     hp_pot = "mfg_hp_pot",

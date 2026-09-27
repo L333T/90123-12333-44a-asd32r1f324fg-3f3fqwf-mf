@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.61.0
+-- Version: 2.62.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -26,9 +26,7 @@
 --   both zero. Talent and profession purchases are irreversible choices that
 --   belong to the player, not to a bot.
 --
---   Cheapest first, so a level's worth of gold buys the most ranks, and never
---   below the gold reserve so a trip does not leave the character unable to
---   repair or restock.
+--   Cheapest first, so a level's worth of gold buys the most ranks.
 --
 -- WHY IT LATCHES
 --   Reading the service list is cheap but selecting the trainer gossip option
@@ -90,14 +88,6 @@ local function gold()
     return 0
 end
 
-local function reserve()
-    local g = gui.slider("train_reserve", 0)
-    if type(g) ~= "number" or g ~= g or g < 0 then
-        g = 0
-    end
-    return g * 10000    -- the slider is in gold, everything else is copper
-end
-
 -- ----------------------------------------------------------------------------
 -- LATCH
 -- ----------------------------------------------------------------------------
@@ -145,7 +135,7 @@ end
 --- Returns (index, name, cost). Only class spells are considered: a service
 --- carrying a talent or profession cost is a player decision, not a bot one.
 local function cheapest_affordable()
-    local budget = gold() - reserve()
+    local budget = gold()
     if budget <= 0 then
         return nil
     end
@@ -303,12 +293,6 @@ function trainer.register_gui(menu)
             .. "Class spells only - talents and professions are never bought. "
             .. "It does not walk to a trainer: there is no trainer location data, "
             .. "so it trains at trainers the bot already happens to be talking to.",
-    })
-    menu:slider_int("mfg_train_reserve", 0, 100, 0, {
-        label = "Keep Gold Reserve",
-        tab = "settings",
-        tooltip = "Gold to leave unspent, so training cannot empty the purse "
-            .. "and strand the character without repair or vendor money.",
     })
 end
 

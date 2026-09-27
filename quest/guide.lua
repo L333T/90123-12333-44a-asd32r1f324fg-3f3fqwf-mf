@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.50.0
+-- Version: 2.51.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1427,6 +1427,57 @@ function guide.find_source_mob(player, range, goal)
                 if hit then
                     local d = call(player.distance_to, player, u)
                     if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+                        best, best_d = u, d
+                    end
+                end
+            end
+        end
+    end
+    return best, best_d
+end
+
+--- The best hostile mob to clear on the way to `dest`, or nil (2.51.0).
+---
+--- Hostile (is_enemy_with the player, or already in combat), fightable -
+--- alive, attackable, not a player, not tapped by someone else - not a
+--- critter / pet / totem, within `range` of the player, within `cone`
+--- degrees of the direction of travel (so the bot does not turn back for
+--- mobs behind it), and between `below` levels under and `above` levels over
+--- the player (no greys, no dangerous elites). Nearest wins.
+function guide.find_path_mob(player, dest, range, cone, below, above)
+    if not player or not dest then
+        return nil, nil
+    end
+    local me = call(player.get_position, player)
+    if not me then
+        return nil, nil
+    end
+    local hx, hy = dest.x - me.x, dest.y - me.y
+    local hlen = math.sqrt(hx * hx + hy * hy)
+    if hlen < 1 then
+        return nil, nil
+    end
+    hx, hy = hx / hlen, hy / hlen
+    local cos_cone = math.cos(math.rad(cone or 70))
+    local my_level = call(player.get_level, player) or 1
+    local list = visible_objects()
+    if type(list) ~= "table" then
+        return nil, nil
+    end
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if fightable(player, u) and not camp_excluded(u) then
+            local hostile = call(u.is_enemy_with, u, player) == true or call(u.is_in_combat, u) == true
+            local lvl = call(u.get_level, u) or 0
+            if hostile and lvl >= my_level - (below or 4) and lvl <= my_level + (above or 3) then
+                local pos = call(u.get_position, u)
+                local d = call(player.distance_to, player, u)
+                if pos and type(d) == "number" and d <= (range or 20) and (best_d == nil or d < best_d) then
+                    local ux, uy = pos.x - me.x, pos.y - me.y
+                    local ul = math.sqrt(ux * ux + uy * uy)
+                    -- Right beside the player counts whatever the angle.
+                    if ul < 5 or (ux * hx + uy * hy) / ul >= cos_cone then
                         best, best_d = u, d
                     end
                 end

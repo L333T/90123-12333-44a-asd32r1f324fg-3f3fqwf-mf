@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.50.0
+-- Version: 2.51.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -294,9 +294,50 @@ local function fight_back(player, label)
 end
 
 --- Walk toward a position. Returns true while there is still walking to do.
+-- KILL MOBS ON THE WAY (2.51.0). Every walk the engine makes goes through
+-- walk_to; before each leg it looks - at most every PATH_SCAN_GAP - for a
+-- hostile mob ahead within PATH_RANGE (guide.find_path_mob) and fights it
+-- through the normal path: combat lock, loot, then on. Off while a rest is
+-- due (the rest would come first anyway) and when the Questing tab's box is
+-- unticked.
+local PATH_RANGE = 20
+local PATH_CONE = 70           -- degrees either side of the direction of travel
+local PATH_SCAN_GAP = 0.8
+local g_path_scan_until = 0
+
+local function path_pull(dest)
+    if not gui.is_on("quest_path_pull") then
+        return false
+    end
+    local now = izi.now()
+    if now < g_path_scan_until then
+        return false
+    end
+    g_path_scan_until = now + PATH_SCAN_GAP
+    local player = safe(function() return izi.me() end)
+    if not player then
+        return false
+    end
+    -- Low health or mana: the rest comes first, not another fight.
+    local hp = safe(function() return player:get_health_percentage() end)
+    if type(hp) == "number" and hp < 50 then
+        return false
+    end
+    local unit = guide.find_path_mob(player, dest, PATH_RANGE, PATH_CONE, 4, 3)
+    if not unit then
+        return false
+    end
+    trail("act", "clear the path: %s", tostring(safe(function() return unit:get_name() end)))
+    engage(player, unit, "Guide: clearing the path")
+    return true
+end
+
 local function walk_to(pos, note)
     if movement.arrived(pos, ARRIVE) then
         return false
+    end
+    if path_pull(pos) then
+        return true
     end
     -- Only when the destination moves to a new yard: formatting the line
     -- every frame just to have errorlog throw it away is what this avoids.

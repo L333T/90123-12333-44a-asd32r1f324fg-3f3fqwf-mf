@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.76.0
+-- Version: 2.77.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -143,28 +143,6 @@ local function tap_denied(unit)
     return false
 end
 
-local function player_nearby(player, range)
-    range = cap(range)
-    if not gui.is_on("player_detect") then
-        return false
-    end
-    local yards = gui.slider("player_yards", 30)
-    local list = izi.enemies(range or 40, true)
-    if type(list) ~= "table" then
-        return false
-    end
-    for i = 1, #list do
-        local u = list[i]
-        if indexable(u) and call(u.is_player, u) == true then
-            local d = call(player.distance_to, player, u)
-            if type(d) == "number" and d <= yards then
-                return true
-            end
-        end
-    end
-    return false
-end
-
 local function id_wanted(npc_id, mobs)
     if type(mobs) ~= "table" or #mobs == 0 then
         return true
@@ -206,9 +184,6 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
     range = tonumber(range) or 50
     if range > 80 then
         range = 80
-    end
-    if player_nearby(player, range) then
-        return found
     end
     local pos = state.cached_pos or safe(function() return player:get_position() end)
     if not pos then

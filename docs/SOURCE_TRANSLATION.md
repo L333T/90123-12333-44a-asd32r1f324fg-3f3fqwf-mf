@@ -221,8 +221,6 @@ is the lookup key and cannot be translated away without breaking that.
 | 巡逻反击 | Fight back while patrolling | `mfg_fight_back` |
 | 反击百分比 | Fight back below health % | `mfg_fight_back_hp` |
 | 采集反击范围 | Fight-back range while gathering | `mfg_fight_back_yards` |
-| 玩家检测 | Player detection | `mfg_player_detect` |
-| 玩家检测距离 | Player detection distance | `mfg_player_yards` |
 | 只击杀无目标怪物 | Only kill untapped mobs | `mfg_untapped` |
 | 需要拾取 | Looting enabled | `mfg_loot` |
 | 只拾取我击杀 | Only loot my own kills | `mfg_loot_mine` |

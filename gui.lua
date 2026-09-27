@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.59.0
+-- Version: 2.60.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -342,6 +342,18 @@ menu:slider_int("mfg_repair_pct", 5, 50, 10, {
 menu:checkbox("mfg_show_gui", true, {
     label = "Show GUI",
     tab = "settings",
+})
+-- Window size (2.60.0), applied live in gui.draw. Defaults are the size the
+-- window has always had.
+menu:slider_int("mfg_gui_w", 700, 1600, 851, {
+    label = "Window width",
+    tab = "settings",
+    tooltip = "Width of this window in pixels.",
+})
+menu:slider_int("mfg_gui_h", 500, 1100, 644, {
+    label = "Window height",
+    tab = "settings",
+    tooltip = "Height of this window in pixels.",
 })
 
 menu:add_popup({
@@ -2581,6 +2593,14 @@ function gui.draw()
         return
     end
     menu:set_visible(true)
+    -- The Settings tab's window size sliders (2.60.0).
+    local gw, gh = menu:get("mfg_gui_w"), menu:get("mfg_gui_h")
+    if type(gw) == "number" and gw >= 700 then
+        menu.width = gw
+    end
+    if type(gh) == "number" and gh >= 500 then
+        menu.height = gh
+    end
     -- Once per frame, not three times: is_started walks the quest guide, the
     -- rotation registry and the player object.
     local started = gui.is_started()

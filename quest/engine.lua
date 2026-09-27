@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.58.0
+-- Version: 2.59.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -821,6 +821,27 @@ tick_inner = function(player)
     end
     if g_move > #wps then
         g_move = 1
+    end
+    -- REACHABILITY FIRST (2.59.0): Sentinel's validate_destination, cached.
+    -- A waypoint it reports unreachable is skipped for the next one; when
+    -- every waypoint of the goal is unreachable the goal is skipped with a log
+    -- line, instead of walking into the 5-minute stuck watchdog.
+    if type(movement.reachable) == "function" then
+        local tried = 0
+        while tried < #wps and movement.reachable(wps[g_move].pos) == false do
+            g_move = g_move + 1
+            if g_move > #wps then
+                g_move = 1
+            end
+            tried = tried + 1
+        end
+        if tried >= #wps then
+            trail("quest", "every waypoint of goal %d is unreachable - skipping it", goal.index or 0)
+            core.log_warning("[Master Farmer - Grindbot] Quest goal '" .. tostring(label)
+                .. "': Sentinel reports every waypoint unreachable - skipping it.")
+            guide.mark_goal_done(guide.step_num(), goal.index)
+            return
+        end
     end
     if walk_to(wps[g_move].pos, label) then
         return

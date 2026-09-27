@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.58.0
+-- Version: 2.59.0
 -- ============================================================================
 -- Out-of-combat travel. Simple Movement owns clear, short legs; Sentinel is the
 -- fallback for long legs and blocked straight lines. Without Sentinel every
@@ -75,6 +75,9 @@ Nv.clamp_leg = clamp_leg
 local function navigate(dest, prefer_direct)
     local x, y, z = xyz(dest)
     if not x then return false end
+    -- The real destination, for Sentinel (2.59.0): it plans the whole path.
+    -- MAX_LEG only limits the WALKER's straight-line legs.
+    local sn_goal = { x = x, y = y, z = z }
     x, y, z = clamp_leg(x, y, z)
     dest = pt(P_DEST, x, y, z)
     if not want_nav() then return false end
@@ -95,7 +98,7 @@ local function navigate(dest, prefer_direct)
     -- fail. Without Sentinel we fall through to walker steering.
     local dist = dist3(hx, hy, hz, x, y, z)
     if dist > PATROL_HOP or not walk_open(here, goal) then
-        if N.move(goal, "travel") then return true end
+        if N.move(sn_goal, "travel") then return true end
     end
 
     local target
@@ -172,6 +175,10 @@ function Nv.nav_path(points)
     local pts = R.path_pts
     if #pts == 0 then return false end
     if #pts == 1 then return navigate(pts[1], true) end
+    -- A recorded route goes to Sentinel's follow_path (2.59.0) for its stuck
+    -- recovery and repathing; the walker is the fallback (no server, rate
+    -- limit, combat owning the player).
+    if N.follow(pts, "route") then return true end
     if not walk_open(here, pts[1]) then
         return navigate(pts[1], false)              -- steer to the first point
     end

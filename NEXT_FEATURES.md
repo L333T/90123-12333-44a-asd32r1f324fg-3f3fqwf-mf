@@ -248,3 +248,22 @@ once level-gated per §5.2.
   never movement commands.
 - Every new module stays well under 200 top-level locals.
 - Regenerate `manifest.lua` in the same commit as any `.lua` change.
+
+## Grind routes resident in memory while unused (noted 2.21.0)
+
+The HTTP loader compiles every file in the manifest and keeps both the source
+and the compiled chunk for the whole session. The 27 `grind/paths/ally160`
+routes are 523 KB of source - a third of the plugin - and are resident even
+while questing or grinding a different route; `path_format.drop` releases the
+module table but not the loader's copy.
+
+Fix: leave the route files out of the manifest and download one on demand
+when it is selected. Two things block doing it cleanly:
+
+1. The plugin cannot see which commit the loader fetched from (`BASE` is local
+   to `plugin_loader/main.lua`), so it would have to fetch routes from the
+   branch URL, which raw.githubusercontent caches. Exposing the commit
+   (e.g. `NS._loader.base = BASE`) is a one-line **plugin_loader change** -
+   needs sign-off, since plugin_loader is kept unchanged across releases.
+2. `path_format.take_module` is synchronous with five callers; grind start
+   would need a "route downloading" state.

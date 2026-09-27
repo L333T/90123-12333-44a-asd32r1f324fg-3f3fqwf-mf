@@ -3,7 +3,7 @@
 -- Paladin grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.39.0
+-- Version: 2.40.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THE AURA IS A DROPDOWN AND NOT SIX CHECKBOXES
@@ -394,6 +394,33 @@ end
 -- ----------------------------------------------------------------------------
 -- COMBAT
 -- ----------------------------------------------------------------------------
+-- Seal of Righteousness gate (2.40.0).
+local SEAL_REACH = 8          -- yards: close enough to be hitting the target
+local SEAL_LATCH = 3.0        -- seconds after a cast before it may be cast again
+local seal_cast_at = -1e9
+
+--- Is the player actually attacking `target` - in combat, the target alive,
+--- attackable and within SEAL_REACH?
+local function seal_attacking(player, target)
+    if not player or not target then
+        return false
+    end
+    if safe(function() return player:is_in_combat() end) ~= true then
+        return false
+    end
+    if safe(function() return target:is_valid() end) ~= true then
+        return false
+    end
+    if safe(function() return target:is_dead_or_ghost() end) == true then
+        return false
+    end
+    if safe(function() return player:can_attack(target) end) == false then
+        return false
+    end
+    local d = safe(function() return player:distance_to(target) end)
+    return type(d) == "number" and d <= SEAL_REACH
+end
+
 local function try_survival(player)
     local hp = health_pct(player)
     local threshold = gui.slider("paladin_heal_pct", 50) or 50
@@ -461,9 +488,16 @@ function paladin.tick(player, target, ctx)
     -- up during the fight - but only once the player is actually in combat
     -- (2.36.0). paladin.tick also runs while closing on a mob, and the seal
     -- used to go up on the walk in, or out of combat from buffs_ooc.
-    local in_combat = safe(function() return player:is_in_combat() end) == true
-    if in_combat and gui.is_on("seal") and learned(seal_righteous) and not has_aura(player, SOR_IDS) then
+    --
+    -- ONLY WHILE ATTACKING A TARGET (2.40.0): in combat, with a live,
+    -- attackable target within SEAL_REACH - not while walking up, not for a
+    -- mob on the pet, not in the seconds after a fight. SEAL_LATCH covers the
+    -- moment before the new aura is reported, so it is never cast twice in a
+    -- row; the aura check itself was fixed in auras.lua.
+    if seal_attacking(player, target) and gui.is_on("seal") and learned(seal_righteous)
+        and (izi.now() - seal_cast_at) >= SEAL_LATCH and not has_aura(player, SOR_IDS) then
         if cast_self(seal_righteous, player, "Seal of Righteousness") then
+            seal_cast_at = izi.now()
             return true
         end
     end

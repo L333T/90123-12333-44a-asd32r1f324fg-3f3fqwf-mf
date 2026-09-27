@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.30.0
+-- Version: 2.31.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -334,6 +334,16 @@ function grind.tick(player)
     end
 
     local unit = state.target.unit
+    if unit and (safe(function() return unit:is_dead() end) == true
+        or safe(function() return unit:is_dead_or_ghost() end) == true) then
+        -- Recorded before the validity test, as in quest/engine (2.31.0).
+        state.mark_killed(state.target.guid or safe(function() return unit:get_guid() end))
+        movement.nav_stop()
+        movement.combat_release()
+        state.reset_target()
+        state.grind.step = 1
+        return
+    end
     if not unit or safe(function() return unit:is_valid() end) ~= true then
         movement.nav_stop()
         movement.combat_release()

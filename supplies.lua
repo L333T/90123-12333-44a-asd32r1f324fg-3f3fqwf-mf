@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.73.0
+-- Version: 2.74.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -378,7 +378,9 @@ function supplies.find_supplier(player, range, skip)
 end
 
 function supplies.register_gui(menu)
-    menu:checkbox("mfg_buy_supplies", false, {
+    -- On by default (2.73.0): with it off nothing was ever bought, and the
+    -- box sits in the Vendor popup where it was easy to miss.
+    menu:checkbox("mfg_buy_supplies", true, {
         label = "Buy Food / Drink",
         tab = "vendor",
         tooltip = "Restock food and water during a vendor trip, up to the counts below.",

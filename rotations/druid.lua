@@ -3,7 +3,7 @@
 -- Druid grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and
@@ -255,6 +255,13 @@ end
 --- starts from where the bot is already standing, so the extra warning is
 --- free. This class does both, so the scan follows the same toggle its
 --- combat range does.
+--- Melee only in cat form. The toggle has no GUI control yet, so this is
+--- false today and the druid stays a caster - but when cat form lands, combat
+--- movement will close it to 2 yards like every other melee class.
+function druid.is_melee(player)
+    return gui.is_on("cat_form") == true
+end
+
 function druid.scan_range(player)
     if gui.is_on("cat_form") then
         return 20

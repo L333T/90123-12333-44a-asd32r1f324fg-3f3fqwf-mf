@@ -3,7 +3,7 @@
 -- movement/steer.lua - candidate steering
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- ============================================================================
 -- Everything that decides WHERE to hop next. Nothing in this file issues a
 -- command - it only returns pool points for an actuator module to act on.
@@ -194,7 +194,9 @@ end
 function S.approach_unit(from, goal, hold)
     local remain = dist2(from.x, from.y, goal.x, goal.y)
     hold = tonumber(hold) or 20
-    if hold < 5 then hold = 5 end
+    -- 1, not 5: melee approaches to MELEE_STANDOFF (1 yard). A 5-yard floor
+    -- left every melee class standing out of swing range of small mobs.
+    if hold < 1 then hold = 1 end
     local closing = remain <= (hold + STEER_HOP + 4)
     if remain <= hold then
         if los_open(from, goal) then return nil end

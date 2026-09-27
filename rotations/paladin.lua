@@ -3,7 +3,7 @@
 -- Paladin grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.25.0
+-- Version: 2.26.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THE AURA IS A DROPDOWN AND NOT SIX CHECKBOXES
@@ -270,6 +270,10 @@ end
 
 function paladin.combat_range(player)
     return 5        -- melee
+end
+
+function paladin.is_melee(player)
+    return true
 end
 
 -- A paladin has no ranged filler worth kiting for and heavy armour to stand in.

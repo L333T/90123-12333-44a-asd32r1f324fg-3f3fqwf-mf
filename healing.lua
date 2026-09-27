@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.56.0
+-- Version: 2.57.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -14,7 +14,7 @@
 --   1. POTIONS. They are used in combat, which is exactly when resting cannot
 --      happen, so they never belonged with the eat/drink code.
 --
---   2. THE GATE. "Eat / Drink" on the Healing tab is what lets the loaded
+--   2. THE GATE. "Eat / Drink" on the Resting tab is what lets the loaded
 --      rotation's resting run at all. With it off, no class rests.
 --
 --   healing.is_resting() is kept and forwards to resting.is_resting(), because
@@ -108,7 +108,7 @@ function healing.tick(player)
         return false
     end
 
-    -- Out of combat: the Healing tab's Eat / Drink checkbox is the gate, and
+    -- Out of combat: the Resting tab's Eat / Drink checkbox is the gate, and
     -- the loaded rotation decides the rest.
     if gui.is_on("eat_drink") ~= true then
         resting.clear()

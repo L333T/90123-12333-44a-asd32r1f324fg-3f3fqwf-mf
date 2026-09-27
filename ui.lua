@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.56.0
+-- Version: 2.57.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -654,6 +654,9 @@ local function store_element(self, kind, id, element, opts)
         class_id = opts.class_id,
         race_id = opts.race_id,
         spell = opts.spell,
+        -- A function: the control is only shown while it returns true
+        -- (e.g. the Eat / Drink sliders only while Eat / Drink is ticked).
+        visible_if = type(opts.visible_if) == "function" and opts.visible_if or nil,
         skip_draw = opts.skip_draw == true,
     }
     self.elements[id] = record
@@ -801,6 +804,12 @@ function Menu:control_visible(record)
             return false
         end
         if not spellbook.spell_known(record.spell) then
+            return false
+        end
+    end
+    if record.visible_if then
+        local ok, show = pcall(record.visible_if)
+        if not ok or show ~= true then
             return false
         end
     end

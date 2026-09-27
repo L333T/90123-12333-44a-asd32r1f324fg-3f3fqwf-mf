@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.56.0
+-- Version: 2.57.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -633,7 +633,7 @@ function resting_mod.tick(player, opts)
 
     local eat_at = start_pct(opts, "eat_pct", REST_DEFAULT)
     local drink_at = start_pct(opts, "drink_pct", REST_DEFAULT)
-    -- The Healing tab's sliders win over the rotation's built-in numbers
+    -- The Resting tab's sliders win over the rotation's built-in numbers
     -- (2.41.0): every rotation hard-coded 30%, so "Eat Below HP %" did
     -- nothing. A rotation that passes drink_pct 0 (no mana) keeps it off.
     local ok_g, gui = pcall(require, "gui")

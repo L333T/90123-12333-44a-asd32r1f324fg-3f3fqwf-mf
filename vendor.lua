@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.65.0
+-- Version: 2.66.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -278,12 +278,58 @@ end
 --- Through bags.lua (2.34.0): the raw get_items_in_bag slot_id is off by one
 --- from what use_container_item takes, so this used to sell the item NEXT to
 --- each grey or white. bags.list hands out inventory_helper's (bag, slot).
-local function sell_one(player)
-    local list = bags.list(player)
+-- SELL VERIFICATION (2.66.0). A sale that did not happen - the item still
+-- in the same bag slot on the next pass - was sent again forever: the log
+-- showed "Sold 7073" 79 times at one merchant while the item never left the
+-- bag. Every sale is now checked; a slot whose item stays put after
+-- SELL_RETRIES attempts is skipped for the rest of the trip (with a log
+-- line naming bag and slot), and the trip moves on to restock and repair.
+local SELL_RETRIES = 2
+local sell_pending = nil        -- { bag, slot, item_id } of the last sale sent
+local sell_fails = {}           -- "bag:slot:id" -> failed attempts this trip
+
+local function trail(fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, "vendor", fmt, ...)
+    end
+end
+
+local function sell_key(bag, slot, id)
+    return tostring(bag) .. ":" .. tostring(slot) .. ":" .. tostring(id)
+end
+
+--- Did the last sale land? Checked on the pass after it was sent.
+local function check_last_sale(list)
+    local p = sell_pending
+    if not p then
+        return
+    end
+    sell_pending = nil
     for i = 1, #list do
         local e = list[i]
-        if should_sell_item(player, e.item_id) then
+        if e.bag == p.bag and e.slot == p.slot and e.item_id == p.item_id then
+            local k = sell_key(p.bag, p.slot, p.item_id)
+            sell_fails[k] = (sell_fails[k] or 0) + 1
+            if sell_fails[k] >= SELL_RETRIES then
+                trail("could not sell item %s in bag %s slot %s (global slot %s) - skipped for this trip",
+                    tostring(p.item_id), tostring(p.bag), tostring(p.slot), tostring(e.global))
+            end
+            return
+        end
+    end
+end
+
+local function sell_one(player)
+    local list = bags.list(player)
+    check_last_sale(list)
+    for i = 1, #list do
+        local e = list[i]
+        if (sell_fails[sell_key(e.bag, e.slot, e.item_id)] or 0) < SELL_RETRIES
+            and should_sell_item(player, e.item_id) then
             bags.use(e.bag, e.slot)
+            sell_pending = { bag = e.bag, slot = e.slot, item_id = e.item_id }
+            trail("sell item %s from bag %s slot %s", tostring(e.item_id), tostring(e.bag), tostring(e.slot))
             return true, e.item_id
         end
     end
@@ -370,6 +416,8 @@ local function close_vendor()
 end
 
 local function finish_trip(note)
+    sell_pending = nil
+    sell_fails = {}
     -- However this trip ended - sold, repaired, merchant missing, out of gold -
     -- the lap that asked for it is dealt with. Leaving the flag set would make
     -- the bot turn round and try again immediately.

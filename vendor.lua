@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.73.0
+-- Version: 2.74.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -415,7 +415,10 @@ local function close_vendor()
     end)
 end
 
+local REPAIR_TRIES = 3
+
 local function finish_trip(note)
+    state.vendor.repair_tries = 0
     sell_pending = nil
     sell_fails = {}
     state.vendor.supplier_guid = nil
@@ -798,6 +801,9 @@ function vendor.tick(player)
         if not state.vendor.window_seen then
             state.vendor.window_seen = true
             supplies.new_merchant()
+            trail("merchant window open (%d items, repair %s)",
+                safe(function() return core.game_ui.get_vendor_item_count() end) or 0,
+                tostring(safe(function() return core.inventory.can_merchant_repair() end) == true))
         end
         if now < (state.vendor.interact_until or 0) then
             state.set_note("Vendor", "Selling")
@@ -819,21 +825,39 @@ function vendor.tick(player)
             return true
         end
 
+        -- REPAIR, VERIFIED (2.73.0). It used to fire repair_all_items once and
+        -- call the trip repaired whatever happened. Now the cost is read again
+        -- on the next pass: still owing means the repair did not land, and it
+        -- is sent again, up to REPAIR_TRIES. Every step is a vendor: trail line.
         if gui.is_on("repair") and not state.vendor.repaired then
-            if safe(function() return core.inventory.can_merchant_repair() end) == true then
-                local cost = safe(function() return core.inventory.get_total_repair_cost() end) or 0
-                local gold = safe(function() return core.inventory.get_gold() end) or 0
-                if type(cost) == "number" and type(gold) == "number" and cost > gold then
-                    state.vendor.lack_gold = cost
-                    state.set_note("Vendor", "Need more gold to repair")
-                else
-                    pcall(function()
-                        core.input.repair_all_items(false)
-                    end)
-                    state.set_note("Vendor", "Repair")
+            local can = safe(function() return core.inventory.can_merchant_repair() end) == true
+            local cost = safe(function() return core.inventory.get_total_repair_cost() end) or 0
+            local gold = safe(function() return core.inventory.get_gold() end) or 0
+            local tries = state.vendor.repair_tries or 0
+            if not can then
+                trail("this merchant cannot repair")
+                state.vendor.repaired = true
+            elseif type(cost) ~= "number" or cost <= 0 then
+                if tries > 0 then
+                    trail("repaired")
                 end
+                state.vendor.repaired = true
+            elseif type(gold) == "number" and cost > gold then
+                state.vendor.lack_gold = cost
+                trail("repair costs %d copper, only %d on hand", cost, gold)
+                state.set_note("Vendor", "Need more gold to repair")
+                state.vendor.repaired = true
+            elseif tries >= REPAIR_TRIES then
+                trail("repair refused %d times (still %d copper owed) - leaving it", tries, cost)
+                state.vendor.repaired = true
+            else
+                state.vendor.repair_tries = tries + 1
+                trail("repair all: %d copper (attempt %d)", cost, tries + 1)
+                pcall(function()
+                    core.input.repair_all_items(false)
+                end)
+                state.set_note("Vendor", "Repair")
             end
-            state.vendor.repaired = true
             state.vendor.interact_until = now + 0.60
             return true
         end

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.21.0
+-- Version: 2.22.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1456,6 +1456,7 @@ local function start_bot()
     local ok_e, errorlog = pcall(require, "errorlog")
     if ok_e and type(errorlog) == "table" then
         errorlog.info("Start: %s", g and "grinding" or "questing")
+        errorlog.arm("start " .. (g and "grinding" or "questing"))
     end
 end
 

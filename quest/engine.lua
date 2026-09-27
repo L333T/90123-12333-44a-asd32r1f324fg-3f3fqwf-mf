@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.21.0
+-- Version: 2.22.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -88,6 +88,12 @@ local function trail(tag, fmt, ...)
     end
 end
 
+local function probe(tag)
+    if errorlog then
+        errorlog.probe(tag)
+    end
+end
+
 local function debug(fmt, ...)
     if not gui.is_on("quest_debug") then
         return
@@ -144,29 +150,46 @@ local function fight_unit(player, unit, note)
         release_combat()
         return false
     end
+    probe("f:set_target")
     pcall(function()
         core.input.set_target(unit)
     end)
+    probe("f:combat_range")
     local yards = combat_yards(player)
+    probe("f:start_auto_attack")
     targeting.start_auto_attack(player, unit)
+    probe("f:combat_engage")
     if not movement.combat_engage(player, unit, yards) then
         if state.is_unreachable and state.is_unreachable(state.target.guid) then
             release_combat()
             state.set_note("Quest", "Skip unreachable")
             return false
         end
+        probe("f:face (closing)")
         movement.face(unit)
         state.set_note("Quest", note or "Closing")
-        rotation.tick(player, unit, { enemies = targeting.combat_scan(player, yards), no_move = true })
+        probe("f:combat_scan (closing)")
+        local pack = targeting.combat_scan(player, yards)
+        probe("f:rotation.tick (closing)")
+        rotation.tick(player, unit, { enemies = pack, no_move = true })
+        probe("f:rotation.tick done")
         return true
     end
+    probe("f:face")
     movement.face(unit)
     state.set_note("Quest", note or "Killing")
-    rotation.tick(player, unit, { enemies = targeting.combat_scan(player, yards), no_move = true })
+    probe("f:combat_scan")
+    local pack = targeting.combat_scan(player, yards)
+    probe("f:rotation.tick")
+    rotation.tick(player, unit, { enemies = pack, no_move = true })
+    probe("f:rotation.tick done")
     return true
 end
 
 local function engage(player, unit, note)
+    if errorlog then
+        errorlog.arm("engage")
+    end
     trail("act", "engage %s (%s)", tostring(safe(function() return unit:get_name() end)), tostring(note))
     targeting.set_current(unit, "kill")
     g_kill_until = izi.now() + KILL_TIMEOUT
@@ -469,8 +492,10 @@ tick_inner = function(player)
         return
     end
 
+    probe("q:learn_npc_id")
     guide.learn_npc_id(player)
 
+    probe("q:goal")
     local goal = guide.goal()
     if not goal then
         -- Every goal of the step is done and the addon has not moved on yet.
@@ -488,7 +513,9 @@ tick_inner = function(player)
         return
     end
 
+    probe("q:classify")
     local kind = guide.classify(goal)
+    probe("q:goal_waypoints")
     local wps = guide.goal_waypoints(goal)
     local label = goal_label(goal, wps)
 
@@ -510,9 +537,11 @@ tick_inner = function(player)
             tostring(goal.quest_id), #wps, #wps == 1 and "" or "s")
     end
 
+    probe("q:fight_back")
     if fight_back(player, label) then
         return
     end
+    probe("q:act " .. kind)
 
     if kind == "accept" or kind == "turnin" or kind == "talk" then
         if dialog_goal(player, goal, kind, wps, label) then

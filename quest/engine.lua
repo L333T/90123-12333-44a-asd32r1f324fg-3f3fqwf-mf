@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.37.0
+-- Version: 2.38.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -68,6 +68,7 @@ local g_nosource_since = 0
 local SOURCE_PATIENCE = 30.0  -- seconds of walking before any camp mob will do
 local g_armed_engage = false
 local g_loot_wait = false
+local g_label = "fighting"
 
 -- The NPC the bot opened a dialog with, remembered until the goal changes so
 -- it can be recorded as that quest's giver once the accept or turnin lands.
@@ -153,6 +154,12 @@ local function fight_unit(player, unit, note)
     if not unit or safe(function() return unit:is_valid() end) ~= true then
         if state.target.kind == "kill" and state.target.guid then
             state.mark_killed(state.target.guid)
+            -- No handle left to read: queue the corpse from what was saved.
+            local ok_l, lt = pcall(require, "loot")
+            if ok_l and type(lt) == "table" and type(lt.note_kill_guid) == "function" then
+                lt.note_kill_guid(state.target.guid,
+                    state.target.x and { x = state.target.x, y = state.target.y, z = state.target.z } or nil)
+            end
         end
         release_combat()
         return false
@@ -551,6 +558,17 @@ function quest.tick(player)
 end
 
 tick_inner = function(player)
+    -- FIGHT FIRST (2.38.0). Anything attacking the player, and the fight
+    -- already under way, come before every other branch of this tick. The
+    -- early returns below (RestedXP not loaded, no active step, step
+    -- complete, resting) used to come first, and the first two also released
+    -- combat movement every tick - a mob could hit the bot with no answer.
+    probe("q:fight_back")
+    if fight_back(player, g_label) then
+        g_loot_wait = false
+        return
+    end
+
     if not guide.is_loaded() then
         release_combat()
         trail("quest", "RestedXP not loaded")
@@ -601,7 +619,11 @@ tick_inner = function(player)
         g_act_until = 0
         g_kill_until = 0
         g_nosource_since = 0
-        state.reset_target()
+        -- A step change mid-fight keeps the fight; only an idle target is
+        -- dropped.
+        if safe(function() return player:is_in_combat() end) ~= true then
+            state.reset_target()
+        end
         trail("quest", "step %d goal %d: %s [%s] %s (quest %s, %d waypoint%s)",
             guide.step_num(), goal.index or 0, tostring(goal.action), kind, tostring(label),
             tostring(goal.quest_id), #wps, #wps == 1 and "" or "s")
@@ -610,11 +632,7 @@ tick_inner = function(player)
             tostring(goal.quest_id), #wps, #wps == 1 and "" or "s")
     end
 
-    probe("q:fight_back")
-    if fight_back(player, label) then
-        g_loot_wait = false
-        return
-    end
+    g_label = label
 
     -- A corpse of ours to loot comes before the next pull (2.25.0). Stop our
     -- own walk once, so loot.tick's walk to the corpse is not swallowed by

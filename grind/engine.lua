@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.37.0
+-- Version: 2.38.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -297,7 +297,22 @@ function grind.tick(player)
     if not player then
         return
     end
-    if healing and type(healing.is_resting) == "function" and healing.is_resting() then
+    -- Attacked: fight back now (2.38.0) - every tick, before the rest check
+    -- and whether or not there is a target. With no target the old check only
+    -- ran when the periodic scan came round, and the route kept walking.
+    local attacked = false
+    do
+        local cur_guid = (state.target.kind == "kill") and state.target.guid or nil
+        local attacker = targeting.attacker_to_switch(player, cur_guid, gui.slider("fight_back_yards", 30))
+        if attacker then
+            targeting.set_current(attacker, "kill")
+            state.grind.step = 2
+            state.grind.black_until = izi.now() + gui.slider("max_kill", 60)
+            state.set_note("Grind", "Fight back")
+            attacked = true
+        end
+    end
+    if not attacked and healing and type(healing.is_resting) == "function" and healing.is_resting() then
         if movement and type(movement.nav_stop) == "function" then
             movement.nav_stop()
         end
@@ -352,6 +367,12 @@ function grind.tick(player)
     if not unit or safe(function() return unit:is_valid() end) ~= true then
         if state.target.kind == "kill" and state.target.guid then
             state.mark_killed(state.target.guid)
+            -- No handle left to read: queue the corpse from what was saved.
+            local ok_l, lt = pcall(require, "loot")
+            if ok_l and type(lt) == "table" and type(lt.note_kill_guid) == "function" then
+                lt.note_kill_guid(state.target.guid,
+                    state.target.x and { x = state.target.x, y = state.target.y, z = state.target.z } or nil)
+            end
         end
         movement.nav_stop()
         movement.combat_release()

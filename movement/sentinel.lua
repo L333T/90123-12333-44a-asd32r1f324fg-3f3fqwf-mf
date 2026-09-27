@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.53.0
+-- Version: 2.54.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -258,6 +258,7 @@ function N.move(p, why)
     W.halt()
     W.begin_issue(p.x, p.y, p.z)
     R.sn_active, R.sn_reason = true, nil
+    R.sn_why = why                -- what the leg is for (2.54.0): "pull", "travel", ...
     R.sn_leash_hold = true
     R.sn_watch_t = izi.now()
     local ok = pcall(c.move_to, c, to_vec3(p), on_nav_done)

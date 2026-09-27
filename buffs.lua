@@ -3,7 +3,7 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.53.0
+-- Version: 2.54.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED
@@ -223,7 +223,12 @@ function buffs.tick(player)
     for i = 1, #list do
         local fam = list[i]
         local name = fam.name
-        if picks.is_enabled(name) then
+        -- Seals are not self-buffs (2.54.0): Seal of Righteousness / of the
+        -- Crusader / ... were cast out of combat here as "buffs". Seals
+        -- belong to combat - the paladin rotation casts its seal only while
+        -- actively attacking an enemy.
+        local is_seal = type(name) == "string" and name:find("^Seal of ") ~= nil
+        if not is_seal and picks.is_enabled(name) then
             local hold = failed_until[name] or 0
             if now >= hold and needs_cast(player, fam) then
                 local spell = safe(function() return izi.spell(fam.id) end)

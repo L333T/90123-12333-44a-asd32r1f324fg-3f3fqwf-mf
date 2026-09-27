@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.53.0
+-- Version: 2.54.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -293,12 +293,23 @@ function C.combat_engage(player, unit, yards)
         return Rg.in_fight_range(player, unit, yards)
     end
 
-    -- Sentinel is still landing an out-of-combat pull-in. Taking COMBAT here
-    -- would halt it, and we would re-issue it next frame forever. Let it finish.
+    -- Sentinel is still landing an out-of-combat PULL-IN - combat's own leg
+    -- toward this target. Taking COMBAT here would halt it, and we would
+    -- re-issue it next frame forever. Let it finish.
+    --
+    -- Any OTHER Sentinel leg is halted (2.54.0). A waypoint walk is a
+    -- Sentinel leg too, and this used to wait for it: a mob engaged on the
+    -- way to a quest waypoint was "fought" while the character kept walking
+    -- to the waypoint - "closing" with the distance growing 4 -> 14 yd, the
+    -- mob hitting its back, nothing ever killed (22:xx log).
     if R.sn_active then
-        R.chase_fail_key, R.chase_fail_t = nil, 0
-        Rg.face(unit)
-        return false
+        if R.sn_why == "pull" then
+            R.chase_fail_key, R.chase_fail_t = nil, 0
+            Rg.face(unit)
+            return false
+        end
+        O.halt_all()
+        dlog("combat", "halted Sentinel leg '" .. tostring(R.sn_why) .. "' to fight")
     end
 
     O.take(OWNER.COMBAT)

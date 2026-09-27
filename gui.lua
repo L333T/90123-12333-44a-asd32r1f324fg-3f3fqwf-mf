@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.28.0
+-- Version: 2.29.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -281,6 +281,11 @@ menu:checkbox("mfg_skip_trivial", true, {
     tab = "questing",
     tooltip = "Skip a quest the NPC reports as trivial (grey). The bot moves on to the step's next goal; advance the RestedXP guide yourself if the whole step was that quest.",
 })
+menu:checkbox("mfg_crash_recorder", false, {
+    label = "Crash recorder (slows the game)",
+    tab = "questing",
+    tooltip = "For hunting a game crash only. For 90 seconds after Start it writes a line to scripts_log/MASTER_FARMER_ERRORS for every step of every frame, so the last line names the call the game died in. Each line is a disk write: with this on the game runs at a fraction of its frame rate. Leave it off otherwise.",
+})
 menu:checkbox("mfg_quest_debug", false, {
     label = "Log quest and guide steps",
     tab = "questing",
@@ -453,6 +458,7 @@ local aliases = {
     potions = "mfg_potions",
     rest_debug = "mfg_rest_debug",
     quest_debug = "mfg_quest_debug",
+    crash_recorder = "mfg_crash_recorder",
     skip_trivial = "mfg_skip_trivial",
     train = "mfg_train",
     vendor_each_lap = "mfg_vendor_each_lap",
@@ -1472,8 +1478,9 @@ local function start_bot()
     local ok_e, errorlog = pcall(require, "errorlog")
     if ok_e and type(errorlog) == "table" then
         errorlog.info("Start: %s", g and "grinding" or "questing")
-        -- The recorder writes a line per stage per frame: diagnosis only.
-        if is_on("quest_debug") then
+        -- The recorder writes a line per stage per frame - ~2.7 ms of disk
+        -- each, 90+ ms a frame (2.28.0 log). Its own opt-in box only.
+        if is_on("crash_recorder") then
             errorlog.arm("start " .. (g and "grinding" or "questing"))
         end
     end

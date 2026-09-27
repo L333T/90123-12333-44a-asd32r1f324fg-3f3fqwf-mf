@@ -3,7 +3,7 @@
 -- Intelligent Movement & Navigation System - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.77.0
+-- Version: 2.78.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- SINGLE-OWNER MOVEMENT STATE MACHINE
@@ -139,6 +139,7 @@ movement.clear_combat_profile = C.clear_combat_profile
 -- ============================================================================
 movement.face           = Rg.face
 movement.in_fight_range = Rg.in_fight_range
+movement.has_los        = Rg.has_los         -- 2.78.0: shared, cached LoS
 movement.arrived        = Rg.arrived
 movement.line_blocked   = Rg.line_blocked
 movement.can_reach      = Rg.can_reach

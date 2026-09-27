@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.77.0
+-- Version: 2.78.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -595,11 +595,22 @@ local function cast(e, unit, pos)
     return false
 end
 
+--- Line of sight to `unit` (2.78.0): no cast is sent into a wall.
+local function sees(unit)
+    local mv = mod("movement")
+    if not mv or type(mv.has_los) ~= "function" then return true end
+    xprobe("sm:los")
+    return mv.has_los(P, unit) == true
+end
+
 local function in_reach(e, unit)
     if e.self then return true end
     if not unit then return false end
     local def = e.def
     if type(def.min) == "number" and def.min > 0 and c.dist() < def.min then
+        return false
+    end
+    if not sees(unit) then
         return false
     end
     if def.melee then

@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.42.0
+-- Version: 2.43.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -53,6 +53,13 @@ local MAX_SERVICES = 200     -- sanity bound on the service list
 local last_act = -1e9
 local tried_level = nil
 local tried_gold = nil
+-- Training is over for the window that is open now (2.43.0). The window
+-- cannot be closed through the API, and while it stayed open this module
+-- claimed ~95% of all ticks - so nothing walked the bot away, which is the
+-- only thing that closes it. Cleared when the window closes.
+local finished = false
+local bought_this_visit = 0
+local MAX_PER_VISIT = 30      -- hard stop if a purchase keeps silently failing
 
 -- Spells bought while this trainer window has been open.
 --
@@ -115,6 +122,8 @@ end
 function trainer.reset()
     tried_level, tried_gold = nil, nil
     forget_bought()
+    finished = false
+    bought_this_visit = 0
 end
 
 -- ----------------------------------------------------------------------------
@@ -154,6 +163,14 @@ local function cheapest_affordable()
                 and (best_cost == nil or service < best_cost) then
                 local info = safe(function() return core.quests.get_trainer_service_info(i) end)
                 local name = (type(info) == "table" and info.spell_name) or nil
+                -- category is the service type: "available", "unavailable"
+                -- (level too low), "used" (already learned) or "header".
+                -- Only an available one can be bought (2.43.0); the others
+                -- were "bought" once per visit, 0.6 s each.
+                local cat = type(info) == "table" and info.category or nil
+                if type(cat) == "string" and cat ~= "" and string.lower(cat) ~= "available" then
+                    name = nil
+                end
                 -- A row with no spell name is a category header, not a spell.
                 if type(name) == "string" and name ~= "" then
                     if type(info.rank) == "string" and info.rank ~= "" then
@@ -210,15 +227,29 @@ function trainer.tick(player)
     end
 
     local now = izi.now()
+    local open = service_count() > 0
+    if not open then
+        -- The window has closed: the next one is a fresh visit.
+        finished = false
+        bought_this_visit = 0
+    elseif finished then
+        -- Done with this window. Do not claim the tick: the quest / grind
+        -- engine has to run so the bot walks off, which closes the window.
+        return false
+    end
     if (now - last_act) < ACT_GAP then
-        -- Still true while a trainer window is open, so nothing else grabs it.
-        return service_count() > 0
+        -- Mid-purchase: hold the cascade so nothing else grabs the window.
+        return open
     end
 
     -- 1. A trainer window is open: spend.
-    if service_count() > 0 then
-        local idx, name, cost = cheapest_affordable()
+    if open then
+        local idx, name, cost = nil, nil, nil
+        if bought_this_visit < MAX_PER_VISIT then
+            idx, name, cost = cheapest_affordable()
+        end
         if idx then
+            bought_this_visit = bought_this_visit + 1
             last_act = now
             state.set_note("Trainer", string.format("Training %s", tostring(name)))
             core.log(string.format(
@@ -237,7 +268,9 @@ function trainer.tick(player)
         -- character levels or gets richer.
         mark_tried(player)
         forget_bought()
-        last_act = now
+        finished = true
+        state.set_note("Trainer", "Training complete")
+        core.log(string.format("[Master Farmer - Grindbot] Training complete (%d bought).", bought_this_visit))
         pcall(function() core.quests.close_gossip() end)
         return false
     end

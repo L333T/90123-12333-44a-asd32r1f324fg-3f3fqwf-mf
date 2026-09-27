@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.43.0
+-- Version: 2.44.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -24,6 +24,7 @@ local PLUGIN_MODULES = {
     "quest/guide",
     "debuglog",
     "errorlog",
+    "watchdog",
     "bags",
     "pets",
     "ui",
@@ -756,6 +757,14 @@ local function on_update()
         return
     end
     allow_bot_movement()
+
+    -- NPC-stuck watchdog: 5 minutes at an NPC resets all NPC state and walks
+    -- away (the API cannot reload the game). It claims the tick it acts on.
+    local ok_w, watchdog = pcall(require, "watchdog")
+    if ok_w and type(watchdog) == "table" and type(watchdog.tick) == "function"
+        and watchdog.tick(player) then
+        return
+    end
     if not state or not movement or not death or not rotation or not healing then
         return
     end

@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.83.0
+-- Version: 2.84.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -230,6 +230,9 @@ local client = N.client
 --- already treats false as "use the walker instead".
 function N.move(p, why)
     if R.cur_owner == OWNER.COMBAT then return false end
+    -- Benched by the re-pathing ladder (2.84.0): its plan made no progress,
+    -- so the walker's steering gets the next legs.
+    if izi.now() < (R.sn_bench_until or 0) then return false end
     local now = izi.now()
     if (now - R.sn_last_issue_t) < SN_MIN_GAP then
         R.sn_refused = R.sn_refused + 1

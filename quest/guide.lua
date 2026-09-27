@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.83.0
+-- Version: 2.84.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1242,6 +1242,12 @@ local function fightable(player, u)
         and call(u.is_player, u) ~= true
         and call(u.is_tap_denied, u) ~= true
         and call(player.can_attack, player, u) ~= false) then
+        return false
+    end
+    -- Not one movement has given up on (2.84.0, the re-pathing ladder).
+    local ok_s, st = pcall(require, "state")
+    if ok_s and st and type(st.is_unreachable) == "function"
+        and st.is_unreachable(call(u.get_guid, u)) then
         return false
     end
     -- Not behind a wall, down a mine under the player or on a ledge overhead

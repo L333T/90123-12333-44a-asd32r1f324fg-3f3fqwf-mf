@@ -3,7 +3,7 @@
 -- Bag items with the (bag, slot) pair the container calls actually take
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.65.0
+-- Version: 2.66.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.input.use_container_item documents it plainly: the slot index that
@@ -74,6 +74,7 @@ function bags.list(player)
                     bag = s.bag_id,
                     slot = s.bag_slot,
                     count = s.stack_count,
+                    global = s.global_slot,
                 }
             end
         end

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.22.0
+-- Version: 2.23.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -869,6 +869,21 @@ if errorlog then
             ctx.guide = safe(guide.describe)
         end
         return ctx
+    end)
+end
+
+-- Sentinel navmesh requests since the last MEM line: the one allocation
+-- source outside this plugin's own code that it can drive.
+if errorlog then
+    errorlog.set_mem_extra(function()
+        local ok, R = pcall(require, "movement/rt")
+        if not ok or type(R) ~= "table" then
+            return nil
+        end
+        local text = string.format("sentinel requests %d issued, %d rate-limited",
+            R.sn_issued or 0, R.sn_refused or 0)
+        R.sn_issued, R.sn_refused = 0, 0
+        return text
     end)
 end
 

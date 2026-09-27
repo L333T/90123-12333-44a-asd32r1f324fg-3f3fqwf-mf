@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.22.0
+-- Version: 2.23.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -25,6 +25,7 @@ local W  = require("movement/walker")
 local N  = require("movement/sentinel")
 local O  = require("movement/own")
 local Rg = require("movement/range")
+local Z  = require("movement/zones")
 
 local STATE                = K.STATE
 local OWNER                = K.OWNER
@@ -40,6 +41,8 @@ local COMBAT_OFFSET        = K.COMBAT_OFFSET
 local PREDICT_AHEAD        = K.PREDICT_AHEAD
 local PREDICT_MARGIN       = K.PREDICT_MARGIN
 local DEFAULT_MELEE_DANGER = K.DEFAULT_MELEE_DANGER
+local PULL_RETRY           = K.PULL_RETRY
+local PULL_MAX_TRIES       = K.PULL_MAX_TRIES
 
 local pt = R.pt
 local xyz, here_xyz, dist2, dist3 = U.xyz, U.here_xyz, U.dist2, U.dist3
@@ -333,9 +336,27 @@ function C.combat_engage(player, unit, yards)
     R.combat_stopped = false
 
     -- 3. long out-of-combat pull-in: one Sentinel leg to just inside range when
-    --    the mob is far and the straight line is blocked
+    --    the mob is far and the straight line is blocked.
+    --
+    --    THROTTLED (2.23.0). This bypassed every gate navigation has - move gap,
+    --    failure cooldown, blacklisted areas - so when Sentinel answered at once
+    --    (off-mesh, unreachable, or already there) the next frame asked again,
+    --    and the frame after: a navmesh request per frame for as long as the
+    --    bot travelled to the mob. Now: the move gap applies, a failed leg waits
+    --    PULL_RETRY before the same mob is tried again, a blacklisted spot is
+    --    never asked for, and after PULL_MAX_TRIES legs the mob is marked
+    --    unreachable like any other chase that goes nowhere.
     local okc, in_cbt = pcall(player.is_in_combat, player)
-    if not (okc and in_cbt == true) and type(range) == "number" and range > 30 then
+    local pull_key = nil
+    do
+        local okg, g = pcall(unit.get_guid, unit)
+        pull_key = (okg and g ~= nil) and g or unit
+    end
+    if R.pull_key ~= pull_key then
+        R.pull_key, R.pull_next_t, R.pull_tries = pull_key, 0, 0
+    end
+    if not (okc and in_cbt == true) and type(range) == "number" and range > 30
+        and t >= R.pull_next_t and O.nav_gap_ok() then
         local ux, uy, uz = unit_xyz(unit)
         local hx, hy, hz = here_xyz()
         if ux and hx then
@@ -349,15 +370,27 @@ function C.combat_engage(player, unit, yards)
                     local s = pull / len
                     local dest = pt(P_TMP, ux + dx * s, uy + dy * s,
                                    ground_z(ux + dx * s, uy + dy * s, uz + dz * s))
-                    -- A Sentinel leg is out-of-combat navigation, so hand the
-                    -- player to NAV for the pull-in. combat_engage retakes
-                    -- COMBAT once the leg lands and sn_active goes false.
-                    O.take(OWNER.NAV)
-                    if N.move(dest, "pull") then
-                        R.chase_fail_key, R.chase_fail_t = nil, 0
-                        return false
+                    if R.pull_tries >= PULL_MAX_TRIES then
+                        -- Every leg so far has ended without closing the gap.
+                        local okg, guid = pcall(unit.get_guid, unit)
+                        if okg and guid ~= nil and type(state.mark_unreachable) == "function" then
+                            state.mark_unreachable(guid)
+                        end
+                        log("Pull-in gave up after " .. tostring(PULL_MAX_TRIES) .. " legs")
+                        R.pull_next_t = t + PULL_RETRY * 10
+                    elseif not Z.blocked_xy(dest.x, dest.y) then
+                        R.pull_tries = R.pull_tries + 1
+                        R.pull_next_t = t + PULL_RETRY
+                        -- A Sentinel leg is out-of-combat navigation, so hand the
+                        -- player to NAV for the pull-in. combat_engage retakes
+                        -- COMBAT once the leg lands and sn_active goes false.
+                        O.take(OWNER.NAV)
+                        if N.move(dest, "pull") then
+                            R.chase_fail_key, R.chase_fail_t = nil, 0
+                            return false
+                        end
+                        O.take(OWNER.COMBAT)
                     end
-                    O.take(OWNER.COMBAT)
                 end
             end
         end

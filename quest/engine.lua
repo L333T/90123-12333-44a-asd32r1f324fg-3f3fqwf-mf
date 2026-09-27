@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.52.0
+-- Version: 2.53.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -413,6 +413,13 @@ local function find_giver(player, goal, kind, wps)
             return unit, "learned id " .. tostring(known)
         end
     end
+    -- An NPC RestedXP has marked with a raid icon (2.53.0): the guide marks
+    -- the giver so it can be found - more certain than the waypoint title
+    -- or the nearest unit at the waypoint.
+    local marked = guide.find_marked(player, 80, "friendly", g_bad_givers)
+    if marked then
+        return marked, "raid marker"
+    end
     for i = 1, #wps do
         local title = wps[i].title
         if title then
@@ -561,6 +568,10 @@ local function item_goal(player, goal, label)
         if on and safe(function() return on:is_valid() end) ~= true then
             on = nil
         end
+        if not on then
+            -- RestedXP marks the unit a quest item is used on (2.53.0).
+            on = guide.find_marked(player, 30, "hostile")
+        end
         if guide.use_bag_item(entry, on) then
             state.set_note("Quest", "Guide: use " .. label)
             return true
@@ -611,7 +622,13 @@ local function kill_goal(player, goal, kind, wps, label)
         return false
     end
     g_scan_until = now + SCAN_GAP
-    local unit = guide.find_mob(player, MOB_RANGE, goal)
+    -- A mob RestedXP has marked with a raid icon comes first (2.53.0).
+    local unit = guide.find_marked(player, MOB_RANGE, "hostile")
+    if unit then
+        trail("act", "raid-marked target %s", tostring(safe(function() return unit:get_name() end)))
+    else
+        unit = guide.find_mob(player, MOB_RANGE, goal)
+    end
     if not unit and kind == "collect" then
         -- RestedXP names the item, not what drops it. First choice: a mob
         -- whose name shares a word with the item ("Tough Wolf Meat" ->

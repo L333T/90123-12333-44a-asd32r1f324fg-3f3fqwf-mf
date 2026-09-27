@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.83.0
+-- Version: 2.84.0
 -- ============================================================================
 -- Out-of-combat travel. Simple Movement owns clear, short legs; Sentinel is the
 -- fallback for long legs and blocked straight lines. Without Sentinel every
@@ -81,6 +81,12 @@ local function navigate(dest, prefer_direct)
     x, y, z = clamp_leg(x, y, z)
     dest = pt(P_DEST, x, y, z)
     if not want_nav() then return false end
+    -- A goal that has moved away from the move in flight re-aims it
+    -- (2.84.0, movement/repath): distance-scaled rate, 3 yd dead zone.
+    local ok_rp, RP = pcall(require, "movement/repath")
+    if ok_rp and RP and RP.reaim(x, y) then
+        R.force_reissue = true
+    end
     local go, ret = O.may_issue(x, y, z)
     if not go then return ret end
     if Z.blocked_xy(x, y) then

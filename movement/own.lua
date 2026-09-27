@@ -3,7 +3,7 @@
 -- movement/own.lua - ownership, state transitions, restrictions, shared gates
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.83.0
+-- Version: 2.84.0
 -- ============================================================================
 -- The arbiter primitives every higher module shares:
 --
@@ -160,12 +160,16 @@ function O.sentinel_active() return R.sn_active end
 function O.may_issue(x, y, z)
     if not owns(OWNER.NAV) then return false, false end
     if R.rest_lock then return false, false end
-    if is_moving() then return false, true end                   -- already going
+    -- A re-aim (movement/repath) replaces the move in flight: skip the
+    -- "already going" and move-gap checks once.
+    local force = R.force_reissue == true
+    R.force_reissue = false
+    if is_moving() and not force then return false, true end     -- already going
     local t = izi.now()
     if t < R.quiet_until or t < R.stuck_grace_until or t < R.steer_backoff_until then
         return false, W.same_dest(x, y)
     end
-    if not O.nav_gap_ok() then return false, W.same_dest(x, y) end
+    if not force and not O.nav_gap_ok() then return false, W.same_dest(x, y) end
     local hx, hy, hz = here_xyz()
     if not hx then return false, false end
     if dist3(hx, hy, hz, x, y, z) < MIN_NAV then return false, false end

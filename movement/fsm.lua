@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.83.0
+-- Version: 2.84.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -27,6 +27,7 @@ local W = require("movement/walker")
 local N = require("movement/sentinel")
 local O = require("movement/own")
 local C = require("movement/combat")
+local RP = require("movement/repath")      -- 2.84.0: re-aim + stuck ladder
 
 local STATE             = K.STATE
 local OWNER             = K.OWNER
@@ -109,6 +110,13 @@ local function watch_stuck(t)
     end
     if (t - R.stuck_since) < STUCK_GRACE then return end
     R.stuck_grace_until = t + STUCK_GRACE
+    -- The re-pathing ladder decides what "stuck" means now (2.84.0): re-plan,
+    -- then unstick, then give the goal up - instead of cancelling and
+    -- blacklisting on the first standstill.
+    if RP.stuck_now(t) then
+        R.stuck_x, R.stuck_y, R.stuck_since = x, y, t
+        return
+    end
     W.set_quiet(1.5)
     local had, dx, dy, dz = R.has_dest, R.dest_x, R.dest_y, R.dest_z
     W.clear_dest()
@@ -216,6 +224,7 @@ function F.pulse()
         R.walker_moving = false
         xprobe("mv:sentinel watch")
         N.watch(t)
+        RP.update(t)
         xprobe("mv:arbitrate")
         arbitrate(player, t)
         if (t - R.combat_req_t) > K.COMBAT_REQ_TTL then R.combat_req = false end
@@ -232,6 +241,7 @@ function F.pulse()
 
     watch_stuck(t)
     look_ahead(t)
+    RP.update(t)
     if R.leash and not R.leash_armed and not R.rest_lock then
         local _, _, _, d = L.here_on_leash()
         if d and d <= PATH_LEASH then R.leash_armed = true end

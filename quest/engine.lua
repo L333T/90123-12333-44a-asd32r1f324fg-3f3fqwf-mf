@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.19.0
+-- Version: 2.20.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -66,6 +66,23 @@ local function safe(fn)
         return result
     end
     return nil
+end
+
+-- Breadcrumbs for scripts_log/MASTER_FARMER_ERRORS. errorlog.trail writes a
+-- line only when it differs from the previous one with the same tag, so these
+-- can sit on per-frame paths.
+local errorlog = nil
+do
+    local ok, mod = pcall(require, "errorlog")
+    if ok and type(mod) == "table" then
+        errorlog = mod
+    end
+end
+
+local function trail(tag, fmt, ...)
+    if errorlog then
+        errorlog.trail(tag, fmt, ...)
+    end
 end
 
 local function debug(fmt, ...)
@@ -147,6 +164,7 @@ local function fight_unit(player, unit, note)
 end
 
 local function engage(player, unit, note)
+    trail("act", "engage %s (%s)", tostring(safe(function() return unit:get_name() end)), tostring(note))
     targeting.set_current(unit, "kill")
     g_kill_until = izi.now() + KILL_TIMEOUT
     fight_unit(player, unit, note)
@@ -178,6 +196,9 @@ local function walk_to(pos, note)
     if movement.arrived(pos, ARRIVE) then
         return false
     end
+    local me = safe(function() return izi.me():get_position() end)
+    trail("walk", "to (%.0f, %.0f, %.0f) %.0fy away for %s", pos.x, pos.y, pos.z,
+        me and geometry.distance(me, pos) or -1, tostring(note))
     if movement.is_blocked(pos) or movement.last_fail_offmesh() then
         movement.clear_fail()
         state.set_note("Quest", "Guide: cannot reach " .. note)
@@ -296,6 +317,8 @@ local function dialog_goal(player, goal, kind, wps, label)
     movement.nav_stop()
 
     local npc_id = geometry.object_id(unit)
+    trail("act", "%s with %s npc %s via %s", kind,
+        tostring(safe(function() return unit:get_name() end)), tostring(npc_id), tostring(how))
     if (kind == "accept" or kind == "turnin") and goal.quest_id then
         g_pending = { kind = kind, quest_id = goal.quest_id, npc_id = npc_id }
         state.quest.id = goal.quest_id
@@ -413,11 +436,13 @@ end
 function quest.tick(player)
     if not guide.is_loaded() then
         release_combat()
+        trail("quest", "RestedXP not loaded")
         state.set_note("Quest", "RestedXP Guides is not loaded")
         return
     end
     if not guide.ready() then
         release_combat()
+        trail("quest", "RestedXP has no active step")
         state.set_note("Quest", "RestedXP: no active step - load a guide")
         return
     end
@@ -455,6 +480,9 @@ function quest.tick(player)
         g_act_until = 0
         g_kill_until = 0
         state.reset_target()
+        trail("quest", "step %d goal %d: %s [%s] %s (quest %s, %d waypoint%s)",
+            guide.step_num(), goal.index or 0, tostring(goal.action), kind, tostring(label),
+            tostring(goal.quest_id), #wps, #wps == 1 and "" or "s")
         debug("step %d goal %d: %s %s (quest %s, %d waypoint%s)",
             guide.step_num(), goal.index or 0, tostring(goal.action), tostring(label),
             tostring(goal.quest_id), #wps, #wps == 1 and "" or "s")

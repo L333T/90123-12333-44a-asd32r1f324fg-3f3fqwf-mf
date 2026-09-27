@@ -3,7 +3,7 @@
 -- movement/util.lua - logging, position input, distance, ground and traces
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.19.0
+-- Version: 2.20.0
 -- ============================================================================
 -- The bottom layer. Depends only on const + rt, so every other movement module
 -- may require it without creating a cycle.
@@ -113,7 +113,20 @@ end
 -- ============================================================================
 --- Ground height under (x, y); falls back to hint_z when the lookup fails or
 --- the terrain is more than 80 yards from the hint (wrong floor).
+--- Terrain height at x,y, or hint_z.
+---
+--- Only asked for points near the player (GROUND_Q_RANGE). The height query
+--- is native terrain work, and a quest waypoint can be across the zone on a
+--- tile the client has not loaded; there is nothing to gain from asking
+--- there, because the leg will be re-planned with a real height long before
+--- the character arrives. Grind legs are short and are unaffected.
+local GROUND_Q_RANGE = 150
+
 function U.ground_z(x, y, hint_z)
+    local hx, hy = U.here_xyz()
+    if not hx or U.dist2(hx, hy, x, y) > GROUND_Q_RANGE then
+        return hint_z
+    end
     local q = R.HEIGHT_Q
     q.x, q.y, q.z = x, y, hint_z
     local ok, hz = pcall(core.get_height_for_position, q)

@@ -3,7 +3,7 @@
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.79.0
+-- Version: 2.80.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
@@ -570,7 +570,12 @@ function equip.tick(player)
     attempt = { bag = bag, slot = slot, item_id = item_id, label = label, t = now }
     state.set_note("Equip", "Equipping " .. tostring(label))
     core.log("[Master Farmer - Grindbot] Auto-equip: " .. tostring(label))
-    bags.use(bag, slot)
+    -- By item id (2.80.0): the bag-slot pair is wrong for the backpack on
+    -- this client (see bags.use_id). The slot is the fallback only when the
+    -- id is unknown.
+    if not (type(item_id) == "number" and bags.use_id(item_id)) then
+        bags.use(bag, slot)
+    end
     return true
 end
 

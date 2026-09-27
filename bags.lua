@@ -3,7 +3,7 @@
 -- Bag items with the (bag, slot) pair the container calls actually take
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.79.0
+-- Version: 2.80.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.input.use_container_item documents it plainly: the slot index that
@@ -96,6 +96,44 @@ end
 --- Use the bag item at (bag, slot): equips gear, sells at a merchant.
 function bags.use(bag, slot)
     return pcall(function() core.input.use_container_item(bag, slot) end)
+end
+
+-- BY ITEM ID (2.80.0). The (bag, slot) pair inventory_helper hands out is
+-- wrong for the backpack on this client: the 14:25 log sold "bag 0 slot
+-- 61..72" - a 16-slot bag - and every sale failed, so the vendor trip stood
+-- at the merchant retrying. The raw get_items_in_bag slot is documented as
+-- shifted by one, so guessing a correction could sell the item beside the
+-- junk. use_item(item_id) acts on a stack of exactly that item - selling it
+-- while a merchant is open, equipping it otherwise - and cannot touch any
+-- other item.
+function bags.use_id(item_id)
+    if type(item_id) ~= "number" or item_id <= 0 then
+        return false
+    end
+    local ok, r = pcall(function() return core.input.use_item(item_id) end)
+    return ok and r ~= false
+end
+
+--- How many of `item_id` are in the bags (stack sizes summed).
+function bags.count(item_id)
+    local total = 0
+    for bag = 0, 4 do
+        local ok, items = pcall(core.inventory.get_items_in_bag, bag)
+        if ok and type(items) == "table" then
+            for i = 1, #items do
+                local e = items[i]
+                local obj = type(e) == "table" and e.object or nil
+                if obj then
+                    local ok_id, id = pcall(obj.get_item_id, obj)
+                    if ok_id and id == item_id then
+                        local ok_n, n = pcall(obj.get_item_stack_count, obj)
+                        total = total + ((ok_n and type(n) == "number" and n > 0) and n or 1)
+                    end
+                end
+            end
+        end
+    end
+    return total
 end
 
 return bags

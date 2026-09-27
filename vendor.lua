@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.79.0
+-- Version: 2.80.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -285,8 +285,8 @@ end
 -- SELL_RETRIES attempts is skipped for the rest of the trip (with a log
 -- line naming bag and slot), and the trip moves on to restock and repair.
 local SELL_RETRIES = 2
-local sell_pending = nil        -- { bag, slot, item_id } of the last sale sent
-local sell_fails = {}           -- "bag:slot:id" -> failed attempts this trip
+local sell_pending = nil        -- { item_id, count } of the last sale sent
+local sell_fails = {}           -- item id -> failed attempts this trip
 
 local function trail(fmt, ...)
     local ok, el = pcall(require, "errorlog")
@@ -295,42 +295,43 @@ local function trail(fmt, ...)
     end
 end
 
-local function sell_key(bag, slot, id)
-    return tostring(bag) .. ":" .. tostring(slot) .. ":" .. tostring(id)
-end
-
---- Did the last sale land? Checked on the pass after it was sent.
-local function check_last_sale(list)
+--- Did the last sale land? The count of that item must have gone down.
+local function check_last_sale()
     local p = sell_pending
     if not p then
         return
     end
     sell_pending = nil
-    for i = 1, #list do
-        local e = list[i]
-        if e.bag == p.bag and e.slot == p.slot and e.item_id == p.item_id then
-            local k = sell_key(p.bag, p.slot, p.item_id)
-            sell_fails[k] = (sell_fails[k] or 0) + 1
-            if sell_fails[k] >= SELL_RETRIES then
-                trail("could not sell item %s in bag %s slot %s (global slot %s) - skipped for this trip",
-                    tostring(p.item_id), tostring(p.bag), tostring(p.slot), tostring(e.global))
-            end
-            return
-        end
+    local now_count = bags.count(p.item_id)
+    if now_count < p.count then
+        sell_fails[p.item_id] = nil
+        return
+    end
+    sell_fails[p.item_id] = (sell_fails[p.item_id] or 0) + 1
+    if sell_fails[p.item_id] >= SELL_RETRIES then
+        trail("could not sell item %s (%d in bags) - skipped for this trip", tostring(p.item_id), now_count)
     end
 end
 
+--- Sell the first sellable bag item, BY ITEM ID (2.80.0) - see bags.use_id.
 local function sell_one(player)
+    check_last_sale()
     local list = bags.list(player)
-    check_last_sale(list)
+    local seen = {}
     for i = 1, #list do
         local e = list[i]
-        if (sell_fails[sell_key(e.bag, e.slot, e.item_id)] or 0) < SELL_RETRIES
-            and should_sell_item(player, e.item_id) then
-            bags.use(e.bag, e.slot)
-            sell_pending = { bag = e.bag, slot = e.slot, item_id = e.item_id }
-            trail("sell item %s from bag %s slot %s", tostring(e.item_id), tostring(e.bag), tostring(e.slot))
-            return true, e.item_id
+        local id = e.item_id
+        if id and not seen[id] then
+            seen[id] = true
+            if (sell_fails[id] or 0) < SELL_RETRIES and should_sell_item(player, id) then
+                local before = bags.count(id)
+                if before > 0 then
+                    bags.use_id(id)
+                    sell_pending = { item_id = id, count = before }
+                    trail("sell item %s (%d in bags)", tostring(id), before)
+                    return true, id
+                end
+            end
         end
     end
     return false

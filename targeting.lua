@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.36.0
+-- Version: 2.37.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -300,6 +300,33 @@ function targeting.threat_nearby(player, yards)
         end
     end
     return false
+end
+
+--- The nearest unit attacking the player, when the current target is not
+--- one of them - or nil.
+---
+--- "If being attacked, always attack what is attacking you" (2.37.0): the
+--- engines only fought back when they had NO target, so a bot chasing one
+--- mob kept chasing it while another hit it from behind. Compared by GUID
+--- (current_guid), never by calling the stored target's methods - that
+--- handle may belong to an object the game has freed.
+function targeting.attacker_to_switch(player, current_guid, range)
+    if not player or call(player.is_in_combat, player) ~= true then
+        return nil
+    end
+    local pack = targeting.combat_scan(player, range)
+    if type(pack) ~= "table" or #pack == 0 then
+        return nil
+    end
+    if current_guid ~= nil then
+        for i = 1, #pack do
+            local u = pack[i]
+            if indexable(u) and call(u.get_guid, u) == current_guid then
+                return nil          -- the current target is attacking us: stay on it
+            end
+        end
+    end
+    return targeting.nearest(player, pack)
 end
 
 function targeting.combat_scan(player, range)

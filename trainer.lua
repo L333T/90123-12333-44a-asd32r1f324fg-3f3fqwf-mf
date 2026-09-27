@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.74.0
+-- Version: 2.75.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -188,23 +188,188 @@ end
 --- Matched on gossip_type, never on list position: the documentation is
 --- explicit that the order is not stable. The id is opaque and is handed
 --- straight back to the selector in the same frame.
+--- The trainer gossip option, found the way the vendor module finds its own
+--- (2.75.0): izi's icon lookup first, then the gossip type.
 local function trainer_option()
+    if izi.gossip and type(izi.gossip.find_option_by_icon) == "function" then
+        local icon = 3
+        if type(izi.gossip.ICON) == "table" and type(izi.gossip.ICON.TRAINER) == "number" then
+            icon = izi.gossip.ICON.TRAINER
+        end
+        local opt = safe(function() return izi.gossip.find_option_by_icon(icon) end)
+        if type(opt) == "table" and type(opt.gossip_option_id) == "number" and opt.gossip_option_id ~= 0 then
+            return opt.gossip_option_id
+        end
+    end
     local options = safe(function() return core.quests.get_gossip_options() end)
     if type(options) ~= "table" then
         return nil
     end
     for i = 1, #options do
         local opt = options[i]
-        if type(opt) == "table" and type(opt.gossip_type) == "string"
-            and string.lower(opt.gossip_type) == "trainer" then
-            local id = opt.gossip_option_id
-            if type(id) ~= "number" or id == 0 then
-                id = i
+        if type(opt) == "table" then
+            local gtype = type(opt.gossip_type) == "string" and string.lower(opt.gossip_type) or ""
+            local text = type(opt.name) == "string" and string.lower(opt.name) or ""
+            if gtype == "trainer" or text:find("train me", 1, true) then
+                local id = opt.gossip_option_id
+                if type(id) ~= "number" or id == 0 then
+                    id = i
+                end
+                return id
             end
-            return id
         end
     end
     return nil
+end
+
+-- ----------------------------------------------------------------------------
+-- GOING TO THE TRAINER (2.75.0)
+-- ----------------------------------------------------------------------------
+-- Training used to happen only when a gossip window was already open, so a
+-- grinding character never trained at all. Now, after a level-up, a class
+-- trainer IN SIGHT (by name - there is no trainer-location data and no NPC
+-- flag call) is walked to and trained at, once per level. Out of combat and
+-- only while the bot is running.
+local TRAINERS = {
+    WARRIOR = { "Llane Beanshield", "Lyria Du Lac", "Thran Khorman", "Granis Swiftaxe", "Ilsa Corbin", "Wu Shen", "Ander Germaine" },
+    PALADIN = { "Brother Sammuel", "Brother Wilhelm", "Bromos Grummner", "Azar Stronghammer", "Arthur the Faithful", "Brother Joshua" },
+    HUNTER  = { "Thorgas Grimson", "Grif Wildheart", "Ayanna Everstride", "Dazalar", "Kildar" },
+    ROGUE   = { "Jorik Kerridan", "Keryn Sylvius", "Solm Hargrin", "Hogral Bakkan", "Osborne the Night Man" },
+    PRIEST  = { "Priestess Anetta", "Priestess Josetta", "Branstock Khalder", "Maxan Anvol", "High Priestess Laurena", "Brother Benjamin" },
+    SHAMAN  = { "Firmanvaar", "Nobundo", "Sulaa", "Tuluun" },
+    MAGE    = { "Khelden Bremen", "Zaldimar Wefhellt", "Marryk Nurribit", "Magis Sparkmantle", "Jennea Cannon", "Elsharin" },
+    WARLOCK = { "Drusilla La Salle", "Maximillian Crowe", "Alamar Grimm", "Gimrizz Shadowcog", "Demisette Cloyce", "Ursula Deline" },
+    DRUID   = { "Mardant Strongoak", "Kal", "Gart Mistrunner", "Jannok Breezesong" },
+}
+local SEEK_RANGE = 100
+local SEEK_TRIES = 6
+
+local seek = nil             -- { guid, name, tries } while walking to a trainer
+local trained_level = nil    -- the level last trained at
+local seek_skip_level = nil  -- a level whose trainer never opened
+
+local function class_trainers(player)
+    local ok, enums = pcall(require, "common/enums")
+    local cls = safe(function() return player:get_class() end)
+    if not ok or type(enums) ~= "table" or type(enums.class_id) ~= "table" then
+        return nil
+    end
+    for key, id in pairs(enums.class_id) do
+        if id == cls and TRAINERS[key] then
+            local set = {}
+            for i = 1, #TRAINERS[key] do set[TRAINERS[key][i]] = true end
+            return set
+        end
+    end
+    return nil
+end
+
+local function trainer_in_sight(player)
+    local names = class_trainers(player)
+    if not names then return nil end
+    local ok_t, targeting = pcall(require, "targeting")
+    local list = ok_t and targeting and type(targeting.visible_objects) == "function"
+        and targeting.visible_objects() or nil
+    if type(list) ~= "table" then return nil end
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_player() end) ~= true then
+            local name = safe(function() return u:get_name() end)
+            if type(name) == "string" and names[name] then
+                local d = safe(function() return player:distance_to(u) end)
+                if type(d) == "number" and d <= SEEK_RANGE and (best_d == nil or d < best_d) then
+                    best, best_d = u, d
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function unit_by_guid(guid)
+    local ok_t, targeting = pcall(require, "targeting")
+    local list = ok_t and targeting and type(targeting.visible_objects) == "function"
+        and targeting.visible_objects() or nil
+    if type(list) ~= "table" then return nil end
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:get_guid() end) == guid then
+            return u
+        end
+    end
+    return nil
+end
+
+local function bot_running()
+    if type(gui.is_started) == "function" and gui.is_started() then
+        return true
+    end
+    return false
+end
+
+--- Walk to a class trainer in sight after a level-up. True while doing so.
+local function seek_tick(player, now)
+    local level = safe(function() return player:get_level() end) or 0
+    if trained_level == nil then
+        -- First look this session: train once if a trainer is in sight.
+        trained_level = level - 1
+    end
+    if level <= trained_level or seek_skip_level == level then
+        seek = nil
+        return false
+    end
+    if not bot_running() then return false end
+    if safe(function() return player:is_in_combat() end) == true then return false end
+    local ok_h, healing = pcall(require, "healing")
+    if ok_h and healing and type(healing.is_resting) == "function" and healing.is_resting() then
+        return false
+    end
+
+    local unit = seek and unit_by_guid(seek.guid) or nil
+    if not unit then
+        unit = trainer_in_sight(player)
+        if not unit then
+            seek = nil
+            return false
+        end
+        seek = { guid = safe(function() return unit:get_guid() end),
+            name = safe(function() return unit:get_name() end), tries = 0 }
+    end
+    local movement = require("movement")
+    local d = safe(function() return player:distance_to(unit) end) or 99
+    if d > 5 then
+        local p = safe(function() return unit:get_position() end)
+        if p and movement.nav_to(p) then
+            state.set_note("Trainer", "Going to " .. tostring(seek.name))
+            return true
+        end
+        return false
+    end
+    movement.nav_stop()
+    if (now - last_act) < 1.2 then
+        return true
+    end
+    seek.tries = seek.tries + 1
+    if seek.tries > SEEK_TRIES then
+        seek_skip_level = level
+        seek = nil
+        state.set_note("Trainer", "Trainer did not open")
+        return false
+    end
+    last_act = now
+    tried_level, tried_gold = nil, nil     -- a fresh visit: the gossip path may select
+    pcall(function() core.input.interact_with_object(unit) end)
+    state.set_note("Trainer", "Talking to " .. tostring(seek.name))
+    return true
+end
+
+--- Busy training: the service list is open and not finished, or walking to
+--- a trainer. The quest engine's talk goals wait for this.
+function trainer.busy()
+    return seek ~= nil or (service_count() > 0 and not finished)
 end
 
 -- ----------------------------------------------------------------------------
@@ -259,6 +424,8 @@ function trainer.tick(player)
         mark_tried(player)
         forget_bought()
         finished = true
+        trained_level = safe(function() return player:get_level() end) or trained_level
+        seek = nil
         state.set_note("Trainer", "Training complete")
         core.log(string.format("[Master Farmer - Grindbot] Training complete (%d bought).", bought_this_visit))
         pcall(function() core.quests.close_gossip() end)
@@ -267,7 +434,7 @@ function trainer.tick(player)
 
     -- 2. A gossip frame is open in front of us. If this NPC trains, open it.
     if not gossip_open() then
-        return false
+        return seek_tick(player, now)
     end
     if already_tried(player) then
         return false
@@ -285,14 +452,15 @@ function trainer.tick(player)
 end
 
 function trainer.register_gui(menu)
-    menu:checkbox("mfg_train", false, {
+    -- On by default (2.75.0), and the bot now walks to a trainer in sight.
+    menu:checkbox("mfg_train", true, {
         label = "Train Spells",
         tab = "settings",
         tooltip = "When a gossip frame is open at an NPC that trains this class, "
             .. "buy every spell rank the character can afford, cheapest first. "
             .. "Class spells only - talents and professions are never bought. "
-            .. "It does not walk to a trainer: there is no trainer location data, "
-            .. "so it trains at trainers the bot already happens to be talking to.",
+            .. "After a level-up it also walks to a class trainer in sight (within 100 yards) "
+            .. "and trains there, once per level.",
     })
 end
 

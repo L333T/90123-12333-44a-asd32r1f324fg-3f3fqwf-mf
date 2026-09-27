@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.74.0
+-- Version: 2.75.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -625,6 +625,13 @@ local function dialog_goal(player, goal, kind, wps, label)
             g_talk_opened = now
         end
         local busy = ok_v and type(vendor) == "table" and type(vendor.is_busy) == "function" and vendor.is_busy()
+        -- A trainer still buying ranks keeps the goal open (2.75.0): it used to
+        -- count as done 2 s after the frame opened and the gossip was closed
+        -- mid-training.
+        if not busy then
+            local ok_tr, tr = pcall(require, "trainer")
+            busy = ok_tr and type(tr) == "table" and type(tr.busy) == "function" and tr.busy() == true
+        end
         if not busy and (now - g_talk_opened) >= TALK_DONE then
             trail("act", "talk goal done at %s", tostring(safe(function() return unit:get_name() end)))
             guide.mark_goal_done(guide.step_num(), goal.index)

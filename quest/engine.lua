@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.38.0
+-- Version: 2.39.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -241,12 +241,24 @@ end
 
 --- Anything already fighting us comes first, whatever the goal is: walking on
 --- to a quest giver with three mobs on your back is how a character dies.
+--- THE COMBAT LOCK (2.39.0). Returns true while the fight owns the tick; the
+--- quest goal and its waypoint only get the tick back once nothing is left.
+---
+---   1. a mob attacking the player or the pet that is not the current target
+---      -> switch to the nearest one
+---   2. the current kill target, while it lives -> keep fighting it
+---   3. any attacker at all (the current one proved unreachable, say)
+---      -> engage the nearest
+---   4. still in combat but nothing in view -> hold position, up to 8 s
+---
+--- Attackers are looked for out to THREAT_RANGE (40 yd), not combat range
+--- + 10, so a caster hitting a melee character from range counts.
 local function fight_back(player, label)
-    -- Whatever is attacking the player comes before the target being chased
-    -- (2.37.0), not only when there is no target at all.
+    local range = targeting.THREAT_RANGE or 40
     local cur_guid = (state.target.kind == "kill") and state.target.guid or nil
-    local attacker = targeting.attacker_to_switch(player, cur_guid, combat_yards(player) + 10)
+    local attacker = targeting.attacker_to_switch(player, cur_guid, range)
     if attacker then
+        targeting.combat_active()
         trail("act", "switch to attacker %s", tostring(safe(function() return attacker:get_name() end)))
         engage(player, attacker, "Guide: defending")
         return true
@@ -254,16 +266,23 @@ local function fight_back(player, label)
     local unit = state.target.unit
     if unit and state.target.kind == "kill" then
         if fight_unit(player, unit, "Guide: " .. label) then
+            targeting.combat_active()
             return true
         end
     end
     if safe(function() return player:is_in_combat() end) ~= true then
+        targeting.combat_hold(player)        -- resets the hold window
         return false
     end
-    local pack = targeting.combat_scan(player, combat_yards(player) + 10)
-    local attacker = targeting.nearest(player, pack)
-    if attacker then
-        engage(player, attacker, "Guide: defending")
+    local nearest = targeting.nearest(player, targeting.threats(player, range))
+    if nearest then
+        targeting.combat_active()
+        engage(player, nearest, "Guide: defending")
+        return true
+    end
+    if targeting.combat_hold(player) then
+        movement.nav_stop()
+        state.set_note("Quest", "Guide: holding - combat not over")
         return true
     end
     return false

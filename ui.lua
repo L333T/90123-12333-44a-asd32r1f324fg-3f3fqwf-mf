@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.57.0
+-- Version: 2.58.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1612,6 +1612,115 @@ end
 -- Controls
 -- ---------------------------------------------------------------------------
 
+-- ----------------------------------------------------------------------------
+-- SLIDER ROW (2.58.0)
+-- ----------------------------------------------------------------------------
+-- Native slider widgets never appeared. They draw at the window's dynamic
+-- cursor (add_menu_element_pos_offset / begin_group, per the SDK's own UI
+-- example), and this menu lays every control out by absolute coordinates,
+-- rendering natives inside begin_window_sub_context under pcall - which
+-- failed silently. Sliders are drawn here instead, with the same primitives
+-- as the checkbox rows that do show, and write through the native element's
+-- set() so the value is still persisted and gui.slider() still reads it.
+--
+-- There is no mouse-position read in this API, so the bar is SLIDER_ZONES
+-- click zones: clicking anywhere on it jumps to that value. The - / + boxes
+-- step finely.
+local SLIDER_ZONES = 20
+
+local function slider_value(record)
+    local v = resolve_number(record.element, nil)
+    if type(v) ~= "number" then
+        v = tonumber(record.min) or 0
+    end
+    return v
+end
+
+local function slider_set(record, v)
+    local lo, hi = tonumber(record.min) or 0, tonumber(record.max) or 100
+    if v < lo then v = lo end
+    if v > hi then v = hi end
+    if record.kind == "slider_int" then
+        v = math.floor(v + 0.5)
+    end
+    pcall(function() record.element:set(v) end)
+end
+
+function Menu:draw_slider_row(win, record, x, y, width)
+    local t = self.theme
+    local h = 40
+    local lo, hi = tonumber(record.min) or 0, tonumber(record.max) or 100
+    if hi <= lo then hi = lo + 1 end
+    local v = slider_value(record)
+    local is_int = record.kind == "slider_int"
+
+    local pmin = vec2.new(x, y)
+    local pmax = vec2.new(x + width, y + h)
+    local is_hover = hovered(win, pmin, pmax)
+    draw_rect(win, pmin, pmax, is_hover and t.bg_row_hover or t.bg_row, t.border_panel, 3.0, 1.0)
+
+    -- label and value
+    local value_text = is_int and tostring(math.floor(v + 0.5)) or string.format("%.2f", v)
+    local label_sz = size_of_font(win, t.font_small, t.small_font_size, record.label)
+    local value_sz = size_of_font(win, t.font_small, t.small_font_size, value_text)
+    draw_text(win, t.font_small, vec2.new(x + 10, y + 4), t.text_primary, record.label, t.small_font_size)
+    draw_text(win, t.font_small, vec2.new(x + width - value_sz.x - 10, y + 4), t.text_on, value_text, t.small_font_size)
+
+    -- - / + boxes and the bar between them
+    local box = 16
+    local by = y + h - box - 5
+    local minus_min, minus_max = vec2.new(x + 8, by), vec2.new(x + 8 + box, by + box)
+    local plus_min, plus_max = vec2.new(x + width - 8 - box, by), vec2.new(x + width - 8, by + box)
+    local bar_x0, bar_x1 = x + 8 + box + 8, x + width - 8 - box - 8
+    local bar_y0, bar_y1 = by + 4, by + box - 4
+    if bar_x1 <= bar_x0 then bar_x1 = bar_x0 + 1 end
+
+    draw_rect(win, minus_min, minus_max, t.bg_input, t.border_panel, 2.0, 1.0)
+    draw_rect(win, plus_min, plus_max, t.bg_input, t.border_panel, 2.0, 1.0)
+    draw_text(win, t.font_small, vec2.new(minus_min.x + 5, by + 1), t.text_primary, "-", t.small_font_size)
+    draw_text(win, t.font_small, vec2.new(plus_min.x + 4, by + 1), t.text_primary, "+", t.small_font_size)
+
+    draw_rect(win, vec2.new(bar_x0, bar_y0), vec2.new(bar_x1, bar_y1), t.bg_input, t.border_panel, 3.0, 1.0)
+    local frac = (v - lo) / (hi - lo)
+    if frac < 0 then frac = 0 end
+    if frac > 1 then frac = 1 end
+    local fill_x = bar_x0 + (bar_x1 - bar_x0) * frac
+    if fill_x > bar_x0 + 1 then
+        pcall(function()
+            win:render_rect_filled(vec2.new(bar_x0, bar_y0), vec2.new(fill_x, bar_y1), t.accent, 3.0)
+        end)
+    end
+    -- the knob
+    pcall(function()
+        win:render_rect_filled(vec2.new(fill_x - 3, by + 1), vec2.new(fill_x + 3, by + box - 1), t.text_on, 2.0)
+    end)
+
+    if record.tooltip and is_hover then
+        pcall(function()
+            win:render_tooltip_text_only(record.tooltip, t.text_primary)
+        end)
+    end
+    block_drag(win, pmin, pmax)
+
+    -- clicks
+    local step = is_int and math.max(1, math.floor((hi - lo) / 50 + 0.5)) or (hi - lo) / 50
+    if clicked(win, minus_min, minus_max) then
+        slider_set(record, v - step)
+    elseif clicked(win, plus_min, plus_max) then
+        slider_set(record, v + step)
+    else
+        local zone_w = (bar_x1 - bar_x0) / SLIDER_ZONES
+        for k = 1, SLIDER_ZONES do
+            local z0 = bar_x0 + zone_w * (k - 1)
+            if clicked(win, vec2.new(z0, by), vec2.new(z0 + zone_w, by + box)) then
+                slider_set(record, lo + (hi - lo) * (k - 1) / (SLIDER_ZONES - 1))
+                break
+            end
+        end
+    end
+    return y + h + t.control_gap
+end
+
 function Menu:draw_checkbox_row(win, record, x, y, width)
     local t = self.theme
     local on = resolve_bool(record.element)
@@ -1984,6 +2093,8 @@ function Menu:render_tab_controls(win, tab_id, x, y, width)
                 cy = self:draw_checkbox_row(win, record, x, cy, width)
             elseif record.kind == "keybind" then
                 cy = self:draw_keybind_row(win, record, x, cy, width)
+            elseif record.kind == "slider_int" or record.kind == "slider_float" then
+                cy = self:draw_slider_row(win, record, x, cy, width)
             else
                 cy = self:render_native_at(win, record, x, cy, width)
             end

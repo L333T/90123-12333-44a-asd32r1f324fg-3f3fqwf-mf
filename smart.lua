@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.89.0
+-- Version: 2.90.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -891,6 +891,12 @@ end
 -- ============================================================================
 -- COMBAT
 -- ============================================================================
+-- Roles held back until the engage distance before a fight starts (2.90.0).
+local OFFENSIVE = {
+    damage = true, debuff = true, filler = true, execute = true, aoe = true,
+    finisher = true, cooldown = true, control = true, totem = true, resource = true,
+}
+
 local COMBAT_ORDER = {
     { "heal", COND.heal }, { "defensive", COND.defensive }, { "interrupt", COND.interrupt },
     "racials", "upkeep",
@@ -938,6 +944,16 @@ function smart.combat(player, target, ctx)
         pcall(pets.attack, player, target)
     end
 
+    -- NOT BEFORE THE ENGAGE DISTANCE (2.90.0). Out of combat, the fight is
+    -- opened only once the target is inside the GUI engage distance
+    -- (ctx.engage) - a mage no longer opens with a max-range Fireball while
+    -- still closing. Buffs, heals, defensives and openers (Charge) still run.
+    -- In combat every spell is fair game at its own range, as before.
+    local hold_fire = false
+    if ctx and type(ctx.engage) == "number" and target and not c.in_combat() then
+        hold_fire = c.dist() > ctx.engage + 1.0
+    end
+
     for i = 1, #COMBAT_ORDER do
         local step = COMBAT_ORDER[i]
         if step == "racials" then
@@ -948,7 +964,7 @@ function smart.combat(player, target, ctx)
             end
         elseif step == "upkeep" then
             if upkeep_step(true) then return true end
-        else
+        elseif not (hold_fire and type(step) == "table" and OFFENSIVE[step[1]]) then
             local role, cond = step[1], step[2]
             if role == "interrupt" and pack_interrupt() then return true end
             local bucket = built.by_role[role]
@@ -964,6 +980,39 @@ function smart.combat(player, target, ctx)
         end
     end
     return false
+end
+
+-- ============================================================================
+-- REACH OF THE TICKED DAMAGE SPELLS (2.90.0)
+-- ============================================================================
+local reach_cache = { scan = -1, yards = nil }
+
+--- The longest range among the ticked, ranged damage spells, or nil.
+function smart.max_range(player)
+    if not player or not spellbook.ready() then return nil end
+    build(player)
+    if reach_cache.scan == built.scan and reach_cache.picks == picks.count() then
+        return reach_cache.yards
+    end
+    local best = nil
+    local roles = { "damage", "debuff", "filler" }
+    for r = 1, #roles do
+        local bucket = built.by_role[roles[r]]
+        if bucket then
+            for i = 1, #bucket do
+                local e = bucket[i]
+                if not e.self and not e.def.melee and enabled(e) then
+                    local sp = spell_of(e)
+                    local yd = sp and tonumber(safe(function() return sp.maximum_range end)) or nil
+                    if yd and yd > 5 and (best == nil or yd > best) then
+                        best = yd
+                    end
+                end
+            end
+        end
+    end
+    reach_cache.scan, reach_cache.picks, reach_cache.yards = built.scan, picks.count(), best
+    return best
 end
 
 -- ============================================================================

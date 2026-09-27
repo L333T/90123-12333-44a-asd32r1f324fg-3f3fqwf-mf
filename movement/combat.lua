@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.89.0
+-- Version: 2.90.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -290,6 +290,14 @@ function C.combat_engage(player, unit, yards)
     -- Stopping at 5 yards from the target's centre left melee out of swing
     -- range of anything small, so melee closes to MELEE_REACH instead.
     local melee = yards <= MELEE_YARDS
+    -- Melee distance from the GUI (2.90.0): the stand-off is the engage
+    -- distance, "in position" 1 yd beyond it, and the hold band 2 yd beyond.
+    local m_stand, m_reach, m_hold = MELEE_STANDOFF, MELEE_REACH, MELEE_HOLD
+    if melee then
+        m_stand = yards
+        m_reach = yards + 1
+        m_hold = yards + 2
+    end
 
     R.combat_req, R.combat_req_t = true, izi.now()
     -- By GUID, never `R.combat_target ~= unit` (2.47.0): comparing two game
@@ -345,8 +353,8 @@ function C.combat_engage(player, unit, yards)
 
     local ready, range, has_los = Rg.in_fight_range(player, unit, yards)
     if melee then
-        -- Swinging range: MELEE_HOLD (5 yd) once in position.
-        ready = has_los and type(range) == "number" and range <= MELEE_HOLD
+        -- Swinging range: m_hold (5 yd) once in position.
+        ready = has_los and type(range) == "number" and range <= m_hold
     end
     local t = izi.now()
 
@@ -376,12 +384,12 @@ function C.combat_engage(player, unit, yards)
     if hold_in < 5 then hold_in = yards end
     local in_band
     if melee then
-        -- Arrive inside MELEE_REACH (4 yd); once there, hold until the target
-        -- is past MELEE_HOLD (5 yd). The gap is what stops the circling.
+        -- Arrive inside m_reach (4 yd); once there, hold until the target
+        -- is past m_hold (5 yd). The gap is what stops the circling.
         if R.combat_stopped then
-            in_band = range <= MELEE_HOLD
+            in_band = range <= m_hold
         else
-            in_band = range <= MELEE_REACH
+            in_band = range <= m_reach
         end
     elseif R.combat_stopped then
         in_band = range <= yards            -- holding: leave only past max range
@@ -489,7 +497,7 @@ function C.combat_engage(player, unit, yards)
         local hx, hy, hz = here_xyz()
         if not hx then hx, hy, hz = unit_xyz(player) end
         if ux and hx and O.owns(OWNER.COMBAT) and not R.rest_lock then
-            local stand = MELEE_STANDOFF
+            local stand = m_stand
             if not melee then
                 stand = yards - CHASE_BAND
                 if stand < 5 then stand = yards end
@@ -551,17 +559,17 @@ function C.combat_engage(player, unit, yards)
     local dest
     if O.nav_gap_ok() and t >= R.steer_backoff_until then
         -- aim for CHASE_BAND inside max range so we do not stop on the edge;
-        -- melee aims for MELEE_STANDOFF from the target
+        -- melee aims for m_stand from the target
         local hold = yards - CHASE_BAND
         if hold < 5 then hold = yards end
         if melee then
-            hold = MELEE_STANDOFF
+            hold = m_stand
             -- Close enough for one hop and nothing in the way: step straight
-            -- in to MELEE_STANDOFF on the line to the target. The steering
+            -- in to m_stand on the line to the target. The steering
             -- search would otherwise hand back a point short of it.
             local remain = dist2(hx, hy, ux, uy)
-            if remain > 0 and remain <= STEER_HOP + MELEE_STANDOFF and walk_open(here, goal) then
-                local s = (remain - MELEE_STANDOFF) / remain
+            if remain > 0 and remain <= STEER_HOP + m_stand and walk_open(here, goal) then
+                local s = (remain - m_stand) / remain
                 dest = pt(P_ALT, hx + (ux - hx) * s, hy + (uy - hy) * s,
                           hz + (goal.z - hz) * s)
             end

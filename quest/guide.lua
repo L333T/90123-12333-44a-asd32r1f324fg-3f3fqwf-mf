@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.22.0
+-- Version: 2.23.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1152,6 +1152,10 @@ end
 --- fight. Kept to within LEVEL_GAP levels below the player, so critters and
 --- grey wildlife around the camp are left alone.
 local LEVEL_GAP = 4
+-- A camp is judged from its waypoint, but the mob chosen must also be near the
+-- PLAYER: one at the far edge of a 45-yard camp could be 90 yards off, which
+-- sends the bot on a long pull-in across broken ground for a random mob.
+local CAMP_REACH = 40
 
 -- Never a camp target: nothing about these drops quest items.
 local NOT_CAMP = nil
@@ -1191,7 +1195,7 @@ function guide.find_camp_mob(player, center, radius)
             if lvl >= my_level - LEVEL_GAP and pos and not camp_excluded(u)
                 and geometry.distance(center, pos) <= radius then
                 local d = call(player.distance_to, player, u)
-                if type(d) == "number" and (best_d == nil or d < best_d) then
+                if type(d) == "number" and d <= CAMP_REACH and (best_d == nil or d < best_d) then
                     best, best_d = u, d
                 end
             end

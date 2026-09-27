@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.22.0
+-- Version: 2.23.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -257,7 +257,14 @@ function errorlog.probe(tag)
         return
     end
     probe_left = probe_left - 1
-    write("PROBE", tag)
+    -- The heap at each probe: a jump between two lines is what the stage in
+    -- between allocated (less whatever the collector freed meanwhile).
+    local ok, kb = pcall(collectgarbage, "count")
+    if ok and type(kb) == "number" then
+        write("PROBE", string.format("%-40s heap %.0f KB", tostring(tag), kb))
+    else
+        write("PROBE", tag)
+    end
     if probe_left == 0 then
         write("INFO", "flight recorder burst finished")
     end
@@ -272,6 +279,12 @@ end
 local MEM_GAP = 30
 local mem_next = 0
 local mem_peak = 0
+local mem_extra = nil
+
+--- A function returning extra text for each MEM line (e.g. request counts).
+function errorlog.set_mem_extra(fn)
+    mem_extra = fn
+end
 
 local function heap_kb()
     local ok, kb = pcall(collectgarbage, "count")
@@ -292,7 +305,14 @@ function errorlog.tick(now)
     end
     mem_next = now + MEM_GAP
     if kb then
-        write("MEM", string.format("lua heap %.0f KB  (peak %.0f KB)", kb, mem_peak))
+        local extra = ""
+        if type(mem_extra) == "function" then
+            local ok, s = pcall(mem_extra)
+            if ok and type(s) == "string" and s ~= "" then
+                extra = "  " .. s
+            end
+        end
+        write("MEM", string.format("lua heap %.0f KB  (peak %.0f KB)%s", kb, mem_peak, extra))
     end
 end
 

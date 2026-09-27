@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.22.0
+-- Version: 2.23.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -94,6 +94,9 @@ K.ESCALATE = {
 K.SETTLE           = 0.35   -- a de-escalation must hold this long
 K.COMBAT_EXIT_HOLD = 1.5    -- every combat-end condition must hold this long
 K.CHASE_GIVE_UP    = 10.0   -- blacklist a mob we could not reach for this long
+K.SN_MIN_GAP       = 1.0    -- seconds between any two Sentinel move_to requests
+K.PULL_RETRY       = 3.0    -- seconds before re-trying a combat pull-in leg
+K.PULL_MAX_TRIES   = 3      -- pull-in legs per mob before it counts as unreachable
 
 -- combat hysteresis. Bands are relative to the rotation's own max range, so
 -- nothing here invents a mechanic the rotation has not already defined.

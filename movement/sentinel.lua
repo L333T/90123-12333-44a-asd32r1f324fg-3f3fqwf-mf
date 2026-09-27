@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.22.0
+-- Version: 2.23.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -24,6 +24,7 @@ local W = require("movement/walker")
 local OWNER             = K.OWNER
 local SN_NEED           = K.SN_NEED
 local INFLIGHT_TIMEOUT  = K.INFLIGHT_TIMEOUT
+local SN_MIN_GAP        = K.SN_MIN_GAP
 
 local pt, to_vec3 = R.pt, R.to_vec3
 local xyz, dlog = U.xyz, U.dlog
@@ -219,10 +220,29 @@ local client = N.client
 -- COMMAND
 -- ============================================================================
 --- Issue a Sentinel move_to. Combat never goes here. Fresh vec3 per move.
+---
+--- RATE LIMITED (2.23.0). Each move_to is a navmesh path request whose result
+--- lives in the same Lua state as this plugin. The combat pull-in used to issue
+--- one on every frame whenever Sentinel answered fast - an instant failure or
+--- an instant arrival - which is what drove memory to its limit while
+--- travelling to mobs. Whatever a caller does, no more than one request per
+--- SN_MIN_GAP now goes out; a refused request returns false, and every caller
+--- already treats false as "use the walker instead".
 function N.move(p, why)
     if R.cur_owner == OWNER.COMBAT then return false end
+    local now = izi.now()
+    if (now - R.sn_last_issue_t) < SN_MIN_GAP then
+        R.sn_refused = R.sn_refused + 1
+        return false
+    end
     local c = client()
     if not c or type(p) ~= "table" then return false end
+    R.sn_last_issue_t = now
+    R.sn_issued = R.sn_issued + 1
+    local okl, elog = pcall(require, "errorlog")
+    if okl and type(elog) == "table" then
+        elog.probe("sentinel move_to " .. tostring(why or ""))
+    end
     W.halt()
     W.begin_issue(p.x, p.y, p.z)
     R.sn_active, R.sn_reason = true, nil

@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.84.0
+-- Version: 2.85.0
 -- ============================================================================
 -- Out-of-combat travel. Simple Movement owns clear, short legs; Sentinel is the
 -- fallback for long legs and blocked straight lines. Without Sentinel every
@@ -85,6 +85,16 @@ local function navigate(dest, prefer_direct)
     -- (2.84.0, movement/repath): distance-scaled rate, 3 yd dead zone.
     local ok_rp, RP = pcall(require, "movement/repath")
     if ok_rp and RP and RP.reaim(x, y) then
+        if R.sn_active then
+            -- Sentinel leg: switch to a path planned in the background, never
+            -- a fresh move_to that would stand the character still (2.85.0).
+            local hx0, hy0, hz0 = here_xyz()
+            local pts = hx0 and N.prefetch(pt(P_HERE, hx0, hy0, hz0), sn_goal) or nil
+            if pts and N.follow(pts, "reaim") then
+                return true
+            end
+            return true              -- keep the current leg until the plan is in
+        end
         R.force_reissue = true
     end
     local go, ret = O.may_issue(x, y, z)
@@ -128,6 +138,9 @@ local function navigate(dest, prefer_direct)
     if not prefer_direct and target ~= here and not walk_open(here, target) and L.needs_rejoin() then
         return false
     end
+    -- The leg's real end, for hop chaining in the pulse (2.85.0): the next
+    -- hop is planned while this one is walked and issued before it ends.
+    R.goal_x, R.goal_y, R.goal_z = goal.x, goal.y, goal.z
     return W.move(target, "nav_to")
 end
 

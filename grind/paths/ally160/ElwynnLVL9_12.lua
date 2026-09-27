@@ -3,7 +3,7 @@
 -- Elwynn Forest 9-12 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.84.0
+-- Version: 2.85.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.84.0
+-- Version: 2.85.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -142,8 +142,11 @@ local function escalate(x, y, z, kind, d, t)
         trail("no progress toward the %s for %.0fs (%.0f yd) - re-planning", kind, secs, d)
         R.sn_bench_until = t + SN_BENCH
         if R.sn_active then N.stop() end
-        W.halt()
+        -- No W.halt (2.85.0): clearing the destination is enough for the next
+        -- move to be issued at once; halting stood the character still for
+        -- the move gap in the middle of the re-plan.
         W.clear_dest()
+        R.force_reissue = true
         R.block_streak = math.max(R.block_streak or 0, 2)
         R.detour_side = -(R.detour_side ~= 0 and R.detour_side or 1)
         return

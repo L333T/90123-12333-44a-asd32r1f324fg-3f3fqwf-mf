@@ -3,7 +3,7 @@
 -- movement/util.lua - logging, position input, distance, ground and traces
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.84.0
+-- Version: 2.85.0
 -- ============================================================================
 -- The bottom layer. Depends only on const + rt, so every other movement module
 -- may require it without creating a cycle.
@@ -27,6 +27,7 @@ local FLAG_COLLISION = K.FLAG_COLLISION
 local FLAG_LOS       = K.FLAG_LOS
 local FLAG_OBSTACLE  = K.FLAG_OBSTACLE
 local BODY_HALF      = K.BODY_HALF
+local BODY_HALF_TIGHT = K.BODY_HALF_TIGHT
 local KNEE_Z         = K.KNEE_Z
 local CHEST_Z        = K.CHEST_Z
 
@@ -189,16 +190,20 @@ local function ray(ax, ay, az, bx, by, bz, flags)
     return ok and clear == true
 end
 
-local function corridor_key(a, b)
-    return string.format("%d|%d|%d|%d|%d|%d",
+local function corridor_key(a, b, tight)
+    return string.format("%d|%d|%d|%d|%d|%d|%s",
         math.floor(a.x * 2), math.floor(a.y * 2), math.floor(a.z),
-        math.floor(b.x * 2), math.floor(b.y * 2), math.floor(b.z))
+        math.floor(b.x * 2), math.floor(b.y * 2), math.floor(b.z), tight and "t" or "")
 end
 
 --- true = the body fits from a to b; false = blocked; nil = out of budget.
 function U.corridor(a, b)
     if FLAG_COLLISION == nil then return true end
-    local key = corridor_key(a, b)
+    -- TIGHT (2.85.0): R.tight_corridor narrows the shoulder rays for the
+    -- steering search's last-chance pass through doorways and tunnels.
+    local tight = R.tight_corridor == true
+    local half = tight and BODY_HALF_TIGHT or BODY_HALF
+    local key = corridor_key(a, b, tight)
     local t = izi.now()
     local e = corridor_cache[key]
     if e and (t - e.t) < CORRIDOR_TTL then return e.v end
@@ -211,7 +216,7 @@ function U.corridor(a, b)
             local len = sqrt(dx * dx + dy * dy)
             if len > 0.5 then
                 -- left normal of the direction, scaled to half the body width
-                local nx, ny = -dy / len * BODY_HALF, dx / len * BODY_HALF
+                local nx, ny = -dy / len * half, dx / len * half
                 v = ray(a.x + nx, a.y + ny, a.z + KNEE_Z, b.x + nx, b.y + ny, b.z + KNEE_Z, FLAG_OBSTACLE)
                 if v == true then
                     v = ray(a.x - nx, a.y - ny, a.z + KNEE_Z, b.x - nx, b.y - ny, b.z + KNEE_Z, FLAG_OBSTACLE)

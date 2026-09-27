@@ -1,9 +1,9 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- GUI — Shamele chrome, class auto-detect, popup Path/Quest/Vendor/Grind
+-- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.19.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -56,7 +56,6 @@ local REGION_KEYS = { "ek", "kalimdor", "outland", "ally160", "custom" }
 
 local factions = require("data/factions")
 local EMPTY_PATH = "(select Grinding first)"
-local EMPTY_QUEST = "(select Quest first)"
 
 local PATH_LABELS = { EMPTY_PATH }
 
@@ -84,7 +83,6 @@ local menu = ui.new({
         { id = "grinding", label = "Grinding" },
         { id = "questing", label = "Questing" },
         { id = "class", label = "Spells" },
-        { id = "mode", label = "Mode" },
         { id = "healing", label = "Healing" },
         { id = "settings", label = "Settings" },
     },
@@ -117,7 +115,6 @@ menu:combobox("mfg_class", 7, CLASS_LABELS, {
 
 menu:combobox("mfg_mode", 1, MODE_LABELS, {
     label = "Bot Mode",
-    tab = "mode",
     skip_draw = true,
     tooltip = "Legacy mode index. Use the Grinding / Quest checkboxes.",
 })
@@ -133,7 +130,7 @@ menu:checkbox("mfg_use_grind", false, {
 menu:checkbox("mfg_use_quest", false, {
     label = "Enable Questing",
     tab = "questing",
-    tooltip = "Turn questing on, then pick a starter quest below. Cannot run with Grinding.",
+    tooltip = "Turn questing on. The RestedXP Guides addon supplies every quest, NPC, waypoint and mob to kill - load a guide in it, then Start. Cannot run with Grinding.",
 })
 
 -- Which side's routes to list. Defaults to the character's own faction the
@@ -144,17 +141,6 @@ menu:combobox("mfg_faction", 1, factions.labels, {
     skip_draw = true,
     tooltip = "Alliance or Horde. The route list below shows only that side's profiles.",
 })
-menu:button("mfg_btn_start", {
-    label = "Start",
-    tab = "mode",
-    tooltip = "Begin only after Grinding or Quest is checked and a profile is chosen. Numpad 0.",
-    on_click = function()
-        if type(gui.try_start) == "function" then
-            gui.try_start()
-        end
-    end,
-})
-
 menu:combobox("mfg_path", 1, PATH_LABELS, {
     label = "Grind / Travel",
     tab = "path",
@@ -207,11 +193,6 @@ menu:slider_int("mfg_drink_mana", 20, 35, 35, {
 menu:checkbox("mfg_potions", true, {
     label = "Use Potions",
     tab = "healing",
-})
-menu:checkbox("mfg_quest_debug", false, {
-    label = "Log quest dialog steps",
-    tab = "healing",
-    tooltip = "Prints each step of a quest accept or hand-in, every reward choice considered, how it was rated, and which one was taken.",
 })
 menu:checkbox("mfg_rest_debug", false, {
     label = "Log why resting is blocked",
@@ -277,26 +258,17 @@ menu:checkbox("mfg_loot_mine", true, {
     tooltip = "Only loot corpses this bot marked as killed. Off = loot any lootable corpse within 10 yards.",
 })
 
-menu:combobox("mfg_quest", 1, { "(no starter quests)" }, {
-    label = "Starter Quest",
-    tab = "quest",
-    skip_draw = true,
-    tooltip = "Starter quests from quest/data for the loaded race. Pick one to inspect start/end NPCs.",
-})
+-- Every questing setting lives on the Questing tab, under Enable Questing.
+-- There is no quest list to pick from: RestedXP decides what comes next.
 menu:checkbox("mfg_skip_trivial", true, {
     label = "Skip Grey Quests",
-    tab = "quest",
-    tooltip = "Skip a quest the NPC reports as trivial (grey). Grey quests award almost no experience, so running them costs more time than they return.",
+    tab = "questing",
+    tooltip = "Skip a quest the NPC reports as trivial (grey). The bot moves on to the step's next goal; advance the RestedXP guide yourself if the whole step was that quest.",
 })
-menu:checkbox("mfg_guide", false, {
-    label = "Follow RestedXP Guides",
-    tab = "quest",
-    tooltip = "Take the next objective from the RestedXP addon instead of this panel's quest list. The guide decides what to do; the bot walks, fights, accepts and turns in. Needs the addon installed with a guide loaded - without one the bot falls back to its own quest list.",
-})
-menu:checkbox("mfg_quest_force", false, {
-    label = "Use Selected Quest",
-    tab = "quest",
-    tooltip = "Stay on the quest chosen in this panel instead of auto-picking the next unfinished starter.",
+menu:checkbox("mfg_quest_debug", false, {
+    label = "Log quest and guide steps",
+    tab = "questing",
+    tooltip = "Prints each RestedXP goal the bot takes up, how it found the NPC, each step of a quest accept or hand-in, every reward choice considered, how it was rated, and which one was taken.",
 })
 
 menu:checkbox("mfg_vendor_sell", true, {
@@ -352,15 +324,6 @@ menu:add_popup({
     on_open = function()
         gui.sync_profile_list(true)
     end,
-})
-menu:add_popup({
-    id = "quest",
-    title = "Quests",
-    tab = "quest",
-    w = 460,
-    h = 640,
-    x = 870,
-    y = 56,
 })
 menu:add_popup({
     id = "vendor",
@@ -493,8 +456,6 @@ local aliases = {
     draw_path = "mfg_draw_path",
     move_debug = "mfg_move_debug",
     rotation_only = "mfg_rotation_only",
-    quest_force = "mfg_quest_force",
-    guide = "mfg_guide",
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",
     show_gui = "mfg_show_gui",
@@ -535,6 +496,27 @@ local aliases = {
     evasion = "mfg_evasion",
     kick = "mfg_kick",
     rogue_debug = "mfg_rogue_debug",
+    -- Warrior (rotations/warrior.lua)
+    battle_shout = "mfg_battle_shout",
+    battle_stance = "mfg_battle_stance",
+    bloodrage = "mfg_bloodrage",
+    berserker_rage = "mfg_berserker_rage",
+    victory_rush = "mfg_victory_rush",
+    execute = "mfg_execute",
+    mortal_strike = "mfg_mortal_strike",
+    bloodthirst = "mfg_bloodthirst",
+    whirlwind = "mfg_whirlwind",
+    overpower = "mfg_overpower",
+    rend = "mfg_rend",
+    thunder_clap = "mfg_thunder_clap",
+    cleave = "mfg_cleave",
+    heroic_strike = "mfg_heroic_strike",
+    sunder_armor = "mfg_sunder_armor",
+    demo_shout = "mfg_demo_shout",
+    hamstring = "mfg_hamstring",
+    pummel = "mfg_pummel",
+    shield_bash = "mfg_shield_bash",
+    warrior_debug = "mfg_warrior_debug",
     -- Supplies (supplies.lua)
     buy_supplies = "mfg_buy_supplies",
     vendor_debug = "mfg_vendor_debug",
@@ -628,6 +610,9 @@ local slider_aliases = {
     priest_heal_pct = "mfg_priest_heal_pct",
     druid_heal_pct = "mfg_druid_heal_pct",
     paladin_heal_pct = "mfg_paladin_heal_pct",
+    heroic_rage = "mfg_heroic_rage",
+    bloodrage_hp = "mfg_bloodrage_hp",
+    execute_pct = "mfg_execute_pct",
 }
 
 -- Combobox ids read via gui.combo(). Kept separate from checkbox and slider
@@ -774,13 +759,32 @@ function gui.reset_pick_names()
     pick_name_cache = {}
 end
 
+-- picks is required lazily because it loads after this file. The require stays
+-- lazy; only the LOOKUP is remembered.
+--
+-- is_on is the hottest function in the project - see the note above
+-- pick_name_for - and it was paying a pcall and a package.loaded lookup on
+-- every single call, of which there are roughly twenty per frame from the
+-- rotations alone. Resolved once, on the first call that succeeds.
+--
+-- Cached on success only. A call that lands before picks is loadable must
+-- leave the slot empty and retry, not remember the failure for the session.
+local picks_mod = nil
+
+local function get_picks()
+    if picks_mod then return picks_mod end
+    local ok, mod = pcall(require, "picks")
+    if ok and type(mod) == "table" then picks_mod = mod end
+    return picks_mod
+end
+
 local function is_on(key)
     local id = aliases[key] or key
 
     -- A Spells tab choice outranks the class checkbox, but only when one was
     -- actually made.
-    local ok_p, picks = pcall(require, "picks")
-    if ok_p and picks and type(picks.state) == "function" then
+    local picks = get_picks()
+    if picks and type(picks.state) == "function" then
         local name = pick_name_for(id)
         if name then
             local st = picks.state(name)
@@ -1343,16 +1347,14 @@ function gui.has_grind_profile()
     return row ~= nil and row.kind == "grind"
 end
 
+--- Questing has no profile of its own: the RestedXP guide is the profile, so
+--- questing is ready whenever the addon is loaded.
 function gui.has_quest_profile()
     if not is_on("use_quest") then
         return false
     end
-    local ok, q = pcall(require, "quest")
-    if not ok or not q or type(q.row_at) ~= "function" then
-        return false
-    end
-    local row = q.row_at(izi.me(), gui.quest_index())
-    return type(row) == "table" and type(row.id) == "number"
+    local ok, guide = pcall(require, "quest/guide")
+    return ok and type(guide) == "table" and guide.is_loaded() == true
 end
 
 function gui.is_started()
@@ -1442,14 +1444,11 @@ local function start_bot()
         menu:set("mfg_mode", 1)
     else
         loader.ensure_quest()
-        local quest = loader.quest()
-        local row = quest and quest.row_at and quest.row_at(izi.me(), gui.quest_index()) or nil
-        if type(row) ~= "table" or type(row.id) ~= "number" then
-            core.log("[Master Farmer - Grindbot] Start blocked: choose a quest profile.")
-            state.set_note("Start", "Choose a quest profile")
+        if not gui.has_quest_profile() then
+            core.log("[Master Farmer - Grindbot] Start blocked: RestedXP Guides is not loaded.")
+            state.set_note("Start", "Load the RestedXP Guides addon")
             return
         end
-        menu:set("mfg_quest_force", true)
         menu:set("mfg_mode", 2)
     end
     set_on("enable", true)
@@ -1464,42 +1463,10 @@ function gui.apply_pending_play()
     return nil
 end
 
-function gui.quest_index()
-    local idx = menu:get("mfg_quest")
-    if not is_on("use_quest") then
-        return clamp_index(idx, 1)
-    end
-    local n = 1
-    local ok, q = pcall(require, "quest")
-    if ok and q and type(q.labels) == "function" then
-        local labels = q.labels(izi.me())
-        if type(labels) == "table" and #labels > 0 then
-            n = #labels
-        end
-    end
-    return clamp_index(idx, n)
-end
-
 function gui.use_quest_mode()
     set_on("use_quest", true)
     set_on("use_grind", false)
     gui.sync_activity()
-end
-
-function gui.skip_selected_quest()
-    local ok, q = pcall(require, "quest")
-    if not ok or not q or type(q.row_at) ~= "function" then
-        return
-    end
-    local row = q.row_at(izi.me(), gui.quest_index())
-    if type(row) ~= "table" or type(row.id) ~= "number" then
-        return
-    end
-    if type(state.quest.skipped) ~= "table" then
-        state.quest.skipped = {}
-    end
-    state.quest.skipped[row.id] = true
-    state.set_note("Quest", "Skipped " .. tostring(row.name or row.id))
 end
 
 function gui.clear_quest_skips()
@@ -1624,7 +1591,7 @@ function gui.sync_activity()
             armed_path = nil
             loader.ensure_quest()
             menu:set("mfg_mode", 2)
-            state.set_note("Mode", "Quest - choose a profile, then Start")
+            state.set_note("Mode", "Quest - load a RestedXP guide, then Start")
         end
         return
     end
@@ -1637,7 +1604,6 @@ function gui.sync_activity()
         picker_cache_key = ""
         last_path_key = ""
         menu:set_combobox_items("mfg_path", { EMPTY_PATH })
-        menu:set_combobox_items("mfg_quest", { EMPTY_QUEST })
         state.set_note("Mode", "Select Grinding or Quest")
     end
 end
@@ -2193,81 +2159,162 @@ menu:on_tab("grinding", function(win, x, y, w, h)
     text(armed and ok_col or warn,
         armed and ("Loaded: " .. tostring(armed.name or armed.id))
             or "Press Start to load and run this route.")
+    cy = cy + 6
+
+    -- The popups the old Mode tab opened.
+    local gap = 10
+    local btn_w = math.floor((field_w - gap) / 2)
+    if menu:draw_launcher(win, LEFT, cy, btn_w, 30, "Vendor") then
+        menu:open_popup("vendor")
+    end
+    if menu:draw_launcher(win, LEFT + btn_w + gap, cy, btn_w, 30, "Grind settings") then
+        menu:open_popup("grind")
+    end
 end)
 
 -- ============================================================================
 -- QUESTING TAB
 -- ============================================================================
+-- Session-only: the detection panel is a diagnostic, not a setting.
+local show_quest_diag = false
+
 menu:on_tab("questing", function(win, x, y, w, h)
     local gold = color.new(232, 222, 196, 255)
     local mute = color.new(180, 170, 150, 255)
+    local hi = color.new(248, 226, 132, 255)
     local ok_col = color.new(90, 210, 110, 255)
     local warn = color.new(220, 176, 56, 255)
 
-    local field_w = w - 20
-    if field_w < 120 then
-        field_w = math.max(80, w - 8)
+    -- ui.lua reserves eight control rows (~360px) under the registered
+    -- checkboxes for this content; h is the whole viewport, not what is left.
+    -- Text stops at BUDGET so a long step cannot run into the button.
+    local LEFT = x + 12
+    local LINE = 18
+    local BUDGET = 330
+    local bottom = y + BUDGET - LINE
+    local cy = y + 4
+
+    local function text(col, str, indent)
+        if cy > bottom then
+            return
+        end
+        win:render_text(FONT_SMALL, vec2.new(LEFT + (indent or 0), cy), col, str)
+        cy = cy + LINE
     end
 
     if not is_on("use_quest") then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 6), warn,
-            "Tick Enable Questing to choose a starter quest.")
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 26), mute,
-            "Grinding and Questing cannot run at the same time.")
+        text(warn, "Tick Enable Questing to follow the RestedXP guide.")
+        text(mute, "Grinding and Questing cannot run at the same time.")
         return
     end
 
     local ok, quest = pcall(require, "quest")
     if not ok or type(quest) ~= "table" or type(quest.snapshot) ~= "function" then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 6), warn, "Quest engine not loaded.")
+        text(warn, "Quest engine not loaded: " .. tostring(quest))
+        return
+    end
+    local info = quest.snapshot()
+    local ok_g, guide = pcall(require, "quest/guide")
+
+    -- Buttons first, at fixed places below the text budget, so an early
+    -- return in the status below never hides them.
+    local gap = 10
+    local btn_w = math.floor((w - 24 - gap * 2) / 3)
+    local by = y + BUDGET + 8
+    local skipped = 0
+    if type(state.quest.skipped) == "table" then
+        for _ in pairs(state.quest.skipped) do
+            skipped = skipped + 1
+        end
+    end
+    if menu:draw_launcher(win, LEFT, by, btn_w, 30, string.format("Clear Skipped (%d)", skipped)) then
+        gui.clear_quest_skips()
+    end
+    if menu:draw_launcher(win, LEFT + btn_w + gap, by, btn_w, 30,
+        show_quest_diag and "Hide Detection" or "RestedXP Detection") then
+        show_quest_diag = not show_quest_diag
+    end
+    if menu:draw_launcher(win, LEFT + (btn_w + gap) * 2, by, btn_w, 30, "Vendor") then
+        menu:open_popup("vendor")
+    end
+
+    -- What the bot actually reads from core.addons.rested_xp, raw. Shown on
+    -- request, and always when the addon is not being read, because that is
+    -- exactly when the answer is needed.
+    if (show_quest_diag or not info.ready) and ok_g and type(guide.diagnose) == "function" then
+        local d = guide.diagnose()
+        text(hi, "RestedXP detection")
+        text(mute, string.format("core.addons: %s   rested_xp: %s", d.addons, d.namespace), 12)
+        if #d.missing > 0 then
+            text(warn, "missing: " .. table.concat(d.missing, ", "), 12)
+        end
+        text(mute, "is_loaded() = " .. d.is_loaded, 12)
+        text(mute, "has_current_step() = " .. d.has_step, 12)
+        text(mute, string.format("get_current_step(): %s  step %d  %d goal%s",
+            d.step_type, d.step_num, d.goal_count, d.goal_count == 1 and "" or "s"), 12)
+        text(mute, "waypoint: " .. d.waypoint, 12)
+        text(mute, string.format("step waypoints: %d", d.step_waypoints), 12)
+        cy = cy + 6
+    end
+
+    -- 1. is the addon there, and does it have something to say
+    if not info.loaded then
+        text(warn, "RestedXP Guides is not loaded.")
+        text(mute, "Install and enable the RestedXP Guides addon. It supplies every")
+        text(mute, "quest, NPC location, waypoint and mob to kill.")
+        return
+    end
+    if not info.ready then
+        text(warn, "RestedXP is loaded but has no active step.")
+        text(mute, "Open the RestedXP window and pick a guide for this character.")
         return
     end
 
-    local info = quest.snapshot(izi.me())
-    if type(info) ~= "table" then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 6), mute, "Waiting for the player...")
-        return
+    text(ok_col, string.format("RestedXP step %d   -   %d sticky step%s",
+        info.step or 0, info.stickies or 0, (info.stickies or 0) == 1 and "" or "s"))
+    cy = cy + 4
+
+    -- 2. the step's goals, the one being worked on highlighted
+    local current = info.goal and info.goal.index or nil
+    local goals = info.goals or {}
+    for i = 1, #goals do
+        local g = goals[i]
+        local mark = g.is_complete and "[x]" or (g.index == current and "[>]" or "[ ]")
+        local col = g.is_complete and mute or (g.index == current and hi or gold)
+        local line = string.format("%s %s", mark, tostring(g.text or g.action or "?"))
+        if g.quest_id then
+            line = line .. string.format("  (%d)", g.quest_id)
+        end
+        text(col, line)
+    end
+    cy = cy + 4
+
+    -- 3. what the bot makes of the current goal
+    if info.goal then
+        text(gold, "Doing: " .. tostring(info.kind or "?") .. "   (" .. tostring(info.goal.action) .. ")")
+        local objs = info.objectives or {}
+        for i = 1, #objs do
+            local o = objs[i]
+            text(o.finished and mute or gold, string.format("%s %s  %d/%d  [%s]",
+                o.finished and "[x]" or "[ ]", tostring(o.text or "?"),
+                o.num_fulfilled or 0, o.num_required or 0, tostring(o.type or "?")), 12)
+        end
+    else
+        text(mute, "Step complete - waiting for RestedXP to advance.")
     end
 
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 4),
-        info.race_ok and gold or warn,
-        string.format("%s  -  %d starter quest%s",
-            tostring(info.race_label or "Unknown"), tonumber(info.count) or 0,
-            (tonumber(info.count) or 0) == 1 and "" or "s"))
-
-    if not info.race_ok or (tonumber(info.count) or 0) == 0 then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 24), mute,
-            "No starter quests for this race yet.")
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y + 42), mute,
-            "Human, Gnome, Troll and Undead are the races with quest data.")
-        return
+    -- 4. where it is going
+    if info.wrong_continent then
+        text(warn, "Waypoint is on another continent - travel there yourself.")
+    elseif info.waypoint then
+        local wp = info.waypoint
+        text(gold, string.format("Waypoint: %s   %s   map %d",
+            tostring(wp.title or "-"),
+            wp.dist and string.format("%.0fy", wp.dist) or "-", wp.map_id or 0))
+    else
+        text(mute, "No waypoint for this step.")
     end
-
-    local labels = info.labels
-    if type(labels) ~= "table" or #labels == 0 then
-        labels = { EMPTY_QUEST }
-    end
-    local qidx = gui.quest_index()
-    local new_q, y2 = menu:draw_dropdown(win, "mfg_tab_quest", x + 10, y + 24, field_w,
-        "Starter Quest", labels, qidx)
-    if new_q ~= qidx then
-        menu:set("mfg_quest", new_q)
-    end
-
-    local sel = info.selected
-    if type(sel) == "table" then
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y2), gold,
-            tostring(sel.name or sel.id))
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 18), mute,
-            string.format("Levels %s-%s   quest id %s",
-                tostring(sel.min_level or "?"), tostring(sel.max_level or "?"), tostring(sel.id)))
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 36),
-            info.skipped and warn or ok_col,
-            "Step: " .. tostring(info.phase or "-"))
-        y2 = y2 + 58
-    end
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2), mute,
-        "Press Start to begin. The bot works the list in level order.")
+    text(mute, "Bot: " .. tostring(info.note or ""))
 end)
 
 menu:on_tab("class", function(win, x, y, w, h)
@@ -2321,86 +2368,6 @@ menu:on_tab("class", function(win, x, y, w, h)
     end)
     if pressed then
         menu:open_popup("spells")
-    end
-end)
-
-menu:on_tab("mode", function(win, x, y, w, h)
-    gui.sync_activity()
-    local mode = gui.mode()
-    local line = "Check Grinding or Quest. Paths load only after that. Then pick a profile and press Start."
-    if mode == modes.GRIND then
-        line = "Grinding is on. Choose a grind profile below, then Start."
-    elseif mode == modes.QUEST then
-        line = "Quest is on. Choose a starter quest below, then Start."
-    end
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y + 8), color.new(232, 222, 196, 255), line)
-
-    local field_w = w - 20
-    if field_w < 120 then
-        field_w = math.max(80, w - 8)
-    end
-    local y2 = y + 32
-    if mode == modes.GRIND then
-        local _, region_idx = gui.faction_key()
-        local new_region, ny = menu:draw_dropdown(win, "mfg_dd_faction", x + 10, y2, field_w, "Faction", factions.labels, region_idx)
-        if new_region ~= region_idx then
-            menu:set("mfg_faction", new_region)
-            gui.set_path_index(1)
-            armed_path = nil
-            last_path_key = ""
-            picker_cache_key = ""
-            gui.sync_profile_list(false)
-        end
-        win:render_text(FONT_SMALL, vec2.new(x + 10, ny), color.new(180, 170, 150, 255), "Grind profile")
-        local entry = current_route_entry()
-        local y3 = draw_route_button(win, x + 10, ny + 16, field_w, entry)
-        local ready_text = entry and ("Profile: " .. tostring(entry.label or entry.id))
-            or "Click above to choose a grind profile"
-        local ready_col = entry and color.new(90, 210, 110, 255) or color.new(220, 176, 56, 255)
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y3), ready_col, ready_text)
-        y2 = y3 + 22
-    elseif mode == modes.QUEST then
-        local labels = { EMPTY_QUEST }
-        local ok, q = pcall(require, "quest")
-        if ok and q and type(q.labels) == "function" then
-            local got = q.labels(izi.me())
-            if type(got) == "table" and #got > 0 then
-                labels = got
-            end
-        end
-        menu:set_combobox_items("mfg_quest", labels)
-        local qidx = gui.quest_index()
-        local new_q, y3 = menu:draw_dropdown(win, "mfg_dd_quest", x + 10, y2, field_w, "Quest profile", labels, qidx)
-        if new_q ~= qidx then
-            menu:set("mfg_quest", new_q)
-        end
-        local ready = gui.has_quest_profile()
-        local ready_text = ready and "Quest profile selected" or "Select a quest profile"
-        local ready_col = ready and color.new(90, 210, 110, 255) or color.new(220, 176, 56, 255)
-        win:render_text(FONT_SMALL, vec2.new(x + 10, y3), ready_col, ready_text)
-        y2 = y3 + 22
-    end
-
-    local gap = 10
-    local btn_w = math.floor((w - 20 - gap) / 2)
-    if btn_w < 80 then
-        btn_w = math.max(80, w - 20)
-    end
-    local btn_h = 34
-    local row1 = y2 + 8
-    local left = x + 10
-    local right = left + btn_w + gap
-    if menu:draw_launcher(win, left, row1, btn_w, btn_h, "Vendor") then
-        menu:open_popup("vendor")
-    end
-    if mode == modes.GRIND then
-        if menu:draw_launcher(win, right, row1, btn_w, btn_h, "Grind settings") then
-            menu:open_popup("grind")
-        end
-    elseif mode == modes.QUEST then
-        if menu:draw_launcher(win, right, row1, btn_w, btn_h, "Quest details") then
-            menu:open_popup("quest")
-        end
     end
 end)
 
@@ -2512,106 +2479,6 @@ menu:on_tab("path", function(win, x, y, w, h)
         else
             state.set_note("Path", err or "play failed - Load a path first")
         end
-    end
-end)
-
-menu:on_tab("quest", function(win, x, y, w, h)
-    local player = nil
-    pcall(function()
-        player = izi.me()
-    end)
-    local info = nil
-    local ok, q = pcall(require, "quest")
-    if ok and q and type(q.snapshot) == "function" then
-        info = q.snapshot(player)
-    end
-    if type(info) ~= "table" then
-        info = {
-            race_label = "Unknown",
-            race_ok = false,
-            count = 0,
-            labels = { "(no starter quests)" },
-            index = 1,
-            status = "-",
-            note = state.note or "",
-            phase = "-",
-            start_name = "-",
-            end_name = "-",
-            hunt = "-",
-        }
-    end
-
-    local field_w = w - 20
-    if field_w < 120 then
-        field_w = math.max(80, w - 8)
-    end
-    local gold = color.new(232, 222, 196, 255)
-    local mute = color.new(180, 170, 150, 255)
-    local hi = color.new(248, 226, 132, 255)
-    local ok_col = color.new(90, 210, 110, 255)
-
-    local race_line = info.race_ok
-        and string.format("%s - %d starter quests in quest/data/%s.lua", tostring(info.race_label), info.count or 0, tostring(info.race_key or "?"))
-        or (tostring(info.race_label) .. " - no starter quest data. Use Grind or Path.")
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y), info.race_ok and gold or mute, race_line)
-
-    local labels = info.labels
-    if type(labels) ~= "table" or #labels == 0 then
-        labels = { "(no starter quests)" }
-    end
-    local idx = info.index or 1
-    local new_idx, y2 = menu:draw_dropdown(win, "mfg_dd_quest", x + 10, y + 20, field_w, "Starter Quest", labels, idx)
-    if new_idx ~= idx then
-        menu:set("mfg_quest", new_idx)
-        idx = new_idx
-    end
-
-    local sel = info.selected
-    local name = "-"
-    local qid = "-"
-    local levels = "-"
-    if type(sel) == "table" then
-        name = sel.name or "-"
-        qid = tostring(sel.id or "-")
-        if sel.min_level and sel.max_level then
-            levels = string.format("%d-%d", sel.min_level, sel.max_level)
-        end
-    end
-    local map_line = info.map_id and ("map " .. tostring(info.map_id)) or "-"
-    local engine = info.current
-    local running = "-"
-    if type(engine) == "table" then
-        running = string.format("%s (%d)", engine.name or "Quest", engine.id or 0)
-    end
-
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2), hi, "Selected: " .. tostring(name) .. "  id " .. qid)
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 18), gold, "Levels " .. levels .. "   " .. map_line)
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 36), gold, "Start NPC  " .. tostring(info.start_name or "-"))
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 54), gold, "End NPC    " .. tostring(info.end_name or "-"))
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 72), mute, tostring(info.hunt or "-"))
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 90), info.race_ok and ok_col or mute, "Step: " .. tostring(info.phase or "-"))
-    win:render_text(FONT_SMALL, vec2.new(x + 10, y2 + 108), mute, "Engine: " .. tostring(running) .. "   " .. tostring(info.note or ""))
-
-    local gap = 10
-    local btn_w = math.floor((w - 20 - gap * 2) / 3)
-    if btn_w < 70 then
-        btn_w = 70
-    end
-    local btn_h = 32
-    local by = y2 + 130
-    local x1 = x + 10
-    local x2 = x1 + btn_w + gap
-    local x3 = x2 + btn_w + gap
-
-    if menu:draw_launcher(win, x1, by, btn_w, btn_h, "Quest Mode") then
-        gui.use_quest_mode()
-        state.set_note("Quest", "Mode set to Quest")
-    end
-    if menu:draw_launcher(win, x2, by, btn_w, btn_h, "Skip") then
-        gui.skip_selected_quest()
-    end
-    if menu:draw_launcher(win, x3, by, btn_w, btn_h, "Clear Skips") then
-        gui.clear_quest_skips()
     end
 end)
 

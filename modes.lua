@@ -3,7 +3,7 @@
 -- Grind vs Quest mode helpers
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.19.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -22,11 +22,23 @@ local RACE = {
     DRAENEI = 11,
 }
 
-local QUEST_RACES = {
-    [RACE.HUMAN] = true,
-    [RACE.GNOME] = true,
-    [RACE.UNDEAD] = true,
-    [RACE.TROLL] = true,
+-- Every race playable in TBC. Goblin (9) has an id but no playable character
+-- until Cataclysm, so it is left out.
+--
+-- key is the file stem grind/zones/<key>.lua would use. Only some races ship
+-- a zone file yet; grind/zone_lookup requires it under pcall, so a race
+-- without one simply has no zone rather than an error.
+local RACES = {
+    [RACE.HUMAN]     = { key = "human",    label = "Human" },
+    [RACE.ORC]       = { key = "orc",      label = "Orc" },
+    [RACE.DWARF]     = { key = "dwarf",    label = "Dwarf" },
+    [RACE.NIGHT_ELF] = { key = "nightelf", label = "Night Elf" },
+    [RACE.UNDEAD]    = { key = "undead",   label = "Undead" },
+    [RACE.TAUREN]    = { key = "tauren",   label = "Tauren" },
+    [RACE.GNOME]     = { key = "gnome",    label = "Gnome" },
+    [RACE.TROLL]     = { key = "troll",    label = "Troll" },
+    [RACE.BLOOD_ELF] = { key = "bloodelf", label = "Blood Elf" },
+    [RACE.DRAENEI]   = { key = "draenei",  label = "Draenei" },
 }
 
 local modes = {}
@@ -35,35 +47,20 @@ modes.GRIND = "grind"
 modes.QUEST = "quest"
 modes.PATH = "path"
 
+--- Can this race quest? Every TBC race can: quests come from the RestedXP
+--- guide, which covers all of them, not from per-race data in this plugin.
 function modes.race_has_starter_quests(race_id)
-    return QUEST_RACES[race_id] == true
+    return RACES[race_id] ~= nil
 end
 
-local RACE_LABEL = {
-    [RACE.HUMAN] = "Human",
-    [RACE.GNOME] = "Gnome",
-    [RACE.UNDEAD] = "Undead",
-    [RACE.TROLL] = "Troll",
-}
-
 function modes.race_key(race_id)
-    if race_id == RACE.HUMAN then
-        return "human"
-    end
-    if race_id == RACE.GNOME then
-        return "gnome"
-    end
-    if race_id == RACE.UNDEAD then
-        return "undead"
-    end
-    if race_id == RACE.TROLL then
-        return "troll"
-    end
-    return nil
+    local r = RACES[race_id]
+    return r and r.key or nil
 end
 
 function modes.race_label(race_id)
-    return RACE_LABEL[race_id]
+    local r = RACES[race_id]
+    return r and r.label or nil
 end
 
 return modes

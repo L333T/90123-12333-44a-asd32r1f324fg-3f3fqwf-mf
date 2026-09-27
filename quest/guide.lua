@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.17.1
+-- Version: 2.19.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -49,6 +49,8 @@ local izi = require("common/izi_sdk")
 ---@type vec3
 local vec3 = require("common/geometry/vector_3")
 
+local geometry = require("geometry")
+
 local guide = {}
 
 local function safe(fn)
@@ -58,16 +60,240 @@ local function safe(fn)
     end
     return nil
 end
+--- safe(), without the closure: the same "first result, or nil on error", but
+--- using pcall's own argument passing.
+---
+---     safe(function() return u:is_valid() end)   ->   call(u.is_valid, u)
+---
+--- Identical behaviour, no allocation. Used for the calls inside loops over
+--- the visible object list, where the closure form allocated one per object
+--- per predicate.
+---
+--- THE RECEIVER MUST BE NON-NIL: the index u.is_valid happens OUTSIDE the
+--- pcall, so a nil receiver throws here where the closure form swallowed it.
+--- Every call site keeps its `if u and ...` guard for that reason. A receiver
+--- that exists but lacks the method is still fine - pcall catches calling a
+--- nil value.
+---
+--- WHAT IS DELIBERATELY STILL ON safe(): the quest-log walks and the bag
+--- scan. Those loops run over at most a couple of dozen entries, on throttled
+--- paths rather than every frame, and they call through core.quests and
+--- core.inventory rather than a unit - tables a build may not carry at all,
+--- so moving the index outside the pcall would buy nothing and cost a new
+--- guard on each one. Only the visible-object loops, which run over
+--- everything in range, were converted. The rest are not oversights.
+--- Is this value something call() may index?
+---
+--- call() does the index OUTSIDE the pcall, so a receiver that is not a table
+--- or userdata throws before pcall can catch it. The closure form tolerated
+--- any junk in a list - a boolean, a number, a leftover - and this keeps that
+--- tolerance rather than narrowing it to "not nil".
+local function indexable(v)
+    local t = type(v)
+    return t == "table" or t == "userdata"
+end
+
+local function call(fn, a, b)
+    local ok, result = pcall(fn, a, b)
+    if ok then
+        return result
+    end
+    return nil
+end
+
+
+-- ============================================================================
+-- READING THE ADDON
+-- ============================================================================
+-- Everything RestedXP returns is copied into plain Lua tables HERE, and only
+-- here. The core binds its namespaces and result structures as either tables
+-- or userdata depending on the build, and a `type(x) == "table"` test on a
+-- userdata result fails silently: the addon then looks unloaded, or loaded
+-- with no step, and the bot receives no quest information at all. So nothing
+-- below this section ever sees a raw value from the addon.
+
+local function index_of(o, k)
+    return o[k]
+end
+
+--- Is this something that can be indexed - a table or a bound userdata?
+local function is_obj(v)
+    local t = type(v)
+    return t == "table" or t == "userdata"
+end
+
+--- o[k], or nil when o cannot be indexed or the index throws.
+local function get(o, k)
+    if not is_obj(o) then
+        return nil
+    end
+    local ok, v = pcall(index_of, o, k)
+    if ok then
+        return v
+    end
+    return nil
+end
+
+local function length_of(o)
+    return #o
+end
+
+--- A list as a plain array: a Lua table, or a bound container that supports
+--- # and integer indexing, or one that only supports indexing.
+local MAX_LIST = 512
+local function to_list(v)
+    local out = {}
+    if not is_obj(v) then
+        return out
+    end
+    local ok, n = pcall(length_of, v)
+    if ok and type(n) == "number" and n > 0 then
+        for i = 1, math.min(n, MAX_LIST) do
+            out[#out + 1] = get(v, i)
+        end
+        return out
+    end
+    for i = 1, MAX_LIST do
+        local item = get(v, i)
+        if item == nil then
+            break
+        end
+        out[#out + 1] = item
+    end
+    return out
+end
+
+local function as_bool(v)
+    return v == true or v == 1
+end
+
+local function as_str(v)
+    if type(v) == "string" and v ~= "" then
+        return v
+    end
+    return nil
+end
+
+--- A positive id, or nil. RestedXP reports "no quest" as 0.
+local function as_id(v)
+    local n = tonumber(v)
+    if n and n > 0 then
+        return n
+    end
+    return nil
+end
+
+local function plain_goal(raw)
+    if not is_obj(raw) then
+        return nil
+    end
+    local ids = {}
+    local raw_ids = to_list(get(raw, "ids"))
+    for i = 1, #raw_ids do
+        local v = raw_ids[i]
+        if type(v) == "number" or type(v) == "string" then
+            ids[#ids + 1] = v
+        end
+    end
+    return {
+        action = as_str(get(raw, "action")) or "",
+        quest_id = as_id(get(raw, "quest_id")),
+        text = as_str(get(raw, "text")),
+        is_complete = as_bool(get(raw, "is_complete")),
+        text_only = as_bool(get(raw, "text_only")),
+        ids = ids,
+    }
+end
+
+local function plain_step(raw)
+    if not is_obj(raw) then
+        return nil
+    end
+    local goals = {}
+    local raw_goals = to_list(get(raw, "goals"))
+    for i = 1, #raw_goals do
+        local g = plain_goal(raw_goals[i])
+        if g then
+            goals[#goals + 1] = g
+        end
+    end
+    return {
+        num = tonumber(get(raw, "num")) or 0,
+        is_complete = as_bool(get(raw, "is_complete")),
+        goals = goals,
+    }
+end
+
+local function plain_waypoint(raw)
+    if not is_obj(raw) then
+        return nil
+    end
+    return {
+        map_id = tonumber(get(raw, "map_id")) or 0,
+        x = tonumber(get(raw, "x")),
+        y = tonumber(get(raw, "y")),
+        dist = tonumber(get(raw, "dist")),
+        title = as_str(get(raw, "title")),
+        type = as_str(get(raw, "type")),
+        goal_num = tonumber(get(raw, "goal_num")),
+        is_manual = as_bool(get(raw, "is_manual")),
+        wrong_continent = as_bool(get(raw, "wrong_continent")),
+    }
+end
+
+local function plain_objective(raw)
+    if not is_obj(raw) then
+        return nil
+    end
+    return {
+        text = as_str(get(raw, "text")),
+        type = as_str(get(raw, "type")),
+        num_required = tonumber(get(raw, "num_required")) or 0,
+        num_fulfilled = tonumber(get(raw, "num_fulfilled")) or 0,
+        finished = as_bool(get(raw, "finished")),
+    }
+end
 
 --- The addon namespace, or nil when this build has no core.addons.rested_xp.
 local function api()
-    local ns = safe(function()
-        return core.addons.rested_xp
-    end)
-    if type(ns) ~= "table" then
+    local addons = get(rawget(_G, "core"), "addons")
+    local ns = get(addons, "rested_xp")
+    if not is_obj(ns) then
         return nil
     end
     return ns
+end
+
+--- Call one function of the namespace.
+--- Returns result, nil - or nil, reason when it could not be called.
+local function ns_call(name, ...)
+    local ns = api()
+    if not ns then
+        return nil, "core.addons.rested_xp missing"
+    end
+    local fn = get(ns, name)
+    if fn == nil then
+        return nil, name .. " missing"
+    end
+    local ok, res = pcall(fn, ...)
+    if not ok then
+        return nil, tostring(res)
+    end
+    return res, nil
+end
+
+-- One read per frame. The engine asks for the step, the goal, the step
+-- number and the targets several times a tick; converting the addon's
+-- structures each time would be wasted work.
+local CACHE_TTL = 0.1
+local cache = { t = -1, step = nil, stickies = {} }
+
+local function clock()
+    return safe(function() return izi.now() end) or 0
+end
+
+local function read_step()
+    return plain_step((ns_call("get_current_step")))
 end
 
 -- ============================================================================
@@ -76,72 +302,104 @@ end
 
 --- Is the addon installed and running?
 function guide.is_loaded()
-    local ns = api()
-    if not ns or type(ns.is_loaded) ~= "function" then
-        return false
-    end
-    return safe(function() return ns.is_loaded() end) == true
+    return as_bool((ns_call("is_loaded")))
 end
 
 --- Is there a guide step to follow right now?
 ---
---- has_current_step is the documented test. An empty get_current_step is not
---- the same question and must not be used in its place.
+--- has_current_step is the documented test. A step with a number or goals is
+--- accepted as well: it is the same answer read a second way, and it keeps
+--- the bot working if has_current_step is missing on a build.
 function guide.ready()
     if not guide.is_loaded() then
         return false
     end
-    local ns = api()
-    if type(ns.has_current_step) ~= "function" then
-        return false
+    if as_bool((ns_call("has_current_step"))) then
+        return true
     end
-    return safe(function() return ns.has_current_step() end) == true
+    local step = read_step()
+    return step ~= nil and (step.num > 0 or #step.goals > 0)
 end
 
 -- ============================================================================
 -- THE CURRENT STEP
 -- ============================================================================
 
---- The raw step table, or nil.
-function guide.step()
+local function refresh()
+    local now = clock()
+    if cache.t >= 0 and now >= cache.t and (now - cache.t) < CACHE_TTL then
+        return
+    end
+    cache.t = now
+    cache.step = nil
+    cache.stickies = {}
     if not guide.ready() then
-        return nil
+        return
     end
-    local ns = api()
-    if type(ns.get_current_step) ~= "function" then
-        return nil
+    cache.step = read_step()
+    local list = to_list((ns_call("get_current_stickies")))
+    for i = 1, #list do
+        local st = plain_step(list[i])
+        if st then
+            cache.stickies[#cache.stickies + 1] = st
+        end
     end
-    local step = safe(function() return ns.get_current_step() end)
-    if type(step) ~= "table" then
-        return nil
-    end
-    return step
+end
+
+--- The current step as a plain table { num, is_complete, goals }, or nil.
+function guide.step()
+    refresh()
+    return cache.step
 end
 
 --- Sticky steps: persistent objectives shown alongside the current one.
 --- The current step is not included in this list.
 function guide.stickies()
+    refresh()
+    return cache.stickies or {}
+end
+
+--- Everything the Questing tab shows about how the addon is being read, so a
+--- "no quest information" report can be answered by looking at the tab.
+function guide.diagnose()
     local out = {}
-    if not guide.ready() then
-        return out
-    end
-    local ns = api()
-    if type(ns.get_current_stickies) ~= "function" then
-        return out
-    end
-    local list = safe(function() return ns.get_current_stickies() end)
-    if type(list) ~= "table" then
-        return out
-    end
-    for i = 1, #list do
-        if type(list[i]) == "table" then
-            out[#out + 1] = list[i]
+    local addons = get(rawget(_G, "core"), "addons")
+    out.addons = type(addons)
+    local ns = get(addons, "rested_xp")
+    out.namespace = type(ns)
+    local fns = { "is_loaded", "has_current_step", "get_current_step",
+        "get_current_stickies", "get_objectives", "get_current_waypoint",
+        "get_step_waypoints" }
+    local missing = {}
+    for i = 1, #fns do
+        if get(ns, fns[i]) == nil then
+            missing[#missing + 1] = fns[i]
         end
     end
+    out.missing = missing
+
+    local loaded, lerr = ns_call("is_loaded")
+    out.is_loaded = tostring(loaded) .. (lerr and (" (" .. lerr .. ")") or "")
+    local has, herr = ns_call("has_current_step")
+    out.has_step = tostring(has) .. (herr and (" (" .. herr .. ")") or "")
+
+    local raw, serr = ns_call("get_current_step")
+    out.step_type = type(raw) .. (serr and (" (" .. serr .. ")") or "")
+    local step = plain_step(raw)
+    out.step_num = step and step.num or 0
+    out.goal_count = step and #step.goals or 0
+
+    local wraw = ns_call("get_current_waypoint")
+    local wp = plain_waypoint(wraw)
+    out.waypoint = wp and string.format("map %d  %.3f,%.3f  %s",
+        wp.map_id, wp.x or 0, wp.y or 0, tostring(wp.title or "-"))
+        or ("none (" .. type(wraw) .. ")")
+    out.step_waypoints = #to_list((ns_call("get_step_waypoints")))
     return out
 end
 
---- Normalise one goal into the fields this project reads.
+--- Normalise one goal into the fields this project reads, with its position
+--- in the step. The input is already a plain table from plain_goal.
 ---
 --- Only the documented RestedXP fields are read: action, quest_id, text,
 --- is_complete, text_only, ids. There is deliberately no npc_id, target_id,
@@ -152,7 +410,7 @@ local function shape_goal(g, index)
         return nil
     end
     local ids = nil
-    if type(g.ids) == "table" then
+    if type(g.ids) == "table" and #g.ids > 0 then
         ids = {}
         for i = 1, #g.ids do
             ids[i] = g.ids[i]
@@ -160,7 +418,7 @@ local function shape_goal(g, index)
     end
     return {
         action = (type(g.action) == "string") and g.action or "",
-        quest_id = tonumber(g.quest_id),
+        quest_id = as_id(g.quest_id),
         text = (type(g.text) == "string" and g.text ~= "") and g.text or nil,
         text_only = g.text_only == true,
         is_complete = g.is_complete == true,
@@ -169,27 +427,72 @@ local function shape_goal(g, index)
     }
 end
 
+--- Has the grey-quest check (quest/npc) put this quest in the skip bag?
+local function skipped(quest_id)
+    if type(quest_id) ~= "number" then
+        return false
+    end
+    local ok, state = pcall(require, "state")
+    if not ok or type(state) ~= "table" or type(state.quest) ~= "table" then
+        return false
+    end
+    local bag = state.quest.skipped
+    return type(bag) == "table" and bag[quest_id] == true
+end
+guide.skipped = skipped
+
+--- The current step's number, or 0.
+function guide.step_num()
+    local step = guide.step()
+    return step and tonumber(step.num) or 0
+end
+
 --- The first goal of the current step that is not finished yet.
 ---
 --- The guide lists a step's goals in the order it wants them done, so the
---- first incomplete one is the instruction to follow. A step whose goals are
+--- first incomplete one is the instruction to follow. Two kinds are passed
+--- over: text_only lines, which are commentary with nothing to act on, and a
+--- quest the grey-quest check skipped, which the guide would otherwise keep
+--- the bot standing at forever. A text_only goal is still returned when it is
+--- the only thing left, so its waypoint is walked to. A step whose goals are
 --- all complete returns nil; the addon moves on by itself.
 function guide.goal()
     local step = guide.step()
-    if not step then
+    if not step or step.is_complete == true then
         return nil
     end
     local goals = step.goals
     if type(goals) ~= "table" then
         return nil
     end
+    local fallback = nil
     for i = 1, #goals do
         local g = goals[i]
-        if type(g) == "table" and g.is_complete ~= true then
-            return shape_goal(g, i)
+        if type(g) == "table" and g.is_complete ~= true
+            and not skipped(tonumber(g.quest_id)) then
+            if g.text_only ~= true then
+                return shape_goal(g, i)
+            end
+            fallback = fallback or shape_goal(g, i)
         end
     end
-    return nil
+    return fallback
+end
+
+--- Every goal of the current step, shaped, for the GUI.
+function guide.goals()
+    local out = {}
+    local step = guide.step()
+    if not step or type(step.goals) ~= "table" then
+        return out
+    end
+    for i = 1, #step.goals do
+        local g = shape_goal(step.goals[i], i)
+        if g then
+            out[#out + 1] = g
+        end
+    end
+    return out
 end
 
 -- ============================================================================
@@ -246,9 +549,55 @@ local ACTIONS = {
     ["use"]         = "item",
     usespell        = "item",
     addquestitem    = "item",
+
+    -- ".complete <quest>,<objective>": the most common instruction in a
+    -- RestedXP guide, and it says nothing about HOW. The quest's own
+    -- objective type answers that - see classify.
+    complete        = "objective",
+    questcomplete   = "objective",
 }
 
+-- Objective type, as RestedXP's get_objectives reports it, to the engine's
+-- kind. "monster" is a kill count, "item" something to end up holding, and
+-- "object" a thing in the world to click. Anything else - an event, an area
+-- to explore, a reputation - is reached by walking to the waypoint.
+local OBJECTIVE_KIND = {
+    monster = "kill",
+    item    = "collect",
+    object  = "object",
+}
+
+--- The unfinished objective a goal refers to, or nil.
+---
+--- A goal does not carry an objective index, so it is matched on text: the
+--- goal line for a ".complete" step is the objective's own text. When nothing
+--- matches, the first unfinished objective is the one being worked on.
+function guide.goal_objective(goal)
+    if type(goal) ~= "table" or not goal.quest_id then
+        return nil
+    end
+    local list = guide.objectives(goal.quest_id)
+    local first = nil
+    local want = goal.text and string.lower(goal.text) or nil
+    for i = 1, #list do
+        local o = list[i]
+        if not o.finished then
+            first = first or o
+            local head = o.text and string.lower(o.text:match("^(.-):%s*%d+%s*/%s*%d+%s*$") or o.text)
+            if want and head and head ~= "" and string.find(want, head, 1, true) then
+                return o
+            end
+        end
+    end
+    return first
+end
+
 --- What kind of thing this goal is, in the engine's vocabulary.
+---
+--- The action names the verb. When the verb is only "complete", the quest's
+--- objective type from RestedXP says whether that means killing, collecting
+--- or clicking. A collect goal on a quest whose objective is a world object
+--- becomes "object", so the bot clicks it instead of fighting for it.
 function guide.classify(goal)
     if type(goal) ~= "table" then
         return "goto"
@@ -257,188 +606,18 @@ function guide.classify(goal)
     if type(a) ~= "string" or a == "" then
         return "goto"
     end
-    return ACTIONS[a] or ACTIONS[string.lower(a)] or "goto"
-end
-
--- ============================================================================
--- TARGETS
--- ============================================================================
-
---- Everything the current step and its stickies are asking us to act on,
---- split into numeric ids and names.
----
---- ids come from goal.ids where the guide supplies them. names come from
---- goal.text, and from any string entry in goal.ids - RestedXP stores unit
---- lists as names on an English client, so a "numeric" id field can hold
---- either.
----
---- Returns two sets: ids keyed by number, names keyed by string.
-function guide.targets()
-    local ids, names = {}, {}
-
-    local function take(g)
-        if type(g) ~= "table" then
-            return
+    local kind = ACTIONS[a] or ACTIONS[string.lower(a)] or "goto"
+    if kind == "objective" or kind == "collect" then
+        local o = guide.goal_objective(goal)
+        local t = o and o.type and string.lower(o.type) or nil
+        if t and OBJECTIVE_KIND[t] then
+            return OBJECTIVE_KIND[t]
         end
-        if type(g.ids) == "table" then
-            for i = 1, #g.ids do
-                local v = g.ids[i]
-                local n = tonumber(v)
-                if n then
-                    ids[n] = true
-                elseif type(v) == "string" and v ~= "" then
-                    names[v] = true
-                end
-            end
-        end
-        -- text is the on-screen line. It is the only target information the
-        -- core actions carry, so it is a name candidate in its own right.
-        if type(g.text) == "string" and g.text ~= "" then
-            names[g.text] = true
+        if kind == "objective" then
+            return "goto"
         end
     end
-
-    local step = guide.step()
-    if type(step) == "table" and type(step.goals) == "table" then
-        for i = 1, #step.goals do
-            take(step.goals[i])
-            -- The quest log words the same objective in the client's own
-            -- terms, which is a tighter match than the guide's sentence.
-            local g = step.goals[i]
-            if type(g) == "table" and g.is_complete ~= true then
-                local from_log = guide.objective_names(g.quest_id)
-                for k = 1, #from_log do
-                    names[from_log[k]] = true
-                end
-            end
-        end
-    end
-    local stickies = guide.stickies()
-    for i = 1, #stickies do
-        local s = stickies[i]
-        if type(s.goals) == "table" then
-            for j = 1, #s.goals do
-                take(s.goals[j])
-            end
-        end
-    end
-
-    return ids, names
-end
-
--- ============================================================================
--- TARGET NAMES FROM THE QUEST LOG
--- ============================================================================
--- The guide's text is a sentence - "Collect 5 Bundles of Wood" - so matching
--- a unit name against it means a substring test, which is loose.
---
--- The quest log carries the same objective in the client's own words:
--- get_quest_log_leader_board returns "Kobold Vermin slain: 3/10". Stripping
--- the progress off the end leaves the creature or item name as the client
--- spells it, localised correctly, which is a far tighter thing to match on.
---
--- core.quests has no npc id anywhere - not in the log, the dialog, the gossip
--- lists or the trainer info - so this is names, not ids. It is the best
--- identity that API can give.
-
-local log_cache = {}         -- quest_id -> { names = {...}, t = when }
-local LOG_TTL = 5.0
-local headers_expanded = false
-
---- The quest log index for a quest id, or nil.
----
---- Collapsed headers hide their quests from the log indices, so every header
---- is expanded once per session before the first walk. Once, not per tick:
---- it changes what the player sees in their own quest log.
-local function log_index_of(quest_id)
-    if not headers_expanded then
-        headers_expanded = true
-        pcall(function() core.quests.expand_quest_header(0) end)
-    end
-    local n = safe(function() return core.quests.get_num_quest_log_entries() end)
-    if type(n) ~= "number" then
-        return nil
-    end
-    for i = 1, n do
-        local info = safe(function() return core.quests.get_quest_log_title(i) end)
-        if type(info) == "table" and info.is_header ~= true
-            and tonumber(info.quest_id) == quest_id then
-            return i
-        end
-    end
-    return nil
-end
-
---- Strip the progress off an objective description.
----
---- "Kobold Vermin slain: 3/10" -> "Kobold Vermin slain"
---- "Bundle of Wood: 0/5"       -> "Bundle of Wood"
----
---- The trailing verb is left on. Matching asks whether the unit's name occurs
---- INSIDE the candidate, so "Kobold Vermin" still matches "Kobold Vermin
---- slain", and trying to strip verbs would mean a localised word list.
-local function strip_progress(text)
-    if type(text) ~= "string" or text == "" then
-        return nil
-    end
-    local head = text:match("^(.*):%s*%d+%s*/%s*%d+%s*$")
-    if head and head ~= "" then
-        return head
-    end
-    return text
-end
-
---- Objective names for a quest, as the client words them.
----
---- Finished objectives are skipped: their target is not wanted any more, and
---- including them sends the bot after mobs it has already killed enough of.
-function guide.objective_names(quest_id)
-    quest_id = tonumber(quest_id)
-    if not quest_id then
-        return {}
-    end
-
-    local now = safe(function() return izi.now() end) or 0
-    local hit = log_cache[quest_id]
-    if hit and (now - hit.t) < LOG_TTL then
-        return hit.names
-    end
-
-    local names = {}
-    local idx = log_index_of(quest_id)
-    if idx then
-        local count = safe(function()
-            return core.quests.get_num_quest_leader_boards(idx)
-        end)
-        if type(count) == "number" then
-            for j = 1, count do
-                local obj = safe(function()
-                    return core.quests.get_quest_log_leader_board(j, idx)
-                end)
-                if type(obj) == "table" and obj.is_completed ~= true then
-                    local name = strip_progress(obj.description)
-                    if name then
-                        names[#names + 1] = name
-                    end
-                end
-            end
-        end
-    end
-
-    log_cache[quest_id] = { names = names, t = now }
-    return names
-end
-
---- The target ids as an array, for callers that scan by id.
---- Often empty: see the header note on why RestedXP is name-oriented.
-function guide.target_ids()
-    local ids = guide.targets()
-    local out = {}
-    for id in pairs(ids) do
-        out[#out + 1] = id
-    end
-    table.sort(out)
-    return out
+    return kind
 end
 
 -- ============================================================================
@@ -447,35 +626,20 @@ end
 
 --- Progress on one quest: { text, type, num_required, num_fulfilled, finished }.
 ---
---- Note the shape: this reports PROGRESS, not targets. A provider that
---- returned target ids from a call of this name would be a different API,
---- and this one needs the quest id the current goal carries. It
---- answers "how far along is this quest", which is a different question, and
---- it needs the quest id that the current goal carries.
+--- This is RestedXP's view of the quest, and the primary source for both
+--- "is this done" and "what does it want killed or collected": the objective
+--- text names the creature or item, and type says which of the two it is.
 function guide.objectives(quest_id)
     local out = {}
     quest_id = tonumber(quest_id)
     if not quest_id then
         return out
     end
-    local ns = api()
-    if not ns or type(ns.get_objectives) ~= "function" then
-        return out
-    end
-    local list = safe(function() return ns.get_objectives(quest_id) end)
-    if type(list) ~= "table" then
-        return out
-    end
+    local list = to_list((ns_call("get_objectives", quest_id)))
     for i = 1, #list do
-        local o = list[i]
-        if type(o) == "table" then
-            out[#out + 1] = {
-                text = (type(o.text) == "string") and o.text or nil,
-                type = (type(o.type) == "string") and o.type or nil,
-                num_required = tonumber(o.num_required) or 0,
-                num_fulfilled = tonumber(o.num_fulfilled) or 0,
-                finished = o.finished == true,
-            }
+        local o = plain_objective(list[i])
+        if o then
+            out[#out + 1] = o
         end
     end
     return out
@@ -497,21 +661,243 @@ function guide.needs_progress(quest_id)
 end
 
 -- ============================================================================
+-- TARGET NAMES
+-- ============================================================================
+-- RestedXP does not hand out creature or object ids for a kill or collect -
+-- see the header - but its objectives name the target in the client's own
+-- words: "Kobold Vermin slain: 3/10", "Bundle of Wood: 0/5". Stripping the
+-- progress leaves the name as the client spells it, localised correctly,
+-- which is a far tighter thing to match a unit against than the guide's
+-- sentence.
+--
+-- The quest log carries the same lines and is read only when RestedXP has no
+-- objective data for the quest.
+
+local log_cache = {}         -- quest_id -> { names = {...}, t = when }
+local LOG_TTL = 1.0
+local headers_expanded = false
+
+--- Strip the progress off an objective description.
+---
+--- "Kobold Vermin slain: 3/10" -> "Kobold Vermin slain"
+--- "Bundle of Wood: 0/5"       -> "Bundle of Wood"
+---
+--- The trailing verb is left on. Matching asks whether the unit's name occurs
+--- INSIDE the candidate, so "Kobold Vermin" still matches "Kobold Vermin
+--- slain", and trying to strip verbs would mean a localised word list.
+local function strip_progress(text)
+    if type(text) ~= "string" or text == "" then
+        return nil
+    end
+    local head = text:match("^(.-):%s*%d+%s*/%s*%d+%s*$")
+    if head and head ~= "" then
+        return head
+    end
+    return text
+end
+guide.strip_progress = strip_progress
+
+--- The quest log index for a quest id, or nil.
+---
+--- Collapsed headers hide their quests from the log indices, so every header
+--- is expanded once per session before the first walk.
+local function log_index_of(quest_id)
+    if not headers_expanded then
+        headers_expanded = true
+        pcall(function() core.quests.expand_quest_header(0) end)
+    end
+    local n = safe(function() return core.quests.get_num_quest_log_entries() end)
+    if type(n) ~= "number" then
+        return nil
+    end
+    for i = 1, n do
+        local info = safe(function() return core.quests.get_quest_log_title(i) end)
+        if type(info) == "table" and info.is_header ~= true
+            and tonumber(info.quest_id) == quest_id then
+            return i, info
+        end
+    end
+    return nil
+end
+
+--- The quest's title from the quest log, or nil when it is not in the log.
+function guide.log_title(quest_id)
+    quest_id = tonumber(quest_id)
+    if not quest_id then
+        return nil
+    end
+    local _, info = log_index_of(quest_id)
+    if type(info) == "table" and type(info.title) == "string" and info.title ~= "" then
+        return info.title
+    end
+    return nil
+end
+
+--- Names of the unfinished objectives of a quest, as the client words them.
+---
+--- Finished objectives are skipped: their target is not wanted any more, and
+--- including them sends the bot after mobs it has already killed enough of.
+function guide.objective_names(quest_id)
+    quest_id = tonumber(quest_id)
+    if not quest_id then
+        return {}
+    end
+
+    local now = safe(function() return izi.now() end) or 0
+    local hit = log_cache[quest_id]
+    if hit and (now - hit.t) < LOG_TTL then
+        return hit.names
+    end
+
+    local names = {}
+    local rxp = guide.objectives(quest_id)
+    for i = 1, #rxp do
+        if not rxp[i].finished then
+            local name = strip_progress(rxp[i].text)
+            if name then
+                names[#names + 1] = name
+            end
+        end
+    end
+
+    if #rxp == 0 then
+        local idx = log_index_of(quest_id)
+        if idx then
+            local count = safe(function()
+                return core.quests.get_num_quest_leader_boards(idx)
+            end)
+            if type(count) == "number" then
+                for j = 1, count do
+                    local obj = safe(function()
+                        return core.quests.get_quest_log_leader_board(j, idx)
+                    end)
+                    if type(obj) == "table" and obj.is_completed ~= true then
+                        local name = strip_progress(obj.description)
+                        if name then
+                            names[#names + 1] = name
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    log_cache[quest_id] = { names = names, t = now }
+    return names
+end
+
+-- ============================================================================
+-- TARGETS
+-- ============================================================================
+-- Kinds whose goals name something to fight, collect or click. Only these
+-- contribute target names: an accept line's text is a quest title, and a mob
+-- that happens to share a word with it is not a target.
+local TARGET_KINDS = { kill = true, collect = true, object = true, item = true }
+
+--- Everything a goal asks us to act on, split into numeric ids and names.
+---
+--- Taken from the goal itself (its ids and its text), from RestedXP's
+--- unfinished objectives for the goal's quest, and from the sticky steps'
+--- kill and collect goals - a sticky "kill 10 wolves" stays wanted while the
+--- current step walks somewhere else.
+---
+--- Returns two sets: ids keyed by number, names keyed by string.
+function guide.targets(goal)
+    local ids, names = {}, {}
+    goal = goal or guide.goal()
+
+    local function take(g, with_objectives)
+        if type(g) ~= "table" or g.is_complete == true then
+            return
+        end
+        if type(g.ids) == "table" then
+            for i = 1, #g.ids do
+                local v = g.ids[i]
+                local n = tonumber(v)
+                if n then
+                    ids[n] = true
+                elseif type(v) == "string" and v ~= "" then
+                    names[v] = true
+                end
+            end
+        end
+        local text = strip_progress(g.text)
+        if text then
+            names[text] = true
+        end
+        if with_objectives then
+            local from = guide.objective_names(g.quest_id)
+            for k = 1, #from do
+                names[from[k]] = true
+            end
+        end
+    end
+
+    take(goal, true)
+
+    local stickies = guide.stickies()
+    for i = 1, #stickies do
+        local s = stickies[i]
+        if type(s.goals) == "table" then
+            for j = 1, #s.goals do
+                local g = shape_goal(s.goals[j], j)
+                if g and TARGET_KINDS[guide.classify(g)] then
+                    take(g, true)
+                end
+            end
+        end
+    end
+
+    return ids, names
+end
+
+--- The target ids as an array, for callers that scan by id.
+--- Often empty: see the header note on why RestedXP is name-oriented.
+function guide.target_ids(goal)
+    local ids = guide.targets(goal)
+    local out = {}
+    for id in pairs(ids) do
+        out[#out + 1] = id
+    end
+    table.sort(out)
+    return out
+end
+
+--- Does a unit or object name match the target names?
+---
+--- Exact first, then the name occurring inside a candidate - the candidates
+--- are objective lines and guide sentences, which carry more than the name.
+local function name_wanted(name, names)
+    if type(name) ~= "string" or name == "" then
+        return false
+    end
+    if names[name] then
+        return true
+    end
+    local lower = string.lower(name)
+    for n in pairs(names) do
+        if string.find(string.lower(n), lower, 1, true) then
+            return true
+        end
+    end
+    return false
+end
+
+-- ============================================================================
 -- FINDING THINGS IN THE WORLD
 -- ============================================================================
 
---- The nearest visible game object this step wants, or nil.
+--- The nearest visible game object this goal wants, or nil.
 ---
 --- Objects are not units: the mob scan will never return a chest or a herb,
---- so this walks the visible-object list itself. Matched on name first,
---- because that is what RestedXP supplies, and on id when one is offered.
-function guide.find_object(player, range)
+--- so this walks the visible-object list itself.
+function guide.find_object(player, range, goal)
     if not player then
         return nil, nil
     end
     range = tonumber(range) or 30
 
-    local ids, names = guide.targets()
+    local ids, names = guide.targets(goal)
     -- Nothing named means nothing to look for. Returning the nearest object
     -- of any kind would have the bot clicking scenery.
     if next(ids) == nil and next(names) == nil then
@@ -531,41 +917,20 @@ function guide.find_object(player, range)
     local best, best_d = nil, nil
     for i = 1, #list do
         local o = list[i]
-        if o and safe(function() return o:is_valid() end) ~= false then
+        if indexable(o) and call(o.is_valid, o) ~= false then
             -- A unit is handled by the kill path; this is for everything else.
-            if safe(function() return o:is_unit() end) ~= true then
-                local want = false
-                local oid = safe(function() return o:get_npc_id() end)
-                if type(oid) == "number" and ids[oid] then
-                    want = true
-                end
+            if call(o.is_unit, o) ~= true then
+                local oid = call(o.get_npc_id, o)
+                local want = type(oid) == "number" and ids[oid] == true
                 if not want then
-                    local oname = safe(function() return o:get_name() end)
-                    if type(oname) == "string" and oname ~= "" then
-                        if names[oname] then
-                            want = true
-                        else
-                            -- The guide's text is a sentence - "Collect 5
-                            -- Bundles of Wood" - so an exact match will
-                            -- usually fail. The object's own name appearing
-                            -- inside it is the workable test.
-                            local lower = string.lower(oname)
-                            for n in pairs(names) do
-                                if string.find(string.lower(n), lower, 1, true) then
-                                    want = true
-                                    break
-                                end
-                            end
-                        end
-                    end
+                    want = name_wanted(call(o.get_name, o), names)
                 end
                 if want then
-                    local pos = safe(function() return o:get_position() end)
+                    local pos = call(o.get_position, o)
                     if pos then
-                        local d = safe(function() return player:distance_to(o) end)
+                        local d = call(player.distance_to, player, o)
                         if type(d) ~= "number" then
-                            local dx, dy, dz = me.x - pos.x, me.y - pos.y, (me.z or 0) - (pos.z or 0)
-                            d = math.sqrt(dx * dx + dy * dy + dz * dz)
+                            d = geometry.distance(me, pos)
                         end
                         if d <= range and (best_d == nil or d < best_d) then
                             best, best_d = o, d
@@ -578,17 +943,27 @@ function guide.find_object(player, range)
     return best, best_d
 end
 
---- The nearest unit this step wants to fight, or nil.
+--- Can the bot fight this unit? Alive, not a player, attackable.
+local function fightable(player, u)
+    return indexable(u) and call(u.is_valid, u) == true
+        and call(u.is_unit, u) == true
+        and call(u.is_dead_or_ghost, u) ~= true
+        and call(u.is_player, u) ~= true
+        and call(player.can_attack, player, u) ~= false
+end
+
+--- The nearest unit this goal wants to fight, or nil.
 ---
---- Name-matched, because RestedXP's mob and target steps store their unit
---- lists as names. An id is used when the guide happens to supply one.
-function guide.find_mob(player, range)
+--- Name-matched against RestedXP's objective names, because its mob and
+--- target steps carry names rather than creature ids. An id is used when the
+--- guide happens to supply one.
+function guide.find_mob(player, range, goal)
     if not player then
         return nil, nil
     end
     range = tonumber(range) or 40
 
-    local ids, names = guide.targets()
+    local ids, names = guide.targets(goal)
     if next(ids) == nil and next(names) == nil then
         return nil, nil
     end
@@ -601,37 +976,51 @@ function guide.find_mob(player, range)
     local best, best_d = nil, nil
     for i = 1, #list do
         local u = list[i]
-        if u and safe(function() return u:is_valid() end) == true
-            and safe(function() return u:is_unit() end) == true
-            and safe(function() return u:is_dead_or_ghost() end) ~= true
-            and safe(function() return u:is_player() end) ~= true
-            and safe(function() return player:can_attack(u) end) ~= false then
-
-            local want = false
-            local uid = safe(function() return u:get_npc_id() end)
-            if type(uid) == "number" and ids[uid] then
-                want = true
-            end
+        if fightable(player, u) then
+            local uid = call(u.get_npc_id, u)
+            local want = type(uid) == "number" and ids[uid] == true
             if not want then
-                local uname = safe(function() return u:get_name() end)
-                if type(uname) == "string" and uname ~= "" then
-                    if names[uname] then
-                        want = true
-                    else
-                        local lower = string.lower(uname)
-                        for n in pairs(names) do
-                            if string.find(string.lower(n), lower, 1, true) then
-                                want = true
-                                break
-                            end
-                        end
-                    end
+                want = name_wanted(call(u.get_name, u), names)
+            end
+            if want then
+                local d = call(player.distance_to, player, u)
+                if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+                    best, best_d = u, d
                 end
             end
+        end
+    end
+    return best, best_d
+end
 
-            if want then
-                local d = safe(function() return player:distance_to(u) end)
-                if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+--- The nearest level-appropriate hostile near a point, or nil.
+---
+--- For an item objective whose drop source RestedXP does not name: its
+--- waypoints sit on the camp that drops it, so what stands there is what to
+--- fight. Kept to within LEVEL_GAP levels below the player, so critters and
+--- grey wildlife around the camp are left alone.
+local LEVEL_GAP = 4
+
+function guide.find_camp_mob(player, center, radius)
+    if not player or not center then
+        return nil, nil
+    end
+    radius = tonumber(radius) or 40
+    local list = safe(function() return core.object_manager.get_visible_objects() end)
+    if type(list) ~= "table" then
+        return nil, nil
+    end
+    local my_level = call(player.get_level, player) or 1
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if fightable(player, u) then
+            local lvl = call(u.get_level, u) or 0
+            local pos = call(u.get_position, u)
+            if lvl >= my_level - LEVEL_GAP and pos
+                and geometry.distance(center, pos) <= radius then
+                local d = call(player.distance_to, player, u)
+                if type(d) == "number" and (best_d == nil or d < best_d) then
                     best, best_d = u, d
                 end
             end
@@ -642,17 +1031,8 @@ end
 
 --- The npc id of whatever is currently targeted, or nil.
 ---
---- This is the one place a real creature id is available under RestedXP. The
---- guide never names an NPC - its accept and turnin elements carry questId,
---- title and text and nothing else - so every other path here matches on
---- name. A targeted unit can simply be asked.
----
---- get_target is a UNIT method, not an object_manager one: there is no
---- core.object_manager.get_target on this build. npc_id() and get_npc_id()
---- both exist, so both are tried.
----
---- An id of 0 means "not a creature" - a player, a pet, an object - and is
---- rejected rather than passed on as if it were real.
+--- get_target is a UNIT method, not an object_manager one. An id of 0 means
+--- "not a creature" - a player, a pet, an object - and is rejected.
 ---
 --- Returns id, unit.
 function guide.target_npc_id(player)
@@ -666,12 +1046,8 @@ function guide.target_npc_id(player)
     if safe(function() return target:is_valid() end) ~= true then
         return nil, nil
     end
-
-    local id = safe(function() return target:npc_id() end)
-    if type(id) ~= "number" then
-        id = safe(function() return target:get_npc_id() end)
-    end
-    if type(id) ~= "number" or id == 0 then
+    local id = geometry.object_id(target)
+    if not id then
         return nil, target
     end
     return id, target
@@ -680,28 +1056,31 @@ end
 -- ============================================================================
 -- LEARNING NPC IDS
 -- ============================================================================
--- core.quests never reports an npc id, so one can only be read off a unit.
--- But the gossip frame says WHICH npc we are standing at: when it is open and
--- lists the quest we want, the thing we have targeted is that quest's giver.
+-- RestedXP never names the NPC behind an accept or turnin, so one can only be
+-- read off a unit. Two pairings are kept:
 --
--- That pairing is worth keeping. Learned once, an accept or turnin for the
--- same quest can go straight to a verified id on the next visit instead of
--- guessing by proximity.
+--   quest title -> npc id   learned whenever a gossip frame is open with the
+--                           NPC targeted: that NPC gives what the frame lists.
+--   accept/turnin + quest id -> npc id
+--                           learned when a dialog the bot opened with a unit
+--                           actually accepted or handed in that quest.
 --
--- Persisted per character through settings.lua, so a quest giver met in one
--- session is known in the next.
+-- Either lets the next visit go straight to a verified unit instead of
+-- guessing by proximity. Persisted per character through settings.lua.
 --
 -- Staleness is handled rather than feared: an id that no longer matches
--- anything simply finds no unit, and the proximity path takes over as it did
--- before. A wrong id costs one scan, not a wrong interaction, because
--- targeting.find_npc matches the id against units actually present.
+-- anything simply finds no unit, and the proximity path takes over.
 local learned = {}           -- quest title -> npc id
+local by_quest = {}          -- "a<quest id>" / "t<quest id>" -> npc id
+
+local function mark_dirty()
+    local ok, settings = pcall(require, "settings")
+    if ok and settings and type(settings.mark_dirty) == "function" then
+        settings.mark_dirty()
+    end
+end
 
 --- Record the targeted npc as the giver of whatever the gossip frame lists.
----
---- Only called when the frame is actually open: without it there is nothing
---- confirming that the target has anything to do with the current goal.
---- Returns the id when one was learned.
 function guide.learn_npc_id(player)
     if safe(function() return core.quests.is_gossip_frame_shown() end) ~= true then
         return nil
@@ -729,29 +1108,78 @@ function guide.learn_npc_id(player)
     record(safe(function() return core.quests.get_gossip_active_quests() end))
     record(safe(function() return core.quests.get_gossip_available_quests() end))
 
-    -- Only ask for a write when something actually changed. This runs on
-    -- every tick that has a gossip frame open, and marking dirty each time
-    -- would rewrite the file for the whole visit.
+    -- Only ask for a write when something actually changed: this runs on
+    -- every tick that has a gossip frame open.
     if changed then
-        local ok, settings = pcall(require, "settings")
-        if ok and settings and type(settings.mark_dirty) == "function" then
-            settings.mark_dirty()
-        end
+        mark_dirty()
     end
     return id
+end
+
+local function quest_key(kind, quest_id)
+    quest_id = tonumber(quest_id)
+    if not quest_id then
+        return nil
+    end
+    if kind == "accept" then
+        return "a" .. quest_id
+    end
+    if kind == "turnin" then
+        return "t" .. quest_id
+    end
+    return nil
+end
+
+--- Remember which NPC took an accept or a turnin for a quest.
+function guide.learn_quest_npc(kind, quest_id, npc_id)
+    local key = quest_key(kind, quest_id)
+    npc_id = tonumber(npc_id)
+    if not key or not npc_id or npc_id <= 0 then
+        return
+    end
+    if by_quest[key] ~= npc_id then
+        by_quest[key] = npc_id
+        mark_dirty()
+    end
+end
+
+--- The NPC learned for an accept or turnin of a quest, or nil.
+---
+--- The quest-keyed pairing is tried first. A title learned from a gossip
+--- frame is the fallback, matched against the quest's log title and the
+--- goal's text.
+function guide.known_quest_npc(kind, quest_id, text)
+    local key = quest_key(kind, quest_id)
+    if key and by_quest[key] then
+        return by_quest[key]
+    end
+    local title = guide.log_title(quest_id)
+    if title and learned[title] then
+        return learned[title]
+    end
+    if type(text) == "string" and text ~= "" then
+        for t, id in pairs(learned) do
+            if string.find(text, t, 1, true) then
+                return id
+            end
+        end
+    end
+    return nil
 end
 
 -- ----------------------------------------------------------------------------
 -- PERSISTENCE
 -- ----------------------------------------------------------------------------
 -- settings.lua stores one line per provider as key=value and escapes the
--- value, so anything may be put in it. The inner format is
+-- value, so anything may be put in it. The inner format is one entry per line:
 --
---     <npc id>=<quest title>
+--     <npc id>=<quest title>       from a gossip frame
+--     a<quest id>=<npc id>         the NPC that took an accept
+--     t<quest id>=<npc id>         the NPC that took a turnin
 --
--- with the id first because it is numeric: the first "=" is therefore always
--- the separator, and a quest title containing one cannot break the parse.
--- Entries are newline separated, which is the same shape picks.lua uses.
+-- A title line leads with its numeric id, so the first "=" is always the
+-- separator and a title containing one cannot break the parse. The quest
+-- lines lead with a letter, which an older build's parser skips.
 local ENTRY_SEP = "\n"
 
 --- Everything learned, for settings.lua to write out.
@@ -760,6 +1188,11 @@ function guide.serialise()
     for title, id in pairs(learned) do
         if type(title) == "string" and title ~= "" and type(id) == "number" then
             lines[#lines + 1] = string.format("%d=%s", id, title)
+        end
+    end
+    for key, id in pairs(by_quest) do
+        if type(key) == "string" and type(id) == "number" then
+            lines[#lines + 1] = string.format("%s=%d", key, id)
         end
     end
     -- Sorted so the file does not churn between sessions that learned the
@@ -771,14 +1204,23 @@ end
 --- Load what a previous session learned.
 function guide.deserialise(text)
     learned = {}
+    by_quest = {}
     if type(text) ~= "string" or text == "" then
         return
     end
     for line in text:gmatch("[^\n]+") do
-        local id, title = line:match("^(%d+)=(.+)$")
-        id = tonumber(id)
-        if id and id > 0 and type(title) == "string" and title ~= "" then
-            learned[title] = id
+        local qkey, qnpc = line:match("^([at]%d+)=(%d+)$")
+        if qkey then
+            local n = tonumber(qnpc)
+            if n and n > 0 then
+                by_quest[qkey] = n
+            end
+        else
+            local id, title = line:match("^(%d+)=(.+)$")
+            id = tonumber(id)
+            if id and id > 0 and type(title) == "string" and title ~= "" then
+                learned[title] = id
+            end
         end
     end
 end
@@ -786,12 +1228,10 @@ end
 --- Forget everything. Used by the tests and on a settings reset.
 function guide.forget_npc_ids()
     learned = {}
+    by_quest = {}
 end
 
 --- The npc id learned for a quest title, or nil.
----
---- Keyed on title because that is what the gossip frame gives on TBC - its
---- quest_id is a row index, not a quest id, and must never be stored.
 function guide.known_npc_id(title)
     if type(title) ~= "string" or title == "" then
         return nil
@@ -801,15 +1241,11 @@ end
 
 --- The nearest NPC that can be spoken to.
 ---
---- RestedXP names no NPC on an accept or turnin goal - those elements carry
---- questId, title and text and nothing else - so this is the primary way the
---- dialog branches find the quest giver, not a fallback. Once the bot is
---- standing where the guide sent it, the nearest unit it cannot attack is a
---- quest giver, a vendor or a guard rather than a mob.
----
+--- Once the bot is standing where the guide sent it, the nearest unit it
+--- cannot attack is a quest giver, a vendor or a guard rather than a mob.
 --- Deliberately short ranged: it is a guess, and a guess is only reasonable
 --- once standing where the guide pointed.
-function guide.nearest_talkable(player, range)
+function guide.nearest_talkable(player, range, center)
     if not player then
         return nil, nil
     end
@@ -823,12 +1259,18 @@ function guide.nearest_talkable(player, range)
     local best, best_d = nil, nil
     for i = 1, #list do
         local u = list[i]
-        if u and safe(function() return u:is_valid() end) == true
-            and safe(function() return u:is_unit() end) == true
-            and safe(function() return u:is_dead_or_ghost() end) ~= true
-            and safe(function() return u:is_player() end) ~= true then
-            if safe(function() return player:can_attack(u) end) == false then
-                local d = safe(function() return player:distance_to(u) end)
+        if indexable(u) and call(u.is_valid, u) == true
+            and call(u.is_unit, u) == true
+            and call(u.is_dead_or_ghost, u) ~= true
+            and call(u.is_player, u) ~= true then
+            if call(player.can_attack, player, u) == false then
+                local d
+                if center then
+                    local pos = call(u.get_position, u)
+                    d = pos and geometry.distance(center, pos) or nil
+                else
+                    d = call(player.distance_to, player, u)
+                end
                 if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
                     best, best_d = u, d
                 end
@@ -842,12 +1284,12 @@ end
 -- FINDING THINGS IN THE BAGS
 -- ============================================================================
 
---- The bag entry for an item this step wants, or nil.
+--- The bag entry for an item this goal wants, or nil.
 ---
 --- Returns the entry as core.inventory.get_items_in_bag gives it - the object
 --- and its slot - because core.input.use_item wants the object, not an id.
-function guide.find_bag_item()
-    local ids, names = guide.targets()
+function guide.find_bag_item(goal)
+    local ids, names = guide.targets(goal)
     if next(ids) == nil and next(names) == nil then
         return nil
     end
@@ -866,16 +1308,8 @@ function guide.find_bag_item()
                         local info = safe(function() return core.quests.get_item_info(iid) end)
                         local iname = (type(info) == "table" and type(info.name) == "string")
                             and info.name or nil
-                        if iname then
-                            if names[iname] then
-                                return entry
-                            end
-                            local lower = string.lower(iname)
-                            for n in pairs(names) do
-                                if string.find(string.lower(n), lower, 1, true) then
-                                    return entry
-                                end
-                            end
+                        if name_wanted(iname, names) then
+                            return entry
                         end
                     end
                 end
@@ -889,8 +1323,7 @@ end
 ---
 --- core.input has use_item, use_item_target and use_item_position and the
 --- reflected reference does not record what they take, so the object is tried
---- first and the raw item id second. Returns false rather than claiming a
---- success nothing acted on.
+--- first and the raw item id second.
 function guide.use_bag_item(entry, target)
     if type(entry) ~= "table" or not entry.object then
         return false
@@ -989,55 +1422,83 @@ local function to_world(wp)
     return vec3.new(wx, wy, wz)
 end
 
---- Where the guide is pointing right now, in world coordinates.
---- Returns position, distance, title - or nil when there is nothing usable.
-function guide.waypoint()
+local function raw_waypoint()
     if not guide.ready() then
         return nil
     end
-    local ns = api()
-    if type(ns.get_current_waypoint) ~= "function" then
-        return nil
+    return plain_waypoint((ns_call("get_current_waypoint")))
+end
+
+local function raw_step_waypoints()
+    local out = {}
+    if not guide.ready() then
+        return out
     end
-    local wp = safe(function() return ns.get_current_waypoint() end)
+    local list = to_list((ns_call("get_step_waypoints")))
+    for i = 1, #list do
+        local wp = plain_waypoint(list[i])
+        if wp then
+            out[#out + 1] = wp
+        end
+    end
+    return out
+end
+
+--- Where the guide's arrow is pointing right now, in world coordinates.
+--- Returns position, distance, title - or nil when there is nothing usable.
+function guide.waypoint()
+    local wp = raw_waypoint()
     local pos = to_world(wp)
     if not pos then
         return nil
     end
-    return pos, tonumber(wp.dist), (type(wp.title) == "string") and wp.title or nil
+    return pos, tonumber(wp.dist), (type(wp.title) == "string" and wp.title ~= "") and wp.title or nil
+end
+
+--- The waypoints that belong to one goal, as { pos, title } in world space.
+---
+--- RestedXP tags each active waypoint with the goal it serves (goal_num), so
+--- a step that accepts from one NPC and kills at a camp across the zone sends
+--- each goal to its own spot rather than everything to the arrow. The arrow
+--- target is used when no step waypoint names the goal.
+function guide.goal_waypoints(goal)
+    local out = {}
+    local index = type(goal) == "table" and goal.index or nil
+    if index then
+        local list = raw_step_waypoints()
+        for i = 1, #list do
+            local wp = list[i]
+            if type(wp) == "table" and tonumber(wp.goal_num) == index then
+                local pos = to_world(wp)
+                if pos then
+                    out[#out + 1] = {
+                        pos = pos,
+                        title = (type(wp.title) == "string" and wp.title ~= "") and wp.title or nil,
+                    }
+                end
+            end
+        end
+    end
+    if #out == 0 then
+        local pos, _, title = guide.waypoint()
+        if pos then
+            out[1] = { pos = pos, title = title }
+        end
+    end
+    return out
 end
 
 --- Is the current waypoint on another continent? Worth saying out loud in the
 --- status line: the bot will not walk, and the reason is not obvious.
 function guide.wrong_continent()
-    if not guide.ready() then
-        return false
-    end
-    local ns = api()
-    if type(ns.get_current_waypoint) ~= "function" then
-        return false
-    end
-    local wp = safe(function() return ns.get_current_waypoint() end)
+    local wp = raw_waypoint()
     return type(wp) == "table" and wp.wrong_continent == true
 end
 
 --- Every waypoint of the current step, in world coordinates.
----
---- Only active current-step waypoints are returned by the addon, and their
---- dist is always 0 - use guide.waypoint() when a real distance is wanted.
 function guide.step_waypoints()
     local out = {}
-    if not guide.ready() then
-        return out
-    end
-    local ns = api()
-    if type(ns.get_step_waypoints) ~= "function" then
-        return out
-    end
-    local list = safe(function() return ns.get_step_waypoints() end)
-    if type(list) ~= "table" then
-        return out
-    end
+    local list = raw_step_waypoints()
     for i = 1, #list do
         local pos = to_world(list[i])
         if pos then
@@ -1068,6 +1529,48 @@ function guide.describe()
     end
     local what = goal.text or tostring(goal.quest_id or "?")
     return string.format("%s %s", guide.classify(goal), what)
+end
+
+--- Everything the Questing tab shows, in one table. Never throws.
+function guide.snapshot()
+    local out = {
+        loaded = guide.is_loaded(),
+        ready = false,
+        step = 0,
+        goals = {},
+        goal = nil,
+        kind = nil,
+        objectives = {},
+        waypoint = nil,
+        wrong_continent = false,
+        stickies = 0,
+        describe = guide.describe(),
+    }
+    if not out.loaded then
+        return out
+    end
+    out.ready = guide.ready()
+    if not out.ready then
+        return out
+    end
+    out.step = guide.step_num()
+    out.goals = guide.goals()
+    out.goal = guide.goal()
+    if out.goal then
+        out.kind = guide.classify(out.goal)
+        out.objectives = guide.objectives(out.goal.quest_id)
+    end
+    local wp = raw_waypoint()
+    if type(wp) == "table" and tonumber(wp.map_id) and tonumber(wp.map_id) ~= 0 then
+        out.waypoint = {
+            title = (type(wp.title) == "string" and wp.title ~= "") and wp.title or nil,
+            dist = tonumber(wp.dist),
+            map_id = tonumber(wp.map_id),
+        }
+    end
+    out.wrong_continent = type(wp) == "table" and wp.wrong_continent == true
+    out.stickies = #guide.stickies()
+    return out
 end
 
 return guide

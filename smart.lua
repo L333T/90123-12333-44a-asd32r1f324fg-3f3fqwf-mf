@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.67.0
+-- Version: 2.68.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -78,6 +78,21 @@ local function mod(name)
         return r
     end
     return nil
+end
+
+
+-- Flight-recorder probe (2.68.0). Free unless the Crash Recorder box is ticked:
+-- then each one is a disk line, and the last line before a crash names the
+-- native call the game died in.
+local probe_el = nil
+local function xprobe(tag)
+    if probe_el == nil then
+        local ok, m = pcall(require, "errorlog")
+        probe_el = (ok and type(m) == "table" and type(m.probe) == "function") and m or false
+    end
+    if probe_el then
+        pcall(probe_el.probe, tag)
+    end
 end
 
 local function mark_dirty()
@@ -550,6 +565,7 @@ local function cast(e, unit, pos)
     end
 
     local ok
+    xprobe("sm:cast " .. e.name)
     if pos then
         ok = safe(function() return sp:cast_position(pos, e.name, { min_hits = 1, aoe_radius = 8 }) end)
     else
@@ -558,6 +574,7 @@ local function cast(e, unit, pos)
             ok = safe(function() return sp:cast(unit, e.name) end)
         end
     end
+    xprobe("sm:cast done")
     local now = izi.now()
     if ok == true then
         last_cast[e.key] = now
@@ -589,6 +606,7 @@ local function in_reach(e, unit)
         return range.melee(unit, 5) == true
     end
     local sp = spell_of(e)
+    xprobe("sm:range " .. e.name)
     return range.spell(unit, sp) == true
 end
 
@@ -905,6 +923,7 @@ function smart.combat(player, target, ctx)
 
     local pets = mod("pets")
     if pets and target and (built.class == enums.class_id.HUNTER or built.class == enums.class_id.WARLOCK) then
+        xprobe("sm:pet attack")
         pcall(pets.attack, player, target)
     end
 
@@ -912,6 +931,7 @@ function smart.combat(player, target, ctx)
         local step = COMBAT_ORDER[i]
         if step == "racials" then
             local racials = mod("racials")
+            xprobe("sm:racials")
             if racials and type(racials.tick) == "function" and racials.tick(player, target, ctx) then
                 return true
             end

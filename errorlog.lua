@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.67.0
+-- Version: 2.68.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -291,9 +291,13 @@ end
 function errorlog.arm(why)
     local until_t = now_s() + PROBE_WINDOW
     if until_t > probe_until then
+        local was_on = probe_on
         probe_until = until_t
         probe_on = true
-        write("INFO", string.format("flight recorder armed for %ds: %s", PROBE_WINDOW, tostring(why)))
+        -- Said once per window, not on every extension (a fight re-arms every tick).
+        if not was_on then
+            write("INFO", string.format("flight recorder armed for %ds: %s", PROBE_WINDOW, tostring(why)))
+        end
     end
 end
 

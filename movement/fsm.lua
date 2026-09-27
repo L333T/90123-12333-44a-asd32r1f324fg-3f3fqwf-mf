@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.67.0
+-- Version: 2.68.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -137,6 +137,20 @@ end
 -- ============================================================================
 -- PER-FRAME
 -- ============================================================================
+-- Flight-recorder probe (2.68.0). Free unless the Crash Recorder box is ticked:
+-- then each one is a disk line, and the last line before a crash names the
+-- native call the game died in.
+local probe_el = nil
+local function xprobe(tag)
+    if probe_el == nil then
+        local ok, m = pcall(require, "errorlog")
+        probe_el = (ok and type(m) == "table" and type(m.probe) == "function") and m or false
+    end
+    if probe_el then
+        pcall(probe_el.probe, tag)
+    end
+end
+
 function F.pulse()
     R.pulse_tick = R.pulse_tick + 1
     R.traces_used = 0
@@ -150,13 +164,16 @@ function F.pulse()
     -- Sentinel owns the tick while it is driving: the walker must stay silent.
     if R.sn_active then
         R.walker_moving = false
+        xprobe("mv:sentinel watch")
         N.watch(t)
+        xprobe("mv:arbitrate")
         arbitrate(player, t)
         if (t - R.combat_req_t) > K.COMBAT_REQ_TTL then R.combat_req = false end
         Z.prune(t)
         return
     end
 
+    xprobe("mv:walker")
     if W.process() then W.clear_dest() end
     W.sample()
     if R.pending and not R.walker_moving and (t - R.last_move_t) >= 0.3 then
@@ -169,7 +186,9 @@ function F.pulse()
         if d and d <= PATH_LEASH then R.leash_armed = true end
     end
 
+    xprobe("mv:arbitrate")
     arbitrate(player, t)
+    xprobe("mv:done")
     -- Callers re-assert every BOT tick, which since 2.28.0 is 10 Hz rather
     -- than every frame; the request stays live for COMBAT_REQ_TTL so the
     -- frames between two bot ticks do not read as "combat stopped".

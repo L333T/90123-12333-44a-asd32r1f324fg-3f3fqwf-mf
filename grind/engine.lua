@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.67.0
+-- Version: 2.68.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -21,6 +21,21 @@ local healing = require("healing")
 local grind_zones = require("grind/zone_lookup")
 
 local grind = {}
+
+-- Flight-recorder probe (2.68.0). Free unless the Crash Recorder box is ticked:
+-- then each one is a disk line, and the last line before a crash names the
+-- native call the game died in.
+local probe_el = nil
+local function xprobe(tag)
+    if probe_el == nil then
+        local ok, m = pcall(require, "errorlog")
+        probe_el = (ok and type(m) == "table" and type(m.probe) == "function") and m or false
+    end
+    if probe_el then
+        pcall(probe_el.probe, tag)
+    end
+end
+
 
 local hunt = nil
 local profile = nil
@@ -427,6 +442,13 @@ function grind.tick(player)
         state.grind.step = 1
         return
     end
+    -- With the Crash Recorder ticked, keep it running for the whole fight
+    -- (2.68.0): the crashes of 2026-09-27 came 16 s and 67 s into grinding,
+    -- mid-fight, and the Start burst alone may not cover the next one.
+    if probe_el and gui.is_on("crash_recorder") and type(probe_el.arm) == "function" then
+        pcall(probe_el.arm, "grind fight")
+    end
+    xprobe("g:ensure_target")
     targeting.ensure_target(player, unit)
     local yards = 30
     if type(rotation.combat_range) == "function" then
@@ -435,7 +457,9 @@ function grind.tick(player)
     if type(yards) ~= "number" or yards < 5 then
         yards = 30
     end
+    xprobe("g:auto_attack")
     targeting.start_auto_attack(player, unit)
+    xprobe("g:combat_engage")
     if not movement.combat_engage(player, unit, yards) then
         if state.is_unreachable and state.is_unreachable(state.target.guid) then
             movement.combat_release()
@@ -444,15 +468,24 @@ function grind.tick(player)
             state.set_note("Grind", "Skip unreachable")
             return
         end
+        xprobe("g:face")
         movement.face(unit)
         state.set_note("Grind", "Closing")
-        rotation.tick(player, unit, { enemies = targeting.combat_scan(player, yards), no_move = true })
+        xprobe("g:scan")
+        local closing_pack = targeting.combat_scan(player, yards)
+        xprobe("g:rotation.tick closing")
+        rotation.tick(player, unit, { enemies = closing_pack, no_move = true })
+        xprobe("g:rotation.tick done")
         return
     end
+    xprobe("g:face")
     movement.face(unit)
+    xprobe("g:scan")
     local pack = targeting.combat_scan(player, yards)
     state.set_note("Grind", "Killing")
+    xprobe("g:rotation.tick")
     rotation.tick(player, unit, { enemies = pack, no_move = true })
+    xprobe("g:rotation.tick done")
 end
 
 return grind

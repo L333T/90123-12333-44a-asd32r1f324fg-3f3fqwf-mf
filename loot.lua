@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.37.0
+-- Version: 2.38.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -49,10 +49,14 @@ local FIRE_GAP = 1.0          -- seconds between loot_object attempts
 local SETTLE = 0.6            -- seconds after an attempt before judging it
 local MAX_FIRES = 3           -- attempts per corpse
 local ENTRY_TIMEOUT = 15.0    -- seconds a corpse may take, walk included
-local ENTRY_TTL = 60.0        -- seconds a queued corpse is remembered
+local ENTRY_TTL = 120.0       -- seconds a queued corpse is remembered
+-- The game sets a corpse's lootable flag a moment AFTER the mob dies. A corpse
+-- queued in the kill tick used to be dropped on the next tick as "never ours"
+-- because can_be_looted was still false (2.38.0).
+local FLAG_GRACE = 3.0
 local QUEUE_MAX = 8
 local SCAN_GAP = 1.0          -- seconds between fallback corpse scans
-local SCAN_YARDS = 15
+local SCAN_YARDS = 30        -- casters kill at up to 30 yards
 
 local queue = {}              -- { guid, x, y, z, added, started, fires, fired_t }
 local next_scan = 0
@@ -165,6 +169,15 @@ function loot.note_kill(unit)
     return enqueue(guid, pos)
 end
 
+--- Queue a corpse from a saved GUID and position - for a target that went
+--- invalid at the moment of death, when there is no handle left to read.
+function loot.note_kill_guid(guid, pos)
+    if not enabled() then
+        return false
+    end
+    return enqueue(guid, pos)
+end
+
 --- Is anything queued that is still worth going to?
 function loot.has_work(player)
     if not enabled() or #queue == 0 then
@@ -257,8 +270,11 @@ function loot.tick(player)
             or (e.started and (now - e.started) > ENTRY_TIMEOUT)
             or e.fires >= MAX_FIRES and (now - e.fired_t) > SETTLE
         if not gone and not lootable(obj) then
-            -- Looted (by us, after a fire), or never ours to loot.
-            gone = true
+            -- Looted (after a fire), or never ours to loot - but only judged
+            -- once the flag has had FLAG_GRACE to appear on a fresh corpse.
+            if e.fires > 0 or (now - e.added) > FLAG_GRACE then
+                gone = true
+            end
         end
         if gone then
             drop(i)
@@ -274,6 +290,14 @@ function loot.tick(player)
     end
 
     local e = queue[best_i]
+    if not lootable(best_obj) then
+        -- Fresh corpse, flag not set yet: walk over, but do not fire.
+        if best_d <= LOOT_REACH then
+            movement.nav_stop()
+            state.set_note("Loot", "Waiting for the corpse to be lootable")
+            return true
+        end
+    end
     e.started = e.started or now
 
     if best_d > LOOT_REACH then

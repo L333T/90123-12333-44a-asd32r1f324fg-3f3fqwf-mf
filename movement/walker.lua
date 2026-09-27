@@ -3,7 +3,7 @@
 -- movement/walker.lua - actuator: simple_movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.27.0
+-- Version: 2.28.0
 -- ============================================================================
 -- The only thing that actually moves the player, plus the bookkeeping that
 -- wraps every issued move (destination latch, quiet windows, failure marking)

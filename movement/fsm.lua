@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.27.0
+-- Version: 2.28.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -152,7 +152,7 @@ function F.pulse()
         R.walker_moving = false
         N.watch(t)
         arbitrate(player, t)
-        R.combat_req = false
+        if (t - R.combat_req_t) > K.COMBAT_REQ_TTL then R.combat_req = false end
         Z.prune(t)
         return
     end
@@ -170,7 +170,10 @@ function F.pulse()
     end
 
     arbitrate(player, t)
-    R.combat_req = false      -- callers must re-assert every tick
+    -- Callers re-assert every BOT tick, which since 2.28.0 is 10 Hz rather
+    -- than every frame; the request stays live for COMBAT_REQ_TTL so the
+    -- frames between two bot ticks do not read as "combat stopped".
+    if (t - R.combat_req_t) > K.COMBAT_REQ_TTL then R.combat_req = false end
     Z.prune(t)
 end
 

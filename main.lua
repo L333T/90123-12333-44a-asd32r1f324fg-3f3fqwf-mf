@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.27.0
+-- Version: 2.28.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -151,6 +151,7 @@ else
         end
         probe("gui.draw")
         guarded("gui.draw", gui.draw)
+        probe("-")
     end)
     core.log(string.format("[Master Farmer - Grindbot] v%s GUI ready", identity.version))
 end
@@ -644,11 +645,26 @@ end
 -- collection.
 local GC_STEP = 16
 
+-- BOT TICK (2.28.0). The Plugin Monitor put Master Farmer at 93 ms of Lua time
+-- a frame. Every frame ran the whole decision cascade - death, conjure,
+-- healing, the loot scan, buffs, trainer, vendor, equip, then the mode tick
+-- with its target scans, combat movement and the class rotation - dozens of
+-- native calls and object scans, 60+ times a second, for decisions a bot
+-- needs about ten times a second. The cascade now runs every BOT_TICK
+-- seconds. What must stay per frame stays per frame: the stale check, izi's
+-- own update, keybinds, and movement.pulse, which drives the walker smoothly
+-- between decisions.
+local BOT_TICK = 0.1
+local next_bot_tick = 0
+
 local function on_update()
     if is_stale() then
         return
     end
     probe("u:begin")
+    if errorlog then
+        errorlog.frame()
+    end
     pcall(collectgarbage, "step", GC_STEP)
     if errorlog then
         errorlog.tick(safe(function() return izi.now() end))
@@ -673,6 +689,14 @@ local function on_update()
         probe("u:movement.pulse")
         pcall(movement.pulse)
     end
+
+    -- Everything below is a decision, and decisions run at BOT_TICK.
+    local now_t = safe(function() return izi.now() end) or 0
+    if now_t < next_bot_tick and (next_bot_tick - now_t) <= BOT_TICK then
+        probe("-")
+        return
+    end
+    next_bot_tick = now_t + BOT_TICK
 
     local player = safe(function() return izi.me() end)
     if not player or safe(function() return player:is_valid() end) ~= true then
@@ -890,10 +914,14 @@ if errorlog then
     end)
 end
 
-core.register_on_update_callback(function() guarded("on_update", on_update) end)
+core.register_on_update_callback(function()
+    guarded("on_update", on_update)
+    probe("-")
+end)
 core.register_on_render_callback(function()
     probe("on_render")
     guarded("on_render", on_render)
+    probe("-")
 end)
 
 core.log(string.format("[Master Farmer - Grindbot] v%s loaded by %s", identity.version, identity.authors))

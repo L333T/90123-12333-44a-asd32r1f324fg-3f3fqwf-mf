@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.47.0
+-- Version: 2.48.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -718,6 +718,9 @@ function targeting.set_current(unit, kind)
     state.target.unit = unit
     state.target.guid = safe(function() return unit:get_guid() end)
     state.target.kind = kind
+    if kind == "kill" and state.target.guid and type(state.note_engaged) == "function" then
+        state.note_engaged(state.target.guid)
+    end
     if pos then
         state.target.x = pos.x
         state.target.y = pos.y

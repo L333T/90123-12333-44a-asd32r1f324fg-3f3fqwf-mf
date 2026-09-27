@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.47.0
+-- Version: 2.48.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -86,6 +86,14 @@ function healing.tick(player)
     -- In combat: potions only. Resting is impossible here, and the rotation is
     -- busy fighting.
     if safe(function() return player:is_in_combat() end) == true then
+        -- Combat ends a rest (2.48.0). resting.tick is the only place that
+        -- cleared it, and this branch never reached it: a mob that attacked
+        -- mid-meal met a character whose rest lock froze combat movement and
+        -- whose rotation stood down (rotation.tick returns while resting) -
+        -- the 23:02 log shows a whole fight "closing" at 1-3 yd, then death.
+        if resting.is_resting() then
+            resting.clear()
+        end
         if gui.is_on("potions") then
             local hp = health_pct(player)
             local mana = mana_pct(player)

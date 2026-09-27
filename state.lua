@@ -3,7 +3,7 @@
 -- Shared runtime state (no leaked globals)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.47.0
+-- Version: 2.48.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -125,6 +125,42 @@ function state.mark_killed(guid)
             killed[old] = nil
         end
     end
+end
+
+-- Mobs the bot has targeted to kill, GUID -> when (2.48.0). The loot scan
+-- treats a corpse from this list as the bot's own kill.
+state.engaged = {}
+local ENGAGED_TTL = 300
+
+function state.note_engaged(guid)
+    local key = guid_key(guid)
+    if not key then
+        return
+    end
+    local now = 0
+    pcall(function() now = core.time() end)
+    state.engaged[key] = now
+    -- Keep it small: drop anything older than the TTL now and then.
+    local n = 0
+    for _ in pairs(state.engaged) do n = n + 1 end
+    if n > 64 then
+        for k, t in pairs(state.engaged) do
+            if (now - t) > ENGAGED_TTL then
+                state.engaged[k] = nil
+            end
+        end
+    end
+end
+
+function state.was_engaged(guid)
+    local key = guid_key(guid)
+    local t = key and state.engaged[key]
+    if not t then
+        return false
+    end
+    local now = 0
+    pcall(function() now = core.time() end)
+    return (now - t) <= ENGAGED_TTL
 end
 
 function state.was_killed(guid)

@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.47.0
+-- Version: 2.48.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -271,11 +271,39 @@ local function fallback_scan(player, now)
     end
     for i = 1, #list do
         local c = list[i]
-        if safe(function() return c:is_valid() end) == true and lootable(c) then
+        if safe(function() return c:is_valid() end) == true then
             local guid = safe(function() return c:get_guid() end)
-            local pos = safe(function() return c:get_position() end)
-            enqueue(guid, pos, false)
+            -- A corpse the bot targeted to kill is its own kill: it is queued
+            -- and gets a loot attempt whatever the lootable flag says. Any
+            -- other corpse only when the game says it is lootable.
+            local mine = guid and ((type(state.was_engaged) == "function" and state.was_engaged(guid))
+                or (type(state.was_killed) == "function" and state.was_killed(guid))) or false
+            if mine or lootable(c) then
+                local pos = safe(function() return c:get_position() end)
+                enqueue(guid, pos, mine == true)
+            end
         end
+    end
+end
+
+--- Queue the current kill target's corpse the moment it dies (2.48.0).
+---
+--- Kills were only detected inside the quest / grind tick, which runs last
+--- in the cascade - a rest starting as combat ended claimed the tick first,
+--- the kill was never seen, and its corpse was later found by the scan as
+--- "not ours" and dropped. This runs first, every tick.
+local function watch_target()
+    local t = state.target
+    if not t or t.kind ~= "kill" or not t.guid then
+        return
+    end
+    local u = t.unit
+    if u and safe(function() return u:is_valid() end) == true then
+        if safe(function() return u:is_dead() end) == true then
+            loot.note_kill(u)
+        end
+    elseif find_entry(t.guid) == nil then
+        loot.note_kill_guid(t.guid, t.x and { x = t.x, y = t.y, z = t.z } or nil)
     end
 end
 
@@ -284,6 +312,7 @@ function loot.tick(player)
     if not player or not enabled() then
         return false
     end
+    watch_target()
     local now = izi.now()
 
     -- A loot window left open after an auto loot.

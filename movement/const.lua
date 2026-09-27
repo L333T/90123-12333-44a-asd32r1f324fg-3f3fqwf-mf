@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.27.0
+-- Version: 2.28.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -93,6 +93,7 @@ K.ESCALATE = {
 -- state machine
 K.SETTLE           = 0.35   -- a de-escalation must hold this long
 K.COMBAT_EXIT_HOLD = 1.5    -- every combat-end condition must hold this long
+K.COMBAT_REQ_TTL   = 0.35   -- a combat request stays live this long between bot ticks
 K.CHASE_GIVE_UP    = 10.0   -- blacklist a mob we could not reach for this long
 K.SN_MIN_GAP       = 1.0    -- seconds between any two Sentinel move_to requests
 K.MAX_LEG          = 300    -- yards: no navigation leg or path request is longer

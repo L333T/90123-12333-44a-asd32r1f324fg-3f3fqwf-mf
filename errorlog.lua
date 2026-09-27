@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.27.0
+-- Version: 2.28.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -266,8 +266,80 @@ function errorlog.arm(why)
     end
 end
 
---- A probe point. Free when the recorder is not armed.
+-- ----------------------------------------------------------------------------
+-- PROFILER (2.28.0)
+-- ----------------------------------------------------------------------------
+-- The Plugin Monitor showed Master Farmer at 93 ms of Lua time a frame, 99% of
+-- all plugins. core.time() only advances once a frame, so the recorder's
+-- timestamps could not say where inside the frame that went. core.cpu_time()
+-- is a nanosecond CPU clock: every probe point now adds the time since the
+-- previous one to that stage's tally, in memory - no disk, one native call.
+-- A PERF line every PERF_GAP seconds reports the plugin's CPU per frame and
+-- the stages that cost the most.
+--
+-- errorlog.probe("-") marks the end of a callback: time from there to the
+-- next probe belongs to the game and other plugins, not to a stage.
+local cpu = nil
+do
+    local ok, fn = pcall(function() return core.cpu_time end)
+    if ok and type(fn) == "function" then
+        local ok2, v = pcall(fn)
+        if ok2 and type(v) == "number" then
+            cpu = fn
+        end
+    end
+end
+local PERF_GAP = 10
+local perf = {}               -- tag -> { ns, n }
+local perf_tag, perf_ns = nil, 0
+local perf_frames = 0
+local perf_next = 0
+
+local function perf_mark(tag)
+    local now = cpu()
+    if perf_tag ~= nil and perf_tag ~= "-" then
+        local e = perf[perf_tag]
+        if e == nil then
+            e = { 0, 0 }
+            perf[perf_tag] = e
+        end
+        e[1] = e[1] + (now - perf_ns)
+        e[2] = e[2] + 1
+    end
+    perf_tag, perf_ns = tag, now
+end
+
+local function perf_report()
+    if perf_frames <= 0 then
+        return
+    end
+    local list, total = {}, 0
+    for tag, e in pairs(perf) do
+        list[#list + 1] = { tag, e[1] }
+        total = total + e[1]
+    end
+    table.sort(list, function(x, y) return x[2] > y[2] end)
+    local parts = {}
+    for i = 1, math.min(8, #list) do
+        parts[#parts + 1] = string.format("%s %.2f", list[i][1], list[i][2] / 1e6 / perf_frames)
+    end
+    write("PERF", string.format("%.2f ms/frame over %d frames | %s",
+        total / 1e6 / perf_frames, perf_frames, table.concat(parts, ", ")))
+    perf = {}
+    perf_frames = 0
+end
+
+--- Count a frame for the profiler. Called once per on_update.
+function errorlog.frame()
+    perf_frames = perf_frames + 1
+end
+
+--- A probe point: a profiler mark always, and a PROBE line while the
+--- recorder is armed.
 function errorlog.probe(tag)
+    if cpu then
+        perf_mark(tag)
+    end
     if not probe_on then
         return
     end
@@ -315,6 +387,12 @@ function errorlog.tick(now)
     local kb = heap_kb()
     if kb and kb > mem_peak then
         mem_peak = kb
+    end
+    if cpu and type(now) == "number" and now >= perf_next then
+        if perf_next > 0 then
+            perf_report()
+        end
+        perf_next = now + PERF_GAP
     end
     if type(now) ~= "number" or now < mem_next then
         return

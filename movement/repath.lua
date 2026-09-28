@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.112.0
+-- Version: 2.113.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -131,8 +131,6 @@ local function holding()
     local pr = R.pause_reason
     if pr.cast or pr.restrict or pr.rest or pr.loot then return true end
     if R.cur_owner == OWNER.COMBAT and R.combat_stopped then return true end
-    -- Sentinel still planning a long path (2.111.0): not stuck.
-    if type(N.planning) == "function" and N.planning() then return true end
     return false
 end
 
@@ -167,11 +165,7 @@ local function escalate(x, y, z, kind, d, t)
                 local bx = hx + (dx - dy * side) * 2.2
                 local by = hy + (dy + dx * side) * 2.2
                 local hop = pt(R.P_TMP, bx, by, hz)
-                -- Out of combat with Sentinel-only travel (2.109.0) the jump
-                -- is all: Sentinel re-plans from wherever it lands, and its
-                -- own stuck recovery handles the rest. No walker hop.
-                local sn_only = kind ~= "combat" and K.SENTINEL_TRAVEL and type(N.client) == "function" and N.client() ~= nil
-                if not sn_only and U.walk_open(pt(R.P_HERE, hx, hy, hz), hop) then
+                if U.walk_open(pt(R.P_HERE, hx, hy, hz), hop) then
                     W.move(hop, "unstick")
                 end
             end

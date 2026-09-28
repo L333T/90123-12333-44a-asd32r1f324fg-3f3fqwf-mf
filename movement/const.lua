@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.112.0
+-- Version: 2.113.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -96,11 +96,6 @@ K.COMBAT_EXIT_HOLD = 1.5    -- every combat-end condition must hold this long
 K.COMBAT_REQ_TTL   = 0.35   -- a combat request stays live this long between bot ticks
 K.CHASE_GIVE_UP    = 10.0   -- blacklist a mob we could not reach for this long
 K.SN_MIN_GAP       = 1.0    -- seconds between any two Sentinel move_to requests
--- 2.109.0: out of combat every move goes through Sentinel's pathing - no
--- walker / movement-handler legs. The walker is used out of combat only when
--- Sentinel itself is unavailable (not loaded, server down).
-K.SENTINEL_TRAVEL  = true
-K.SN_FAIL_HOLD     = 3.0    -- seconds a destination Sentinel just failed is not re-requested
 K.MAX_LEG          = 300    -- yards: no navigation leg or path request is longer
 
 -- Melee contact (2.26.0). A combat range at or below MELEE_YARDS marks the

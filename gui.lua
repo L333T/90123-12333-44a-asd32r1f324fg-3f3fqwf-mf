@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.90.0
+-- Version: 2.91.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -431,6 +431,17 @@ end
 -- on a target. Melee classes (and a Cat / Bear druid, a Stormstrike shaman)
 -- use the melee distance; casters and hunters the ranged one, capped just
 -- inside the longest ticked damage spell's own range.
+-- BUFF RANDOMS (2.91.0): mages only.
+local function is_mage()
+    local ok, cid = pcall(function() return menu:player_class() end)
+    return ok and cid == enums.class_id.MAGE
+end
+menu:checkbox("mfg_buff_randoms", false, {
+    label = "Buff Randoms",
+    tab = "class",
+    visible_if = is_mage,
+    tooltip = "Out of combat, cast Arcane Intellect on friendly players within 30 yards who do not have it (or Arcane Brilliance). Not in a fight, while resting or under 50% mana; one player every 4 s, each player at most once per 10 minutes.",
+})
 menu:slider_int("mfg_melee_yards", 1, 5, 3, {
     label = "Melee attack distance (yd)",
     tab = "class",
@@ -500,6 +511,7 @@ local aliases = {
     crash_recorder = "mfg_crash_recorder",
     crash_capture = "mfg_crash_capture",
     session_detail = "mfg_session_detail",
+    buff_randoms = "mfg_buff_randoms",
     quest_path_pull = "mfg_quest_path_pull",
     skip_trivial = "mfg_skip_trivial",
     train = "mfg_train",

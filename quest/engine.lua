@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.114.0
+-- Version: 2.115.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -696,6 +696,7 @@ local FLY_LANDED = 2.5         -- seconds still before a flight counts as landed
 
 -- { dest, taken, from, last, last_t, still_since, airborne, step, goal }
 local g_flight = nil
+local g_trip = nil             -- 2.115.0: flight trip toward a far goal (see far_travel)
 
 local function clean_text(text)
     text = type(text) == "string" and text or ""
@@ -827,7 +828,11 @@ function quest.in_flight(player)
         trail("act", "landed at %s (%.0f yd from take-off)", tostring(g_flight.dest), dist3(here, g_flight.from))
         -- RestedXP normally ticks the fly goal off on landing; close it if it
         -- has not, so the bot heads for the guide's next position.
-        if guide.step_num() == g_flight.step then
+        -- Not for a travel flight (2.115.0): that one only got the bot
+        -- closer, the goal itself still has to be done.
+        if g_flight.travel then
+            g_trip = nil
+        elseif guide.step_num() == g_flight.step then
             pcall(guide.mark_goal_done, g_flight.step, g_flight.goal)
         end
         g_flight = nil
@@ -938,6 +943,250 @@ local function fly_goal(player, goal, wps, label)
         pcall(function() core.input.interact_with_object(unit) end)
     end
     state.set_note("Quest", "Guide: talk to the flight master")
+    return true
+end
+
+-- ============================================================================
+-- FLIGHT TRAVEL TO FAR GOALS (2.115.0)
+-- ============================================================================
+-- A guide goal thousands of yards away (the Dun Morogh turn-in from Elwynn)
+-- was walked in a straight line over mountains, fighting everything on the
+-- way. Now, when the goal is more than FAR_TRAVEL yards off and a flight
+-- would clearly shorten the trip:
+--   1. walk to the nearest flight point of the player's faction on this
+--      continent (data/taxi_nodes.lua - positions from TaxiNodes.dbc),
+--   2. talk to the friendly NPCs standing there, nearest first, until one
+--      opens a flight map (directly or through its taxi gossip option),
+--   3. of the flight points ON THAT MAP (only the ones this character knows),
+--      take the one closest to the goal - if it really is closer,
+--   4. fly (tracked by quest.in_flight, which pauses the whole bot), land,
+--      and carry on with the same goal from there.
+-- Anything that does not work out - no flight master found, no known flight
+-- point closer to the goal, three take-offs that never left the ground - is
+-- logged, and the goal is walked as before for TRAVEL_BLOCK seconds.
+local FAR_TRAVEL = 1000        -- yards to the goal before a flight is considered
+local TRAVEL_GAIN = 0.6        -- the flight must leave at most 60% of the trip to walk
+local FM_SEARCH = 30           -- yards around the flight point to look for its master
+local FM_TRIES = 2             -- interacts per NPC before trying the next one
+local TRAVEL_BLOCK = 300       -- seconds a goal is walked after a failed flight plan
+
+local taxi_nodes = nil
+-- g_trip ({ key, start, target, tried, fm_guid, fm_tries }) is declared with g_flight.
+local g_trip_block = {}        -- goal key -> time before which no flight is planned
+
+local function catalog()
+    if taxi_nodes == nil then
+        local ok, m = pcall(require, "data/taxi_nodes")
+        taxi_nodes = (ok and type(m) == "table") and m or false
+    end
+    return taxi_nodes or nil
+end
+
+local function faction_key(player)
+    local ok, f = pcall(require, "data/factions")
+    if ok and type(f) == "table" and type(f.of_player) == "function" then
+        local key = f.of_player(player)
+        if type(key) == "string" then return key:lower() end
+    end
+    return nil
+end
+
+local function node_usable(n, map, fkey)
+    if n.map ~= map then return false end
+    if fkey == "alliance" then return n.alliance == true end
+    if fkey == "horde" then return n.horde == true end
+    return n.alliance == true or n.horde == true
+end
+
+local function d2(a, b)
+    local dx, dy = a.x - b.x, a.y - b.y
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+local function trip_fail(key, why)
+    trail("travel", "no flight: %s - walking the goal instead", why)
+    g_trip_block[key] = izi.now() + TRAVEL_BLOCK
+    g_trip = nil
+    pcall(function() core.taxi.close() end)
+    return false
+end
+
+--- The flight point on the OPEN map that lands closest to the target.
+local function best_map_node(map, fkey, target, start)
+    local n = safe(function() return core.taxi.num_nodes() end)
+    if type(n) ~= "number" or n <= 0 then return nil end
+    local cat = catalog()
+    local best_i, best_e, best_d = nil, nil, nil
+    for i = 1, n do
+        local name = safe(function() return core.taxi.node_name(i) end)
+        local list = cat and type(name) == "string" and name ~= "" and name ~= "INVALID" and cat.find(name) or nil
+        if type(list) == "table" then
+            for k = 1, #list do
+                local e = list[k]
+                if node_usable(e, map, fkey) and d2(e, start) > 50 then
+                    local d = d2(e, target)
+                    if best_d == nil or d < best_d then
+                        best_i, best_e, best_d = i, e, d
+                    end
+                end
+            end
+        end
+    end
+    return best_i, best_e, best_d
+end
+
+--- True while a flight trip toward a far goal owns the tick.
+local function far_travel(player, goal, kind, wps, label)
+    if kind == "fly" or #wps == 0 or g_flight then return false end
+    if safe(function() return player:is_in_combat() end) == true then return false end
+    local here = pos_of(player)
+    if not here then return false end
+    -- The goal's nearest waypoint.
+    local target, dist = nil, nil
+    for i = 1, #wps do
+        local p = wps[i].pos
+        if p and type(p.x) == "number" then
+            local d = d2(here, p)
+            if dist == nil or d < dist then target, dist = p, d end
+        end
+    end
+    local key = tostring(guide.step_num()) .. "|" .. tostring(goal.index)
+    if not target or dist <= FAR_TRAVEL then
+        if g_trip and g_trip.key == key then g_trip = nil end
+        return false
+    end
+    if (g_trip_block[key] or 0) > izi.now() then return false end
+    local cat = catalog()
+    local map = safe(function() return core.get_map_id() end)
+    local fkey = faction_key(player)
+    if not cat or type(map) ~= "number" then return false end
+
+    -- Plan once per goal: nearest start point, and is a flight worth it at all?
+    if not g_trip or g_trip.key ~= key then
+        local start, sd, near_goal = nil, nil, nil
+        for i = 1, #cat.nodes do
+            local n = cat.nodes[i]
+            if node_usable(n, map, fkey) then
+                local d = d2(here, n)
+                if sd == nil or d < sd then start, sd = n, d end
+                local g = d2(n, target)
+                if near_goal == nil or g < near_goal then near_goal = g end
+            end
+        end
+        if not start or near_goal == nil or sd + near_goal > dist * TRAVEL_GAIN then
+            return trip_fail(key, string.format("no flight point shortens the %.0f yd trip", dist))
+        end
+        g_trip = { key = key, start = start, target = { x = target.x, y = target.y, z = target.z },
+            tried = {}, fm_guid = nil, fm_tries = 0 }
+        g_fly_fails = 0
+        trail("travel", "goal %.0f yd away - flying: walk to %s (%.0f yd)", dist, start.name, sd)
+    end
+    local trip = g_trip
+    if g_fly_fails >= FLY_FAIL_MAX then
+        g_fly_fails = 0
+        return trip_fail(key, "the flight did not take off")
+    end
+    local now = izi.now()
+
+    -- 3. Flight map open: take the known flight point closest to the goal.
+    local n_nodes = safe(function() return core.taxi.num_nodes() end)
+    if type(n_nodes) == "number" and n_nodes > 0 then
+        local idx, e, gd = best_map_node(map, fkey, trip.target, trip.start)
+        if not idx or gd > dist * TRAVEL_GAIN then
+            return trip_fail(key, "no known flight point is closer to the goal")
+        end
+        trail("travel", "flying to %s (lands %.0f yd from the goal, was %.0f)", e.name, gd, dist)
+        movement.nav_stop()
+        pcall(function() core.taxi.take_node(idx) end)
+        g_fly_taken = now
+        local from = here
+        g_flight = { dest = e.name, taken = now, from = from, last = from, last_t = now,
+            step = guide.step_num(), goal = goal.index, travel = true }
+        state.set_note("Travel", "Taking off to " .. e.name)
+        return true
+    end
+
+    -- 2b. A gossip window: its taxi option, else this NPC is not the one.
+    if safe(function() return core.quests.is_gossip_frame_shown() end) == true then
+        if now >= g_act_until then
+            g_act_until = now + ACT_GAP
+            if not taxi_gossip() then
+                if trip.fm_guid then trip.tried[trip.fm_guid] = true end
+                trip.fm_guid, trip.fm_tries = nil, 0
+                pcall(function() core.quests.close_gossip() end)
+            end
+        end
+        state.set_note("Travel", "Talking to the flight master")
+        return true
+    end
+
+    -- 1. Walk to the flight point.
+    local sp = trip.start
+    local to_start = d2(here, sp)
+    if to_start > FM_SEARCH * 0.5 and not trip.fm_guid then
+        walk_to({ x = sp.x, y = sp.y, z = sp.z }, "flight master at " .. sp.name)
+        state.set_note("Travel", string.format("To %s flight master  %.0fy", sp.name, to_start))
+        return true
+    end
+
+    -- 2. Find its flight master: friendly NPCs near the flight point, nearest first.
+    local unit = nil
+    if trip.fm_guid then
+        local list = targeting.visible_objects() or {}
+        for i = 1, #list do
+            local u = list[i]
+            if u and safe(function() return u:is_valid() end) == true
+                and safe(function() return u:get_guid() end) == trip.fm_guid then
+                unit = u
+                break
+            end
+        end
+        if not unit then trip.fm_guid = nil end
+    end
+    if not unit then
+        local best_d = nil
+        local list = targeting.visible_objects() or {}
+        for i = 1, #list do
+            local u = list[i]
+            if u and safe(function() return u:is_valid() end) == true
+                and safe(function() return u:is_player() end) ~= true
+                and safe(function() return u:is_dead() end) ~= true
+                and safe(function() return player:can_attack(u) end) ~= true then
+                local g = safe(function() return u:get_guid() end)
+                local p = safe(function() return u:get_position() end)
+                if g ~= nil and not trip.tried[g] and p and d2(p, sp) <= FM_SEARCH then
+                    local d = d2(here, p)
+                    if best_d == nil or d < best_d then unit, best_d = u, d end
+                end
+            end
+        end
+        if not unit then
+            return trip_fail(key, "no flight master found at " .. sp.name)
+        end
+        trip.fm_guid = safe(function() return unit:get_guid() end)
+        trip.fm_tries = 0
+    end
+    local ud = safe(function() return player:distance_to(unit) end) or 99
+    if ud > TALK_REACH then
+        local p = safe(function() return unit:get_position() end)
+        if p then walk_to(p, "flight master") end
+        state.set_note("Travel", "To the flight master")
+        return true
+    end
+    movement.nav_stop()
+    if now >= g_act_until then
+        if trip.fm_tries >= FM_TRIES then
+            trip.tried[trip.fm_guid] = true
+            trip.fm_guid, trip.fm_tries = nil, 0
+            return true
+        end
+        g_act_until = now + ACT_GAP
+        trip.fm_tries = trip.fm_tries + 1
+        pcall(function() core.quests.close_quest() end)
+        pcall(function() core.input.interact_with_object(unit) end)
+        trail("travel", "talking to %s (try %d)", tostring(safe(function() return unit:get_name() end)), trip.fm_tries)
+    end
+    state.set_note("Travel", "Talking to the flight master")
     return true
 end
 
@@ -1262,6 +1511,11 @@ tick_inner = function(player)
     end
     g_loot_wait = false
     probe("q:act " .. kind)
+
+    -- A far goal: fly most of the way (2.115.0).
+    if far_travel(player, goal, kind, wps, label) then
+        return
+    end
 
     -- TRAINER STEPS EVERY 3 LEVELS (2.104.0): a RestedXP ".trainer" goal
     -- before the next check is due is skipped to the next goal.

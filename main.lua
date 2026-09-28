@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.94.0
+-- Version: 2.95.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -769,6 +769,15 @@ local function on_update()
     probe("u:death")
     if death.tick(player) then
         return
+    end
+    -- On a flight path (2.95.0): nothing to steer, fight or loot until it lands.
+    if safe(function() return player:is_flying() end) == true then
+        state.set_note("Travel", "On a flight")
+        return
+    end
+    -- The 360-degree enemy scan (2.95.0): attack list + avoid list / danger map.
+    if targeting and type(targeting.scan_enemies) == "function" then
+        pcall(targeting.scan_enemies, player)
     end
     -- Rest outranks looting. Looting used to come first, and because
     -- loot.tick returns true on every tick while a lootable corpse is in

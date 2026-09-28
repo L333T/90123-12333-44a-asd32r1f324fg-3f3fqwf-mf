@@ -3,7 +3,7 @@
 -- movement/zones.lua - blacklist zones
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.94.0
+-- Version: 2.95.0
 -- ============================================================================
 -- Areas movement refuses to path into, pruned in place on a TTL. Nothing here
 -- issues a command, so every other module may require it freely.
@@ -129,6 +129,28 @@ function Z.is_blocked(pos)
     if not x then return false end
     Z.prune(izi.now())
     return Z.blocked_xy(x, y)
+end
+
+-- ----------------------------------------------------------------------------
+-- DANGER MAP (2.95.0)
+-- ----------------------------------------------------------------------------
+-- Mobs too high to fight, from targeting.scan_enemies: replaced on every scan,
+-- never logged or sent to Sentinel, and they only steer - a destination near
+-- one is still allowed, a hop through its aggro radius is not.
+function Z.set_danger(list)
+    R.danger = type(list) == "table" and list or {}
+end
+
+--- Is (x, y) inside a dangerous mob's radius?
+function Z.dangerous_xy(x, y)
+    local list = R.danger
+    if type(list) ~= "table" then return false end
+    for i = 1, #list do
+        local d = list[i]
+        local dx, dy = d.x - x, d.y - y
+        if dx * dx + dy * dy <= d.r * d.r then return true end
+    end
+    return false
 end
 
 function Z.count()

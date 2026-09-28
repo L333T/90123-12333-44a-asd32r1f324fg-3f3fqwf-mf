@@ -3,7 +3,7 @@
 -- Intelligent Movement & Navigation System - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.94.0
+-- Version: 2.95.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- SINGLE-OWNER MOVEMENT STATE MACHINE
@@ -116,6 +116,7 @@ movement.ground_z = U.ground_z
 -- BLACKLIST ZONES
 -- ============================================================================
 movement.blacklist_area = Z.blacklist_area
+movement.set_danger     = Z.set_danger       -- 2.95.0: high-level mobs to steer around
 movement.is_blocked     = Z.is_blocked
 movement.zone_count     = Z.count
 

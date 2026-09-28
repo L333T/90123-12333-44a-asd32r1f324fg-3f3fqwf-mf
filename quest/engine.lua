@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.94.0
+-- Version: 2.95.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -620,7 +620,11 @@ local function dialog_goal(player, goal, kind, wps, label)
         and vendor.merchant_open() == true
     local trainer_n = safe(function() return core.quests.get_num_trainer_services() end)
     local trainer = type(trainer_n) == "number" and trainer_n > 0
-    if gossip or merchant or trainer then
+    -- A flight master's map counts as its frame (2.95.0): talking to it is
+    -- what learns the flight path (".fp"), and the map is what opens.
+    local taxi_n = safe(function() return core.taxi.num_nodes() end)
+    local taxi = type(taxi_n) == "number" and taxi_n > 0
+    if gossip or merchant or trainer or taxi then
         if g_talk_opened == 0 then
             g_talk_opened = now
         end
@@ -648,6 +652,131 @@ local function dialog_goal(player, goal, kind, wps, label)
         debug("talk to %s", tostring(how))
     end
     state.set_note("Quest", "Guide: talk to " .. label)
+    return true
+end
+
+-- ============================================================================
+-- FLIGHT (2.95.0) - RestedXP ".fly <destination>"
+-- ============================================================================
+-- Walk to the flight master (found like any NPC goal), open its map - picking
+-- the taxi gossip option when it talks first - find the destination by name
+-- (the node list is per flight master, so it is matched by name every time,
+-- never by a remembered index) and take it. In the air the bot does nothing.
+local g_fly_taken = 0
+local g_fly_warned = false
+
+local function fly_destination(goal)
+    local text = type(goal.text) == "string" and goal.text or ""
+    text = text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    local dest = text:match("^[Ff]ly%s+to%s+(.+)$") or text:match("^[Ff]ly%s+(.+)$") or text
+    dest = dest:gsub("%s*[%.,!]+$", "")
+    return dest ~= "" and dest or nil
+end
+
+local function taxi_node_for(dest)
+    local n = safe(function() return core.taxi.num_nodes() end)
+    if type(n) ~= "number" or n <= 0 or not dest then return nil, n end
+    local want = dest:lower()
+    local first = want:match("^([%a']+)")
+    local best = nil
+    for i = 1, n do
+        local name = safe(function() return core.taxi.node_name(i) end)
+        if type(name) == "string" and name ~= "" and name ~= "INVALID" then
+            local low = name:lower()
+            if low:find(want, 1, true) or want:find(low:match("^([^,]+)") or low, 1, true) then
+                return i, n
+            end
+            if not best and first and #first >= 4 and low:find(first, 1, true) then
+                best = i
+            end
+        end
+    end
+    return best, n
+end
+
+local function taxi_gossip()
+    local opts = safe(function() return core.quests.get_gossip_options() end)
+    if type(opts) ~= "table" then return false end
+    for i = 1, #opts do
+        local o = opts[i]
+        if type(o) == "table" then
+            local gt = type(o.gossip_type) == "string" and o.gossip_type:lower() or ""
+            local nm = type(o.name) == "string" and o.name:lower() or ""
+            if gt == "taxi" or nm:find("fly", 1, true) or nm:find("flight", 1, true) then
+                local id = o.gossip_option_id
+                if type(id) ~= "number" or id == 0 then id = i end
+                pcall(function() core.quests.select_gossip_option(id) end)
+                return true
+            end
+        end
+    end
+    return false
+end
+
+local function fly_goal(player, goal, wps, label)
+    local now = izi.now()
+    local dest = fly_destination(goal)
+    -- In the air: nothing to do but wait; the guide moves on on landing.
+    if safe(function() return player:is_flying() end) == true then
+        state.set_note("Quest", "Flying to " .. tostring(dest))
+        return true
+    end
+    if g_fly_taken > 0 and (now - g_fly_taken) < 6 then
+        state.set_note("Quest", "Taking off to " .. tostring(dest))
+        return true
+    end
+    -- 1. The flight map is open: pick the destination.
+    local idx, n = taxi_node_for(dest)
+    if type(n) == "number" and n > 0 then
+        if idx then
+            trail("act", "flight to %s (node %d of %d)", tostring(dest), idx, n)
+            pcall(function() core.taxi.take_node(idx) end)
+            g_fly_taken = now
+            return true
+        end
+        if not g_fly_warned then
+            g_fly_warned = true
+            local names = {}
+            for i = 1, n do
+                names[#names + 1] = tostring(safe(function() return core.taxi.node_name(i) end))
+            end
+            trail("act", "no flight to '%s' from here (known: %s) - skipping the step",
+                tostring(dest), table.concat(names, ", "))
+        end
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
+    end
+    -- 2. The flight master talks first: pick its taxi option.
+    if safe(function() return core.quests.is_gossip_frame_shown() end) == true then
+        if now >= g_act_until then
+            g_act_until = now + ACT_GAP
+            if not taxi_gossip() then
+                trail("act", "flight master gossip has no taxi option")
+            end
+        end
+        state.set_note("Quest", "Guide: " .. label)
+        return true
+    end
+    -- 3. Walk to the flight master and talk.
+    local unit = find_giver(player, goal, "talk", wps)
+    if not unit then
+        return false
+    end
+    local d = safe(function() return player:distance_to(unit) end) or 99
+    if d > TALK_REACH then
+        local p = safe(function() return unit:get_position() end)
+        if p then
+            walk_to(p, label)
+            return true
+        end
+        return false
+    end
+    movement.nav_stop()
+    if now >= g_act_until then
+        g_act_until = now + ACT_GAP
+        pcall(function() core.input.interact_with_object(unit) end)
+    end
+    state.set_note("Quest", "Guide: talk to the flight master")
     return true
 end
 
@@ -941,6 +1070,7 @@ tick_inner = function(player)
         g_bad_givers = {}
         g_bad_since = 0
         g_obj.guid, g_obj.uses = nil, 0
+        g_fly_taken, g_fly_warned = 0, false
         g_dialog_done_at = 0
         g_giver_walk = nil
         -- A step change mid-fight keeps the fight; only an idle target is
@@ -974,6 +1104,11 @@ tick_inner = function(player)
 
     if kind == "accept" or kind == "turnin" or kind == "talk" then
         if dialog_goal(player, goal, kind, wps, label) then
+            g_in_dialog = true
+            return
+        end
+    elseif kind == "fly" then
+        if fly_goal(player, goal, wps, label) then
             g_in_dialog = true
             return
         end
@@ -1015,7 +1150,7 @@ tick_inner = function(player)
     -- Never for an accept / turn-in / talk goal (2.71.0): the guide cannot
     -- move on without it, so skipping it left the bot idle on "step complete"
     -- with the quest never taken. Those keep walking to their waypoint.
-    local must_do = kind == "accept" or kind == "turnin" or kind == "talk"
+    local must_do = kind == "accept" or kind == "turnin" or kind == "talk" or kind == "fly"
     if type(movement.reachable) == "function" and not must_do then
         local tried = 0
         while tried < #wps and movement.reachable(wps[g_move].pos) == false do

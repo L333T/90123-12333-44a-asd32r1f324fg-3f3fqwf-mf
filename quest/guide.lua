@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.111.0
+-- Version: 2.112.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2077,6 +2077,17 @@ local function request_nav_height(e, mz)
     e.navz_asked = true
     navz_busy = true
     navz_next = now + NAVZ_GAP
+    -- Reachable layers only (2.112.0): the server drops every height with no
+    -- path from the player (filter_unreachable + from_pos, /api/v1/heights).
+    -- If that leaves nothing - or the player is off the mesh - the next
+    -- request for this waypoint asks without the filter.
+    local hopts = nil
+    if not e.navz_plain then
+        local me = safe(function() return izi.me():get_position() end)
+        if me then
+            hopts = { filter_unreachable = true, from_pos = { x = me.x, y = me.y, z = me.z } }
+        end
+    end
     local ok = pcall(c.get_all_heights, c, vec3.new(e.x, e.y, mz), function(...)
         navz_busy = false
         local args = { ... }
@@ -2092,6 +2103,11 @@ local function request_nav_height(e, mz)
             log.trail("waypoint", "sentinel get_all_heights reply: %d arg(s), %d height(s) (%s)",
                 select("#", ...), #hs, tostring(args[1]))
         end
+        if #hs == 0 and hopts and not e.navz_plain then
+            e.navz_plain = true
+            e.navz_asked = false          -- ask once more, without the filter
+            return
+        end
         local best = nil
         for i = 1, #hs do
             if best == nil or math.abs(hs[i] - mz) < math.abs(best - mz) then best = hs[i] end
@@ -2102,7 +2118,7 @@ local function request_nav_height(e, mz)
                 log.trail("waypoint", "world (%.1f, %.1f) navmesh z %.1f (player z %.1f)", e.x, e.y, best, mz)
             end
         end
-    end)
+    end, hopts)
     if not ok then navz_busy = false end
 end
 
@@ -2169,7 +2185,13 @@ local function to_world(wp)
             request_nav_height(e, mz)
         end
     end
-    return vec3.new(e.x, e.y, z)
+    local out = vec3.new(e.x, e.y, z)
+    -- Still the player's height, not the spot's (2.112.0): let Sentinel
+    -- search wide vertically for the destination polygon.
+    if not e.final and type(out) == "table" then
+        pcall(rawset, out, "z_loose", true)
+    end
+    return out
 end
 
 local function raw_waypoint()

@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.96.0
+-- Version: 2.97.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -28,6 +28,7 @@ local N = require("movement/sentinel")
 local O = require("movement/own")
 local C = require("movement/combat")
 local RP = require("movement/repath")      -- 2.84.0: re-aim + stuck ladder
+local Lk_mod = require("movement/locks")
 
 local STATE             = K.STATE
 local OWNER             = K.OWNER
@@ -276,6 +277,10 @@ function F.pulse()
     R.traces_used = 0
     W.ensure()
     local t = izi.now()
+    -- Backpedalling (2.97.0): nothing else may steer until it ends.
+    if Lk_mod.backpedal_tick(t) then
+        return
+    end
 
     local player = nil
     local okp, me = pcall(izi.me)

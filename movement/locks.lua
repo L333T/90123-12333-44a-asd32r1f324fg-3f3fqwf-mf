@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest lock and cast / channel / loot locks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.96.0
+-- Version: 2.97.0
 -- ============================================================================
 -- Locks pause the walker by reason, so a cast finishing can never un-pause a
 -- stun or a food break. Releasing a cast lock touches only the cast and loot
@@ -52,6 +52,52 @@ function Lk.set_resting(on)
 end
 
 function Lk.is_resting() return R.rest_lock end
+
+-- ============================================================================
+-- BACKPEDAL (2.97.0)
+-- ============================================================================
+-- A timed walk backwards with the core movement keys (Frost Nova, then back
+-- away). While it runs it owns movement outright: the walker and Sentinel are
+-- halted first, the walker is paused ("backpedal"), and may_issue / combat
+-- engage refuse every other move. It always ends with move_backward_stop -
+-- on time, on a rest, on a halt, on death - and normal movement picks up on
+-- the next tick.
+function Lk.backpedal(seconds)
+    local t = izi.now()
+    if R.backpedal_until then return false end
+    O.halt_all()
+    W.set_pause("backpedal", true)
+    R.backpedal_until = t + (tonumber(seconds) or 3)
+    pcall(core.input.move_backward_start)
+    dlog("backpedal", string.format("backing off for %.1fs", tonumber(seconds) or 3))
+    return true
+end
+
+function Lk.backpedal_stop()
+    if not R.backpedal_until then return end
+    R.backpedal_until = nil
+    pcall(core.input.move_backward_stop)
+    W.set_pause("backpedal", false)
+    dlog("backpedal", "stopped")
+end
+
+--- Called every pulse: ends the backpedal on time (or when a rest begins).
+function Lk.backpedal_tick(t)
+    if not R.backpedal_until then return false end
+    if t >= R.backpedal_until or R.rest_lock then
+        Lk.backpedal_stop()
+        return false
+    end
+    return true
+end
+
+function Lk.backpedaling()
+    return R.backpedal_until ~= nil
+end
+
+-- A reload in the middle of a backpedal would leave the key held down: let
+-- go of it once whenever this module loads.
+pcall(core.input.move_backward_stop)
 
 -- ============================================================================
 -- CAST / CHANNEL LOCKS

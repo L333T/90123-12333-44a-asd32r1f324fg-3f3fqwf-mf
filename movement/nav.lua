@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.96.0
+-- Version: 2.97.0
 -- ============================================================================
 -- Out-of-combat travel. Simple Movement owns clear, short legs; Sentinel is the
 -- fallback for long legs and blocked straight lines. Without Sentinel every
@@ -215,6 +215,7 @@ end
 --- Full stop: drop every actuator, every lock and all ownership. Used when the
 --- bot is switched off, changes mode, or dies - not on the per-frame path.
 function Nv.halt()
+    pcall(function() require("movement/locks").backpedal_stop() end)
     R.combat_req = false
     R.combat_target = nil
     R.combat_stopped = false

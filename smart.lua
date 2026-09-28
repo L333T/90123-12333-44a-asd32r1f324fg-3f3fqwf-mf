@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.96.0
+-- Version: 2.97.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -543,6 +543,13 @@ local function cast(e, unit, pos)
     local hands_off = rotation_only()
     local ct = CHANNEL[e.name] and 3.0 or cast_seconds(sp)
     local locked = false
+    -- Backpedalling (2.97.0): only what can be cast on the move, and no cast
+    -- lock that would fight the backward walk.
+    local mv_bp = mod("movement")
+    if mv_bp and type(mv_bp.backpedaling) == "function" and mv_bp.backpedaling() then
+        if ct > 0 and safe(sp.is_usable_while_moving, sp) ~= true then return false end
+        hands_off = true
+    end
     if ct > 0 and safe(sp.is_usable_while_moving, sp) ~= true then
         if hands_off then
             -- The player is steering: never stop them to cast.
@@ -582,6 +589,14 @@ local function cast(e, unit, pos)
             wand_guid = unit and safe(unit.get_guid, unit) or nil
         elseif not e.self then
             wand_guid = nil
+        end
+        -- FROST NOVA, THEN BACK OFF (2.97.0): mage only, never in Rotation
+        -- Only (the player steers there).
+        if e.name == "Frost Nova" and built.class == enums.class_id.MAGE and not rotation_only() then
+            local mv = mod("movement")
+            if mv and type(mv.backpedal) == "function" then
+                mv.backpedal(3)
+            end
         end
         note(e.name)
         return true

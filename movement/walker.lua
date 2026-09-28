@@ -3,7 +3,7 @@
 -- movement/walker.lua - actuator: simple_movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.96.0
+-- Version: 2.97.0
 -- ============================================================================
 -- The only thing that actually moves the player, plus the bookkeeping that
 -- wraps every issued move (destination latch, quiet windows, failure marking)
@@ -86,7 +86,7 @@ end
 -- ============================================================================
 local function pause_wanted()
     local pr = R.pause_reason
-    return pr.cast or pr.restrict or pr.rest or pr.loot or pr.nav
+    return pr.cast or pr.restrict or pr.rest or pr.loot or pr.nav or pr.backpedal
 end
 
 --- Apply the pause state implied by pause_reason. Only edges issue a command,

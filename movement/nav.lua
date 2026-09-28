@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.111.0
+-- Version: 2.112.0
 -- ============================================================================
 -- Out-of-combat travel.
 --
@@ -118,6 +118,9 @@ local function navigate(dest, prefer_direct)
     -- The real destination, for Sentinel (2.59.0): it plans the whole path.
     -- MAX_LEG only limits the WALKER's straight-line legs.
     local sn_goal = { x = x, y = y, z = z }
+    -- A height that is still a guess (quest waypoint, no navmesh answer yet)
+    -- asks Sentinel for a wide vertical search (2.112.0).
+    if type(dest) == "table" and rawget(dest, "z_loose") == true then sn_goal.z_loose = true end
     x, y, z = clamp_leg(x, y, z)
     dest = pt(P_DEST, x, y, z)
     if not want_nav() then return false end

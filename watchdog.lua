@@ -3,7 +3,7 @@
 -- NPC-stuck watchdog
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.111.0
+-- Version: 2.112.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY NOT A GAME RELOAD

@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.98.0
+-- Version: 2.99.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -80,6 +80,7 @@ local WATER_ITEM_RANK = consumables.WATER_ITEM_IDS
 -- Rest at or below this, unless the rotation says otherwise.
 local REST_DEFAULT = 30
 local REST_DONE = 100
+local REST_TOPUP = 95         -- 2.99.0: the other resource is topped up in the same rest below this
 
 -- Seconds a use is committed for before another of the same kind is
 -- considered - eat or drink for this long before reaching for another item.
@@ -728,6 +729,25 @@ function resting_mod.tick(player, opts)
     end
     if rest_eat == true or rest_drink == true then
         miss_logged = false
+    end
+
+    -- EAT AND DRINK TOGETHER (2.99.0). A rest used to consume only what had
+    -- crossed its own line: a mage sitting down at 20% mana with 70% health
+    -- drank, stood up at 100% mana with 70% health, and sat down again to eat
+    -- a fight later. Once a rest is on for either reason, the other resource
+    -- is topped up in the same sit-down when it is under REST_TOPUP and there
+    -- is something usable for it; both are used on the same tick and the rest
+    -- ends when both are full.
+    if rest_eat == true or rest_drink == true then
+        if rest_eat ~= true and eating ~= true and hp < REST_TOPUP and has_usable(foods) == true then
+            rest_eat = true
+            rtrail("also eating (HP %.0f) while resting for mana", hp)
+        end
+        if rest_drink ~= true and drinking ~= true and has_mana and mana < REST_TOPUP
+            and has_usable(waters) == true then
+            rest_drink = true
+            rtrail("also drinking (MP %.0f) while resting for health", mana)
+        end
     end
 
     if rest_eat ~= true and rest_drink ~= true then

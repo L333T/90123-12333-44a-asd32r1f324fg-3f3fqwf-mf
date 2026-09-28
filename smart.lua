@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.91.0
+-- Version: 2.92.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -875,7 +875,8 @@ end
 -- ============================================================================
 -- BUFF RANDOMS (2.91.0)
 -- ============================================================================
--- With "Buff Randoms" ticked, a mage out of combat hands Arcane Intellect to
+-- With "Buff Randoms" ticked, a mage out of combat hands Arcane Intellect
+-- (spell 1459, Rank 1 - see random_buff) to
 -- friendly players nearby who have neither it nor Arcane Brilliance. Never
 -- in a fight, while resting or mounted, or under RANDOM_MANA mana; one player
 -- per RANDOM_GAP; a player buffed is left alone for RANDOM_DONE, one that
@@ -885,6 +886,8 @@ local RANDOM_GAP = 4.0
 local RANDOM_DONE = 600
 local RANDOM_FAIL = 300
 local RANDOM_MANA = 50
+local RANDOM_SPELL_ID = 1459     -- Arcane Intellect, Rank 1
+local random_spell = nil
 local random_next = 0
 local random_seen = {}         -- guid -> time before which the player is skipped
 local random_seen_n = 0
@@ -908,7 +911,17 @@ local function random_buff()
         end
     end
     if not ai then return false end
-    local sp = spell_of(ai)
+    -- Rank 1, spell 1459, for strangers (2.92.0): any level can take it, so
+    -- a low-level player never refuses the cast the way a high rank would.
+    local known = false
+    for i = 1, #ai.ids do
+        if ai.ids[i] == RANDOM_SPELL_ID then known = true break end
+    end
+    if not known then return false end
+    if random_spell == nil then
+        random_spell = safe(izi.spell, RANDOM_SPELL_ID) or false
+    end
+    local sp = random_spell or nil
     if not sp or safe(sp.cooldown_up, sp) == false then return false end
     local ai_ids = ai.ids
     local ab_ids = ranks_of("Arcane Brilliance")

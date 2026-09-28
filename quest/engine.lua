@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.106.0
+-- Version: 2.107.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -825,6 +825,15 @@ function quest.in_flight(player)
         g_flight = nil
         g_fly_taken = 0
         g_fly_fails = 0
+        -- RELOAD ON LANDING (2.107.0): a UI reload after every flight, as
+        -- asked - it refreshes RestedXP's step state at the new position.
+        -- Not in the local API docs, so guarded; logged when missing.
+        if type(core.reload_game_ui) == "function" then
+            trail("act", "landed - reloading the game UI")
+            pcall(core.reload_game_ui)
+        else
+            trail("act", "landed - core.reload_game_ui is not available on this build")
+        end
         return false
     end
     return true

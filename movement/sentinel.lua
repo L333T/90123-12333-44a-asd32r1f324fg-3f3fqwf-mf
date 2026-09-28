@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.95.0
+-- Version: 2.96.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -228,6 +228,79 @@ local client = N.client
 --- travelling to mobs. Whatever a caller does, no more than one request per
 --- SN_MIN_GAP now goes out; a refused request returns false, and every caller
 --- already treats false as "use the walker instead".
+-- ----------------------------------------------------------------------------
+-- TIGHT PATHS INDOORS (2.96.0)
+-- ----------------------------------------------------------------------------
+-- Sentinel shapes its paths from its own config (get_path_opts): variation /
+-- humanising and corridor width that look natural outdoors but walk the
+-- character into door frames and walls inside buildings, caves and mines.
+-- Indoors (player:is_indoors) each move_to gets a copy of those options with
+--   * every numeric key named like variation / jitter / random / deviation /
+--     wander / spread / noise / humaniz set to 0 (booleans to false)
+--   * every corridor / path width capped at TIGHT_WIDTH yards
+-- update_config is not used: Sentinel's UI rewrites it every frame. The key
+-- names are not documented, so the first time the options are read they are
+-- written to the session log (trail "sentinel").
+local TIGHT_WIDTH = 1.0
+local opts_logged = false
+
+local function loose_key(k)
+    k = tostring(k):lower()
+    return k:find("variation", 1, true) or k:find("jitter", 1, true) or k:find("random", 1, true)
+        or k:find("deviation", 1, true) or k:find("wander", 1, true) or k:find("spread", 1, true)
+        or k:find("noise", 1, true) or k:find("humaniz", 1, true)
+end
+
+local function width_key(k)
+    k = tostring(k):lower()
+    return (k:find("corridor", 1, true) or k:find("path", 1, true)) and
+        (k:find("width", 1, true) or k:find("margin", 1, true))
+end
+
+local function log_opts(c)
+    if opts_logged then return end
+    opts_logged = true
+    local ok_e, el = pcall(require, "errorlog")
+    if not (ok_e and type(el) == "table" and type(el.trail) == "function") then return end
+    for _, name in ipairs({ "get_path_opts", "get_corridor_opts" }) do
+        local ok, t = pcall(c[name], c)
+        if ok and type(t) == "table" then
+            local parts = {}
+            for k, v in pairs(t) do
+                if type(v) ~= "table" and type(v) ~= "function" then
+                    parts[#parts + 1] = tostring(k) .. "=" .. tostring(v)
+                end
+            end
+            table.sort(parts)
+            pcall(el.trail, "sentinel", "%s: %s", name, table.concat(parts, " "))
+        end
+    end
+end
+
+--- move_to options for this leg, or nil (Sentinel's own defaults).
+local function leg_opts(c)
+    log_opts(c)
+    local indoors = false
+    pcall(function() indoors = izi.me():is_indoors() == true end)
+    if not indoors or type(c.get_path_opts) ~= "function" then return nil end
+    local ok, base = pcall(c.get_path_opts, c)
+    if not ok or type(base) ~= "table" then return nil end
+    local out = {}
+    for k, v in pairs(base) do
+        if loose_key(k) and type(v) == "number" then
+            out[k] = 0
+        elseif loose_key(k) and type(v) == "boolean" then
+            out[k] = false
+        elseif width_key(k) and type(v) == "number" and v > TIGHT_WIDTH then
+            out[k] = TIGHT_WIDTH
+        else
+            out[k] = v
+        end
+    end
+    R.sn_tight = true
+    return out
+end
+
 function N.move(p, why)
     if R.cur_owner == OWNER.COMBAT then return false end
     -- Benched by the re-pathing ladder (2.84.0): its plan made no progress,
@@ -256,7 +329,14 @@ function N.move(p, why)
     R.sn_why = why                -- what the leg is for (2.54.0): "pull", "travel", ...
     R.sn_leash_hold = true
     R.sn_watch_t = izi.now()
-    local ok = pcall(c.move_to, c, to_vec3(p), on_nav_done)
+    R.sn_tight = false
+    local opts = leg_opts(c)
+    local ok
+    if opts then
+        ok = pcall(c.move_to, c, to_vec3(p), on_nav_done, opts)
+    else
+        ok = pcall(c.move_to, c, to_vec3(p), on_nav_done)
+    end
     if not ok then
         R.sn_active, R.sn_reason = false, nil
         R.sn_leash_hold = false

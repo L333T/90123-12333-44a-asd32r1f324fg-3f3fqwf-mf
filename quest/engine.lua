@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.107.0
+-- Version: 2.108.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -122,11 +122,19 @@ local function probe(tag)
     end
 end
 
+local dbg_last, dbg_at = nil, 0
+
 local function debug(fmt, ...)
     if not gui.is_on("quest_debug") then
         return
     end
     local text = string.format(fmt, ...)
+    -- The same line every tick flooded the console (2.108.0): once per 5 s.
+    local t = izi.now()
+    if text == dbg_last and (t - dbg_at) < 5 then
+        return
+    end
+    dbg_last, dbg_at = text, t
     core.log("[Master Farmer - Grindbot] guide: " .. text)
     local ok, dbg = pcall(require, "debuglog")
     if ok and dbg and type(dbg.line) == "function" then

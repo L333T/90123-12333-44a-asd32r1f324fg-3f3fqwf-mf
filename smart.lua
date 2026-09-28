@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.99.0
+-- Version: 2.100.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -595,7 +595,7 @@ local function cast(e, unit, pos)
         if e.name == "Frost Nova" and built.class == enums.class_id.MAGE and not rotation_only() then
             local mv = mod("movement")
             if mv and type(mv.backpedal) == "function" then
-                mv.backpedal(3)
+                mv.backpedal(2.5)
             end
         end
         note(e.name)

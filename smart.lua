@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.90.0
+-- Version: 2.91.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -872,6 +872,85 @@ end
 
 --- Keep every ticked buff up. Called every tick by all three modes, in and
 --- out of combat. Returns true when it cast something.
+-- ============================================================================
+-- BUFF RANDOMS (2.91.0)
+-- ============================================================================
+-- With "Buff Randoms" ticked, a mage out of combat hands Arcane Intellect to
+-- friendly players nearby who have neither it nor Arcane Brilliance. Never
+-- in a fight, while resting or mounted, or under RANDOM_MANA mana; one player
+-- per RANDOM_GAP; a player buffed is left alone for RANDOM_DONE, one that
+-- could not be buffed (too low for the rank, out of reach) for RANDOM_FAIL.
+local RANDOM_RANGE = 30
+local RANDOM_GAP = 4.0
+local RANDOM_DONE = 600
+local RANDOM_FAIL = 300
+local RANDOM_MANA = 50
+local random_next = 0
+local random_seen = {}         -- guid -> time before which the player is skipped
+local random_seen_n = 0
+
+local function buff_randoms_on()
+    local gui = mod("gui")
+    return gui ~= nil and type(gui.is_on) == "function" and gui.is_on("buff_randoms") == true
+end
+
+local function random_buff()
+    if built.class ~= enums.class_id.MAGE or not buff_randoms_on() then return false end
+    local now = izi.now()
+    if now < random_next then return false end
+    random_next = now + 1.0
+    if c.mana() < RANDOM_MANA then return false end
+    local ai = nil
+    local list = built.by_role.buff
+    if list then
+        for i = 1, #list do
+            if list[i].name == "Arcane Intellect" then ai = list[i] break end
+        end
+    end
+    if not ai then return false end
+    local sp = spell_of(ai)
+    if not sp or safe(sp.cooldown_up, sp) == false then return false end
+    local ai_ids = ai.ids
+    local ab_ids = ranks_of("Arcane Brilliance")
+    local targeting = mod("targeting")
+    local objs = targeting and type(targeting.visible_objects) == "function" and targeting.visible_objects() or nil
+    if type(objs) ~= "table" then return false end
+    local mv = mod("movement")
+    local my_guid = safe(P.get_guid, P)
+    local best, best_d = nil, nil
+    for i = 1, #objs do
+        local u = objs[i]
+        if u and safe(u.is_valid, u) == true and safe(u.is_player, u) == true then
+            local g = safe(u.get_guid, u)
+            if g ~= nil and g ~= my_guid and (random_seen[g] or 0) <= now
+                and safe(u.is_dead_or_ghost, u) ~= true
+                and safe(P.can_attack, P, u) ~= true then
+                local d = safe(P.distance_to, P, u)
+                if type(d) == "number" and d <= RANDOM_RANGE and (best_d == nil or d < best_d)
+                    and auras.buff_up(u, ai_ids) ~= true
+                    and not (ab_ids and auras.buff_up(u, ab_ids) == true) then
+                    best, best_d = u, d
+                end
+            end
+        end
+    end
+    if not best then return false end
+    if mv and type(mv.has_los) == "function" and mv.has_los(P, best) ~= true then return false end
+    local g = safe(best.get_guid, best)
+    if random_seen_n > 200 then random_seen, random_seen_n = {}, 0 end
+    random_seen_n = random_seen_n + 1
+    random_next = now + RANDOM_GAP
+    local ok = safe(function() return sp:cast_safe(best, "Arcane Intellect") end)
+    if ok == true then
+        random_seen[g] = now + RANDOM_DONE
+        state.set_note("Buff", "Arcane Intellect on " .. tostring(safe(best.get_name, best) or "a player"))
+        note("Arcane Intellect")
+        return true
+    end
+    random_seen[g] = now + RANDOM_FAIL
+    return false
+end
+
 function smart.upkeep(player)
     if not player or not spellbook.ready() then return false end
     if safe(player.is_mounted, player) == true then return false end
@@ -885,6 +964,7 @@ function smart.upkeep(player)
     if fighting and c.hp() < c.heal_pct() then return false end
     if upkeep_step(fighting) then return true end
     if not fighting and pet_upkeep() then return true end
+    if not fighting and random_buff() then return true end
     return false
 end
 

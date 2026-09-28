@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.108.0
+-- Version: 2.109.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -71,6 +71,11 @@ function N.on_nav_done(ok, reason)
             W.clear_dest()
         end
         return
+    end
+    -- Remember the failed destination (2.109.0): Sentinel-only travel does not
+    -- re-request it for K.SN_FAIL_HOLD seconds.
+    if R.has_dest then
+        R.sn_fail = { x = R.dest_x, y = R.dest_y, t = izi.now(), reason = r }
     end
     if r == "unreachable" or r == "navmesh" or r == "blocked" then
         W.mark_fail("unreachable")
@@ -304,8 +309,9 @@ end
 function N.move(p, why)
     if R.cur_owner == OWNER.COMBAT then return false end
     -- Benched by the re-pathing ladder (2.84.0): its plan made no progress,
-    -- so the walker's steering gets the next legs.
-    if izi.now() < (R.sn_bench_until or 0) then return false end
+    -- so the walker's steering gets the next legs. Not with Sentinel-only
+    -- travel (2.109.0), where the ladder re-plans through Sentinel instead.
+    if not K.SENTINEL_TRAVEL and izi.now() < (R.sn_bench_until or 0) then return false end
     local now = izi.now()
     if (now - R.sn_last_issue_t) < SN_MIN_GAP then
         R.sn_refused = R.sn_refused + 1

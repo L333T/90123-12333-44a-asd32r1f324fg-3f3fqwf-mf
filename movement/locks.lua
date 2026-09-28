@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest lock and cast / channel / loot locks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.109.0
+-- Version: 2.110.0
 -- ============================================================================
 -- Locks pause the walker by reason, so a cast finishing can never un-pause a
 -- stun or a food break. Releasing a cast lock touches only the cast and loot
@@ -63,10 +63,10 @@ function Lk.is_resting() return R.rest_lock end
 -- on time, on a rest, on a halt, on death - and normal movement picks up on
 -- the next tick.
 --
--- JUMP (2.105.0): BACKPEDAL_JUMP_AT seconds into the backward walk the player
+-- JUMP (2.105.0, 0.75 s since 2.110.0): BACKPEDAL_JUMP_AT seconds into the backward walk the player
 -- jumps, still moving backward; the jump key is let go (ascend_stop)
 -- JUMP_RELEASE later. The backpedal timer itself is unchanged.
-local BACKPEDAL_JUMP_AT = 0.5
+local BACKPEDAL_JUMP_AT = 0.75
 local JUMP_RELEASE = 0.15
 
 function Lk.backpedal(seconds)

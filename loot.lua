@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.109.0
+-- Version: 2.110.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -364,7 +364,31 @@ end
 
 local tick_inner
 
+-- FIGHTS DO NOT COUNT (2.110.0): a corpse queued before another mob
+-- attacked was dropped "gave up after 30 s" while the bot was still fighting
+-- (01:27 log). The queue's clocks now stand still while under attack - each
+-- entry's timestamps move forward by the time spent fighting - so every
+-- corpse is looted once the fight is over, before the rest.
+local last_tick_t = nil
+
+local function pause_clocks(dt)
+    for i = 1, #queue do
+        local e = queue[i]
+        e.added = e.added + dt
+        if e.started then e.started = e.started + dt end
+        if e.fired_t then e.fired_t = e.fired_t + dt end
+    end
+end
+
 function loot.tick(player)
+    local now_t = izi.now()
+    if last_tick_t and player and #queue > 0 then
+        local dt = now_t - last_tick_t
+        if dt > 0 and dt < 2 and under_attack(player) then
+            pause_clocks(dt)
+        end
+    end
+    last_tick_t = now_t
     local in_combat = player ~= nil and safe(function() return player:is_in_combat() end) == true
     if was_in_combat and not in_combat then
         combat_end_t = izi.now()

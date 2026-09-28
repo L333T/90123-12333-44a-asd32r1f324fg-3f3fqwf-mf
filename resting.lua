@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.109.0
+-- Version: 2.110.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -93,6 +93,7 @@ local REST_TOPUP = 95         -- 2.99.0: the other resource is topped up in the 
 -- This only bites when NO aura is up: a meal that is actually ticking is left
 -- alone by the first check in consume_one however long it runs.
 local USE_COMMIT = 15.0
+local JUST_USED = 3.0          -- 2.110.0: seconds an item use counts as eating / drinking
 -- Worst-case bound per rest session if aura detection is broken entirely.
 local MAX_USES = 8
 
@@ -688,6 +689,14 @@ function resting_mod.tick(player, opts)
     local has_mana = type(maxm) == "number" and maxm > 0
     local eating = has_any_aura(player, FOOD_AURAS)
     local drinking = has_any_aura(player, DRINK_AURAS)
+    -- JUST USED (2.110.0): the aura lands a moment after the item is used.
+    -- Eating the LAST piece of food left the bags empty before the aura
+    -- showed, and the check below read "no usable food - not resting" 0.3 s
+    -- into every such rest. An item used in the last JUST_USED s counts as
+    -- eating / drinking.
+    local now_u = izi.now()
+    if eating ~= true and (now_u - food_state.last) < JUST_USED then eating = true end
+    if drinking ~= true and (now_u - drink_state.last) < JUST_USED then drinking = true end
     local foods = food_ids(player)
     local waters = water_ids(player)
     latch_rest(hp, mana, has_mana, eat_at, drink_at)

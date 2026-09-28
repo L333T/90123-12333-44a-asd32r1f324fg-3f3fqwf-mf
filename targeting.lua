@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.101.0
+-- Version: 2.102.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -265,6 +265,47 @@ function targeting.scan_enemies(player)
         pcall(movement.set_danger, danger)
     end
     return attack, avoid
+end
+
+-- ----------------------------------------------------------------------------
+-- ATTACKERS (2.102.0)
+-- ----------------------------------------------------------------------------
+-- How many living units are fighting the player right now: in combat and
+-- targeting the player or the pet, from the 360-degree scan (both lists, so
+-- neutral and too-high mobs count too). Looting and resting wait for zero.
+-- The player's own combat flag is not the test: it drops for a moment while
+-- a fled or evading mob is still coming back.
+local ATTACK_TTL = 0.2
+local attackers_cache = { t = -1, n = 0 }
+
+function targeting.attackers(player)
+    local now = izi.now()
+    if (now - attackers_cache.t) < ATTACK_TTL then
+        return attackers_cache.n
+    end
+    attackers_cache.t = now
+    local n = 0
+    if player then
+        local me_guid = call(player.get_guid, player)
+        local pet = call(player.get_pet, player)
+        local pet_guid = (indexable(pet) and call(pet.is_valid, pet) == true) and call(pet.get_guid, pet) or nil
+        local attack, avoid = targeting.scan_enemies(player)
+        for _, list in ipairs({ attack, avoid }) do
+            for i = 1, #list do
+                local u = list[i]
+                if indexable(u) and call(u.is_valid, u) == true and call(u.is_dead_or_ghost, u) ~= true
+                    and call(u.is_in_combat, u) == true then
+                    local tar = call(u.get_target, u)
+                    local tg = indexable(tar) and call(tar.get_guid, tar) or nil
+                    if tg ~= nil and (tg == me_guid or (pet_guid ~= nil and tg == pet_guid)) then
+                        n = n + 1
+                    end
+                end
+            end
+        end
+    end
+    attackers_cache.n = n
+    return n
 end
 
 --- Too high to fight: more than LEVEL_CAP levels above the player.

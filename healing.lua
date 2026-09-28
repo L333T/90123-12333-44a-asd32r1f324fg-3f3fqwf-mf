@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.101.0
+-- Version: 2.102.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -112,6 +112,17 @@ function healing.tick(player)
     -- the loaded rotation decides the rest.
     if gui.is_on("eat_drink") ~= true then
         resting.clear()
+        return false
+    end
+
+    -- Nobody may be attacking (2.102.0): until every attacker is dead there
+    -- is no rest - and one under way stops, so the character fights back.
+    local ok_t, targeting = pcall(require, "targeting")
+    if ok_t and type(targeting) == "table" and type(targeting.attackers) == "function"
+        and targeting.attackers(player) > 0 then
+        if resting.is_resting() then
+            resting.clear()
+        end
         return false
     end
 

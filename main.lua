@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.105.0
+-- Version: 2.106.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -771,7 +771,16 @@ local function on_update()
         return
     end
     -- On a flight path (2.95.0): nothing to steer, fight or loot until it lands.
-    if safe(function() return player:is_flying() end) == true then
+    -- 2.106.0: also the quest engine's own flight tracking (position based),
+    -- since is_flying is not proven true on a taxi.
+    local on_flight = safe(function() return player:is_flying() end) == true
+    if not on_flight then
+        local qe = package.loaded["quest/engine"]
+        if type(qe) == "table" and type(qe.in_flight) == "function" then
+            on_flight = safe(function() return qe.in_flight(player) end) == true
+        end
+    end
+    if on_flight then
         state.set_note("Travel", "On a flight")
         return
     end

@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.100.0
+-- Version: 2.101.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -113,6 +113,16 @@ function healing.tick(player)
     if gui.is_on("eat_drink") ~= true then
         resting.clear()
         return false
+    end
+
+    -- Loot first, then rest (2.101.0): a rest does not START while looting
+    -- is still working the corpses close by (or has just finished, or the
+    -- fight has only just ended). A rest already under way is not touched.
+    if not resting.is_resting() then
+        local ok_l, loot = pcall(require, "loot")
+        if ok_l and type(loot) == "table" and type(loot.hold_rest) == "function" and loot.hold_rest(player) then
+            return false
+        end
     end
 
     local ok, rotation = pcall(require, "rotation")

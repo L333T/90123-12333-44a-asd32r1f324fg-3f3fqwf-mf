@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.110.0
+-- Version: 2.111.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -131,6 +131,8 @@ local function holding()
     local pr = R.pause_reason
     if pr.cast or pr.restrict or pr.rest or pr.loot then return true end
     if R.cur_owner == OWNER.COMBAT and R.combat_stopped then return true end
+    -- Sentinel still planning a long path (2.111.0): not stuck.
+    if type(N.planning) == "function" and N.planning() then return true end
     return false
 end
 

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.92.0
+-- Version: 2.93.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -442,14 +442,56 @@ menu:checkbox("mfg_buff_randoms", false, {
     visible_if = is_mage,
     tooltip = "Out of combat, cast Arcane Intellect (Rank 1, spell 1459) on friendly players within 30 yards who do not have it (or Arcane Brilliance). Not in a fight, while resting or under 50% mana; one player every 4 s, each player at most once per 10 minutes.",
 })
+-- MELEE OR RANGED (2.93.0): only the slider that applies is shown. The same
+-- test that picks the engage distance decides it (rotation.is_melee - the
+-- ticked spells first, so a Cat / Bear druid or a Stormstrike shaman flips to
+-- melee the moment it is ticked), falling back to the class before the
+-- spellbook scan. Read at most every 0.5 s: it runs from the tab draw.
+local MELEE_CLASS = { WARRIOR = true, ROGUE = true, PALADIN = true }
+local melee_cache = { t = -1, v = false }
+
+function gui.fights_in_melee()
+    local now = izi.now()
+    if (now - melee_cache.t) < 0.5 then
+        return melee_cache.v
+    end
+    local v = nil
+    local me = izi.me()
+    local ok_r, rotation = pcall(require, "rotation")
+    if me and ok_r and type(rotation) == "table" and type(rotation.is_melee) == "function" then
+        local ok, r = pcall(rotation.is_melee, me)
+        if ok and type(r) == "boolean" then v = r end
+    end
+    if v == nil then
+        local cid = nil
+        pcall(function() cid = menu:player_class() end)
+        v = false
+        for key, flag in pairs(MELEE_CLASS) do
+            if flag and enums.class_id[key] == cid then v = true end
+        end
+    end
+    melee_cache.t, melee_cache.v = now, v
+    return v
+end
+
+local function show_melee_slider()
+    return gui.fights_in_melee() == true
+end
+
+local function show_ranged_slider()
+    return gui.fights_in_melee() ~= true
+end
+
 menu:slider_int("mfg_melee_yards", 1, 5, 3, {
     label = "Melee attack distance (yd)",
     tab = "class",
+    visible_if = show_melee_slider,
     tooltip = "Melee classes walk this close to the target before attacking.",
 })
 menu:slider_int("mfg_ranged_yards", 10, 40, 25, {
     label = "Ranged attack distance (yd)",
     tab = "class",
+    visible_if = show_ranged_slider,
     tooltip = "Casters and hunters get this close before opening. Never farther than the longest ticked damage spell reaches.",
 })
 menu:slider_int("mfg_sp_heal", 20, 90, 50, {

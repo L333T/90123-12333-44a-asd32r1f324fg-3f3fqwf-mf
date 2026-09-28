@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.97.0
+-- Version: 2.98.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -2577,6 +2577,17 @@ local function draw_mini()
         local l = me and me:get_level()
         if type(l) == "number" then level = tostring(l) end
     end)
+    local target_line = "Searching..."
+    pcall(function()
+        local me = izi.me()
+        -- Rotation Only fights the player's own target; the engines keep theirs.
+        local u = (is_on("rotation_only") and me and me:get_target()) or (state.target and state.target.unit)
+        if u and u:is_valid() and not u:is_dead_or_ghost() then
+            local d = me and me:distance_to(u)
+            target_line = string.format("%s  %s", tostring(u:get_name()),
+                type(d) == "number" and string.format("%.0f yd", d) or "?")
+        end
+    end)
     local mode = is_on("rotation_only") and "Rotation Only"
         or (is_on("use_quest") and "Questing" or "Grinding")
 
@@ -2595,18 +2606,21 @@ local function draw_mini()
                         restore = true
                     end
                 end)
-                win:render_text(FONT_SMALL, vec2.new(10, 6), ok_col, mode)
-                win:render_text(FONT_SMALL, vec2.new(10, 26), gold, "Time   " .. elapsed)
-                win:render_text(FONT_SMALL, vec2.new(10, 44), gold, "Level  " .. level)
+                win:render_text(FONT_SMALL, vec2.new(10, 5), ok_col, mode)
+                win:render_text(FONT_SMALL, vec2.new(10, 22), gold,
+                    elapsed .. "    Lv " .. level)
+                -- HUD line (2.98.0): who the bot is on, and how far - or
+                -- "Searching..." while it has nobody.
+                win:render_text(FONT_SMALL, vec2.new(10, 39), gold, target_line)
 
-                local bmin, bmax = vec2.new(10, 66), vec2.new(MINI_W - 10, MINI_H - 8)
+                local bmin, bmax = vec2.new(10, 62), vec2.new(MINI_W - 10, MINI_H - 8)
                 local hover = false
                 pcall(function() hover = win:is_mouse_hovering_rect(bmin, bmax) == true end)
                 pcall(function()
                     win:render_rect_filled(bmin, bmax, hover and C(200, 70, 70, 240) or C(160, 50, 50, 230), 4.0)
                     win:render_rect(bmin, bmax, C(230, 120, 120, 255), 4.0, 1.0)
                 end)
-                win:render_text(FONT_SMALL, vec2.new(MINI_W / 2 - 14, 71), gold, "Stop")
+                win:render_text(FONT_SMALL, vec2.new(MINI_W / 2 - 14, 69), gold, "Stop")
                 pcall(function()
                     if win:is_rect_clicked(bmin, bmax) then
                         stop = true

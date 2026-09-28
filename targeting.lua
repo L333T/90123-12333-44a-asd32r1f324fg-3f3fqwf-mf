@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.97.0
+-- Version: 2.98.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -872,8 +872,43 @@ local function names_match(got, want)
     return string.lower(got) == string.lower(want)
 end
 
-function targeting.find_named(player, name_a, name_b, range)
-    range = cap(range)
+-- ----------------------------------------------------------------------------
+-- SCAN COOLDOWN (2.98.0)
+-- ----------------------------------------------------------------------------
+-- Finding an NPC by name or id walks the whole object list, and the NPC
+-- walks (quest givers, flight masters, merchants, trainers) asked every tick.
+-- A match is reused for FIND_TTL while it is still valid, alive and within
+-- the caller's range; after that, or once it has gone, the list is scanned
+-- again.
+local FIND_TTL = 2.0
+local find_cache = {}          -- key -> { obj, t }
+local find_n = 0
+
+local function cached(player, key, range)
+    local e = find_cache[key]
+    if not e then return nil end
+    if (izi.now() - e.t) >= FIND_TTL then return nil end
+    local obj = e.obj
+    if not indexable(obj) or call(obj.is_valid, obj) ~= true or call(obj.is_dead_or_ghost, obj) == true then
+        find_cache[key] = nil
+        return nil
+    end
+    local d = call(player.distance_to, player, obj)
+    if type(d) ~= "number" or d > (range or 80) then return nil end
+    return obj
+end
+
+local function remember(key, obj)
+    if find_n > 100 then find_cache, find_n = {}, 0 end
+    if not find_cache[key] then find_n = find_n + 1 end
+    if obj then
+        find_cache[key] = { obj = obj, t = izi.now() }
+    else
+        find_cache[key] = nil
+    end
+end
+
+local function scan_named(player, name_a, name_b, range)
     if not player then
         return nil
     end
@@ -901,8 +936,18 @@ function targeting.find_named(player, name_a, name_b, range)
     return best
 end
 
-function targeting.find_npc(player, npc_id, range)
+function targeting.find_named(player, name_a, name_b, range)
     range = cap(range)
+    if not player then return nil end
+    local key = "n" .. tostring(name_a) .. "|" .. tostring(name_b)
+    local hit = cached(player, key, range)
+    if hit then return hit end
+    local obj = scan_named(player, name_a, name_b, range)
+    remember(key, obj)
+    return obj
+end
+
+local function scan_npc(player, npc_id, range)
     if not player or not npc_id then
         return nil
     end
@@ -926,6 +971,17 @@ function targeting.find_npc(player, npc_id, range)
         end
     end
     return best
+end
+
+function targeting.find_npc(player, npc_id, range)
+    range = cap(range)
+    if not player or not npc_id then return nil end
+    local key = "i" .. tostring(npc_id)
+    local hit = cached(player, key, range)
+    if hit then return hit end
+    local obj = scan_npc(player, npc_id, range)
+    remember(key, obj)
+    return obj
 end
 
 return targeting

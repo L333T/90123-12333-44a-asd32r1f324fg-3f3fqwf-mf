@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.117.0
+-- Version: 2.118.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -51,9 +51,49 @@ end
 -- ============================================================================
 -- CALLBACKS
 -- ============================================================================
-function N.on_nav_done(ok, reason)
+-- FAILURE CODES (2.112.0), from SentinelNavClient's own source (Client.lua,
+-- _fail_navigation / _normalize_fail_reason): the move_to callback is
+-- (success, reason, detail). `reason` is the raw message ("HTTP 422: Position
+-- not on navmesh", ...), and the normalised code - unreachable,
+-- server_timeout, max_stuck_exceeded, max_repath_exceeded - is detail.code.
+-- This compared the RAW message against the codes, so none of them ever
+-- matched. The nav.failed bus event carries a table ({ fail_reason, ... }),
+-- which used to arrive here as "table: 0x...". Both are classified here, the
+-- same way Sentinel does it when no code is given.
+local FAIL_CODES = { unreachable = true, server_timeout = true,
+    max_stuck_exceeded = true, max_repath_exceeded = true }
+
+local function fail_code(reason, detail)
+    if type(detail) == "table" and FAIL_CODES[detail.code] then
+        return detail.code, tostring(detail.detail or reason or detail.code)
+    end
+    if type(reason) == "table" then
+        local c = reason.fail_reason or reason.code or reason.reason
+        if FAIL_CODES[c] then return c, tostring(reason.detail or c) end
+        reason = c
+    end
+    local msg = tostring(reason or "")
+    if FAIL_CODES[msg] then return msg, msg end
+    local low = msg:lower()
+    if low:find("timeout", 1, true) or low:find("http 0", 1, true) or low:find("http 5", 1, true) then
+        return "server_timeout", msg
+    end
+    if low:find("max_stuck", 1, true) then return "max_stuck_exceeded", msg end
+    if low:find("max_repath", 1, true) then return "max_repath_exceeded", msg end
+    return "unreachable", msg
+end
+N.fail_code = fail_code
+
+function N.on_nav_done(ok, reason, detail)
     if not R.sn_active then return end           -- stale: we already stopped/switched
-    local r = tostring(reason or "")
+    local r, msg = "arrived", ""
+    if ok ~= true then
+        r, msg = fail_code(reason, detail)
+        local ok_e, el = pcall(require, "errorlog")
+        if ok_e and type(el) == "table" and type(el.trail) == "function" then
+            pcall(el.trail, "sentinel", "leg '%s' failed: %s (%s)", tostring(R.sn_why or ""), r, msg)
+        end
+    end
     if ok == true then
         R.sn_active, R.sn_reason = false, r
         R.sn_leash_hold = false
@@ -72,7 +112,12 @@ function N.on_nav_done(ok, reason)
         end
         return
     end
-    if r == "unreachable" or r == "navmesh" or r == "blocked" then
+    -- Remember the failed destination (2.109.0): Sentinel-only travel does not
+    -- re-request it for K.SN_FAIL_HOLD seconds.
+    if R.has_dest then
+        R.sn_fail = { x = R.dest_x, y = R.dest_y, t = izi.now(), reason = r, detail = msg }
+    end
+    if r == "unreachable" or r == "max_repath_exceeded" then
         W.mark_fail("unreachable")
     elseif r == "max_stuck_exceeded" then
         -- Sentinel exhausted its recovery. Hand back to the walker, but do
@@ -130,8 +175,10 @@ local function on_sn_recovered()
     dlog("sentinel", "stuck recovered")
 end
 
-local function on_sn_failed(reason)
-    on_nav_done(false, reason or "failed")
+local function on_sn_failed(data)
+    -- nav.failed carries { fail_reason, destination } (a table), the legacy
+    -- "failed" event nothing; fail_code handles both.
+    on_nav_done(false, data or "failed")
 end
 
 local function on_plan_done(ok, data)
@@ -277,14 +324,66 @@ local function log_opts(c)
     end
 end
 
+-- LOOSE HEIGHT (2.112.0). The server finds a destination's polygon in three
+-- tiers, (6,6,3) (10,10,6) (50,50,50) yards; its docs say to pass z_extent
+-- when a position's height is imprecise. A quest waypoint whose height is
+-- still the player's own (no navmesh answer yet) is flagged z_loose and gets
+-- a wide vertical search instead of a 422.
+local LOOSE_Z_EXTENT = 250
+
+-- AVOID DANGEROUS MOBS (2.118.0). targeting.scan_enemies keeps a danger map
+-- of mobs too high to fight (movement/zones, R.danger: { x, y, z, r }). It
+-- only steered the walker; Sentinel planned straight through their aggro
+-- radius. Each leg now carries them as avoid_zones - Sentinel's own per-move
+-- option ({ x, y, z, radius, cost }, merged with its obstacle zones and sent
+-- as a path-avoid request) - the AVOID_MAX nearest within AVOID_RANGE of the
+-- player. A zone that contains the destination is left out: walking up to a
+-- quest giver standing next to an elite is still allowed.
+local AVOID_MAX = 8
+local AVOID_RANGE = 200
+local AVOID_COST = 100
+
+local function avoid_zones(p)
+    local list = R.danger
+    if type(list) ~= "table" or #list == 0 then return nil end
+    local me = nil
+    pcall(function() me = izi.me():get_position() end)
+    if not me then return nil end
+    local picked = {}
+    for i = 1, #list do
+        local d = list[i]
+        if type(d) == "table" and type(d.x) == "number" and type(d.r) == "number" then
+            local dx, dy = d.x - me.x, d.y - me.y
+            local dist = math.sqrt(dx * dx + dy * dy)
+            local ex, ey = p and (d.x - p.x) or 1e9, p and (d.y - p.y) or 1e9
+            local holds_dest = ex * ex + ey * ey <= d.r * d.r
+            if dist <= AVOID_RANGE and not holds_dest then
+                picked[#picked + 1] = { dist = dist, zone = { x = d.x, y = d.y, z = d.z or me.z,
+                    radius = d.r, cost = AVOID_COST } }
+            end
+        end
+    end
+    if #picked == 0 then return nil end
+    table.sort(picked, function(a, b) return a.dist < b.dist end)
+    local out = {}
+    for i = 1, math.min(AVOID_MAX, #picked) do out[i] = picked[i].zone end
+    return out
+end
+
 --- move_to options for this leg, or nil (Sentinel's own defaults).
-local function leg_opts(c)
+local function leg_opts(c, p)
     log_opts(c)
+    local loose = type(p) == "table" and rawget(p, "z_loose") == true
+    local zones = avoid_zones(p)
+    local extra = nil
+    if loose or zones then
+        extra = { z_extent = loose and LOOSE_Z_EXTENT or nil, avoid_zones = zones }
+    end
     local indoors = false
     pcall(function() indoors = izi.me():is_indoors() == true end)
-    if not indoors or type(c.get_path_opts) ~= "function" then return nil end
+    if not indoors or type(c.get_path_opts) ~= "function" then return extra end
     local ok, base = pcall(c.get_path_opts, c)
-    if not ok or type(base) ~= "table" then return nil end
+    if not ok or type(base) ~= "table" then return extra end
     local out = {}
     for k, v in pairs(base) do
         if loose_key(k) and type(v) == "number" then
@@ -298,14 +397,19 @@ local function leg_opts(c)
         end
     end
     R.sn_tight = true
+    if extra then
+        out.z_extent = extra.z_extent
+        out.avoid_zones = extra.avoid_zones
+    end
     return out
 end
 
 function N.move(p, why)
     if R.cur_owner == OWNER.COMBAT then return false end
     -- Benched by the re-pathing ladder (2.84.0): its plan made no progress,
-    -- so the walker's steering gets the next legs.
-    if izi.now() < (R.sn_bench_until or 0) then return false end
+    -- so the walker's steering gets the next legs. Not with Sentinel-only
+    -- travel (2.109.0), where the ladder re-plans through Sentinel instead.
+    if not K.SENTINEL_TRAVEL and izi.now() < (R.sn_bench_until or 0) then return false end
     local now = izi.now()
     if (now - R.sn_last_issue_t) < SN_MIN_GAP then
         R.sn_refused = R.sn_refused + 1
@@ -330,7 +434,7 @@ function N.move(p, why)
     R.sn_leash_hold = true
     R.sn_watch_t = izi.now()
     R.sn_tight = false
-    local opts = leg_opts(c)
+    local opts = leg_opts(c, p)
     local ok
     if opts then
         ok = pcall(c.move_to, c, to_vec3(p), on_nav_done, opts)
@@ -349,6 +453,33 @@ function N.move(p, why)
 end
 
 -- ============================================================================
+-- RETARGET WITHOUT STOPPING (2.118.0)
+-- ============================================================================
+-- Sentinel's move_to takes opts.soft_update: while it is already moving, the
+-- new destination is set and a soft repath is requested, and movement keeps
+-- running (Client.lua, "seamless retarget"). It replaces the old re-aim,
+-- which planned a separate path in the background and switched to it with
+-- follow_path. Same one-request-per-SN_MIN_GAP limit as every other request.
+function N.retarget(p, why)
+    if not R.sn_active or R.cur_owner == OWNER.COMBAT then return false end
+    local now = izi.now()
+    if (now - R.sn_last_issue_t) < SN_MIN_GAP then return false end
+    local c = client()
+    if not c or type(p) ~= "table" or not xyz(p) then return false end
+    local opts = leg_opts(c, p) or {}
+    opts.soft_update = true
+    R.sn_last_issue_t = now
+    R.sn_issued = R.sn_issued + 1
+    local ok = pcall(c.move_to, c, to_vec3(p), on_nav_done, opts)
+    if not ok then return false end
+    W.begin_issue(p.x, p.y, p.z)
+    R.sn_active = true
+    R.sn_why = why or R.sn_why
+    dlog("issue", string.format("sentinel retarget -> (%.1f, %.1f, %.1f)", p.x, p.y, p.z))
+    return true
+end
+
+-- ============================================================================
 -- WATCHDOG  (called from pulse while Sentinel is driving)
 -- ============================================================================
 -- STALLED LEG (2.70.0). A Sentinel leg that stops moving the character
@@ -361,11 +492,11 @@ end
 -- SN_STALL_SEC while not casting, and the next move is issued afresh.
 local SN_STALL_SEC = 4.0
 
--- STILL PLANNING (2.111.0, restored in 2.116.0). A long path request keeps
+-- STILL PLANNING (2.111.0). A long path request (thousands of yards) keeps
 -- Sentinel in "awaiting_path" for 4-5 s. The stall check and the re-path
 -- ladder counted that as "no progress", dropped the leg and jumped, and the
--- request was sent again. A leg that is still being planned is waited on,
--- up to SN_PLAN_MAX seconds.
+-- request was sent again - the idle / awaiting_path loop in the console. A
+-- leg that is still being planned is waited on, up to SN_PLAN_MAX seconds.
 local SN_PLAN_MAX = 15.0
 local plan_since = nil
 
@@ -375,7 +506,11 @@ function N.planning()
     local c = R.sn_client
     if type(c) ~= "table" or type(c.get_full_state) ~= "function" then return false end
     local ok, st = pcall(c.get_full_state, c)
-    if not ok or type(st) ~= "string" or not st:find("awaiting", 1, true) then
+    -- awaiting_path, repathing and deferred (a move_to made while casting)
+    -- are all "path not in hand yet" - the grouping Sentinel's own questing
+    -- adapter uses (2.112.0).
+    if not ok or type(st) ~= "string"
+        or not (st:find("awaiting", 1, true) or st:find("repathing", 1, true) or st:find("deferred", 1, true)) then
         plan_since = nil
         return false
     end

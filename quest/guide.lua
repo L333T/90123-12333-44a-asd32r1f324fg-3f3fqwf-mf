@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.117.0
+-- Version: 2.118.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2185,7 +2185,13 @@ local function to_world(wp)
             request_nav_height(e, mz)
         end
     end
-    return vec3.new(e.x, e.y, z)
+    local out = vec3.new(e.x, e.y, z)
+    -- Still the player's height, not the spot's (2.112.0): let Sentinel
+    -- search wide vertically for the destination polygon.
+    if not e.final and type(out) == "table" then
+        pcall(rawset, out, "z_loose", true)
+    end
+    return out
 end
 
 local function raw_waypoint()

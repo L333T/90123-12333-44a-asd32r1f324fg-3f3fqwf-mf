@@ -3,7 +3,7 @@
 -- Conjured food and water, for mages
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.102.0
+-- Version: 2.103.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- A mage never has to buy food or water, and until now the bot made it do
@@ -139,25 +139,56 @@ end
 -- ----------------------------------------------------------------------------
 --- Top up conjured water and food. Returns true when it cast something, so
 --- the caller holds the rest of its tick.
+-- PAUSE TO CONJURE (2.103.0) ------------------------------------------------
+-- Conjuring is a 3 s cast and was fired while the bot walked (quest travel,
+-- grind routes): the cast failed, the 15 s back-off started, and the mage went
+-- on with empty bags. Now, when a mage needs water or food and nothing else is
+-- going on - not in combat, nobody attacking, not resting / eating /
+-- drinking, not mounted - movement is stopped first, a cast lock holds the
+-- walker for the cast, and the tick is held until the conjure is done. Then
+-- movement resumes on its own. "Needs" counts EVERY water / food carried,
+-- not only conjured, so a mage with vendor water does not stop for nothing.
+local CAST_HOLD = 5.0        -- seconds the cascade is held for a conjure in progress
+local movement_mod = nil
+
+local function get_movement()
+    if movement_mod == nil then
+        local ok, m = pcall(require, "movement")
+        movement_mod = (ok and type(m) == "table") and m or false
+    end
+    return movement_mod or nil
+end
+
+--- Combat, an attacker, mounted, resting or mid-meal: not now.
+local function busy_elsewhere(player)
+    if safe(function() return player:is_in_combat() end) == true then return true end
+    if safe(function() return player:is_mounted() end) == true then return true end
+    local ok_t, targeting = pcall(require, "targeting")
+    if ok_t and type(targeting) == "table" and type(targeting.attackers) == "function"
+        and targeting.attackers(player) > 0 then
+        return true
+    end
+    local ok_h, healing = pcall(require, "healing")
+    if ok_h and type(healing) == "table" and type(healing.is_resting) == "function" and healing.is_resting() then
+        return true
+    end
+    -- Mid meal. Conjuring would cancel the sit and waste the rest.
+    return consuming(player)
+end
+
 function conjure.tick(player)
     if not player or not conjure.is_mage(player) then
         return false
     end
-
-    -- Combat, mounted, dead or already casting: not now.
-    if safe(function() return player:is_in_combat() end) == true then
-        return false
-    end
-    if safe(function() return player:is_mounted() end) == true then
-        return false
-    end
-
-    -- Mid meal. Conjuring would cancel the sit and waste the rest.
-    if consuming(player) then
+    if busy_elsewhere(player) then
         return false
     end
 
     local now = izi.now()
+    -- Our conjure is being cast: hold everything else until it lands.
+    if safe(function() return player:is_channeling_or_casting() end) == true then
+        return (now - last_cast) < CAST_HOLD
+    end
     if (now - last_cast) < CAST_GAP then
         return false
     end
@@ -167,8 +198,11 @@ function conjure.tick(player)
 
     -- Water first. A mage out of water is stuck; a mage out of food can still
     -- drink its health back up far more slowly, so water is the binding one.
-    local want_water = held(consumables.CONJURED_WATER_ITEM_IDS) < LOW_WATER
-    local want_food = held(consumables.CONJURED_FOOD_ITEM_IDS) < LOW_FOOD
+    -- Every water / food carried counts, conjured or bought.
+    local water = math.max(held(consumables.CONJURED_WATER_ITEM_IDS), held(consumables.WATER_ITEM_IDS))
+    local food = math.max(held(consumables.CONJURED_FOOD_ITEM_IDS), held(consumables.FOOD_ITEM_IDS))
+    local want_water = water < LOW_WATER
+    local want_food = food < LOW_FOOD
 
     if not want_water and not want_food then
         return false
@@ -190,13 +224,32 @@ function conjure.tick(player)
         return false
     end
 
+    -- Stop first: a conjure cannot be cast on the move.
+    local mv = get_movement()
+    local moving = safe(function() return player:is_moving() end) == true
+        or (mv and type(mv.is_moving) == "function" and mv.is_moving() == true)
+    if moving then
+        if mv and type(mv.nav_stop) == "function" then pcall(mv.nav_stop) end
+        state.set_note("Conjure", "Stopping to " .. label)
+        return true
+    end
+    -- Hold the walker for the cast (conjure cast time + margin).
+    local ct = 3.0
+    local sp = safe(function() return izi.spell(spell_id) end)
+    local ms = sp and safe(function() return sp:cast_time_ms() end)
+    if type(ms) == "number" and ms > 0 then ct = ms / 1000 end
+    if mv and type(mv.prepare_cast) == "function" then
+        pcall(mv.prepare_cast, nil, ct + 0.3)
+    end
+
     last_cast = now
     if cast(spell_id, label) then
         state.set_note("Conjure", label)
         return true
     end
 
-    -- Out of mana, or the client refused. Back off rather than spinning.
+    -- Out of mana, or the client refused. Let the walker go and back off.
+    if mv and type(mv.release) == "function" then pcall(mv.release) end
     fail_until = now + FAIL_GAP
     return false
 end

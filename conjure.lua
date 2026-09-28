@@ -3,7 +3,7 @@
 -- Conjured food and water, for mages
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.113.0
+-- Version: 2.114.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- A mage never has to buy food or water, and until now the bot made it do
@@ -55,6 +55,16 @@ local FAIL_GAP = 15.0        -- back-off after one that did not land
 
 local last_cast = -1e9
 local fail_until = 0
+
+-- NOT EVERY FRAME (2.114.0). Counting water and food means one item lookup
+-- per id - conjured AND bought, a few hundred - and since 2.103.0 that ran on
+-- every frame: u:conjure cost 1.2-1.3 ms/frame in the 02:03 log, more than the
+-- whole rest of the bot, and frame rate fell from ~245 to ~160. When a check
+-- finds nothing to do (bags stocked, nothing trained) the next one waits
+-- IDLE_RECHECK seconds. A stop-to-conjure or a cast in progress still runs
+-- every frame, and a combat / rest / attacker interruption is not delayed.
+local IDLE_RECHECK = 2.0
+local idle_until = 0
 
 local function safe(fn)
     local ok, res = pcall(fn)
@@ -195,6 +205,9 @@ function conjure.tick(player)
     if now < fail_until then
         return false
     end
+    if now < idle_until then
+        return false
+    end
 
     -- Water first. A mage out of water is stuck; a mage out of food can still
     -- drink its health back up far more slowly, so water is the binding one.
@@ -205,6 +218,7 @@ function conjure.tick(player)
     local want_food = food < LOW_FOOD
 
     if not want_water and not want_food then
+        idle_until = now + IDLE_RECHECK
         return false
     end
 

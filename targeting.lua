@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.93.0
+-- Version: 2.94.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -82,6 +82,10 @@ end
 -- quest/guide and movement read the same constant.
 local MAX_RANGE = 300
 targeting.MAX_RANGE = MAX_RANGE
+-- How far every mode looks for an enemy to fight (2.94.0): one number for all
+-- classes. The nearest valid one is attacked, closing to the GUI melee /
+-- ranged attack distance first (rotation.combat_range).
+targeting.ENEMY_SCAN = 100
 
 --- A range argument clamped to MAX_RANGE. nil stays nil so each caller's own
 --- default still applies.
@@ -238,9 +242,9 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
         return found
     end
     opts = opts or {}
-    range = tonumber(range) or 50
-    if range > 80 then
-        range = 80
+    range = tonumber(range) or targeting.ENEMY_SCAN
+    if range > targeting.ENEMY_SCAN then
+        range = targeting.ENEMY_SCAN
     end
     local pos = state.cached_pos or safe(function() return player:get_position() end)
     if not pos then

@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.93.0
+-- Version: 2.94.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -198,14 +198,9 @@ end
 --- How far out this class looks for something to fight. Melee scans tighter
 --- than a caster: see the note on each rotation's scan_range.
 function rotation.scan_range(player)
-    local mod = player and rotation.active(player) or nil
-    if mod and type(mod.scan_range) == "function" then
-        local ok, yards = pcall(mod.scan_range, player)
-        if ok and type(yards) == "number" and yards >= 5 then
-            return yards
-        end
-    end
-    return 30
+    -- One enemy search radius for every class (2.94.0): targeting.ENEMY_SCAN.
+    -- Class differences live in the engage distance (combat_range), not here.
+    return targeting.ENEMY_SCAN or 100
 end
 
 --- Does this class have a rotation? Answered from the name map, so asking

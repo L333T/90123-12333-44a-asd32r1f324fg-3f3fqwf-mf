@@ -3,11 +3,17 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.108.0
+-- Version: 2.109.0
 -- ============================================================================
--- Out-of-combat travel. Simple Movement owns clear, short legs; Sentinel is the
--- fallback for long legs and blocked straight lines. Without Sentinel every
--- path here degrades to walker steering rather than failing.
+-- Out-of-combat travel.
+--
+-- SENTINEL FOR ALL TRAVEL (2.109.0): out of combat every move - waypoints,
+-- NPCs, corpses, grind nodes, recorded routes - is a Sentinel path. No short
+-- walker legs, no leash hops, no walker fallback while Sentinel is only rate
+-- limited: the move waits for the next request slot instead. The walker
+-- (Simple Movement / movement handler) moves the character out of combat
+-- only when Sentinel is unavailable. In combat nothing here runs: combat
+-- movement (movement/combat.lua) owns the player and uses the walker.
 -- ============================================================================
 
 ---@type izi_api
@@ -40,6 +46,40 @@ local xyz, here_xyz, dist3, dlog, ground_z, walk_open =
 local P_HERE, P_DEST = R.P_HERE, R.P_DEST
 
 local Nv = {}
+
+-- ============================================================================
+-- SENTINEL-ONLY TRAVEL (2.109.0)
+-- ============================================================================
+local function player_in_combat()
+    local ok, v = pcall(function() return izi.me():is_in_combat() end)
+    return ok and v == true
+end
+
+--- Out of combat with Sentinel available: travel goes through Sentinel only.
+local function sentinel_travel()
+    if not K.SENTINEL_TRAVEL then return false end
+    if O.owns(OWNER.COMBAT) or player_in_combat() then return false end
+    return N.client() ~= nil
+end
+Nv.sentinel_travel = sentinel_travel
+
+--- Did Sentinel just fail this destination? (Not re-requested for SN_FAIL_HOLD.)
+local function recently_failed(x, y)
+    local f = R.sn_fail
+    if not f or (izi.now() - f.t) > (K.SN_FAIL_HOLD or 3) then return false end
+    local dx, dy = x - f.x, y - f.y
+    return dx * dx + dy * dy < 25
+end
+
+--- A Sentinel move for travel. True = moving or waiting for the next request
+--- slot (never a walker leg); false = Sentinel failed this destination.
+local function sentinel_go(goal, why)
+    if recently_failed(goal.x, goal.y) then return false end
+    if N.move(goal, why) then return true end
+    -- Refused by the rate limit: wait for the next slot, do not walk it.
+    R.goal_x, R.goal_y, R.goal_z = nil, nil, nil
+    return true
+end
 
 -- ============================================================================
 -- OWNERSHIP REQUEST
@@ -104,11 +144,17 @@ local function navigate(dest, prefer_direct)
         return false
     end
 
+    -- Sentinel for all travel (2.109.0): the real destination, whole path.
+    if sentinel_travel() then
+        return sentinel_go(sn_goal, "travel")
+    end
+
     local hx, hy, hz = here_xyz()
     local here = pt(P_HERE, hx, hy, hz)
     z = ground_z(x, y, z)
     local goal = pt(P_DEST, x, y, z)
 
+    -- Without Sentinel travel (unavailable, or K.SENTINEL_TRAVEL off):
     -- Simple Movement owns clear, short legs. Sentinel is the fallback for long
     -- legs and blocked straight lines, where a smoothed straight walk would
     -- fail. Without Sentinel we fall through to walker steering.
@@ -168,6 +214,20 @@ function Nv.nav_path(points)
 
     local go, ret = O.may_issue(lx, ly, lz)
     if not go then return ret end
+
+    -- Sentinel for all travel (2.109.0): the route is followed by Sentinel;
+    -- rate limited = wait for the slot.
+    if sentinel_travel() and #points >= 2 then
+        local pts = {}
+        for i = 1, #points do
+            local x, y, z = xyz(points[i])
+            if x and not Z.blocked_xy(x, y) then pts[#pts + 1] = vec3.new(x, y, z) end
+        end
+        if #pts >= 2 then
+            if N.follow(pts, "route") then return true end
+            return true
+        end
+    end
 
     local hx, hy, hz = here_xyz()
     local here = pt(P_HERE, hx, hy, hz)

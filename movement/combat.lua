@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.96.0
+-- Version: 2.97.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -283,6 +283,8 @@ end
 --- state machine notices and releases combat movement on its own terms.
 function C.combat_engage(player, unit, yards)
     if not player or not unit or R.rest_lock then return false end
+    -- Backpedalling after Frost Nova owns movement (2.97.0): no chase, no hop.
+    if R.backpedal_until then return false end
     if not unit_valid(unit) then return false end
     yards = tonumber(yards) or 20
     if yards < 5 then yards = 5 end

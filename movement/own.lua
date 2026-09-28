@@ -3,7 +3,7 @@
 -- movement/own.lua - ownership, state transitions, restrictions, shared gates
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.96.0
+-- Version: 2.97.0
 -- ============================================================================
 -- The arbiter primitives every higher module shares:
 --
@@ -160,6 +160,7 @@ function O.sentinel_active() return R.sn_active end
 function O.may_issue(x, y, z)
     if not owns(OWNER.NAV) then return false, false end
     if R.rest_lock then return false, false end
+    if R.backpedal_until then return false, false end      -- 2.97.0: backpedalling owns movement
     -- A re-aim (movement/repath) replaces the move in flight: skip the
     -- "already going" and move-gap checks once.
     local force = R.force_reissue == true

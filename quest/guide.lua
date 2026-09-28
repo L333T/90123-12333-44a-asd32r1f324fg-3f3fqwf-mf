@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.107.0
+-- Version: 2.108.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2030,6 +2030,82 @@ local function convert(map_id, x, y)
     return nil
 end
 
+-- FAR WAYPOINT HEIGHT FROM THE NAVMESH (2.108.0)
+--   A far waypoint used the PLAYER's height. Leaving Ironforge (z 502) for
+--   Dun Morogh (ground ~100 yards lower) Sentinel answered "HTTP 422:
+--   Position not on navmesh" three times per waypoint and the bot cycled
+--   through every waypoint of the goal. Now each far waypoint asks Sentinel
+--   once for the navmesh heights at its x,y (get_all_heights, server side, no
+--   terrain loading) and keeps the layer nearest the player's height. One
+--   request in flight at a time, NAVZ_GAP apart - never a flood.
+local NAVZ_GAP = 1.0
+local navz_busy = false
+local navz_next = 0
+local navz_shape_logged = false
+
+--- Every height found in a Sentinel reply, whatever its shape.
+local function heights_in(v, out, depth)
+    depth = depth or 0
+    if depth > 3 then return out end
+    if type(v) == "number" then
+        if finite(v) then out[#out + 1] = v end
+    elseif type(v) == "table" or type(v) == "userdata" then
+        local z = tonumber(get(v, "z")) or tonumber(get(v, "height"))
+        if z and finite(z) then
+            out[#out + 1] = z
+            return out
+        end
+        local hs = get(v, "heights")
+        if hs ~= nil then return heights_in(hs, out, depth + 1) end
+        if type(v) == "table" then
+            for i = 1, #v do heights_in(v[i], out, depth + 1) end
+        end
+    end
+    return out
+end
+
+local function request_nav_height(e, mz)
+    if navz_busy or e.navz_asked then return end
+    local now = izi.now()
+    if now < navz_next then return end
+    local g = rawget(_G, "SentinelNavClient")
+    local c = type(g) == "table" and g.client or nil
+    if not c or type(c.get_all_heights) ~= "function" then
+        e.navz_asked = true
+        return
+    end
+    e.navz_asked = true
+    navz_busy = true
+    navz_next = now + NAVZ_GAP
+    local ok = pcall(c.get_all_heights, c, vec3.new(e.x, e.y, mz), function(...)
+        navz_busy = false
+        local args = { ... }
+        local hs = {}
+        for i = 1, select("#", ...) do
+            if type(args[i]) ~= "boolean" and type(args[i]) ~= "string" then
+                heights_in(args[i], hs)
+            end
+        end
+        local log = elog()
+        if log and not navz_shape_logged then
+            navz_shape_logged = true
+            log.trail("waypoint", "sentinel get_all_heights reply: %d arg(s), %d height(s) (%s)",
+                select("#", ...), #hs, tostring(args[1]))
+        end
+        local best = nil
+        for i = 1, #hs do
+            if best == nil or math.abs(hs[i] - mz) < math.abs(best - mz) then best = hs[i] end
+        end
+        if best then
+            e.z, e.final = best, true
+            if log then
+                log.trail("waypoint", "world (%.1f, %.1f) navmesh z %.1f (player z %.1f)", e.x, e.y, best, mz)
+            end
+        end
+    end)
+    if not ok then navz_busy = false end
+end
+
 local function to_world(wp)
     if not usable(wp) then
         return nil
@@ -2088,6 +2164,9 @@ local function to_world(wp)
                 e.z, e.final = h, true
                 z = h
             end
+        else
+            -- Far away: the navmesh height, asked of Sentinel once (2.108.0).
+            request_nav_height(e, mz)
         end
     end
     return vec3.new(e.x, e.y, z)

@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.100.0
+-- Version: 2.101.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -332,7 +332,45 @@ local function watch_target()
 end
 
 --- One bot tick of looting. Returns true while it owns the tick.
+-- ----------------------------------------------------------------------------
+-- LOOT BEFORE REST (2.101.0)
+-- ----------------------------------------------------------------------------
+-- Looting already runs ahead of resting, but right after a kill the corpse is
+-- not lootable (or queued) yet and the nearby-corpse scan runs a tick later,
+-- so the rest could sit down first. loot.hold_rest says "not yet": corpses
+-- queued and looting active in the last BUSY_WINDOW s, looting busy in the
+-- last REST_DELAY s, or combat ended less than REST_DELAY s ago.
+local REST_DELAY = 1.5
+local BUSY_WINDOW = 3.0
+local last_busy_t = -1e9
+local combat_end_t = -1e9
+local was_in_combat = false
+
+function loot.hold_rest(player)
+    if not enabled() or not player then return false end
+    local now = izi.now()
+    if (now - last_busy_t) < REST_DELAY or (now - combat_end_t) < REST_DELAY then
+        return true
+    end
+    return (now - last_busy_t) < BUSY_WINDOW and loot.has_work(player)
+end
+
+local tick_inner
+
 function loot.tick(player)
+    local in_combat = player ~= nil and safe(function() return player:is_in_combat() end) == true
+    if was_in_combat and not in_combat then
+        combat_end_t = izi.now()
+    end
+    was_in_combat = in_combat
+    local busy = tick_inner(player)
+    if busy then
+        last_busy_t = izi.now()
+    end
+    return busy
+end
+
+tick_inner = function(player)
     if not player or not enabled() then
         return false
     end

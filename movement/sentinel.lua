@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.115.0
+-- Version: 2.116.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -360,6 +360,29 @@ end
 -- leg is now dropped once the character has not moved SN_STALL_YD in
 -- SN_STALL_SEC while not casting, and the next move is issued afresh.
 local SN_STALL_SEC = 4.0
+
+-- STILL PLANNING (2.111.0, restored in 2.116.0). A long path request keeps
+-- Sentinel in "awaiting_path" for 4-5 s. The stall check and the re-path
+-- ladder counted that as "no progress", dropped the leg and jumped, and the
+-- request was sent again. A leg that is still being planned is waited on,
+-- up to SN_PLAN_MAX seconds.
+local SN_PLAN_MAX = 15.0
+local plan_since = nil
+
+--- Is Sentinel still computing the path for the leg in flight?
+function N.planning()
+    if not R.sn_active then plan_since = nil return false end
+    local c = R.sn_client
+    if type(c) ~= "table" or type(c.get_full_state) ~= "function" then return false end
+    local ok, st = pcall(c.get_full_state, c)
+    if not ok or type(st) ~= "string" or not st:find("awaiting", 1, true) then
+        plan_since = nil
+        return false
+    end
+    local t = izi.now()
+    plan_since = plan_since or t
+    return (t - plan_since) < SN_PLAN_MAX
+end
 local SN_STALL_YD = 1.5
 local stall_x, stall_y, stall_t = nil, nil, 0
 
@@ -371,7 +394,7 @@ local function stall_check(t)
     pcall(function() casting = me:is_channeling_or_casting() == true end)
     local pos = nil
     pcall(function() pos = me:get_position() end)
-    if casting or not pos then
+    if casting or not pos or N.planning() then
         stall_x, stall_y, stall_t = nil, nil, t
         return false
     end

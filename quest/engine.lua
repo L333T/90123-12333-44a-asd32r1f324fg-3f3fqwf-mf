@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.103.0
+-- Version: 2.104.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1101,6 +1101,20 @@ tick_inner = function(player)
     end
     g_loot_wait = false
     probe("q:act " .. kind)
+
+    -- TRAINER STEPS EVERY 3 LEVELS (2.104.0): a RestedXP ".trainer" goal
+    -- before the next check is due is skipped to the next goal.
+    if type(goal.action) == "string" and string.lower(goal.action) == "trainer" then
+        local ok_tr, tr = pcall(require, "trainer")
+        local no_train = gui.is_on("train") ~= true
+        if ok_tr and type(tr) == "table" and type(tr.due) == "function"
+            and (no_train or not tr.due(player)) then
+            trail("quest", "trainer goal skipped - %s", no_train and "Train Spells is off"
+                or ("next check at level " .. tostring(tr.next_level())))
+            guide.mark_goal_done(guide.step_num(), goal.index)
+            return
+        end
+    end
 
     if kind == "accept" or kind == "turnin" or kind == "talk" then
         if dialog_goal(player, goal, kind, wps, label) then

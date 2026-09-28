@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.103.0
+-- Version: 2.104.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -34,6 +34,19 @@
 --   through, it is not touched again until the character levels or gets
 --   meaningfully richer - the only two things that can produce new affordable
 --   ranks.
+--
+-- 2.104.0 - EVERY 3 LEVELS, EVERYTHING AFFORDABLE, VERIFIED
+--   * A trainer is checked once, then again only after 3 more levels
+--     (CHECK_EVERY). The level of the last check is saved per character, so a
+--     restart does not send the bot back. A RestedXP ".trainer" step before
+--     that is skipped straight to the next goal.
+--   * Every available class spell is bought, cheapest first, until the list
+--     is empty or the purse is. Headers are expanded first so no rank hides
+--     under a collapsed category.
+--   * Each purchase is verified (gold spent, or the rank no longer
+--     available) and retried up to BUY_TRIES times before it is given up on.
+--   * The window is closed with close_trainer when done - close_gossip left
+--     it open - so the quest step and the bot move on.
 -- ============================================================================
 
 ---@type izi_api
@@ -68,8 +81,20 @@ local MAX_PER_VISIT = 30      -- hard stop if a purchase keeps silently failing
 -- indices shift as entries are removed.
 local bought = {}
 
+-- 2.104.0: purchase verification and the every-3-levels check.
+local CHECK_EVERY = 3        -- levels between trainer checks
+local BUY_TRIES = 3          -- attempts at one rank before giving up on it
+local VERIFY_AFTER = 0.8     -- seconds before a purchase is checked
+local attempts = {}          -- name -> purchases tried this visit
+local pending = nil          -- { name, gold, at } awaiting verification
+local trained_this_visit = 0
+local expanded = false       -- headers expanded for this window
+local checked_level = nil    -- level of the last completed trainer check (saved)
+
 local function forget_bought()
     bought = {}
+    attempts = {}
+    pending = nil
 end
 
 local function safe(fn)
@@ -114,6 +139,44 @@ function trainer.reset()
     forget_bought()
     finished = false
     bought_this_visit = 0
+    trained_this_visit = 0
+    expanded = false
+end
+
+-- ----------------------------------------------------------------------------
+-- EVERY 3 LEVELS (2.104.0)
+-- ----------------------------------------------------------------------------
+local function level_of(player)
+    return safe(function() return player:get_level() end) or 0
+end
+
+--- Is a trainer check due? Never checked (this character), or 3+ levels since.
+function trainer.due(player)
+    if not player then return false end
+    if checked_level == nil then return true end
+    return level_of(player) >= checked_level + CHECK_EVERY
+end
+
+--- The level at which the next check falls due.
+function trainer.next_level()
+    return checked_level and (checked_level + CHECK_EVERY) or nil
+end
+
+local function note_checked(player)
+    checked_level = level_of(player)
+    local ok, settings = pcall(require, "settings")
+    if ok and type(settings) == "table" and type(settings.mark_dirty) == "function" then
+        settings.mark_dirty()
+    end
+end
+
+do
+    local ok, settings = pcall(require, "settings")
+    if ok and type(settings) == "table" and type(settings.register) == "function" then
+        settings.register("trainer_level",
+            function() return checked_level and tostring(checked_level) or nil end,
+            function(v) checked_level = tonumber(v) end)
+    end
 end
 
 -- ----------------------------------------------------------------------------
@@ -134,46 +197,56 @@ end
 ---
 --- Returns (index, name, cost). Only class spells are considered: a service
 --- carrying a talent or profession cost is a player decision, not a bot one.
-local function cheapest_affordable()
-    local budget = gold()
-    if budget <= 0 then
+local short = 0              -- available ranks left that cost more than we hold
+
+--- One service row as (name, cost, available) - nil for headers / non-class.
+local function service_row(i)
+    local cost = safe(function() return core.quests.get_trainer_service_cost(i) end)
+    if type(cost) ~= "table" then return nil end
+    local service = cost.service_cost
+    if type(service) ~= "number" or (cost.talent_cost or 0) ~= 0 or (cost.profession_cost or 0) ~= 0 then
         return nil
     end
+    local info = safe(function() return core.quests.get_trainer_service_info(i) end)
+    if type(info) ~= "table" or type(info.spell_name) ~= "string" or info.spell_name == "" then
+        return nil
+    end
+    local cat = type(info.category) == "string" and string.lower(info.category) or ""
+    local name = info.spell_name
+    if type(info.rank) == "string" and info.rank ~= "" then
+        name = name .. " (" .. info.rank .. ")"
+    end
+    return name, service, (cat == "" or cat == "available")
+end
+
+--- Is this rank still offered as "available"? (For purchase verification.)
+local function still_available(name)
+    for i = 1, service_count() do
+        local n, _, avail = service_row(i)
+        if n == name and avail then return true end
+    end
+    return false
+end
+
+local function cheapest_affordable()
+    local budget = gold()
+    short = 0
 
     local best_idx, best_cost, best_name = nil, nil, nil
     for i = 1, service_count() do
-        local cost = safe(function() return core.quests.get_trainer_service_cost(i) end)
-        if type(cost) == "table" then
-            local service = cost.service_cost
-            local talent = cost.talent_cost or 0
-            local profession = cost.profession_cost or 0
-            if type(service) == "number" and service > 0
-                and talent == 0 and profession == 0
-                and service <= budget
-                and (best_cost == nil or service < best_cost) then
-                local info = safe(function() return core.quests.get_trainer_service_info(i) end)
-                local name = (type(info) == "table" and info.spell_name) or nil
-                -- category is the service type: "available", "unavailable"
-                -- (level too low), "used" (already learned) or "header".
-                -- Only an available one can be bought (2.43.0); the others
-                -- were "bought" once per visit, 0.6 s each.
-                local cat = type(info) == "table" and info.category or nil
-                if type(cat) == "string" and cat ~= "" and string.lower(cat) ~= "available" then
-                    name = nil
-                end
-                -- A row with no spell name is a category header, not a spell.
-                if type(name) == "string" and name ~= "" then
-                    if type(info.rank) == "string" and info.rank ~= "" then
-                        name = name .. " (" .. info.rank .. ")"
-                    end
-                    if not bought[name] then
-                        best_idx, best_cost, best_name = i, service, name
-                    end
-                end
+        local n, c, avail = service_row(i)
+        if n and avail and not bought[n] then
+            if c > budget then
+                short = short + 1
+            elseif best_cost == nil or c < best_cost then
+                best_idx, best_cost, best_name = i, c, n
             end
         end
     end
-    return best_idx, best_name, best_cost
+    if best_idx then
+        return best_idx, best_name, best_cost
+    end
+    return nil
 end
 
 -- ----------------------------------------------------------------------------
@@ -245,7 +318,6 @@ local SEEK_RANGE = 100
 local SEEK_TRIES = 6
 
 local seek = nil             -- { guid, name, tries } while walking to a trainer
-local trained_level = nil    -- the level last trained at
 local seek_skip_level = nil  -- a level whose trainer never opened
 
 local function class_trainers(player)
@@ -313,11 +385,8 @@ end
 --- Walk to a class trainer in sight after a level-up. True while doing so.
 local function seek_tick(player, now)
     local level = safe(function() return player:get_level() end) or 0
-    if trained_level == nil then
-        -- First look this session: train once if a trainer is in sight.
-        trained_level = level - 1
-    end
-    if level <= trained_level or seek_skip_level == level then
+    -- Every CHECK_EVERY levels (2.104.0), saved per character.
+    if not trainer.due(player) or seek_skip_level == level then
         seek = nil
         return false
     end
@@ -387,6 +456,9 @@ function trainer.tick(player)
         -- The window has closed: the next one is a fresh visit.
         finished = false
         bought_this_visit = 0
+        trained_this_visit = 0
+        expanded = false
+        pending = nil
     elseif finished then
         -- Done with this window. Do not claim the tick: the quest / grind
         -- engine has to run so the bot walks off, which closes the window.
@@ -399,6 +471,33 @@ function trainer.tick(player)
 
     -- 1. A trainer window is open: spend.
     if open then
+        -- Expand every category once, so no rank hides under a collapsed
+        -- header (0 = all lines).
+        if not expanded then
+            expanded = true
+            pcall(function() core.skill.expand_trainer_skill_line(0) end)
+            last_act = now
+            return true
+        end
+        -- Verify the last purchase: gold spent, or the rank no longer offered.
+        if pending then
+            if (now - pending.at) < VERIFY_AFTER then
+                return true
+            end
+            local p = pending
+            pending = nil
+            if gold() < p.gold or not still_available(p.name) then
+                trained_this_visit = trained_this_visit + 1
+                core.log("[Master Farmer - Grindbot] Trained " .. tostring(p.name))
+            elseif (attempts[p.name] or 0) < BUY_TRIES then
+                bought[p.name] = nil          -- not learned: try it again
+                core.log_warning("[Master Farmer - Grindbot] " .. tostring(p.name)
+                    .. " was not learned - retrying.")
+            else
+                core.log_warning("[Master Farmer - Grindbot] Could not train " .. tostring(p.name)
+                    .. " after " .. BUY_TRIES .. " tries - skipping it.")
+            end
+        end
         local idx, name, cost = nil, nil, nil
         if bought_this_visit < MAX_PER_VISIT then
             idx, name, cost = cheapest_affordable()
@@ -411,6 +510,8 @@ function trainer.tick(player)
                 "[Master Farmer - Grindbot] Training %s for %d.%02dg",
                 tostring(name), math.floor(cost / 10000), math.floor((cost % 10000) / 100)))
             bought[name] = true
+            attempts[name] = (attempts[name] or 0) + 1
+            pending = { name = name, gold = gold(), at = now }
             pcall(function() core.quests.buy_trainer_service(idx) end)
             local ok_sb, spellbook = pcall(require, "spellbook")
             if ok_sb and spellbook and type(spellbook.request_rescan) == "function" then
@@ -419,15 +520,26 @@ function trainer.tick(player)
             return true
         end
 
-        -- Nothing left we can afford. Close up and leave it alone until the
-        -- character levels or gets richer.
+        -- Nothing left to train, or nothing left we can afford. The check is
+        -- done for the next CHECK_EVERY levels; close the window (close_trainer
+        -- - close_gossip left it open) so the quest step moves on.
         mark_tried(player)
         forget_bought()
         finished = true
-        trained_level = safe(function() return player:get_level() end) or trained_level
+        note_checked(player)
         seek = nil
-        state.set_note("Trainer", "Training complete")
-        core.log(string.format("[Master Farmer - Grindbot] Training complete (%d bought).", bought_this_visit))
+        local msg
+        if trained_this_visit == 0 and short == 0 then
+            msg = "No new spells to train"
+        elseif short > 0 then
+            msg = string.format("Trained %d spell(s); %d more need more gold", trained_this_visit, short)
+        else
+            msg = string.format("Trained %d spell(s)", trained_this_visit)
+        end
+        state.set_note("Trainer", msg)
+        core.log(string.format("[Master Farmer - Grindbot] %s - next trainer check at level %d.",
+            msg, (checked_level or 0) + CHECK_EVERY))
+        pcall(function() core.quests.close_trainer() end)
         pcall(function() core.quests.close_gossip() end)
         return false
     end
@@ -436,7 +548,7 @@ function trainer.tick(player)
     if not gossip_open() then
         return seek_tick(player, now)
     end
-    if already_tried(player) then
+    if already_tried(player) or not trainer.due(player) then
         return false
     end
     local option = trainer_option()
@@ -446,6 +558,7 @@ function trainer.tick(player)
 
     last_act = now
     forget_bought()
+    expanded = false
     state.set_note("Trainer", "Opening trainer")
     pcall(function() core.quests.select_gossip_option(option) end)
     return true
@@ -459,8 +572,8 @@ function trainer.register_gui(menu)
         tooltip = "When a gossip frame is open at an NPC that trains this class, "
             .. "buy every spell rank the character can afford, cheapest first. "
             .. "Class spells only - talents and professions are never bought. "
-            .. "After a level-up it also walks to a class trainer in sight (within 100 yards) "
-            .. "and trains there, once per level.",
+            .. "Checked every 3 levels: it walks to a class trainer in sight (within 100 yards), "
+            .. "and a RestedXP trainer step before then is skipped.",
     })
 end
 

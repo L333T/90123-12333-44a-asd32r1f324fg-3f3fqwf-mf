@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.112.0
+-- Version: 2.113.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -51,49 +51,9 @@ end
 -- ============================================================================
 -- CALLBACKS
 -- ============================================================================
--- FAILURE CODES (2.112.0), from SentinelNavClient's own source (Client.lua,
--- _fail_navigation / _normalize_fail_reason): the move_to callback is
--- (success, reason, detail). `reason` is the raw message ("HTTP 422: Position
--- not on navmesh", ...), and the normalised code - unreachable,
--- server_timeout, max_stuck_exceeded, max_repath_exceeded - is detail.code.
--- This compared the RAW message against the codes, so none of them ever
--- matched. The nav.failed bus event carries a table ({ fail_reason, ... }),
--- which used to arrive here as "table: 0x...". Both are classified here, the
--- same way Sentinel does it when no code is given.
-local FAIL_CODES = { unreachable = true, server_timeout = true,
-    max_stuck_exceeded = true, max_repath_exceeded = true }
-
-local function fail_code(reason, detail)
-    if type(detail) == "table" and FAIL_CODES[detail.code] then
-        return detail.code, tostring(detail.detail or reason or detail.code)
-    end
-    if type(reason) == "table" then
-        local c = reason.fail_reason or reason.code or reason.reason
-        if FAIL_CODES[c] then return c, tostring(reason.detail or c) end
-        reason = c
-    end
-    local msg = tostring(reason or "")
-    if FAIL_CODES[msg] then return msg, msg end
-    local low = msg:lower()
-    if low:find("timeout", 1, true) or low:find("http 0", 1, true) or low:find("http 5", 1, true) then
-        return "server_timeout", msg
-    end
-    if low:find("max_stuck", 1, true) then return "max_stuck_exceeded", msg end
-    if low:find("max_repath", 1, true) then return "max_repath_exceeded", msg end
-    return "unreachable", msg
-end
-N.fail_code = fail_code
-
-function N.on_nav_done(ok, reason, detail)
+function N.on_nav_done(ok, reason)
     if not R.sn_active then return end           -- stale: we already stopped/switched
-    local r, msg = "arrived", ""
-    if ok ~= true then
-        r, msg = fail_code(reason, detail)
-        local ok_e, el = pcall(require, "errorlog")
-        if ok_e and type(el) == "table" and type(el.trail) == "function" then
-            pcall(el.trail, "sentinel", "leg '%s' failed: %s (%s)", tostring(R.sn_why or ""), r, msg)
-        end
-    end
+    local r = tostring(reason or "")
     if ok == true then
         R.sn_active, R.sn_reason = false, r
         R.sn_leash_hold = false
@@ -112,12 +72,7 @@ function N.on_nav_done(ok, reason, detail)
         end
         return
     end
-    -- Remember the failed destination (2.109.0): Sentinel-only travel does not
-    -- re-request it for K.SN_FAIL_HOLD seconds.
-    if R.has_dest then
-        R.sn_fail = { x = R.dest_x, y = R.dest_y, t = izi.now(), reason = r, detail = msg }
-    end
-    if r == "unreachable" or r == "max_repath_exceeded" then
+    if r == "unreachable" or r == "navmesh" or r == "blocked" then
         W.mark_fail("unreachable")
     elseif r == "max_stuck_exceeded" then
         -- Sentinel exhausted its recovery. Hand back to the walker, but do
@@ -175,10 +130,8 @@ local function on_sn_recovered()
     dlog("sentinel", "stuck recovered")
 end
 
-local function on_sn_failed(data)
-    -- nav.failed carries { fail_reason, destination } (a table), the legacy
-    -- "failed" event nothing; fail_code handles both.
-    on_nav_done(false, data or "failed")
+local function on_sn_failed(reason)
+    on_nav_done(false, reason or "failed")
 end
 
 local function on_plan_done(ok, data)
@@ -324,23 +277,14 @@ local function log_opts(c)
     end
 end
 
--- LOOSE HEIGHT (2.112.0). The server finds a destination's polygon in three
--- tiers, (6,6,3) (10,10,6) (50,50,50) yards; its docs say to pass z_extent
--- when a position's height is imprecise. A quest waypoint whose height is
--- still the player's own (no navmesh answer yet) is flagged z_loose and gets
--- a wide vertical search instead of a 422.
-local LOOSE_Z_EXTENT = 250
-
 --- move_to options for this leg, or nil (Sentinel's own defaults).
-local function leg_opts(c, p)
+local function leg_opts(c)
     log_opts(c)
-    local loose = type(p) == "table" and rawget(p, "z_loose") == true
-    local extra = loose and { z_extent = LOOSE_Z_EXTENT } or nil
     local indoors = false
     pcall(function() indoors = izi.me():is_indoors() == true end)
-    if not indoors or type(c.get_path_opts) ~= "function" then return extra end
+    if not indoors or type(c.get_path_opts) ~= "function" then return nil end
     local ok, base = pcall(c.get_path_opts, c)
-    if not ok or type(base) ~= "table" then return extra end
+    if not ok or type(base) ~= "table" then return nil end
     local out = {}
     for k, v in pairs(base) do
         if loose_key(k) and type(v) == "number" then
@@ -354,16 +298,14 @@ local function leg_opts(c, p)
         end
     end
     R.sn_tight = true
-    if extra then out.z_extent = extra.z_extent end
     return out
 end
 
 function N.move(p, why)
     if R.cur_owner == OWNER.COMBAT then return false end
     -- Benched by the re-pathing ladder (2.84.0): its plan made no progress,
-    -- so the walker's steering gets the next legs. Not with Sentinel-only
-    -- travel (2.109.0), where the ladder re-plans through Sentinel instead.
-    if not K.SENTINEL_TRAVEL and izi.now() < (R.sn_bench_until or 0) then return false end
+    -- so the walker's steering gets the next legs.
+    if izi.now() < (R.sn_bench_until or 0) then return false end
     local now = izi.now()
     if (now - R.sn_last_issue_t) < SN_MIN_GAP then
         R.sn_refused = R.sn_refused + 1
@@ -388,7 +330,7 @@ function N.move(p, why)
     R.sn_leash_hold = true
     R.sn_watch_t = izi.now()
     R.sn_tight = false
-    local opts = leg_opts(c, p)
+    local opts = leg_opts(c)
     local ok
     if opts then
         ok = pcall(c.move_to, c, to_vec3(p), on_nav_done, opts)
@@ -418,33 +360,6 @@ end
 -- leg is now dropped once the character has not moved SN_STALL_YD in
 -- SN_STALL_SEC while not casting, and the next move is issued afresh.
 local SN_STALL_SEC = 4.0
-
--- STILL PLANNING (2.111.0). A long path request (thousands of yards) keeps
--- Sentinel in "awaiting_path" for 4-5 s. The stall check and the re-path
--- ladder counted that as "no progress", dropped the leg and jumped, and the
--- request was sent again - the idle / awaiting_path loop in the console. A
--- leg that is still being planned is waited on, up to SN_PLAN_MAX seconds.
-local SN_PLAN_MAX = 15.0
-local plan_since = nil
-
---- Is Sentinel still computing the path for the leg in flight?
-function N.planning()
-    if not R.sn_active then plan_since = nil return false end
-    local c = R.sn_client
-    if type(c) ~= "table" or type(c.get_full_state) ~= "function" then return false end
-    local ok, st = pcall(c.get_full_state, c)
-    -- awaiting_path, repathing and deferred (a move_to made while casting)
-    -- are all "path not in hand yet" - the grouping Sentinel's own questing
-    -- adapter uses (2.112.0).
-    if not ok or type(st) ~= "string"
-        or not (st:find("awaiting", 1, true) or st:find("repathing", 1, true) or st:find("deferred", 1, true)) then
-        plan_since = nil
-        return false
-    end
-    local t = izi.now()
-    plan_since = plan_since or t
-    return (t - plan_since) < SN_PLAN_MAX
-end
 local SN_STALL_YD = 1.5
 local stall_x, stall_y, stall_t = nil, nil, 0
 
@@ -456,7 +371,7 @@ local function stall_check(t)
     pcall(function() casting = me:is_channeling_or_casting() == true end)
     local pos = nil
     pcall(function() pos = me:get_position() end)
-    if casting or not pos or N.planning() then
+    if casting or not pos then
         stall_x, stall_y, stall_t = nil, nil, t
         return false
     end

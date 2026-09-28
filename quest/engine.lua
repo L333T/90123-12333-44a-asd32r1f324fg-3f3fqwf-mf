@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.93.0
+-- Version: 2.94.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -51,7 +51,7 @@ local ARRIVE = 3.0            -- yards: standing on a waypoint
 local TALK_REACH = 4.0        -- yards: close enough to interact
 local TALK_SEARCH = 12.0      -- yards around the waypoint to look for a giver
 local ACT_GAP = 1.5           -- seconds between interacts / item uses
-local MOB_RANGE = 50          -- yards: named quest mobs
+local MOB_RANGE = 100         -- yards: named quest mobs (2.94.0: the shared enemy scan)
 local OBJECT_RANGE = 40       -- yards: quest objects on the ground
 local CAMP_RADIUS = 45        -- yards around a waypoint for unnamed drop sources
 

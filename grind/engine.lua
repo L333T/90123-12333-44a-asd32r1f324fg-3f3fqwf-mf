@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.93.0
+-- Version: 2.94.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -211,10 +211,8 @@ function grind.kill_mobs(player)
     end
     local zone = current_zone(player)
     local mobs = zone and zone.mobs or nil
-    local pull = 50
-    if zone and type(zone.pull) == "number" and zone.pull > 0 then
-        pull = zone.pull
-    end
+    -- 100 yd for every class and zone (2.94.0); the nearest valid mob wins.
+    local pull = targeting.ENEMY_SCAN or 100
     local enemies = targeting.find_mobs(player, mobs, pull, true)
     local unit = targeting.nearest(player, enemies)
     if unit then

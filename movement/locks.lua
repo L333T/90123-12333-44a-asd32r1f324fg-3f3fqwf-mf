@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest lock and cast / channel / loot locks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.104.0
+-- Version: 2.105.0
 -- ============================================================================
 -- Locks pause the walker by reason, so a cast finishing can never un-pause a
 -- stun or a food break. Releasing a cast lock touches only the cast and loot
@@ -62,12 +62,21 @@ function Lk.is_resting() return R.rest_lock end
 -- engage refuse every other move. It always ends with move_backward_stop -
 -- on time, on a rest, on a halt, on death - and normal movement picks up on
 -- the next tick.
+--
+-- JUMP (2.105.0): BACKPEDAL_JUMP_AT seconds into the backward walk the player
+-- jumps, still moving backward; the jump key is let go (ascend_stop)
+-- JUMP_RELEASE later. The backpedal timer itself is unchanged.
+local BACKPEDAL_JUMP_AT = 0.5
+local JUMP_RELEASE = 0.15
+
 function Lk.backpedal(seconds)
     local t = izi.now()
     if R.backpedal_until then return false end
     O.halt_all()
     W.set_pause("backpedal", true)
     R.backpedal_until = t + (tonumber(seconds) or 3)
+    R.backpedal_jump_at = t + BACKPEDAL_JUMP_AT
+    R.backpedal_jump_release = nil
     pcall(core.input.move_backward_start)
     dlog("backpedal", string.format("backing off for %.1fs", tonumber(seconds) or 3))
     return true
@@ -76,6 +85,11 @@ end
 function Lk.backpedal_stop()
     if not R.backpedal_until then return end
     R.backpedal_until = nil
+    R.backpedal_jump_at = nil
+    if R.backpedal_jump_release then
+        R.backpedal_jump_release = nil
+        pcall(core.input.ascend_stop)
+    end
     pcall(core.input.move_backward_stop)
     W.set_pause("backpedal", false)
     dlog("backpedal", "stopped")
@@ -87,6 +101,15 @@ function Lk.backpedal_tick(t)
     if t >= R.backpedal_until or R.rest_lock then
         Lk.backpedal_stop()
         return false
+    end
+    if R.backpedal_jump_at and t >= R.backpedal_jump_at then
+        R.backpedal_jump_at = nil
+        R.backpedal_jump_release = t + JUMP_RELEASE
+        pcall(core.input.jump)
+        dlog("backpedal", "jump")
+    elseif R.backpedal_jump_release and t >= R.backpedal_jump_release then
+        R.backpedal_jump_release = nil
+        pcall(core.input.ascend_stop)
     end
     return true
 end

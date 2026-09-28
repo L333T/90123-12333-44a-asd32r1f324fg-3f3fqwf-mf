@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.94.0
+-- Version: 2.95.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -745,6 +745,7 @@ local ACTIONS = {
     trainer         = "talk",
     vendor          = "talk",
     fp              = "talk",
+    fly             = "fly",        -- 2.95.0: take a flight to the named node
     stable          = "talk",
 
     -- fight
@@ -1242,6 +1243,12 @@ local function fightable(player, u)
         and call(u.is_player, u) ~= true
         and call(u.is_tap_denied, u) ~= true
         and call(player.can_attack, player, u) ~= false) then
+        return false
+    end
+    -- Never more than 5 levels above the player (2.95.0).
+    local my_lvl = call(player.get_level, player)
+    local lvl = call(u.get_level, u)
+    if type(my_lvl) == "number" and type(lvl) == "number" and lvl > my_lvl + 5 then
         return false
     end
     -- Not one movement has given up on (2.84.0, the re-pathing ladder).

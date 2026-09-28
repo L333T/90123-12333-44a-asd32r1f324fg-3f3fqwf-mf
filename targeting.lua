@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.94.0
+-- Version: 2.95.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -204,6 +204,76 @@ function targeting.can_see(player, unit)
     return v
 end
 
+-- ----------------------------------------------------------------------------
+-- 360-DEGREE ENEMY SCAN (2.95.0)
+-- ----------------------------------------------------------------------------
+-- Every visible object, not the SDK's "enemy" list (which leaves out neutral
+-- mobs): each living, attackable unit within ENEMY_SCAN yards of the player's
+-- x, y, z - all the way round, 3D distance - sorted into
+--   attack  up to LEVEL_CAP above the player: candidates for a fight
+--   avoid   hostile and more than LEVEL_CAP above: never targeted, and their
+--           positions go to movement's danger map so paths keep clear
+-- Cached SCAN_TTL.
+local LEVEL_CAP = 5
+local SCAN_TTL = 0.25
+local DANGER_RADIUS = 12
+local scan = { t = -1, attack = {}, avoid = {} }
+
+function targeting.scan_enemies(player)
+    local now = izi.now()
+    if (now - scan.t) < SCAN_TTL then
+        return scan.attack, scan.avoid
+    end
+    scan.t = now
+    local attack, avoid = {}, {}
+    if not player then
+        scan.attack, scan.avoid = attack, avoid
+        return attack, avoid
+    end
+    local pos = call(player.get_position, player)
+    local my_lvl = call(player.get_level, player) or 1
+    local list = targeting.visible_objects()
+    local range = targeting.ENEMY_SCAN
+    local danger = {}
+    if pos and type(list) == "table" then
+        for i = 1, #list do
+            local u = list[i]
+            if indexable(u) and call(u.is_valid, u) == true and call(u.is_unit, u) == true
+                and call(u.is_dead_or_ghost, u) ~= true and call(u.is_player, u) ~= true
+                and call(player.can_attack, player, u) == true then
+                local up = call(u.get_position, u)
+                if up then
+                    local dx, dy, dz = up.x - pos.x, up.y - pos.y, up.z - pos.z
+                    if dx * dx + dy * dy + dz * dz <= range * range then
+                        local lvl = call(u.get_level, u) or 1
+                        if lvl > my_lvl + LEVEL_CAP then
+                            if call(u.is_enemy_with, u, player) == true then
+                                avoid[#avoid + 1] = u
+                                danger[#danger + 1] = { x = up.x, y = up.y, z = up.z, r = DANGER_RADIUS }
+                            end
+                        else
+                            attack[#attack + 1] = u
+                        end
+                    end
+                end
+            end
+        end
+    end
+    scan.attack, scan.avoid = attack, avoid
+    local ok_m, movement = pcall(require, "movement")
+    if ok_m and type(movement) == "table" and type(movement.set_danger) == "function" then
+        pcall(movement.set_danger, danger)
+    end
+    return attack, avoid
+end
+
+--- Too high to fight: more than LEVEL_CAP levels above the player.
+function targeting.too_high(player, unit)
+    local my_lvl = call(player.get_level, player)
+    local lvl = call(unit.get_level, unit)
+    return type(my_lvl) == "number" and type(lvl) == "number" and lvl > my_lvl + LEVEL_CAP
+end
+
 local function id_wanted(npc_id, mobs)
     if type(mobs) ~= "table" or #mobs == 0 then
         return true
@@ -250,7 +320,16 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
     if not pos then
         return found
     end
-    local list = enemy_units(player, pos, range)
+    -- The 360-degree scan's attack list (2.95.0), trimmed to `range`.
+    local list = {}
+    local all = targeting.scan_enemies(player)
+    for i = 1, #all do
+        local u = all[i]
+        local d = call(player.distance_to, player, u)
+        if type(d) == "number" and d <= range then
+            list[#list + 1] = u
+        end
+    end
     local ok_mv, movement = pcall(require, "movement")
     if not ok_mv then
         movement = nil
@@ -285,6 +364,10 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
                     local level_ok = true
                     if type(band) == "number" then
                         level_ok = diff >= -band and diff <= band
+                    end
+                    -- Never more than 5 above (2.95.0), whatever the band says.
+                    if diff > LEVEL_CAP then
+                        level_ok = false
                     end
                     if id_wanted(npc_id, mobs) and level_ok then
                         if (not untapped) or (not tap_denied(u)) then

@@ -3,7 +3,7 @@
 -- movement/steer.lua - candidate steering
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.94.0
+-- Version: 2.95.0
 -- ============================================================================
 -- Everything that decides WHERE to hop next. Nothing in this file issues a
 -- command - it only returns pool points for an actuator module to act on.
@@ -38,6 +38,12 @@ local S = {}
 --- Is `c` an acceptable hop from `from` (optionally with LoS to `goal`)?
 function S.cand_ok(from, c, goal, need_los)
     if blocked_xy(c.x, c.y) then return false end
+    -- Not into a too-high mob's aggro radius (2.95.0), unless the goal
+    -- itself is there.
+    if Z.dangerous_xy(c.x, c.y) and not (goal and Z.dangerous_xy(goal.x, goal.y)) then return false end
+    -- nor through one on the way
+    local mx, my = (from.x + c.x) * 0.5, (from.y + c.y) * 0.5
+    if Z.dangerous_xy(mx, my) and not (goal and Z.dangerous_xy(goal.x, goal.y)) then return false end
     if not L.allows(from, c) then return false end
     if not walk_open(from, c) then return false end
     if need_los and goal and not los_open(c, goal) then return false end

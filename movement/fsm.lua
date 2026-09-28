@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.94.0
+-- Version: 2.95.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -80,7 +80,9 @@ local function look_ahead(t)
         local s = LOOKAHEAD / remain
         ahead = pt(R.P_MID, x + (R.dest_x - x) * s, y + (R.dest_y - y) * s, z + (R.dest_z - z) * s)
     end
-    if U.corridor(here, ahead) ~= false then return end     -- clear, or no budget: keep going
+    -- Walking into a too-high mob's radius counts as blocked (2.95.0).
+    local danger_ahead = Z.dangerous_xy(ahead.x, ahead.y) and not Z.dangerous_xy(R.dest_x, R.dest_y)
+    if not danger_ahead and U.corridor(here, ahead) ~= false then return end
     if not S_mod then
         local ok, m = pcall(require, "movement/steer")
         S_mod = ok and m or false

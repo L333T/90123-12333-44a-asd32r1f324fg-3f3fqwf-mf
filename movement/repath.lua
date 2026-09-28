@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.116.0
+-- Version: 2.117.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -225,11 +225,23 @@ function RP.update(t)
 end
 
 --- The fsm stuck check hands over here instead of cancelling on its own.
+-- ARRIVED, NOT STUCK (2.117.0). Standing still within NEAR_DONE yards of a
+-- travel target (at the NPC, next to the corpse) is arrival: the logs showed
+-- "no progress toward the nav for 0s (3 yd) - re-planning" with the
+-- character already at the quest giver. The move is simply finished.
+local NEAR_DONE = 5.0
+
 function RP.stuck_now(t)
     local x, y, z, key, kind = current_goal()
     if not x then return false end
     local hx, hy = here_xyz()
     if not hx then return false end
+    if kind ~= "combat" and dist2(hx, hy, x, y) <= NEAR_DONE then
+        W.clear_dest()
+        W.halt()
+        g.key = nil
+        return true
+    end
     if key ~= g.key then reset(key, dist2(hx, hy, x, y), t) end
     escalate(x, y, z, kind, dist2(hx, hy, x, y), t)
     return true

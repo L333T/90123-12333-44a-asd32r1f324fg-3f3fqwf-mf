@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.116.0
+-- Version: 2.117.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -973,6 +973,7 @@ local TRAVEL_BLOCK = 300       -- seconds a goal is walked after a failed flight
 local taxi_nodes = nil
 -- g_trip ({ key, start, target, tried, fm_guid, fm_tries }) is declared with g_flight.
 local g_trip_block = {}        -- goal key -> time before which no flight is planned
+local g_map_logged = false
 
 local function catalog()
     if taxi_nodes == nil then
@@ -1057,9 +1058,28 @@ local function far_travel(player, goal, kind, wps, label)
     end
     if (g_trip_block[key] or 0) > izi.now() then return false end
     local cat = catalog()
-    local map = safe(function() return core.get_map_id() end)
     local fkey = faction_key(player)
-    if not cat or type(map) ~= "number" then return false end
+    if not cat then return false end
+    -- CONTINENT (2.117.0). The catalog uses continent ids (0 Eastern Kingdoms,
+    -- 1 Kalimdor, 530 Outland). core.get_map_id() is only documented as "the
+    -- current map"; the 02:18 log refused a 3795 yd trip from Lakeshire with
+    -- "no flight point shortens it", which is what a non-continent id gives.
+    -- Anything else is replaced by the continent of the nearest flight point.
+    local raw_map = safe(function() return core.get_map_id() end)
+    local map = raw_map
+    if map ~= 0 and map ~= 1 and map ~= 530 then
+        local best_d = nil
+        for i = 1, #cat.nodes do
+            local n = cat.nodes[i]
+            local d = d2(here, n)
+            if best_d == nil or d < best_d then map, best_d = n.map, d end
+        end
+    end
+    if type(map) ~= "number" then return false end
+    if not g_map_logged then
+        g_map_logged = true
+        trail("travel", "core.get_map_id() = %s -> continent %s", tostring(raw_map), tostring(map))
+    end
 
     -- Plan once per goal: nearest start point, and is a flight worth it at all?
     if not g_trip or g_trip.key ~= key then
@@ -1074,7 +1094,9 @@ local function far_travel(player, goal, kind, wps, label)
             end
         end
         if not start or near_goal == nil or sd + near_goal > dist * TRAVEL_GAIN then
-            return trip_fail(key, string.format("no flight point shortens the %.0f yd trip", dist))
+            return trip_fail(key, string.format(
+                "no flight point shortens the %.0f yd trip (continent %s, %s, nearest %s %.0f yd, best landing %.0f yd from goal)",
+                dist, tostring(map), tostring(fkey), start and start.name or "none", sd or -1, near_goal or -1))
         end
         g_trip = { key = key, start = start, target = { x = target.x, y = target.y, z = target.z },
             tried = {}, fm_guid = nil, fm_tries = 0 }

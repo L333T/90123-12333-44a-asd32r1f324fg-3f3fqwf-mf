@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.118.0
+-- Version: 2.119.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1561,6 +1561,7 @@ function guide.find_path_mob(player, dest, range, cone, below, above)
         return nil, nil
     end
     local best, best_d = nil, nil
+    local count = 0              -- 2.119.0: hostiles in range
     for i = 1, #list do
         local u = list[i]
         if fightable(player, u) and not camp_excluded(u) then
@@ -1569,18 +1570,21 @@ function guide.find_path_mob(player, dest, range, cone, below, above)
             if hostile and lvl >= my_level - (below or 4) and lvl <= my_level + (above or 3) then
                 local pos = call(u.get_position, u)
                 local d = call(player.distance_to, player, u)
-                if pos and type(d) == "number" and d <= (range or 20) and (best_d == nil or d < best_d) then
+                if pos and type(d) == "number" and d <= (range or 20) then
                     local ux, uy = pos.x - me.x, pos.y - me.y
                     local ul = math.sqrt(ux * ux + uy * uy)
                     -- Right beside the player counts whatever the angle.
                     if ul < 5 or (ux * hx + uy * hy) / ul >= cos_cone then
-                        best, best_d = u, d
+                        count = count + 1
+                        if best_d == nil or d < best_d then
+                            best, best_d = u, d
+                        end
                     end
                 end
             end
         end
     end
-    return best, best_d
+    return best, best_d, count
 end
 
 --- The npc id of whatever is currently targeted, or nil.

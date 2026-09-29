@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Purpose: TBC + IZI gate. Not class-locked. Start is gated by rotation registry.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.121.0
+-- Version: 2.122.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -23,7 +23,10 @@ if not local_player or not local_player:is_valid() then
     return plugin
 end
 
-if core.get_game_version() ~= "Tbc" then
+-- TBC Classic ("Tbc") and WoW Forever ("Forever", 2.122.0 / loader 1.1.1).
+-- gamever.lua is not loaded yet here, so the two names are checked inline.
+local game_version = core.get_game_version()
+if game_version ~= "Tbc" and game_version ~= "Forever" then
     plugin["load"] = false
     return plugin
 end

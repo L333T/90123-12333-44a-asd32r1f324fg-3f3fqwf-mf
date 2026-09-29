@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.123.0
+-- Version: 2.124.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1006,6 +1006,10 @@ end
 
 local function node_usable(n, map, fkey)
     if n.map ~= map then return false end
+    -- Not on this game version (WoW Forever: no Outland, no TBC-added
+    -- flight points, 2.124.0).
+    local cat = catalog()
+    if cat and type(cat.in_game) == "function" and not cat.in_game(n) then return false end
     if fkey == "alliance" then return n.alliance == true end
     if fkey == "horde" then return n.horde == true end
     return n.alliance == true or n.horde == true
@@ -1083,8 +1087,10 @@ local function far_travel(player, goal, kind, wps, label)
         local best_d = nil
         for i = 1, #cat.nodes do
             local n = cat.nodes[i]
-            local d = d2(here, n)
-            if best_d == nil or d < best_d then map, best_d = n.map, d end
+            if type(cat.in_game) ~= "function" or cat.in_game(n) then
+                local d = d2(here, n)
+                if best_d == nil or d < best_d then map, best_d = n.map, d end
+            end
         end
     end
     if type(map) ~= "number" then return false end

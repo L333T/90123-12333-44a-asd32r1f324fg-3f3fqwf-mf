@@ -31,7 +31,7 @@
 -- ============================================================================
 
 local LOADER_KEY     = "MFG_HTTP_LOADER"
-local LOADER_VERSION = "1.1.0"
+local LOADER_VERSION = "1.1.1"   -- 1.1.1: loads on WoW Forever too
 
 local plugin = {}
 plugin["name"]      = "Master Farmer - Grindbot (HTTP)"
@@ -51,7 +51,10 @@ if not local_player or not local_player:is_valid() then
     return refuse(nil)                       -- not in world yet; silent
 end
 
-if core.get_game_version() ~= "Tbc" then
+-- TBC Classic ("Tbc") and WoW Forever ("Forever", 2.122.0 / loader 1.1.1).
+-- gamever.lua is not loaded yet here, so the two names are checked inline.
+local game_version = core.get_game_version()
+if game_version ~= "Tbc" and game_version ~= "Forever" then
     return refuse(nil)                       -- wrong client; silent
 end
 

@@ -1,0 +1,65 @@
+---
+description: Geometry rules — vector_2/vector_3 requires and colon methods, the type-only geometry.lua shape stub, IZI re-exports, and why prediction geometry enums are not shape classes.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# Geometry
+
+Stubs: `.api/common/geometry/vector_2.lua`, `vector_3.lua`, `geometry.lua`.
+
+## Vectors
+
+```lua
+---@type vec3
+local vec3 = require("common/geometry/vector_3")
+
+---@type vec2
+local vec2 = require("common/geometry/vector_2")
+
+local p = vec3.new(x, y, z)          -- new() takes no self
+local d = p:dist_to(other)           -- instance methods are colon
+```
+
+- `new` has no `self` → **dot**. Everything with `fun(self: vec3, ...)` → **colon**.
+- `vec2` also declares a `z` field despite the name. Do not treat its presence as proof a value is 3D.
+- `vec3` adds `cross`, `project_2d`, `rotate_3d_radians`, the `dist_to_line_segment` family, and the ignore-z distances.
+- Use `dist_to_ignore_z` / `squared_dist_to_ignore_z` for ground distance; plain `dist_to` includes height and will misjudge units above or below you.
+- Prefer the squared variants for comparisons; do not add your own square root.
+- `vector_2.dot_product(v1, v2)` is declared without `self` → dot.
+
+Do not mix screen-space and world-space vectors. Confirm which space a function expects before passing a vector to it.
+
+## Shapes — `geometry.lua` is type-only
+
+`geometry.lua` declares `circle`, `rectangle`, `cone`, and `circle_data`, but has **no `return` and no require example**. Do not write `require("common/geometry/geometry")` on the assumption that it loads. Either obtain the shape from a verified source (see the IZI re-exports below) or confirm the runtime module layout first.
+
+Shape class methods take `self` → colon:
+
+```lua
+local c = circle:create(center, radius)
+local hit = c:get_enemies_inside()
+c:draw_with_counter(#hit)
+```
+
+Also available per shape: `:is_inside(point, hitbox)`, `:get_units_inside(list)`, `:get_allies_inside(override?)`, `:draw()`. `circle` additionally has `:get_optimal_hit_position(search_center, search_radius, max_range, include_enemies, include_allies)` returning `circle_data`. `cone` has `:create_direction(center, direction, radius, angle)` and `:create_unit_frontal(unit, radius, angle)`, where direction comes from `obj:direction()`.
+
+## IZI re-exports use different signatures
+
+`izi_api` exposes callable geometry constructors whose parameters do **not** match the class `:create` methods:
+
+| IZI call | Class method |
+|---|---|
+| `izi.circle(center, radius)` | `circle:create(center, radius)` |
+| `izi.rectangle(min, max)` | `rectangle:create(origin, destination, width, length?)` |
+| `izi.cone(origin, direction, angle, range)` | `cone:create(center, destination, radius, angle)` |
+
+Note the cone argument order differs between the two. Pick one path per file and copy its exact signature. `izi.vec2` and `izi.vec3` are callable the same way (`izi.vec3(x, y, z)`).
+
+## Prediction enums are not shapes
+
+`spell_prediction.geometry_type` (`CIRCLE` / `RECTANGLE` / `CONE`) selects a prediction model. IZI cast options take `geometry` as `"CIRCLE"|"LINE"|number`. Neither is a drawable shape object. Do not pass an enum where a shape is expected, or invent a `LINE` shape class — the shape stub has no such class.
+
+## Never invent
+
+Vector methods, shape constructors, argument orders, or a shape module path that no stub declares.

@@ -1,0 +1,51 @@
+---
+description: unit_manager proxy rules — the require path is root/core_lua/proxy/unit_manager, not common/unit_manager. Prefer IZI or unit_helper lists for plugin code.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# unit_manager (proxy)
+
+Stub: `.api/common/unit_manager.lua`. The stub's location does **not** match its require path.
+
+## Require path
+
+```lua
+---@type unit_manager
+local unit_manager = require("root/core_lua/proxy/unit_manager")
+```
+
+`require("common/unit_manager")` is wrong even though the stub file sits in `common/`. Use the path the stub's own example declares.
+
+## Surface
+
+Every method declares `fun(self: unit_manager, ...)` → **colon**.
+
+```lua
+:get_cache_unit_list()                -- unit_packet[]
+:get_cache_unit_list_raw()            -- unit_packet[]
+:get_cache_object_list(only_basic?)   -- object_packet[]
+:get_cache_objects_list_raw(only_basic?)
+:get_enemies_around_point(point?, range?, players_only?, include_dead?)
+:get_allies_around_point(point?, range?, players_only?, party_only?, include_dead?)
+:process()
+```
+
+Note the inconsistent naming between `get_cache_object_list` and `get_cache_objects_list_raw` — copy it exactly.
+
+A `unit_packet` carries `ptr` (the `game_object`), `is_unit`, `is_player`, `is_ally`, `is_enemy`, `health` (`{ max, current }`), `position`, and `distance_to_player_sqr`. Distance is **squared** — compare against a squared threshold, do not add a square root.
+
+The packet is not a `game_object`. Use `packet.ptr` before calling unit methods.
+
+## Prefer something else in plugin code
+
+This is a low-level proxy. For normal plugin work use:
+
+- `izi.enemies(radius?, players_only?)` / `izi.friends(...)` when the file already uses IZI.
+- `unit_helper:get_enemy_list_around(...)` / `:get_ally_list_around(...)` for the cached legacy path.
+
+Only reach for `unit_manager` when the proxy is known to be loaded and you specifically need the packet cache. Do not call `:process()` unless you own the cache lifecycle — the host normally does.
+
+## Never invent
+
+Extra filter parameters, packet fields, or a `common/unit_manager` require path.

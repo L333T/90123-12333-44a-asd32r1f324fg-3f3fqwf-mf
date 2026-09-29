@@ -1,0 +1,52 @@
+---
+description: wow_api_clone rules — only the Blizzard-style globals this stub publishes exist, and only after require("common/wow_api_clone"). Prefer core/IZI where both exist.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# wow_api_clone
+
+Stub: `.api/common/wow_api_clone.lua`.
+
+## It is a side-effect require
+
+```lua
+require("common/wow_api_clone")   -- publishes the globals below
+```
+
+The stub is IntelliSense only. Per its own note: if nothing in the session requires the module, **these names are nil at runtime**. Never call them in a file that does not require it (or cannot prove another loaded file did).
+
+## The complete global list
+
+Nothing outside this list exists.
+
+Logging: `print(...)`, `printf(fmt, ...)`, `log(filename, ...)`, `logf(filename, fmt, ...)`
+
+Units: `UnitName`, `UnitIsUnit(a, b)`, `UnitHealth`, `UnitHealthMax`, `UnitPower(unit, powerType?)`, `UnitPowerMax(unit, powerType?)`, `UnitCastingInfo`, `UnitChannelInfo`, `UnitThreatSituation(unit, target)`, `UnitAuras`, `UnitExists`, `UnitGUID`, `UnitIsDeadOrGhost`, `UnitCanAttack(unit, target)`, `UnitInRange`
+
+Spells and items: `IsSpellInRange(spell, unit)`, `IsUsableSpell(spell)`, `GetSpellCooldown(spell)`, `GetSpellCharges(spell)`, `GetTotemInfo(index)`, `GetWeaponEnchantInfo()`, `GetInventoryItemID(unit, slotId)`, `CastSpell(unit, spell, message?)`
+
+Misc: `GetTime()`, `GetTimePreciseSec()`, `CheckInteractDistance(unit, distIndex?)`, `IsKeyDown(key)`, `GetTarget()`, `GetNumGroupMembers()`, `POWER`, `C_Timer.After(delay, func)`
+
+A `WowUnit` is `string|game_object`, so these accept either a unit token or a real object.
+
+## Return values are multi-value and not boolean
+
+Check the stub before branching:
+
+- `IsSpellInRange` returns `1|0|nil`, **not** a boolean.
+- `IsUsableSpell` returns `(usable, notEnoughMana)`.
+- `GetSpellCooldown` returns `(start, duration, enabled)`.
+- `GetSpellCharges` returns four values, each possibly nil.
+- `GetWeaponEnchantInfo` returns eight values.
+- `UnitCastingInfo` / `UnitChannelInfo` return multi-value tuples with nils.
+
+`POWER` is a table of integers (`MANA`, `RAGE`, `FOCUS`, `ENERGY`, `COMBOPOINTS`, `RUNES`, `RUNICPOWER`, `SOULSHARDS`, `LUNARPOWER`) accessed with dot.
+
+## Prefer core / IZI
+
+This is a compatibility shim. When a `core.*` or IZI equivalent exists, use that instead — it is the supported surface and stays consistent with the rest of the plugin. Reach for these globals only for code that genuinely needs the Blizzard-style call.
+
+## Never invent
+
+The rest of the Blizzard Lua API. `UnitBuff`, `UnitDebuff`, `C_Spell.*`, `GetSpellInfo`, `UnitClass`, event frames, and similar do not exist here. Existence in real WoW is not evidence of existence in this shim.

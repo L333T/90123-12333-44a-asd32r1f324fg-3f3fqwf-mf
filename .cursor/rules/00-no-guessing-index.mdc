@@ -1,0 +1,70 @@
+---
+description: Master law for Sylvanas/IZI Lua work. Generate code only from local .api stubs; never invent APIs. Stub map and stop-if-unverified protocol.
+alwaysApply: true
+---
+
+# IZI Lua — No Guessing (master rule)
+
+Install: copy this folder's `.mdc` files into a project's `.cursor/rules/`. The stub root changes with each game install - keep it pointing at the active one (Master_Farmer_Grindbot/AGENTS.md lists it).
+
+## Source of truth
+
+Stub root (this pack was built from it):
+
+`C:\Users\ebene\OneDrive\Documents\3cf70445e7\scripts\.api`
+
+Precedence: workspace `.api` copy (for example `BLIZZ_PROJECTS\.api`) > this root > nothing. GitHub, changelogs, and memory are not sources. **If a symbol is not declared in a stub, it does not exist.**
+
+## Workflow (every Lua task)
+
+1. Identify the architecture already in the file (standalone IZI, legacy `common/modules` stack, existing plugin pattern). Do not mix stacks that the plugin does not already mix.
+2. List every API surface the task needs.
+3. Open the matching stub and read the `---@` annotations as the contract.
+4. Copy exactly: name, `:` vs `.`, parameter order, optional params, return arity.
+5. If a needed symbol is not verifiable, stop and report (below). Do not substitute a plausible name.
+
+## Stop-if-unverified protocol
+
+```text
+UNVERIFIED API
+Name: <symbol>
+Searched: <stub files/dirs opened>
+Result: no declaration found.
+Action: not implemented. Need the correct API or permission to change approach.
+```
+
+Never fabricate: function names, methods, parameters, module paths, enum keys, constants, return values, callback names, or "it probably also has" variants.
+
+## Stub map
+
+| Need | Stub |
+|---|---|
+| Callbacks, `core.*`, input, graphics, object manager | `.api/core.lua` (global `_G.core`, not required) |
+| Native unit methods | `.api/game_object.lua` |
+| IZI factories, casting, patched unit helpers | `.api/common/izi_sdk.lua` |
+| Modern menu | `.api/common/menu/api.lua` (global `_G.menu`) |
+| Legacy menu shim | `.api/common/menu/menu_api.lua` |
+| Queue, buffs, prediction, targets, settings | `.api/common/modules/*.lua` |
+| Unit/spell/movement/PvP/asset helpers | `.api/common/utility/*.lua` |
+| Vectors and shapes | `.api/common/geometry/*.lua` |
+| Enums, colors, aura ID lists | `.api/common/enums.lua`, `common/color.lua`, `common/buff_db.lua` |
+| Standalone window UI | `.api/common/simple_ui.lua` |
+| Blizzard-style globals | `.api/common/wow_api_clone.lua` |
+
+IZI **patches** `game_object`, so unit code needs both `game_object.lua` and `izi_sdk.lua`.
+
+## Output requirements
+
+- Complete, runnable Lua: requires, init, callbacks, real logic.
+- No placeholders, no `-- TODO`, no `-- rest of code here`.
+- Do not require modules the plugin does not use.
+- Comments only for constraints the code cannot express. Never narrate the change.
+
+## Colon vs dot
+
+The stub headers carry a blanket `Warning: Access with ":", not "."`. That warning is unreliable. Decide per declaration:
+
+- `fun(self: x, ...)` → call with `:`
+- `fun(a, b)` with no `self` → call with `.`
+
+Domain rules in this pack list the verified exceptions.

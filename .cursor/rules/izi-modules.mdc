@@ -1,0 +1,89 @@
+---
+description: Rules for require("common/modules/*") — spell_queue, buff_manager, spell_prediction, target_selector, settings_manager, health_prediction, combat_forecast, profiler.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# Common modules (`common/modules/*`)
+
+Stubs: `.api/common/modules/`. Require path is always `common/modules/<name>`.
+
+```lua
+---@type spell_queue
+local sq = require("common/modules/spell_queue")
+```
+
+Most of these declare `fun(self: x, ...)` → call with `:`. Exceptions are listed below.
+
+## spell_queue
+
+Colon. Verified surface:
+
+```lua
+sq:queue_spell_target(spell_id, target, priority, message, allow_movement)
+sq:queue_spell_position(spell_id, position, priority, message, allow_movement)
+sq:queue_item_self(item_id, priority, message)
+sq:queue_item_target(item_id, target, priority, message, wait_for_gcd)
+sq:queue_item_position(item_id, position, priority, message)
+```
+
+- Every `queue_*` has a `_fast` twin that skips the global cooldown. `_fast` is not "higher priority" — it is a different gate.
+- `priority` is a required number in every signature. Stub examples use `1`.
+- `sq:get_queue_snapshot()` and `sq:purge_by_spell(spell_id, target?)` operate on the **normal** queue only; they do not touch the fast queue.
+- There is no dequeue/clear-all API. Do not invent one.
+
+Do not run IZI `spell:cast_safe` and a manual `spell_queue` path for the same spell without a deliberate policy — they both queue.
+
+## buff_manager
+
+Colon. `:get_buff_data(unit, key, custom_cache_duration_ms?)`, plus `get_debuff_data`, `get_aura_data`, and the `*_cache` variants. `remaining` and `expire_time` are **milliseconds**.
+
+Keys are `buff_db` entries or `number[]`. If IZI is already loaded in the file, prefer the patched unit helpers (`unit:has_buff`, `unit:buff_remains`) — they wrap this cache. There is no API to add or remove auras here.
+
+## spell_prediction
+
+Colon. `:new_spell_data(...)` then `:get_cast_position(...)`, `:get_most_hits_position(...)`, `:get_future_position(...)`, and the geometry list getters.
+
+Module enums: `spell_prediction.geometry_type` is `CIRCLE` / `RECTANGLE` / `CONE`; `spell_prediction.prediction_type` is `ACCURACY` / `MOST_HITS`. These are **enums for prediction**, not the drawable shape classes in `common/geometry`. Do not swap them.
+
+## target_selector
+
+`:get_targets(limit?)` and `:get_targets_heal(limit?)` return the host's filtered list. Use them instead of writing a new scanner. The heal list is for friendly targeting only.
+
+`target_selector.menu_elements` is the built-in TS menu table. Do not mutate it casually; per-plugin preferences belong in the session override helper (`common/utility/ts_override_helper`).
+
+## settings_manager
+
+Colon. Order matters: `:set_file_name(name)` → `:attach(element, namespace?)` → `:init()`.
+
+- File name has no extension (`.txt` is appended). `\ / : * ? " < > |` are invalid.
+- `:save` can return false when the file exists; `:save_int` bypasses that.
+- `:apply_attached_settings` skips buttons, keybinds, and trees.
+- Attaching a single element **requires** a namespace.
+- Never touch the internal `_attached` table.
+
+## health_prediction vs combat_forecast
+
+Different concerns; do not substitute one for the other.
+
+- `health_prediction` — `:get_incoming_damage(target, deadline?, is_exception?)`, damage-type split, role helpers.
+- `combat_forecast` — `:get_forecast()`, `:get_forecast_single(unit, include_pvp?)`, `:get_min_combat_length(mode, plugin_name, spell_name)`, `:is_valid_forecast_logic(...)`. Use `get_min_combat_length` instead of hardcoding a seconds threshold. `forecast_lengths` values are `DISABLED`, `VERY_SHORT`, `SHORT`, `MEDIUM`, `LONG`.
+
+## profiler — dot, not colon
+
+The stub header says colon, but the declarations take no `self` and the stub's own example uses dot:
+
+```lua
+---@type profiler
+local profiler = require("common/modules/profiler")
+
+profiler.start(spell_name)
+-- on the failure path:
+profiler.stop(spell_name, true)
+```
+
+Only `start(key)` and `stop(key, is_failed)` exist. No report or dump API.
+
+## Never invent
+
+Cache-invalidation calls, queue removal helpers, extra prediction modes, or forecast thresholds. Open the stub and match the declared parameters.

@@ -1,0 +1,72 @@
+---
+description: Data stub rules — common/enums, common/color, buff_db aura lists, spell_attributes flags, talents_id dump. Constants only; look values up, never recall them.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# Enums and data stubs
+
+Stubs: `.api/common/enums.lua`, `color.lua`, `buff_db.lua`, `spell_attributes.lua`, `talents_id.lua`.
+
+These are **data**, not behavior. Spell IDs, aura IDs, talent IDs, and flag values must be looked up in the stub or passed in by the caller. Never recall a numeric ID from memory.
+
+## enums
+
+```lua
+---@type enums
+local enums = require("common/enums")
+
+local stun = enums.cc_flags.STUN
+```
+
+Constants are plain fields → **dot**, despite the header's blanket colon warning.
+
+Verified groups include `class_id`, `class_id_to_name`, `power_type`, `group_role`, `classification`, `mark_index`, `loss_of_control_type`, `collision_flags`, `spell_schools_flags`, `spell_type`, `trigger_mode`, `buff_db`, `buff_type`, `menu_element_type`, `window_enums`, `class_spec_id`, `class_spec_to_role`, `creature_type`, `cc_source`, `cc_flags`, `damage_type_flags`, `font_id`.
+
+Bitflag helpers are declared without `self` → dot: `enums.cc_flags.combine(a, b)`, `enums.cc_flags.has(value, flag)`. Note the signature difference — `collision_flags.combine` and `spell_schools_flags.combine` take **strings**, while `cc_flags.combine` and `damage_type_flags.combine` take **numbers**. Check which one you are calling.
+
+IZI re-exports the table as `izi.enums`. Same values, same dot access.
+
+## color
+
+```lua
+---@type color
+local color = require("common/color")
+
+local tint = color.white(255)
+local mixed = tint:blend(color.red(255), 0.5)
+```
+
+Named factories (`red`, `green`, `blue`, `white`, `black`, `yellow`, `pink`, `purple`, `gray`, `brown`, `gold`, `silver`, `orange`, `cyan`, plus the `*_pale` set) and `new(r, g, b, a?)` take no `self` → **dot**. Instance mutators (`clone`, `blend`, `set`, `get`, `clamp`) take `self` → **colon**. `:get()` returns four values.
+
+Only use color names declared in the stub. Also exposed as `izi.color`.
+
+## buff_db
+
+`buff_db.lua` declares the class but has **no require and no return**. Reach it through the enums table:
+
+```lua
+local stealth_ids = enums.buff_db.STEALTH
+```
+
+Every value is a `number[]` of aura IDs, never a single number. That matches the `aura_spec` alias (`number|number[]`), so a key can be passed straight to an aura query:
+
+```lua
+if unit:has_debuff(enums.buff_db.REND) then ... end
+```
+
+Do not invent key names. If a needed aura has no key, pass the raw ID or ID list instead.
+
+## spell_attributes
+
+Annotation-only dump of `SPELL_ATTR0` through `SPELL_ATTR14` bitflag tables. No functions, no `return`, no documented require. Do not assume it loads as a module, and do not use it as a spell wrapper.
+
+## talents_id
+
+A comment-only dump in the form `-- 15757  ->  Second Wind`. There is no class, no `return`, and no callable API. Do not write `require("common/talents_id")`.
+
+The header says it was dumped from **11.0.0.56008** (retail). Do not assume those IDs are valid on a Classic or TBC client without verifying against the running product.
+
+## Never invent
+
+Enum keys, numeric flag values, color names, aura ID lists, or talent IDs. If it is not in the stub, look it up or ask — do not approximate.

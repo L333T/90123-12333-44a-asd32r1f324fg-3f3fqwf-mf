@@ -3,7 +3,7 @@
 -- Flight points (taxi nodes) - positions and faction
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.123.0
+-- Version: 2.124.0
 -- ============================================================================
 -- Trimmed from SentinelCore's kernel/catalogs/taxi_nodes.lua, which is
 -- generated from the client's TaxiNodes.dbc (2.4.3). Kept: Eastern Kingdoms
@@ -119,6 +119,24 @@ M.nodes = {
     { id = 205, name = "Zul'Aman, Ghostlands", map = 530, x = 6789.79, y = -7747.58, z = 126.51, alliance = true, horde = true },
 }
 
+-- WOW FOREVER (2.124.0): vanilla content only. Outland (map 530) does not
+-- exist there, nor do the old-world flight points added in TBC - their flight
+-- masters have no Forever NPC page on Wowhead (checked 2026-09-29): Forest
+-- Song (Suralais Farwind), Emerald Sanctuary (Gorrim), Mudsprocket (Dyslix
+-- Silvergrub). Talrendis Point, Marshal's Refuge, Cenarion Hold, Light's Hope
+-- and Thorium Point do exist there.
+local TBC_ONLY = { [166] = true, [167] = true, [179] = true }
+
+--- Does this flight point exist on the running game version?
+function M.in_game(n)
+    if type(n) ~= "table" then return false end
+    local ok, gamever = pcall(require, "gamever")
+    if ok and type(gamever) == "table" and gamever.is_forever() then
+        return n.map ~= 530 and not TBC_ONLY[n.id]
+    end
+    return true
+end
+
 local by_name = nil
 
 --- Catalog entry for a name as the flight map shows it ("Stormwind, Elwynn"),
@@ -138,7 +156,13 @@ function M.find(name)
         end
     end
     local low = name:lower()
-    return by_name.full[low] or by_name.head[low:match("^([^,]+)") or low]
+    local list = by_name.full[low] or by_name.head[low:match("^([^,]+)") or low]
+    if not list then return nil end
+    local out = {}
+    for i = 1, #list do
+        if M.in_game(list[i]) then out[#out + 1] = list[i] end
+    end
+    return #out > 0 and out or nil
 end
 
 return M

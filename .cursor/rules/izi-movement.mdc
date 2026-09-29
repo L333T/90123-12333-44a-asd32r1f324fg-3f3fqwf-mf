@@ -1,0 +1,74 @@
+---
+description: Movement rules — simple_movement waypoints vs movement_handler combat facing vs navmesh. Never drive the same path with two systems.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# Movement
+
+Three separate systems. Never drive the same path or facing with more than one.
+
+| Job | System | Stub |
+|---|---|---|
+| OOC A-to-B, waypoint replay, grind routes | `common/utility/simple_movement` | `.api/common/utility/simple_movement.lua` |
+| Combat facing lock and brief pause for a cast | `common/utility/movement_handler` | `.api/common/utility/movement_handler.lua` |
+| Navmesh pathfinding around geometry | `_G.NavLib` or Sentinel | `.api/third_party/sentinel_nav.lua` |
+
+## simple_movement — waypoints
+
+```lua
+---@type simple_movement
+local movement = require("common/utility/simple_movement")
+
+movement:navigate(waypoints, false, true)   -- (waypoints[], is_loop?, start_from_beginning?)
+
+core.register_on_update_callback(function()
+    local reached = movement:process()      -- MUST run every frame
+end)
+```
+
+- `:process()` every frame or the unit never advances. This is the most common bug.
+- `:move_to_position(vec3)` for a single destination, `:stop()` / `:clear_navigation()` / `:pause()` / `:resume()` for control.
+- Progress and state: `:is_moving()`, `:get_progress()` (0–100), `:get_current_index()`, `:get_remaining_waypoints()`, `:get_state()`.
+- Tuning setters have documented ranges (threshold 1–10, final threshold 0.5–5, turn speed 0.05–0.5, look distance 5–50, smoothing subdivisions 1–20). Stay inside them.
+- Prefer the look_at steering (`:set_use_look_at`) over the legacy turn constants.
+- Flying is marked WIP in the stub; `flying_enabled` reads false. Do not build on it.
+
+This is waypoint replay, **not** navmesh. It walks straight lines between points and will hug geometry.
+
+## movement_handler — combat facing
+
+```lua
+---@type movement_handler
+local movement_handler = require("common/utility/movement_handler")
+
+core.register_on_render_callback(function()
+    movement_handler:on_render()            -- MUST run every frame
+end)
+
+movement_handler:look_at_target(lock_duration, delay, target)
+movement_handler:pause_movement(pause_duration, delay)
+movement_handler:resume_movement(action_delay)
+```
+
+`:on_render()` every frame drives the timers. Without it, locks never release. Also available: `:look_at_position(lock_duration?, delay?, position)`, `:pause_movement_light(...)`, `:unlock_look_at(action_delay?)`, `:get_state()`.
+
+This module is not a navigator. It does not travel anywhere.
+
+## Navmesh
+
+Probe for the global before using it — do not assume which is installed:
+
+```lua
+local nav = _G.NavLib
+if not nav then return end
+```
+
+`_G.SentinelNavClient` is documented in `.api/third_party/sentinel_nav.lua`. Verify method names there before calling. Do not write a wrapper that "normalizes" the two APIs.
+
+## Never invent
+
+- A pathfinding method on `simple_movement`. It has none.
+- A travel method on `movement_handler`.
+- NavLib or Sentinel method names from generic pathfinding vocabulary.
+- Mixing: no `simple_movement:navigate` while a navmesh client owns the same route, and no second facing controller alongside `movement_handler`.

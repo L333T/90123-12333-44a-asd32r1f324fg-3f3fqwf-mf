@@ -1,0 +1,88 @@
+---
+description: Menu rules — _G.menu declarative surface (common/menu/api.lua) vs legacy require("common/menu/menu_api") shim. One surface per settings UI.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# Menus
+
+Two surfaces, two stubs. Pick one per settings UI.
+
+| Surface | Stub | Access |
+|---|---|---|
+| Declarative (recommended for new work) | `.api/common/menu/api.lua` | `local menu = _G.menu` |
+| Legacy imperative shim | `.api/common/menu/menu_api.lua` | `require("common/menu/menu_api")` |
+
+The legacy surface is a proxy that declares widgets in the declarative menu. Do not drive the same feature from both.
+
+## Declarative `_G.menu`
+
+Installed by the host as a global. It is **not** required.
+
+```lua
+local menu = _G.menu
+
+local page = menu:page({ "My Plugin" }, { icon = "widgets" })
+local s = page:section("General", nil, { column = "full" })
+s:checkbox("enabled", "Enable plugin", true)
+s:slider("range", "Attack range", 0, 100, 40, "%")
+
+-- read anywhere, every frame is fine
+local on = menu:get("My Plugin", "enabled")
+```
+
+Rules from the stub:
+
+- Register pages, sections, and widgets **once at load**. Never per frame.
+- `menu:page`, `page:section`, and `section:<widget>` are **colon**. `menu.permashow.*`, `menu.control_panel.*`, and `toast.*` are **dot**.
+- Widget `id` + page path is the persistence key. Renaming an id or moving the widget orphans the saved value and resets to default.
+- The declared default is both the first-run value and the right-click reset value. To change a value live use `menu:set`, do not redeclare the widget.
+- Poll with `menu:get(path, id)`. Use `menu:on_change` only for side effects that must fire immediately.
+
+Value shapes returned by `menu:get` / expected by `menu:set`:
+
+| Widget | Value |
+|---|---|
+| toggle, checkbox | `boolean` |
+| slider | `number` |
+| dropdown, radio, tabs, color | `integer`, **1-based** |
+| keybind | `menu_keybind_value` (read `.active`, not a boolean) |
+| text_input | `string` |
+| color_picker | `menu_rgba` |
+| multi_select | `boolean[]` mask |
+| priority_list, reorderable_dropdown | `integer[]` permutation |
+
+Keybinds: `mode` defaults to `"hold"`. Omitting `modes` locks the mode. Only include `"release"` if the plugin actually implements release behavior.
+
+Do not write to `scripts_data/menu/` internals. Persistence is host-driven; plugins rarely call the flush helpers.
+
+## Legacy `common/menu/menu_api`
+
+```lua
+local legacy = require("common/menu/menu_api")
+local root = legacy.new_tree("my_plugin_root", { icon = "widgets" })
+local enabled = legacy.new_checkbox("my_plugin_enabled", true)
+
+core.register_on_render_menu_callback(function()
+    root:render("My Plugin", function()
+        enabled:render("Enabled")
+    end)
+end)
+```
+
+- Factories are **dot** (`legacy.new_checkbox`), element methods are **colon** (`enabled:render`).
+- Construct elements once at file scope; render from `core.register_on_render_menu_callback`.
+- Tree depth maps to layout: top level → page, depth 1 → section, depth 2+ → subsection. Elements outside a tree land in an implicit "Options" section.
+- Per-element styling option tables are accepted but **ignored** except the fields the stub marks live. Do not build a design on them.
+- Shim limitations in the stub: some `is_hovered` / `is_clicked` helpers return false, `is_open` is always true. Do not branch on them.
+- This surface cannot declare WoW modifier chords. Use `_G.menu` keybinds for that.
+- Prefix ids with the plugin name — ids are persistence keys.
+- Host lifecycle functions (`begin_frame`, build-mode setters) are not for plugins. Retired functions are no-ops; do not call them to "make it work".
+
+## Do not mix
+
+Per settings surface, choose one of: `_G.menu`, `common/menu/menu_api`, `common/simple_ui`, or a `core.menu.window` custom window. `settings_manager` examples reference `core.menu.*`, which is yet another surface — verify what the plugin already uses before adding widgets.
+
+## Never invent
+
+Widget kinds, option fields, value shapes, or 0-based indices. Read the stub's widget list before adding a control.

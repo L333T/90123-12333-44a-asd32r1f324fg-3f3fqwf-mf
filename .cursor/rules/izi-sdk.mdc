@@ -1,0 +1,90 @@
+---
+description: Rules for require("common/izi_sdk") — izi_api factories, izi_spell/izi_item casting, patched game_object helpers, clocks. Read .api/common/izi_sdk.lua before calling.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# IZI SDK (`common/izi_sdk`)
+
+Stub: `.api/common/izi_sdk.lua`. Companion: `.api/game_object.lua` (IZI patches that class).
+
+## Import
+
+```lua
+---@type izi_api
+local izi = require("common/izi_sdk")
+```
+
+The stub header's own example says `---@type enums`. That is wrong — the module class is `izi_api`. Keep the local name `izi`.
+
+## Colon vs dot
+
+- `izi.*` module surface is **dot**: `izi.spell(...)`, `izi.me()`, `izi.cast_safe(spell, target)`.
+- `izi_spell` / `izi_item` / `game_object` methods are **colon**: `spell:cast_safe(target)`, `unit:has_buff(id)`.
+- Module mirrors take the spell as first arg; methods take it as `self`. `izi.cast_safe(spell, target)` and `spell:cast_safe(target)` are the same call.
+
+Method names are snake_case only. There are no `CAST` / `IsCastable` / camelCase spell aliases.
+
+## Spells
+
+```lua
+local frostbolt = izi.spell(116)          -- also izi.spell(id1, id2, ...) or izi.spell({ ids })
+local ok, meta = frostbolt:cast_safe(izi.target(), "frostbolt")
+```
+
+- Create spell objects **once** at file scope, not per frame.
+- `:cast` / `:cast_safe` / `:cast_position` / `:cast_target_if` / `:cast_target_if_safe` return `(boolean, izi_cast_meta)`. Read `meta.reason` on failure; do not invent your own failure codes.
+- `:cast_defensive(target, filters?, message?, opts?)` returns **boolean only**.
+- `cast_target_if(units, mode, filter, ...)` — `mode` is `"max"` or `"min"`; `filter` returns `number|nil` (nil rejects the unit).
+- Empowered/charge casts go through `cast_charge_spell(spell, stage, ...)` with `stage` in `1|2|3|4`.
+
+## Cast options
+
+Options live in `cast_opts` / `unit_cast_opts` / `pos_cast_opts` in the stub. Only use fields declared there (`skip_gcd`, `skip_facing`, `skip_range`, `skip_moving`, `check_los`, `damage_type`, `min_hits`, `aoe_radius`, ...).
+
+Documented defaults worth respecting:
+
+- `check_los` defaults to on; `check_los = false` only skips the pre-filter — the game can still refuse the cast.
+- Position casts default `use_prediction = true`; prediction cache default is 0.15s.
+- `prediction_type` is `"AUTO"|"ACCURACY"|"MOST_HITS"|number`; `geometry` is `"CIRCLE"|"LINE"|number`. No other string literals.
+- Immunity checks always block full immunity; pass `damage_type` to disambiguate, or `skip_immune_check = true` to bypass.
+- `defensive_filters` defaults: `block_time = 1`, raw HP 50, incoming HP 40.
+
+## Units
+
+```lua
+local me = izi.me()                       -- may be nil; guard before use
+if not me then return end
+local enemies = izi.enemies(8)            -- (radius?, players_only?)
+local t = izi.ts()                        -- target selector slot 1
+```
+
+`izi.me()`, `izi.get_player()`, `izi.target()`, `izi.ts(i?)` all return `game_object|nil`. Guard every one.
+
+Prefer the patched unit helpers over hand-rolled loops when IZI is already in the file: `unit:has_buff(spec)`, `unit:debuff_remains(spec)`, `unit:get_health_percentage()` (1..100), `unit:distance()`, `unit:time_to_die()`. `aura_spec` is `number|number[]`.
+
+`*_if` variants of the range/list helpers can include dead or blacklisted units — filter them yourself.
+
+## Items
+
+`izi.item(id)` returns `izi_item|nil`. Methods are colon: `:use_self`, `:use_on`, `:use_at_position` and the `_safe` variants (which take `item_use_opts`, not cast opts).
+
+## Clocks — do not mix
+
+- `izi.now()` / `izi.now_seconds()` / `izi.now_ms()` are core timer values (same source as `core.now()`). Pair with `izi.time_since(seconds)` / `izi.time_until(seconds)`.
+- `izi.now_game_time_ms()` is game time. Pair with `izi.time_since_ms(ms)` / `izi.time_until_ms(ms)` — those two are documented as game time.
+- Never feed a core-timer value into a `_ms` game-time helper. Name variables so the source is obvious.
+- `izi.after(seconds, fn)` returns a cancel function. Keep and call it on unload.
+
+## Lifecycle
+
+`izi.on_update()` is declared as a per-frame SDK update to call once from your own `on_update`. Check whether the plugin you are editing already calls it; do not add a second call.
+
+Event subscriptions (`izi.on_buff_gain`, `on_spell_success`, `on_combat_start`, `on_key_release`, ...) each return an unsubscribe function. Store it.
+
+## Never invent
+
+- Spell/unit/item methods not in the stub, including "obvious" ones like a focus getter.
+- Extra `opts` fields, prediction modes, or geometry names.
+- Return arity — `:cast_defensive` is boolean, most casts are `(boolean, meta)`.
+- FB_Nexus (`_G.FrostByte_Nexus`) APIs. Not part of this stub set.

@@ -1,0 +1,53 @@
+---
+description: simple_ui v2 rules — standalone draggable window menus via require("common/simple_ui"). Separate surface from _G.menu, menu_api, and core.menu.window.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# simple_ui (v2.0.0)
+
+Stub: `.api/common/simple_ui.lua`. Module class is `simple_ui`; the stub ends with `---@type simple_ui` and `return tbl`.
+
+## Require path is not documented in the stub
+
+The stub declares no require example. The path implied by its location is:
+
+```lua
+---@type simple_ui
+local simple_ui = require("common/simple_ui")
+```
+
+Confirm that path against a working plugin in the repo before shipping. If no plugin uses it, say so rather than assuming it resolves.
+
+## Surface
+
+```lua
+local menu = simple_ui.menu:new("My Plugin", 320, 400, "my_plugin_ui")
+
+menu:add_checkbox(...)
+menu:add_slider(...)
+
+core.register_on_update_callback(function()
+    menu:update()      -- input, dragging, focus, component updates
+end)
+
+core.register_on_render_callback(function()
+    menu:render()      -- draw window and visible components
+end)
+```
+
+- `menu:new(title, width?, height?, save_key?)` — width defaults to 300, height (minimum) to 400. `save_key` is the persistence key.
+- `:update()` and `:render()` are **both** once per frame. Calling only one leaves a window that draws but does not respond, or responds but does not draw.
+- Window control: `:show()`, `:hide()`, `:toggle()`, `:collapse()`, `:expand()`, `:toggle_collapse()`. Persistence: `:save_all()`, `:load_all()`.
+- Component classes exported on the module: `label`, `separator`, `header`, `checkbox`, `slider`, `button`, `progressbar`, `textinput`, `combobox`, `keybind`, `colorpicker`, `treenode`, `listbox`. Only these exist.
+- Component instance methods are **colon** (`:get_value`, `:set_value`, `:add_item`, ...). Read the component's own declarations for exact parameters before calling.
+- `simple_ui.constants`, `.helpers`, `.input`, `.rendering`, `.COLORS`, `.SETTINGS`, `.VERSION` are plain fields → **dot**. Virtual key codes come from `constants.VK`; do not hardcode codes that are not declared there.
+- `listbox:get_value()` returns `integer` or `integer[]` depending on selection mode. Handle both.
+
+## One UI surface per plugin
+
+`simple_ui` is its own window system. Do not mix it with `_G.menu`, `common/menu/menu_api`, or a `core.menu.window` custom window for the same settings surface. It is not an ImGui wrapper and shares no API with them.
+
+## Never invent
+
+Component types, `add_*` methods, helper functions, VK codes, or theming fields. Open the stub's component class before writing the call.

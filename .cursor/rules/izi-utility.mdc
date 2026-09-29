@@ -1,0 +1,90 @@
+---
+description: Rules for require("common/utility/*") helpers — unit_helper, spell_helper, cooldown_tracker, plugin_helper, control_panel_helper, assets_helper, coords_helper, inventory_helper, pvp_helper and friends.
+globs: **/*.lua
+alwaysApply: false
+---
+
+# Utility helpers (`common/utility/*`)
+
+Stubs: `.api/common/utility/`. Default require path is `common/utility/<name>`.
+
+```lua
+---@type unit_helper
+local unit_helper = require("common/utility/unit_helper")
+```
+
+Default call style is **colon**. Verified dot exceptions: `path_helper.new(opts?)`, `assets_helper.cache`, `auto_attack_helper.ATTACK_TYPE`, `pvp_helper` flag tables, icon constants, and the raw API returned by a `:get_api()` call.
+
+## Require-path conflict — check before writing
+
+`questie_tracker.lua`, `wigs_tracker.lua`, and `conroc_tracker.lua` sit in `utility/` but their own stub examples say `require("common/modules/<name>")`. Open the stub and use the path its example shows. Do not assume the folder.
+
+## When to use a helper vs IZI
+
+| Task | Use | Not |
+|---|---|---|
+| Rotation casting and validation | IZI `izi.spell():cast_safe` | Rebuilding gates with `spell_helper` |
+| Own spell cooldowns | IZI spell cooldown methods | `cooldown_tracker` |
+| Enemy/friendly PvP cooldowns | `cooldown_tracker` | IZI (it tracks your spells) |
+| Cached enemy/ally lists, roles, boss/dummy/blacklist | `unit_helper` | A second raw object-manager scan |
+| Full target priority | `target_selector` | Ad-hoc sorting |
+
+## unit_helper
+
+`:get_enemy_list_around(point, range, ...)` / `:get_ally_list_around(...)` are the cached list APIs. Classification: `:is_boss`, `:is_dummy`, `:is_blacklist(npc_id)`, `:is_tank` / `:is_healer` / `:is_damage_dealer`.
+
+Watch the scale: `unit_helper:get_health_percentage(unit)` returns **0.0–1.0**, while the IZI patched `unit:get_health_percentage()` returns **1–100**. Do not compare one against the other's threshold.
+
+## spell_helper
+
+Low-level castability for queue-driven code: `:is_spell_castable(...)`, `:is_spell_queueable(...)`, `:is_spell_in_range(...)`, `:get_spell_cost(spell_id)`, `:get_remaining_charge_cooldown(spell_id)` (returns two values).
+
+The skip flags are positional and numerous — copy the parameter order from the stub, never from memory. `:get_spell_damage` / `:get_spell_healing` parse tooltips and are imprecise; do not build damage math on them.
+
+## cooldown_tracker
+
+`:get_remaining_cooldown(unit, spell_id)` returns seconds, and **999 means class/spec mismatch** — treat it as "not applicable", not "long cooldown". Whitelist extenders (`:add_self_cast_spell`, `:add_target_spell`, `:add_relevant_kick`, `:add_relevant_defensive`) return `(ok, reason)`.
+
+## plugin_helper
+
+Keybind/toggle semantics (`:is_toggle_enabled`, `:is_keybind_enabled`), centered HUD text, `:get_latency()`, and the shared defensive lockout (`:is_defensive_allowed`, `:set_defensive_block_time(extra_time)`). Note the stub's spelling: `get_current_combat_length_miliseconds`.
+
+Use the shared defensive lockout rather than a private timer so plugins do not stack defensives.
+
+## control_panel_helper
+
+Call `:on_update(menu)` once per frame for drag-and-drop. Build a fresh control-panel table each frame and `:insert_toggle` / `:insert_combo` into it. Returns `{}` when disabled — handle that.
+
+## assets_helper
+
+```lua
+---@type assets_helper
+local assets = require("common/utility/assets_helper")
+
+-- file scope, once, never inside a render callback
+assets:register_zip_pack("my_assets", "ps/<short-link>.zip")
+```
+
+- `ps/` is the CDN shorthand; do not expand it manually.
+- Downloads are async. `:draw_local_texture` returns false and `:load_local_data` returns the default on early frames. **Never cache the failure** — retry next frame and cache only success.
+- Pass `is_for_window = true` when drawing inside a custom window, otherwise the texture renders behind it.
+
+## coords_helper
+
+`:get_cursor_world_pos(extra_height?)` and `:map_to_world(map_id, map_pos, extra_height?)` return `(vec3|nil, err|nil)` — check both. `extra_height` offsets the raycast start from player Z; nil or 0 uses the default of +4. Positive values reach upper floors, negative reach basements.
+
+## inventory_helper
+
+Character bags are 1–4; bank is -1 plus bags 5–11. `:get_current_consumables_list` is throttled (~2s). `:get_bag_info(bag_id)` returns `(capacity, free)`.
+
+## pvp_helper
+
+CC/DR/immunity/purge/trinket logic. Many queries return **multiple values** (for example `is_crowd_controlled` → active, flag, remaining, immune, weak) — capture what you use. Trinket tracking needs `:on_spell` wired to `core.register_on_spell_cast_callback`. Skip this module entirely in PvE rotations.
+
+## Other helpers (open the stub first)
+
+`auto_attack_helper` (swing/GCD weave; only for melee weave), `spell_sequence_helper` (`:on_update` every frame), `evade_helper`, `cc_data_helper` (static NPC susceptibility DB — missing NPCs default to susceptible), `dungeons_helper`, `graphics_helper`, `icons_helper`, `key_helper`, `path_helper` (draw/bake only, `.new` is dot), `pet_handler`, `fish_helper`, `ui_buttons_info`, `sq_override_helper` and `ts_override_helper` (prefer session overrides over permanent menu writes), `kick_external_filters_helper`, `dispel_external_filters_helper`.
+
+## Never invent
+
+Helper functions, extra skip flags, or return arity. Do not load a helper the task does not need.

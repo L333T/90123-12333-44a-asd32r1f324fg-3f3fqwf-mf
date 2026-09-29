@@ -1,0 +1,19 @@
+---
+description: Master Farmer - Grindbot project rules (release workflow, paths, architecture). Shared with Claude Code through AGENTS.md.
+alwaysApply: true
+---
+
+# Master Farmer - Grindbot
+
+Read and follow `AGENTS.md` at the repository root before any change. It is the
+single rule set shared by Cursor and Claude Code — edit rules there, not here.
+
+The essentials, so they are never missed:
+
+- Every material change: bump `version.lua` + every `-- Version:` banner, add a
+  `VERSIONING.md` row, run `python make_local.py` (regenerates `manifest.lua`).
+- Then commit on `dev`, push, open the PR to `main` and **merge it** — the game
+  loads from GitHub `main`, so uncommitted work never reaches it.
+- Never stage `plugin_loader.zip`; do not change `plugin_loader/` without the
+  user's approval.
+- Only use APIs declared in the `.api` stubs (`00-no-guessing-index.mdc`).

@@ -3,7 +3,7 @@
 -- Faction lookup
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.120.0
+-- Version: 2.121.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- BOTH APIS, IN THAT ORDER  (1.9.1)
@@ -34,17 +34,24 @@ local BY_RACE = {
     [3] = factions.ALLIANCE,   -- Dwarf
     [4] = factions.ALLIANCE,   -- Night Elf
     [7] = factions.ALLIANCE,   -- Gnome
-    [11] = factions.ALLIANCE,  -- Draenei
+    [11] = factions.ALLIANCE,  -- Draenei (TBC only)
+    [95] = factions.ALLIANCE,  -- High Order Skyborne (WoW Forever only, 2.121.0)
     [2] = factions.HORDE,      -- Orc
     [5] = factions.HORDE,      -- Undead
     [6] = factions.HORDE,      -- Tauren
     [8] = factions.HORDE,      -- Troll
-    [10] = factions.HORDE,     -- Blood Elf
+    [10] = factions.HORDE,     -- Blood Elf (TBC only)
+    [96] = factions.HORDE,     -- Windshaper Skyborne (WoW Forever only, 2.121.0)
 }
 
 --- The faction key for a race id, or nil when the race is not known yet.
 function factions.of_race(race_id)
     if type(race_id) ~= "number" then
+        return nil
+    end
+    -- Only races playable on the running game version (2.121.0).
+    local ok, gamever = pcall(require, "gamever")
+    if ok and type(gamever) == "table" and not gamever.race_playable(race_id) then
         return nil
     end
     return BY_RACE[race_id]

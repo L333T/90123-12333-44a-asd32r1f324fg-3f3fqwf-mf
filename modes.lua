@@ -3,7 +3,7 @@
 -- Grind vs Quest mode helpers
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.120.0
+-- Version: 2.121.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -20,6 +20,8 @@ local RACE = {
     GOBLIN = 9,
     BLOOD_ELF = 10,
     DRAENEI = 11,
+    HIGH_ORDER_SKYBORNE = 95,   -- WoW Forever, Alliance (2.121.0)
+    WINDSHAPER_SKYBORNE = 96,   -- WoW Forever, Horde
 }
 
 -- Every race playable in TBC. Goblin (9) has an id but no playable character
@@ -39,7 +41,19 @@ local RACES = {
     [RACE.TROLL]     = { key = "troll",    label = "Troll" },
     [RACE.BLOOD_ELF] = { key = "bloodelf", label = "Blood Elf" },
     [RACE.DRAENEI]   = { key = "draenei",  label = "Draenei" },
+    [RACE.HIGH_ORDER_SKYBORNE] = { key = "skyborne_highorder", label = "High Order Skyborne" },
+    [RACE.WINDSHAPER_SKYBORNE] = { key = "skyborne_windshaper", label = "Windshaper Skyborne" },
 }
+
+-- PER GAME VERSION (2.121.0): Blood Elf and Draenei exist only on TBC, the
+-- two Skyborne races only on WoW Forever (gamever.race_playable). A race that
+-- is not playable on the running version is treated as unknown everywhere.
+local gamever = require("gamever")
+
+local function race(race_id)
+    if not gamever.race_playable(race_id) then return nil end
+    return RACES[race_id]
+end
 
 local modes = {}
 modes.RACE = RACE
@@ -50,16 +64,16 @@ modes.PATH = "path"
 --- Can this race quest? Every TBC race can: quests come from the RestedXP
 --- guide, which covers all of them, not from per-race data in this plugin.
 function modes.race_has_starter_quests(race_id)
-    return RACES[race_id] ~= nil
+    return race(race_id) ~= nil
 end
 
 function modes.race_key(race_id)
-    local r = RACES[race_id]
+    local r = race(race_id)
     return r and r.key or nil
 end
 
 function modes.race_label(race_id)
-    local r = RACES[race_id]
+    local r = race(race_id)
     return r and r.label or nil
 end
 

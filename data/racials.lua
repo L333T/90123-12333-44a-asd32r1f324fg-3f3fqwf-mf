@@ -3,7 +3,7 @@
 -- Racial abilities (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.120.0
+-- Version: 2.121.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Only ACTIVE racials are listed. Passives (Diplomacy, Hardiness, The Human
@@ -27,6 +27,7 @@ local racials = {}
 racials.race_id = {
     HUMAN = 1, ORC = 2, DWARF = 3, NIGHT_ELF = 4, UNDEAD = 5,
     TAUREN = 6, GNOME = 7, TROLL = 8, BLOOD_ELF = 10, DRAENEI = 11,
+    HIGH_ORDER_SKYBORNE = 95, WINDSHAPER_SKYBORNE = 96,   -- WoW Forever (2.121.0)
 }
 
 -- kind:
@@ -92,6 +93,13 @@ racials.list = {
 function racials.for_race(race_id)
     local out = {}
     if type(race_id) ~= "number" then
+        return out
+    end
+    -- Blood Elf / Draenei racials only on TBC (2.121.0). The Skyborne
+    -- traits (Walk on Air, Read Ley Line / Skysight, Elemental Insight, Wind
+    -- Blessed) are not listed: whether any is an active ability is not known.
+    local ok_g, gamever = pcall(require, "gamever")
+    if ok_g and type(gamever) == "table" and not gamever.race_playable(race_id) then
         return out
     end
     for i = 1, #racials.list do

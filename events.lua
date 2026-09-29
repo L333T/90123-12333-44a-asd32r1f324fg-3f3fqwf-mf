@@ -3,7 +3,7 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.122.0
+-- Version: 2.123.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS FILE EXISTS
@@ -103,6 +103,14 @@ handlers.EQUIP_BIND_CONFIRM = confirm_equip
 --- Never fires for this bot, which sets no hearthstone. One line so that if it
 --- ever does, the client is not left waiting for an answer nobody sends.
 function handlers.CONFIRM_BINDER(args)
+    -- WoW Forever (2.123.0): confirm_binder always returns false and does
+    -- nothing there (that client confirms through another function). Leave
+    -- the prompt for the player instead of pretending to answer it.
+    local ok_g, gamever = pcall(require, "gamever")
+    if ok_g and type(gamever) == "table" and gamever.is_forever() then
+        core.log("[Master Farmer - Grindbot] Innkeeper bind prompt: not answerable on WoW Forever - left to you.")
+        return
+    end
     core.log("[Master Farmer - Grindbot] Confirming binder: " .. tostring(args and args[1]))
     safe(function() return core.input.confirm_binder() end)
 end

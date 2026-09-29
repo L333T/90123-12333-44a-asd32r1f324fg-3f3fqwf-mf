@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.122.0
+-- Version: 2.123.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -955,6 +955,14 @@ guide.strip_progress = strip_progress
 --- Collapsed headers hide their quests from the log indices, so every header
 --- is expanded once per session before the first walk.
 local function log_index_of(quest_id)
+    -- WoW Forever (2.123.0): the quest-log index functions answer nothing
+    -- there (get_num_quest_log_entries is always 0, get_quest_log_title
+    -- empty, expand / select do nothing) - RestedXP's objectives are the only
+    -- source, which they already are first everywhere this is used.
+    local ok_g, gamever = pcall(require, "gamever")
+    if ok_g and type(gamever) == "table" and gamever.is_forever() then
+        return nil
+    end
     if not headers_expanded then
         headers_expanded = true
         pcall(function() core.quests.expand_quest_header(0) end)

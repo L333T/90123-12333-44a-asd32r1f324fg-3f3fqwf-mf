@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.119.0
+-- Version: 2.120.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -622,8 +622,16 @@ local function in_reach(e, unit)
     if e.self then return true end
     if not unit then return false end
     local def = e.def
-    if type(def.min) == "number" and def.min > 0 and c.dist() < def.min then
-        return false
+    if type(def.min) == "number" and def.min > 0 then
+        -- The spell's own minimum range when the spellbook reports one
+        -- (2.120.0): the Hunter's dead zone is the game's, not a guess.
+        local mn = def.min
+        local sp0 = spell_of(e)
+        local real = sp0 and tonumber(safe(function() return sp0.minimum_range end)) or nil
+        if real and real > 0 and real < 20 then mn = real end
+        if c.dist() < mn then
+            return false
+        end
     end
     if not sees(unit) then
         return false

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.119.0
+-- Version: 2.120.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -474,12 +474,18 @@ function gui.fights_in_melee()
     return v
 end
 
+-- A Hunter has its own Shooting / Melee distance sliders (2.120.0).
+local function is_hunter()
+    local ok, cid = pcall(function() return menu:player_class() end)
+    return ok and cid == enums.class_id.HUNTER
+end
+
 local function show_melee_slider()
-    return gui.fights_in_melee() == true
+    return not is_hunter() and gui.fights_in_melee() == true
 end
 
 local function show_ranged_slider()
-    return gui.fights_in_melee() ~= true
+    return not is_hunter() and gui.fights_in_melee() ~= true
 end
 
 menu:slider_int("mfg_melee_yards", 1, 5, 3, {

@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.119.0
+-- Version: 2.120.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -213,9 +213,13 @@ W.HUNTER = t({
 
     { "Multi-Shot",             "aoe", on = true, min = 8, n = 2 },
 
+    -- Melee (2.120.0): Wing Clip first, so a mob that closed in is slowed
+    -- and the Hunter can step back out of the dead zone and shoot again.
+    { "Wing Clip",              "control", on = true, melee = true,
+      when = function(c) return c.dist() <= 5 and not c.debuff("Wing Clip") and not c.debuff("Concussive Shot") end,
+      tip = "In melee: slow the mob so the Hunter can back out of the dead zone." },
     { "Raptor Strike",          "damage", on = true, melee = true },
     { "Mongoose Bite",          "damage", on = true, melee = true },
-    { "Wing Clip",              "damage", on = false, melee = true },
     { "Concussive Shot",        "damage", on = false, when = function(c) return c.dist() <= 10 end },
     { "Kill Command",           "damage", on = true },
     { "Arcane Shot",            "damage", on = true, min = 8 },

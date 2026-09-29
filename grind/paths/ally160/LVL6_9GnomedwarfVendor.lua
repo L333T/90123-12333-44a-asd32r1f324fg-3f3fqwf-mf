@@ -3,7 +3,7 @@
 -- Gnome/Dwarf 6-9
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.124.0
+-- Version: 2.125.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

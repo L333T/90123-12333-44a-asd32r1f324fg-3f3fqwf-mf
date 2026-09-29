@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.124.0
+-- Version: 2.125.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -62,6 +62,8 @@ local GOLD_STEP = 10000      -- 1g more than last time counts as "richer"
 local MAX_SERVICES = 200     -- sanity bound on the service list
 
 local last_act = -1e9
+local select_tries = 0       -- 2.125.0: trainer-option selects this gossip visit
+local SELECT_MAX = 3
 local tried_level = nil
 local tried_gold = nil
 -- Training is over for the window that is open now (2.43.0). The window
@@ -263,15 +265,43 @@ end
 --- straight back to the selector in the same frame.
 --- The trainer gossip option, found the way the vendor module finds its own
 --- (2.75.0): izi's icon lookup first, then the gossip type.
+-- THE TRAINER OPTION (2.125.0). Three bugs left a class trainer's gossip
+-- ("I am interested in mage training.") standing open:
+--   * izi.gossip.find_option_by_icon returns a VIEW ({ index, name,
+--     gossip_type, icon, id, select = fn }); this read its gossip_option_id,
+--     which a view does not have, so the icon match was always thrown away;
+--   * the text fallback only knew "train me";
+--   * see trainer.tick: the every-3-levels gate also blocked an open window.
+-- Now: izi's icon match (selected through the view's own :select()), then the
+-- raw options by gossip_type "trainer", the trainer icon (3) or the wording
+-- (train / teach / instruct), selected by gossip_option_id - a real id on
+-- Blizzard's Classic clients, the row index on the private-server ones.
+local TRAINER_ICON = 3
+local TRAIN_WORDS = { "train", "teach", "instruct" }
+
+local function trail(fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, "trainer", fmt, ...)
+    end
+end
+
+local function looks_like_training(name)
+    local text = type(name) == "string" and string.lower(name) or ""
+    for i = 1, #TRAIN_WORDS do
+        if text:find(TRAIN_WORDS[i], 1, true) then return true end
+    end
+    return false
+end
+
+--- The open gossip's trainer option as (select_function, label), or nil.
 local function trainer_option()
-    if izi.gossip and type(izi.gossip.find_option_by_icon) == "function" then
-        local icon = 3
-        if type(izi.gossip.ICON) == "table" and type(izi.gossip.ICON.TRAINER) == "number" then
-            icon = izi.gossip.ICON.TRAINER
-        end
-        local opt = safe(function() return izi.gossip.find_option_by_icon(icon) end)
-        if type(opt) == "table" and type(opt.gossip_option_id) == "number" and opt.gossip_option_id ~= 0 then
-            return opt.gossip_option_id
+    local g = izi.gossip
+    if type(g) == "table" and type(g.find_option_by_icon) == "function" then
+        local icon = (type(g.ICON) == "table" and type(g.ICON.TRAINER) == "number") and g.ICON.TRAINER or TRAINER_ICON
+        local view = safe(function() return g.find_option_by_icon(icon) end)
+        if type(view) == "table" and type(view.select) == "function" then
+            return function() view:select() end, tostring(view.name or "trainer option")
         end
     end
     local options = safe(function() return core.quests.get_gossip_options() end)
@@ -282,13 +312,12 @@ local function trainer_option()
         local opt = options[i]
         if type(opt) == "table" then
             local gtype = type(opt.gossip_type) == "string" and string.lower(opt.gossip_type) or ""
-            local text = type(opt.name) == "string" and string.lower(opt.name) or ""
-            if gtype == "trainer" or text:find("train me", 1, true) then
+            if gtype == "trainer" or opt.icon == TRAINER_ICON or looks_like_training(opt.name) then
                 local id = opt.gossip_option_id
                 if type(id) ~= "number" or id == 0 then
                     id = i
                 end
-                return id
+                return function() core.quests.select_gossip_option(id) end, tostring(opt.name)
             end
         end
     end
@@ -452,6 +481,10 @@ function trainer.tick(player)
 
     local now = izi.now()
     local open = service_count() > 0
+    if open and select_tries > 0 then
+        trail("trainer window open: %d service(s)", service_count())
+        select_tries = 0
+    end
     if not open then
         -- The window has closed: the next one is a fresh visit.
         finished = false
@@ -489,6 +522,7 @@ function trainer.tick(player)
             if gold() < p.gold or not still_available(p.name) then
                 trained_this_visit = trained_this_visit + 1
                 core.log("[Master Farmer - Grindbot] Trained " .. tostring(p.name))
+                trail("trained %s", tostring(p.name))
             elseif (attempts[p.name] or 0) < BUY_TRIES then
                 bought[p.name] = nil          -- not learned: try it again
                 core.log_warning("[Master Farmer - Grindbot] " .. tostring(p.name)
@@ -539,28 +573,53 @@ function trainer.tick(player)
         state.set_note("Trainer", msg)
         core.log(string.format("[Master Farmer - Grindbot] %s - next trainer check at level %d.",
             msg, (checked_level or 0) + CHECK_EVERY))
+        trail("%s - next check at level %d", msg, (checked_level or 0) + CHECK_EVERY)
         pcall(function() core.quests.close_trainer() end)
         pcall(function() core.quests.close_gossip() end)
         return false
     end
 
     -- 2. A gossip frame is open in front of us. If this NPC trains, open it.
+    --    Not gated on the every-3-levels check (2.125.0): that decides whether
+    --    to WALK to a trainer; a trainer already talking to us is used. Only
+    --    a quest being handed in or taken at this NPC goes first - class
+    --    trainers give class quests, and selecting training would close them.
     if not gossip_open() then
+        select_tries = 0
         return seek_tick(player, now)
     end
-    if already_tried(player) or not trainer.due(player) then
+    if already_tried(player) then
         return false
     end
-    local option = trainer_option()
-    if not option then
+    local ok_q, quest = pcall(require, "quest/engine")
+    if ok_q and type(quest) == "table" and type(quest.in_npc_interaction) == "function"
+        and quest.in_npc_interaction() then
+        local goal_kind = type(quest.current_kind) == "function" and quest.current_kind() or nil
+        if goal_kind ~= "talk" then
+            return false
+        end
+    end
+    local select_fn, label = trainer_option()
+    if not select_fn then
+        return false
+    end
+    -- Selected SELECT_MAX times and no trainer window: stop for this visit.
+    if select_tries >= SELECT_MAX then
+        if select_tries == SELECT_MAX then
+            select_tries = select_tries + 1
+            trail("'%s' selected %d times - no trainer window opened", tostring(label), SELECT_MAX)
+            mark_tried(player)
+        end
         return false
     end
 
+    select_tries = select_tries + 1
     last_act = now
     forget_bought()
     expanded = false
     state.set_note("Trainer", "Opening trainer")
-    pcall(function() core.quests.select_gossip_option(option) end)
+    trail("gossip: selecting '%s' (try %d)", tostring(label), select_tries)
+    pcall(select_fn)
     return true
 end
 

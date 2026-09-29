@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.119.0
+-- Version: 2.120.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -287,7 +287,25 @@ end
 --- damage spell reaches (1 yd inside it). Combat movement closes to this, and
 --- smart.combat holds offensive spells beyond it until the fight has begun.
 function rotation.combat_range(player)
-    rotation.active(player)
+    local mod = rotation.active(player)
+    -- A class that switches between ranged and melee by itself (the Hunter,
+    -- 2.120.0) sets the engage distance from its own sliders and the live
+    -- target.
+    if mod and type(mod.engage_range) == "function" then
+        local target = nil
+        local ok_s, st = pcall(require, "state")
+        if ok_s and type(st) == "table" and type(st.target) == "table" then
+            local u = st.target.unit
+            if u and pcall(function() return u:is_valid() end) then
+                local okv, valid = pcall(u.is_valid, u)
+                if okv and valid == true then target = u end
+            end
+        end
+        local ok, yards = pcall(mod.engage_range, player, target)
+        if ok and type(yards) == "number" and yards > 0 then
+            return yards
+        end
+    end
     if fights_in_melee(player) then
         local m = slider("melee_yards", 3)
         if m < 1 then m = 1 elseif m > 5 then m = 5 end

@@ -3,7 +3,7 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.122.0
+-- Version: 2.123.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /
@@ -178,6 +178,12 @@ end
 
 --- Hunter pet happiness, 1 unhappy .. 3 content. nil for classes without it.
 function pets.happiness()
+    -- WoW Forever (2.123.0): the core returns a placeholder table there
+    -- (happiness 0, damage 100%, loyalty 0), not the pet's real state.
+    local ok_g, gamever = pcall(require, "gamever")
+    if ok_g and type(gamever) == "table" and gamever.is_forever() then
+        return nil
+    end
     local h = safe(function() return core.spell_book.get_pet_happiness() end)
     if type(h) == "number" then
         return h

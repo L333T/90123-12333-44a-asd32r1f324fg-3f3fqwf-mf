@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.122.0
+-- Version: 2.123.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -270,8 +270,32 @@ end
 -- ----------------------------------------------------------------------------
 --- Call while the merchant window is open, from vendor.lua's trip.
 --- Returns true when it acted this tick (the caller should hold the cascade).
+-- WoW Forever (2.123.0): core.game_ui.get_vendor_item_info returns an empty
+-- row for every slot there (the game function it reads no longer exists), so
+-- nothing on a vendor can be identified and buying by index would be buying
+-- blind. Buying food / water stands down on Forever - conjured water and
+-- looted food still work - and says so once.
+local forever_logged = false
+
+local function forever_blind()
+    local ok, gamever = pcall(require, "gamever")
+    if not (ok and type(gamever) == "table" and gamever.is_forever()) then
+        return false
+    end
+    if not forever_logged then
+        forever_logged = true
+        core.log("[Master Farmer - Grindbot] WoW Forever: vendor items cannot be read on this client "
+            .. "- buying food and water is off (repair and selling still work).")
+        trail("Forever: vendor item info unavailable - food / water buying off")
+    end
+    return true
+end
+
 function supplies.tick(player)
     if not player or not gui.is_on("buy_supplies") then
+        return false
+    end
+    if forever_blind() then
         return false
     end
     if bought_this_trip >= MAX_PER_TRIP then
@@ -327,6 +351,9 @@ end
 --- Did the merchant just worked lack food or drink we still need?
 function supplies.needs_supplier(player)
     if not player or not gui.is_on("buy_supplies") then
+        return false
+    end
+    if forever_blind() then
         return false
     end
     if missing.food then

@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.122.0
+-- Version: 2.123.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -755,7 +755,45 @@ end
 --- Is `quest_id` ready to hand in?
 --- `quest_name` is only needed for the gossip fallback, where TBC exposes no
 --- real quest id (see the header).
+local function forever()
+    local ok, gamever = pcall(require, "gamever")
+    return ok and type(gamever) == "table" and gamever.is_forever()
+end
+
+--- WoW Forever (2.123.0): no quest-log index API. A quest is ready to hand in
+--- when RestedXP reports objectives for it and every one is finished; nil
+--- when RestedXP has nothing to say (the gossip list decides then).
+local function rxp_complete(quest_id)
+    local ok, guide = pcall(require, "quest/guide")
+    if not ok or type(guide) ~= "table" or type(guide.objectives) ~= "function" then
+        return nil
+    end
+    local list = guide.objectives(quest_id)
+    if type(list) ~= "table" or #list == 0 then
+        return nil
+    end
+    for i = 1, #list do
+        if not list[i].finished then return false end
+    end
+    return true
+end
+
 function npc.is_complete(quest_id, quest_name)
+    if forever() then
+        if safe(function() return core.quests.is_on_quest(quest_id) end) == false then
+            return false
+        end
+        local done = rxp_complete(quest_id)
+        if done ~= nil then
+            return done
+        end
+        local gossip = safe(function() return core.quests.get_gossip_active_quests() end)
+        if type(gossip) == "table" and #gossip > 0 then
+            local row = gossip_row(gossip, quest_id, quest_name)
+            return row ~= nil and row.is_complete == true
+        end
+        return false
+    end
     pcall(function()
         core.quests.expand_quest_header(0)
     end)

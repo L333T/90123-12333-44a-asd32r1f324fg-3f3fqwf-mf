@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.124.0
+-- Version: 2.125.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -61,6 +61,7 @@ local g_key = nil
 local g_move = 1
 local g_scan_until = 0
 local g_act_until = 0
+local g_cur_kind = nil         -- 2.125.0: kind of the goal being worked
 local g_kill_until = 0
 -- Collect goals: when the search for a mob named like the item began coming
 -- up empty. 0 while one is in sight.
@@ -1551,6 +1552,7 @@ tick_inner = function(player)
     end
     g_loot_wait = false
     probe("q:act " .. kind)
+    g_cur_kind = kind
 
     -- A far goal: fly most of the way (2.115.0).
     if far_travel(player, goal, kind, wps, label) then
@@ -1665,6 +1667,13 @@ end
 
 --- Was the last tick spent on an accept / turn in / talk goal at an NPC?
 --- Read by the NPC-stuck watchdog.
+--- The kind of the goal being worked ("accept", "turnin", "talk", ...), or
+--- nil. trainer.lua asks, so a class trainer's quest dialog is not
+--- replaced by its training window (2.125.0).
+function quest.current_kind()
+    return g_cur_kind
+end
+
 function quest.in_npc_interaction()
     return g_in_dialog == true
 end

@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.125.0
+-- Version: 2.126.0
 -- Folder: Master_Farmer_Grindbot
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan every 2 seconds. DEFS are rank-1 IDs; highest matching ID wins.
@@ -128,20 +128,22 @@ local function collect_ids(value, out, visited)
     end
 end
 
---- Does the client agree this number is a spell?
+--- Does THIS character own the spell?
 ---
 --- The recursive walk cannot tell a spell id from an array index - a flat list
 --- of four spells has keys 1..4, and taking those produced four phantom
---- entries. Rather than trying to out-guess the table shape, every candidate
---- is put to the client: a name, or has_spell, or learned, or known. An id
---- with no name but which the client confirms is still kept, because that was
---- the other half of the original loss.
-local function is_real_spell(id)
+--- entries. Every candidate therefore has to be put to the client.
+---
+--- Ownership is the only question worth asking. core.spell_book.get_spell_name
+--- answers for any id in the game's spell data, so a name proves the id exists,
+--- not that this character learned it: index 78 named itself "Heroic Strike"
+--- and 2457 "Battle Stance", so a Hunter's Spells tab offered Warrior
+--- abilities, and smart.lua treated them as known because the family was in the
+--- book. has_spell / is_spell_learned / is_spell_known are per-character, which
+--- is what id_in_book below already relies on.
+local function owns_spell(id)
     if type(id) ~= "number" or id <= 0 then
         return false
-    end
-    if spell_name(id) then
-        return true
     end
     if safe(function() return core.spell_book.has_spell(id) end) == true then
         return true
@@ -152,17 +154,40 @@ local function is_real_spell(id)
     return safe(function() return core.spell_book.is_spell_known(id) end) == true
 end
 
---- Every id in the book that the client confirms, sorted.
+local name_fallback_warned = false
+
+--- Every id in the book this character owns, sorted.
 local function extract_ids(raw)
     local set = {}
     collect_ids(raw, set, nil)
 
     local ids = {}
     for id in pairs(set) do
-        if is_real_spell(id) then
+        if owns_spell(id) then
             ids[#ids + 1] = id
         end
     end
+
+    -- A client that answers none of the three ownership calls would leave the
+    -- book empty and the rotation with nothing to cast, so fall back to "the
+    -- game can name it" - what every build before this one did - and say so
+    -- once, because that is when a wrong-class spell can still appear.
+    if #ids == 0 then
+        for id in pairs(set) do
+            if spell_name(id) then
+                ids[#ids + 1] = id
+            end
+        end
+        if #ids > 0 and not name_fallback_warned then
+            name_fallback_warned = true
+            core.log_warning(
+                "[Master Farmer - Grindbot] Spellbook: this client confirms no spell ownership "
+                .. "(has_spell / is_spell_learned / is_spell_known all answer false), so the book "
+                .. "falls back to every id the game can name and the Spells tab may list abilities "
+                .. "your class cannot use.")
+        end
+    end
+
     table.sort(ids)
     return ids
 end

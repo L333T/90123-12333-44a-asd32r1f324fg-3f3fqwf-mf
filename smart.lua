@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.125.0
+-- Version: 2.126.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -168,6 +168,16 @@ local function build(player)
     local list, by_role, rows, groups = {}, {}, {}, {}
     local row_of = {}
     local defs = catalog.for_class(cls)
+
+    -- Which catalog the character's class id resolved to. Worth a line, because
+    -- get_class() reporting the wrong number is indistinguishable from a short
+    -- Spells tab otherwise, and a wrong catalog is what puts another class's
+    -- abilities on the page.
+    if built.class ~= cls then
+        core.log(string.format(
+            "[Master Farmer - Grindbot] Class %s -> %s spell catalog (%d entries).",
+            tostring(cls), tostring(catalog.class_key(cls) or "none"), #defs))
+    end
     for i = 1, #defs do
         local def = defs[i]
         local name, role = def[1], def[2]

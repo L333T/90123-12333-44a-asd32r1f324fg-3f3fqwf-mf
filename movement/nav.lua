@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.127.0
+-- Version: 2.128.0
 -- ============================================================================
 -- Out-of-combat travel.
 --
@@ -199,6 +199,31 @@ Nv.navigate = navigate
 --- callers that already know the line is walkable (grind nodes, corpse runs).
 function Nv.nav_to(dest, direct)
     return navigate(dest, direct == true)
+end
+
+--- RestedXP travel is in progress. Course changes must not stop the walk.
+function Nv.keep_path(on)
+    R.keep_path = on == true
+    if not R.keep_path then R.approach = nil end
+end
+
+--- "npc" or "enemy" while closing on that kind of target; otherwise clear.
+function Nv.set_approach(kind)
+    if kind == "npc" or kind == "enemy" then
+        R.approach = kind
+    else
+        R.approach = nil
+    end
+end
+
+--- Point the running path at `dest` without stopping. A cold start uses nav_to.
+function Nv.nudge(dest)
+    local x, y, z = xyz(dest)
+    if not x then return false end
+    if R.sn_active then
+        return N.retarget({ x = x, y = y, z = z }, "chain")
+    end
+    return navigate(dest, true)
 end
 
 --- Follow a caller-owned list of points (vec3s or { x, y, z } arrays).

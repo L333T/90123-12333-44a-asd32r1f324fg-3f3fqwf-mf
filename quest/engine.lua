@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.127.0
+-- Version: 2.128.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -362,6 +362,19 @@ local function path_pull(dest)
     return true
 end
 
+local CHAIN_WP = 12
+
+local function approach_kind()
+    local kind = g_cur_kind
+    if kind == "accept" or kind == "turnin" or kind == "talk" or kind == "fly" then
+        return "npc"
+    end
+    if kind == "kill" or kind == "collect" then
+        return "enemy"
+    end
+    return nil
+end
+
 local function walk_to(pos, note)
     if movement.arrived(pos, ARRIVE) then
         return false
@@ -372,7 +385,8 @@ local function walk_to(pos, note)
     -- Only when the destination moves to a new yard: formatting the line
     -- every frame just to have errorlog throw it away is what this avoids.
     local wx, wy = math.floor(pos.x), math.floor(pos.y)
-    if wx ~= last_walk_x or wy ~= last_walk_y then
+    local moved = wx ~= last_walk_x or wy ~= last_walk_y
+    if moved then
         last_walk_x, last_walk_y = wx, wy
         local me = safe(function() return izi.me():get_position() end)
         trail("walk", "to (%.0f, %.0f, %.0f) %.0fy away for %s", pos.x, pos.y, pos.z,
@@ -389,7 +403,18 @@ local function walk_to(pos, note)
     end
     state.set_note("Quest", "Guide: " .. note)
     g_in_travel = true
-    if not movement.is_moving() then
+    if type(movement.keep_path) == "function" then
+        movement.keep_path(true)
+    end
+    if type(movement.set_approach) == "function" then
+        movement.set_approach(approach_kind())
+    end
+    if movement.is_moving() then
+        -- The arrow moved, or the next waypoint is up. One retarget, no stop.
+        if moved and type(movement.nudge) == "function" then
+            movement.nudge(pos)
+        end
+    else
         movement.nav_to(pos, true)
     end
     return true
@@ -1447,6 +1472,9 @@ end
 tick_inner = function(player)
     g_in_dialog = false
     g_in_travel = false
+    if type(movement.keep_path) == "function" then
+        movement.keep_path(false)
+    end
     -- FIGHT FIRST (2.38.0). Anything attacking the player, and the fight
     -- already under way, come before every other branch of this tick. The
     -- early returns below (RestedXP not loaded, no active step, step
@@ -1637,6 +1665,14 @@ tick_inner = function(player)
                 .. "': Sentinel reports every waypoint unreachable - skipping it.")
             guide.mark_goal_done(guide.step_num(), goal.index)
             return
+        end
+    end
+    -- Still short of this waypoint, with another after it: hand the path
+    -- the next point before this one is reached, so the walk does not stop.
+    if #wps > 1 and movement.is_moving() and movement.arrived(wps[g_move].pos, CHAIN_WP) then
+        g_move = g_move + 1
+        if g_move > #wps then
+            g_move = 1
         end
     end
     if walk_to(wps[g_move].pos, label) then

@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.164.0
+-- Version: 2.165.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1909,7 +1909,20 @@ local CENTER_DZ = 30
 --- cannot attack is a quest giver, a vendor or a guard rather than a mob.
 --- Deliberately short ranged: it is a guess, and a guess is only reasonable
 --- once standing where the guide pointed.
-function guide.nearest_talkable(player, range, center, exclude)
+-- QUEST GIVERS ONLY (2.165.0). An accept / turn-in that the first NPC
+-- refused went on to "the nearest friendly unit at the waypoint" - in the
+-- 12:40 log Marryk Nurribit, Wren Darkspring and a player's Imp Minion. With
+-- `quest_only` a unit must carry the quest-giver npc flag (0x2); a client
+-- that reports no flags at all (nil) is not filtered.
+local NPC_QUESTGIVER = 0x2
+
+local function gives_quests(u)
+    local f = call(u.get_npc_flags, u)
+    if type(f) ~= "number" then return true end
+    return math.floor(f / NPC_QUESTGIVER) % 2 == 1
+end
+
+function guide.nearest_talkable(player, range, center, exclude, quest_only)
     if not player then
         return nil, nil
     end
@@ -1928,7 +1941,8 @@ function guide.nearest_talkable(player, range, center, exclude)
             and call(u.is_dead_or_ghost, u) ~= true
             and call(u.is_player, u) ~= true then
             if call(player.can_attack, player, u) == false
-                and not (exclude and exclude[call(u.get_guid, u) or ""]) then
+                and not (exclude and exclude[call(u.get_guid, u) or ""])
+                and (not quest_only or gives_quests(u)) then
                 local d
                 if center then
                     -- Flat (2.134.0): a waypoint's height is the terrain

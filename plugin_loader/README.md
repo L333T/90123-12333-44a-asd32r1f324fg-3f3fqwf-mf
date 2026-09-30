@@ -20,32 +20,30 @@ callbacks and drive the same character.
 It appears in Sylvanas as **Master Farmer - Grindbot (HTTP)** so it is
 distinguishable from a normal install at a glance.
 
-## Point it at a commit
+## What you do not edit
 
-`main.lua`:
+Shipping a bot change does not touch this folder. The loader asks GitHub which
+commit `main` points at, then downloads that commit. Merging the pull request
+to `main` is the release. There is no commit SHA to paste in.
 
-```lua
-local REPO = "L333T/90123-12333-44a-asd32r1f324fg-3f3fqwf-mf"
-local SHA  = "e072643382437e557519d6c6aab696f5014be0e8"
-```
+It loads on TBC Classic (`core.get_game_version()` == `"Tbc"`) and WoW Forever
+(`"Forever"`). It does not look at the character's class. Warrior through
+Druid all pass the same gate.
 
-The SHA pin is deliberate. `raw.githubusercontent.com` caches branch URLs for a
-few minutes and does not invalidate every path at the same instant, so a branch
-URL can serve a fresh `manifest.lua` beside a stale cached module. The hash
-check then fails and the whole load aborts — intermittently, only for a few
-minutes after each push. A commit URL is immutable, so that cannot happen.
+`raw.githubusercontent.com` caches branch URLs, so the loader does not fetch
+by branch. It resolves `main` to a commit first and downloads every file from
+that immutable URL. If the lookup fails it retries; it does not fall back to
+a SHA stored in this folder, because that SHA is what used to force a loader
+edit and then silently serve an old bot.
 
 For a private repo, set `HEADERS` in `main.lua`. The token then ships inside the
 file, so scope it read-only to that one repo.
 
 ## Shipping an update
 
-```bash
-python make_manifest.py && git add -A && git commit -m "..." && git push && git rev-parse HEAD
-```
-
-Paste the printed SHA into `main.lua`. The manifest must be regenerated and
-pushed in the same commit as the code, or the loader rejects the mismatch.
+Regenerate the manifest in the same commit as the code, push `dev`, and merge
+to `main`. The loader picks up the new commit on the next UI reload. Do not
+copy a SHA into `main.lua`.
 
 ## API this is written against
 

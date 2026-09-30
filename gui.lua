@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.129.0
+-- Version: 2.130.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -504,56 +504,59 @@ local TIP_AOE = "Ticked area spells are used when at least this many enemies are
 local TIP_WAND = "Shoot the wand once mana drops below this. 0 never wands."
 local TIP_PET = "Mend Pet is cast when the pet's health drops below this."
 
-local C = enums.class_id
+-- Not named C: that upvalue is the colour helper, and a second local C here
+-- shadowed it for the rest of the file. The Spells list and the mini window
+-- then called the class-id table (gui.draw: attempt to call upvalue 'C').
+local class_ids = enums.class_id
 -- Melee classes.
-add_class_slider(C.WARRIOR, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
-add_class_slider(C.WARRIOR, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
-add_class_slider(C.WARRIOR, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(class_ids.WARRIOR, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
+add_class_slider(class_ids.WARRIOR, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(class_ids.WARRIOR, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
 
-add_class_slider(C.PALADIN, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
-add_class_slider(C.PALADIN, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
-add_class_slider(C.PALADIN, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
-add_class_slider(C.PALADIN, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(class_ids.PALADIN, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
+add_class_slider(class_ids.PALADIN, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
+add_class_slider(class_ids.PALADIN, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(class_ids.PALADIN, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
 
-add_class_slider(C.ROGUE, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
-add_class_slider(C.ROGUE, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(class_ids.ROGUE, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
+add_class_slider(class_ids.ROGUE, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
 
 -- Hunter: shooting distance, then melee only after the mob closes. No wand.
-add_class_slider(C.HUNTER, "ranged_yards", 10, 35, 25, "Shooting distance (yd)", TIP_SHOOT)
-add_class_slider(C.HUNTER, "melee_yards", 1, 5, 5, "Melee distance (yd)", TIP_MELEE)
-add_class_slider(C.HUNTER, "pet_heal_pct", 20, 90, 50, "Mend Pet below %", TIP_PET)
-add_class_slider(C.HUNTER, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
-add_class_slider(C.HUNTER, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(class_ids.HUNTER, "ranged_yards", 10, 35, 25, "Shooting distance (yd)", TIP_SHOOT)
+add_class_slider(class_ids.HUNTER, "melee_yards", 1, 5, 5, "Melee distance (yd)", TIP_MELEE)
+add_class_slider(class_ids.HUNTER, "pet_heal_pct", 20, 90, 50, "Mend Pet below %", TIP_PET)
+add_class_slider(class_ids.HUNTER, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(class_ids.HUNTER, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
 
 -- Casters.
-add_class_slider(C.PRIEST, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
-add_class_slider(C.PRIEST, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
-add_class_slider(C.PRIEST, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
-add_class_slider(C.PRIEST, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
-add_class_slider(C.PRIEST, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
+add_class_slider(class_ids.PRIEST, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(class_ids.PRIEST, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
+add_class_slider(class_ids.PRIEST, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(class_ids.PRIEST, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(class_ids.PRIEST, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
 
-add_class_slider(C.SHAMAN, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
-add_class_slider(C.SHAMAN, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
-add_class_slider(C.SHAMAN, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
-add_class_slider(C.SHAMAN, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(class_ids.SHAMAN, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(class_ids.SHAMAN, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
+add_class_slider(class_ids.SHAMAN, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(class_ids.SHAMAN, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
 
-add_class_slider(C.MAGE, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
-add_class_slider(C.MAGE, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
-add_class_slider(C.MAGE, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
-add_class_slider(C.MAGE, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
+add_class_slider(class_ids.MAGE, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(class_ids.MAGE, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(class_ids.MAGE, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(class_ids.MAGE, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
 
-add_class_slider(C.WARLOCK, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
-add_class_slider(C.WARLOCK, "sp_heal", 20, 90, 45, "Drain Life below %", TIP_HEAL)
-add_class_slider(C.WARLOCK, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
-add_class_slider(C.WARLOCK, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
-add_class_slider(C.WARLOCK, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
+add_class_slider(class_ids.WARLOCK, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(class_ids.WARLOCK, "sp_heal", 20, 90, 45, "Drain Life below %", TIP_HEAL)
+add_class_slider(class_ids.WARLOCK, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(class_ids.WARLOCK, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(class_ids.WARLOCK, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
 
 -- Druid stands at range until Cat or Bear, so both distances are kept.
-add_class_slider(C.DRUID, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
-add_class_slider(C.DRUID, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
-add_class_slider(C.DRUID, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
-add_class_slider(C.DRUID, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
-add_class_slider(C.DRUID, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(class_ids.DRUID, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
+add_class_slider(class_ids.DRUID, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(class_ids.DRUID, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
+add_class_slider(class_ids.DRUID, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(class_ids.DRUID, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
 
 menu:add_popup({
     id = "profiles",

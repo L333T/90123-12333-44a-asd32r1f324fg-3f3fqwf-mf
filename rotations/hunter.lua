@@ -3,7 +3,7 @@
 -- Hunter grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.128.0
+-- Version: 2.129.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Warlock.
@@ -270,11 +270,11 @@ end
 --- distance while fighting in melee, the Shooting distance otherwise.
 function hunter.engage_range(player, target)
     if hunter.melee_mode(player, target) then
-        local m = slider("mfg_hunter_melee_yards", 5)
+        local m = slider("melee_yards", 5)
         if m < 1 then m = 1 elseif m > 5 then m = 5 end
         return m, true
     end
-    local want = slider("mfg_hunter_ranged_yards", GUN_RANGE_FALLBACK)
+    local want = slider("ranged_yards", 25)
     local reach = hunter.gun_range() - 1
     if want > reach then want = reach end
     local floor = hunter.dead_zone() + 2

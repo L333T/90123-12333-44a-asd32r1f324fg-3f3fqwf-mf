@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.128.0
+-- Version: 2.129.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -874,7 +874,7 @@ local function pet_upkeep()
         revive = revive,
         heal = heal, heal_ids = heal and heal.ids or nil,
         heal_label = heal and heal.name or nil,
-        heal_pct = 50,
+        heal_pct = slider("pet_heal_pct", 50),
         learned = learned, cast_self = cast_self,
         min_level = (built.class == enums.class_id.HUNTER) and 10 or nil,
     })

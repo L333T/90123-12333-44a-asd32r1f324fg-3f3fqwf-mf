@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.137.0
+-- Version: 2.138.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -238,7 +238,9 @@ end
 local function combat_hop(p, min_hop)
     min_hop = min_hop or MIN_NAV
     if not O.owns(OWNER.COMBAT) or R.rest_lock then return false end
-    if O.is_moving() then return true end
+    -- Only a live walk blocks a new hop. Stale pending (a dest issued but
+    -- the body never moved) is what left the 22:51 log standing at 43 yd.
+    if R.walker_moving or R.sn_active then return true end
     if not O.nav_gap_ok() then return true end
     local hx, hy, hz = here_xyz()
     if not hx then return false end
@@ -508,7 +510,7 @@ function C.combat_engage(player, unit, yards)
             if remain > 0 and (remain - stand) >= MELEE_MIN_HOP then
                 local s = (remain - stand) / remain
                 local dx, dy = hx + (ux - hx) * s, hy + (uy - hy) * s
-                local moving = R.pending or O.is_moving()
+                local moving = R.walker_moving or R.sn_active
                 local shifted = not R.has_dest or dist2(R.dest_x, R.dest_y, dx, dy) > CHASE_REISSUE
                 if moving and not shifted then
                     -- Already walking the straight line: keep going.
@@ -529,7 +531,7 @@ function C.combat_engage(player, unit, yards)
         end
     end
 
-    if R.pending or O.is_moving() then
+    if R.walker_moving or R.sn_active then
         R.chase_fail_key, R.chase_fail_t = nil, 0
         Rg.face(unit)
         return false

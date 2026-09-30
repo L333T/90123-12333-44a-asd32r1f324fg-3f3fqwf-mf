@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.137.0
+-- Version: 2.138.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -159,10 +159,17 @@ local function escalate(x, y, z, kind, d, t)
     end
     -- rung 3: give up on this goal
     if kind == "combat" then
-        trail("target unreachable after the re-plan and unstick - dropping it")
-        local ok_s, state = pcall(require, "state")
-        if ok_s and state and type(state.mark_unreachable) == "function" and R.combat_guid ~= nil then
-            state.mark_unreachable(R.combat_guid)
+        -- A mob we never walked toward is not unreachable. The 22:51 log
+        -- blacklisted wolves at 43 yd after 8 s of standing still. Drop the
+        -- target so the quest waypoint can run; leave it on the table.
+        if not R.walker_moving and not R.sn_active then
+            trail("no walk issued toward the combat (%.0f yd) - dropping without blacklist", d)
+        else
+            trail("target unreachable after the re-plan and unstick - dropping it")
+            local ok_s, state = pcall(require, "state")
+            if ok_s and state and type(state.mark_unreachable) == "function" and R.combat_guid ~= nil then
+                state.mark_unreachable(R.combat_guid)
+            end
         end
         local ok_c, C = pcall(require, "movement/combat")
         if ok_c and C and type(C.combat_release) == "function" then

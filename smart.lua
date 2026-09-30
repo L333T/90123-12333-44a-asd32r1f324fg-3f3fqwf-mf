@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.156.0
+-- Version: 2.157.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1048,12 +1048,6 @@ end
 -- ============================================================================
 -- COMBAT
 -- ============================================================================
--- Roles held back until the engage distance before a fight starts (2.90.0).
-local OFFENSIVE = {
-    damage = true, debuff = true, filler = true, execute = true, aoe = true,
-    finisher = true, cooldown = true, control = true, totem = true, resource = true,
-}
-
 local COMBAT_ORDER = {
     { "heal", COND.heal }, { "defensive", COND.defensive }, { "interrupt", COND.interrupt },
     "racials", "upkeep",
@@ -1101,29 +1095,9 @@ function smart.combat(player, target, ctx)
         pcall(pets.attack, player, target)
     end
 
-    -- Hunter and Shaman: the melee slider must not hold the ranged spells.
-    -- Fire from the ranged / shooting distance; inside melee, melee spells run.
-    local hold_fire = false
-    if ctx and type(ctx.engage) == "number" and target then
-        local limit = ctx.engage
-        local hybrid = built.class == enums.class_id.HUNTER or built.class == enums.class_id.SHAMAN
-        if hybrid then
-            local hmod = mod("rotation")
-            hmod = hmod and type(hmod.active) == "function" and hmod.active(player) or nil
-            if hmod and type(hmod.melee_mode) == "function" and hmod.melee_mode(player, target) then
-                hold_fire = false
-            else
-                if hmod and type(hmod.engage_range) == "function" then
-                    local y = safe(function() return hmod.engage_range(player, nil) end)
-                    if type(y) == "number" and y > 0 then limit = y end
-                end
-                hold_fire = c.dist() > limit
-            end
-        else
-            hold_fire = c.dist() > limit
-        end
-    end
-
+    -- Spells cast at their own range (in_reach). They are not held back until
+    -- the walk finishes: the moment the focused target is in range, the
+    -- ticked spell fires.
     for i = 1, #COMBAT_ORDER do
         local step = COMBAT_ORDER[i]
         if step == "racials" then
@@ -1134,7 +1108,7 @@ function smart.combat(player, target, ctx)
             end
         elseif step == "upkeep" then
             if upkeep_step(true) then return true end
-        elseif not (hold_fire and type(step) == "table" and OFFENSIVE[step[1]]) then
+        else
             local role, cond = step[1], step[2]
             if role == "interrupt" and pack_interrupt() then return true end
             local bucket = built.by_role[role]

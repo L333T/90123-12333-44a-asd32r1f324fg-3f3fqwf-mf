@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.156.0
+-- Version: 2.157.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -845,11 +845,11 @@ function targeting.ensure_target(player, unit)
     return true
 end
 
--- Auto-attack is started at most once per AUTO_GAP per target, and only
--- within AUTO_REACH: it was re-issued every bot tick, including all the way
--- in from 10+ yards while the character was still walking up.
+-- Auto-attack is started at most once per AUTO_GAP per target. The swing,
+-- shot or wand starts once that enemy is the focused target and the distance
+-- is inside that attack's own range (gun, wand, or melee), not after the
+-- walk reaches the GUI stand distance.
 local AUTO_GAP = 1.0
-local AUTO_REACH = 6.0
 local auto_guid, auto_t, auto_type = nil, -1e9, nil
 
 function targeting.start_auto_attack(player, unit)
@@ -864,49 +864,48 @@ function targeting.start_auto_attack(player, unit)
     if type(types) ~= "table" or type(types.MELEE) ~= "number" then
         return false
     end
+    -- Focus the enemy first. The swing, shot or wand starts on the next
+    -- check that finds it inside that attack's own range, so the rotation
+    -- opens the moment a spell is in range instead of after the walk-in.
+    targeting.ensure_target(player, unit)
+    local focused = call(player.get_target, player)
+    local fg = indexable(focused) and call(focused.get_guid, focused) or nil
+    local ug = call(unit.get_guid, unit)
+    if fg == nil or ug == nil or fg ~= ug then
+        return false
+    end
     local d = call(player.distance_to, player, unit)
-    local reach = AUTO_REACH
-    local want = types.MELEE
     local cid = call(player.get_class, player)
     local hunter = cid == enums.class_id.HUNTER
-    local shaman = cid == enums.class_id.SHAMAN
-    local caster = cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
-        or cid == enums.class_id.WARLOCK
-    local shoot = 35
-    local melee_at = 5
-    if hunter or shaman then
-        local key = hunter and "rotations/hunter" or "rotations/shaman"
-        local hm = package.loaded[key]
+    local want = types.MELEE
+    local reach = 5
+    if hunter and type(types.RANGED) == "number" then
+        local dz = 8
+        local hm = package.loaded["rotations/hunter"]
         if type(hm) ~= "table" then
-            local okm, loaded = pcall(require, key)
+            local okm, loaded = pcall(require, "rotations/hunter")
             if okm and type(loaded) == "table" then hm = loaded end
         end
-        if type(hm) == "table" and hunter and type(hm.gun_range) == "function" then
+        if type(hm) == "table" and type(hm.gun_range) == "function" then
             local okg, gr = pcall(hm.gun_range)
-            if okg and type(gr) == "number" and gr > 8 then shoot = gr end
+            if okg and type(gr) == "number" and gr > 8 then reach = gr end
         end
-        if type(hm) == "table" and type(hm.melee_mode) == "function" and hm.melee_mode(player, unit) then
-            want = types.MELEE
-            local y = gui.slider and gui.slider("melee_yards", 5)
-            if type(y) == "number" and y >= 1 and y <= 5 then melee_at = y end
-            reach = melee_at
-        elseif hunter and type(d) == "number" and d > 5 and type(types.RANGED) == "number" then
+        if type(hm) == "table" and type(hm.dead_zone) == "function" then
+            local okd, z = pcall(hm.dead_zone)
+            if okd and type(z) == "number" and z > 0 and z < 15 then dz = z end
+        end
+        -- Auto Shot from the gun's real range. Inside the dead zone the
+        -- melee swing starts instead; shots cannot fire there.
+        if type(d) == "number" and d > dz then
             want = types.RANGED
-            local y = gui.slider and gui.slider("ranged_yards", shoot)
-            if type(y) == "number" and y > 8 then shoot = y end
-            reach = shoot
-        elseif shaman then
-            -- No ranged swing. Spells cover the gap; the melee swing starts
-            -- once the mob is inside the melee slider (the branch above).
-            return false
+            if reach <= dz then reach = 35 end
+        else
+            reach = 5
         end
-    elseif caster and type(types.WAND) == "number" then
+    elseif (cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
+        or cid == enums.class_id.WARLOCK) and type(types.WAND) == "number" then
         want = types.WAND
-        local y = gui.slider and gui.slider("ranged_yards", 30)
-        if type(y) == "number" and y > 8 then reach = y end
-    else
-        local y = gui.slider and gui.slider("melee_yards", 5)
-        if type(y) == "number" and y >= 1 and y <= 5 then reach = y end
+        reach = 30
     end
     if type(d) == "number" and d > reach then
         return false
@@ -917,13 +916,12 @@ function targeting.start_auto_attack(player, unit)
         and movement.has_los(player, unit) ~= true then
         return false
     end
-    local g = call(unit.get_guid, unit)
+    local g = ug
     local now = izi.now()
     if g ~= nil and g == auto_guid and auto_type == want and (now - auto_t) < AUTO_GAP then
         return true
     end
     auto_guid, auto_t, auto_type = g, now, want
-    targeting.ensure_target(player, unit)
     if want == types.RANGED then
         stop_attack_type(unit, types.MELEE)
     end

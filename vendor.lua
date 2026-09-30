@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.158.0
+-- Version: 2.159.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -51,6 +51,7 @@ local HEARTHSTONE = 6948
 local SELL_GAP = 0.40
 local INTERACT_GAP = 1.20
 local DONE_COOLDOWN = 90.0
+local BAG_HOLD = 300          -- 2.159.0: seconds a full-bag trip that freed nothing is not repeated
 local HERE_COOLDOWN = 60.0    -- a merchant window already worked is left alone this long
 
 -- FULL BAGS, NO KNOWN MERCHANT -> HEARTHSTONE (2.47.0). Zones without merchant
@@ -162,7 +163,7 @@ local function current_merchant(player)
 end
 
 local function backpack_free()
-    local slots = safe(function() return core.inventory.get_num_bag_slots(0) end) or 16
+    local slots = safe(function() return core.inventory.get_num_bag_slots(1) end) or 16
     if type(slots) ~= "number" or slots < 1 then
         slots = 16
     end
@@ -178,16 +179,32 @@ local function backpack_free()
     return left
 end
 
+-- FREE SLOTS (2.159.0). inventory_helper's bags 1-4 already include the
+-- backpack ("Bag 1 has an internal slot offset"), and backpack_free() read
+-- get_items_in_bag(0) - which is the WHOLE player container, worn gear
+-- included - against get_num_bag_slots(0), which is always 0 (the slot
+-- binding is shifted one: 1 = backpack). Adding the two either added nothing
+-- or counted the backpack twice. The helper's number is used alone.
+local last_free_logged = nil
+
 local function bag_free()
     local helper_free = safe(function()
         return inventory_helper:get_total_free_slots()
     end)
     if type(helper_free) == "number" and helper_free >= 0 then
-        return helper_free + backpack_free()
+        if helper_free ~= last_free_logged then
+            last_free_logged = helper_free
+            local ok_e, el = pcall(require, "errorlog")
+            if ok_e and type(el) == "table" and type(el.trail) == "function" then
+                pcall(el.trail, "vendor", "bags: %d free slot(s)", helper_free)
+            end
+        end
+        return helper_free
     end
     local free = backpack_free()
     for bag = 1, 4 do
-        local slots = safe(function() return core.inventory.get_num_bag_slots(bag) end) or 0
+        -- get_num_bag_slots is shifted one higher than get_items_in_bag.
+        local slots = safe(function() return core.inventory.get_num_bag_slots(bag + 1) end) or 0
         if type(slots) == "number" and slots > 0 then
             local items = safe(function() return core.inventory.get_items_in_bag(bag) end)
             local used = 0
@@ -388,6 +405,18 @@ local function finish_trip(note)
     if state.vendor.reason == "supplies" then
         supplies.trip_done(0)
     end
+    if state.vendor.reason == "bags" then
+        local free = bag_free()
+        if free <= gui.slider("bag_free", 1) then
+            state.vendor.bag_hold_free = free
+            state.vendor.bag_hold_until = izi.now() + BAG_HOLD
+            trail("bags still at %d free slot(s) after the trip - not going back until that changes", free)
+        else
+            state.vendor.bag_hold_free = nil
+        end
+    end
+    trail("vendor trip done: %s - back to the %s", tostring(note),
+        gui.is_on("use_quest") and "quest step" or "route")
     state.vendor.reason = nil
     state.vendor.inn = nil
     state.vendor.idle_since = 0
@@ -549,7 +578,13 @@ function vendor.needs_trip(player)
     end
     if gui.is_on("sell") then
         local need_slots = gui.slider("bag_free", 1)
-        if bag_free() <= need_slots then
+        local free = bag_free()
+        -- A trip that sold nothing left the bags as full as before: wait for
+        -- the count to change (or BAG_HOLD) instead of walking back at once.
+        local held = state.vendor.bag_hold_free ~= nil and free == state.vendor.bag_hold_free
+            and izi.now() < (state.vendor.bag_hold_until or 0)
+        if free <= need_slots and not held then
+            state.vendor.reason = "bags"
             return true
         end
     end
@@ -745,10 +780,48 @@ local function supplier_unit(player)
     return nil
 end
 
+-- THE CLOSEST VENDOR (2.159.0). Quest mode has no route merchant, and the
+-- zone merchant table covers few zones, so a full-bag trip often ended at
+-- "No merchant for this zone". Any NPC the game flags as a vendor (npc flag
+-- 0x80; 0x1000 repairs) in sight is used first - one that repairs when the
+-- gear needs it - then the zone merchant, then the nearest inn.
+local NPC_VENDOR, NPC_REPAIR = 0x80, 0x1000
+local VENDOR_SIGHT = 100
+
+local function has_flag(v, bit)
+    return type(v) == "number" and v > 0 and math.floor(v / bit) % 2 == 1
+end
+
+local function vendor_in_sight(player, want_repair)
+    local ok_t, list = pcall(function() return targeting.visible_objects() end)
+    if not ok_t or type(list) ~= "table" then return nil end
+    local best, best_d, best_rank = nil, nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_unit() end) == true
+            and safe(function() return u:is_player() end) ~= true
+            and safe(function() return u:is_dead_or_ghost() end) ~= true
+            and safe(function() return player:can_attack(u) end) ~= true then
+            local flags = safe(function() return u:get_npc_flags() end)
+            if has_flag(flags, NPC_VENDOR) or has_flag(flags, NPC_REPAIR) then
+                local d = safe(function() return player:distance_to(u) end)
+                -- A repairer ranks first only when the gear needs it.
+                local rank = (want_repair and has_flag(flags, NPC_REPAIR)) and 1 or 2
+                if type(d) == "number" and d <= VENDOR_SIGHT
+                    and (best_rank == nil or rank < best_rank or (rank == best_rank and d < best_d)) then
+                    best, best_d, best_rank = u, d, rank
+                end
+            end
+        end
+    end
+    return best, best_d
+end
+
 local function supplier_tick(player)
     local unit = supplier_unit(player)
     if not unit then
-        finish_trip("Food / water seller not found")
+        finish_trip(state.vendor.reason == "supplies" and "Food / water seller not found" or "Vendor not found")
         return false
     end
     local now = izi.now()
@@ -863,6 +936,28 @@ function vendor.tick(player)
             end
             state.set_note("Vendor", "Out of food / water - going to buy")
         end
+        -- NEAREST VENDOR IN SIGHT (2.159.0): any trip that is not a food /
+        -- water run goes to the closest flagged vendor first.
+        if not state.vendor.active then
+            local ratio_r, broken_r = worst_durability()
+            local want_repair = gui.is_on("repair")
+                and (broken_r or ratio_r <= gui.slider("repair_pct", 10) / 100)
+            local v, vd = vendor_in_sight(player, want_repair)
+            if v then
+                state.vendor.active = true
+                supplies.reset()
+                state.vendor.repaired = false
+                state.vendor.sold = 0
+                state.vendor.wait_npc = 0
+                state.vendor.tries = 0
+                state.vendor.supplier_guid = safe(function() return v:get_guid() end)
+                state.vendor.supplier_name = safe(function() return v:get_name() end)
+                trail("vendor run (%s): %s %.0f yd away, %d free slot(s)", tostring(state.vendor.reason or "repair"),
+                    tostring(state.vendor.supplier_name), vd or -1, bag_free())
+                state.set_note("Vendor", "Going to " .. tostring(state.vendor.supplier_name))
+                return supplier_tick(player)
+            end
+        end
         -- LOW DURABILITY -> HEARTHSTONE AND REPAIR (2.49.0). Out of combat,
         -- stop questing and hearth to the inn to find a merchant that can
         -- repair - even when a zone merchant is known. A stone not ready
@@ -881,6 +976,21 @@ function vendor.tick(player)
             if gui.is_on("sell") and bag_free() <= gui.slider("bag_free", 1) then
                 ht = { stage = "cast", t = izi.now(), tried = {}, tries = 0 }
                 return hearth_tick(player)
+            end
+            -- The nearest inn (2.159.0): innkeepers buy and sell.
+            local inn, ind = supplies.nearest_inn(player)
+            if inn then
+                state.vendor.active = true
+                supplies.reset()
+                state.vendor.repaired = false
+                state.vendor.sold = 0
+                state.vendor.wait_npc = 0
+                state.vendor.tries = 0
+                state.vendor.inn = inn
+                trail("vendor run (%s): no vendor in sight - nearest inn %.0f yd away",
+                    tostring(state.vendor.reason or "repair"), ind or -1)
+                state.set_note("Vendor", "Going to the inn to sell")
+                return true
             end
             state.set_note("Vendor", "No merchant for this zone")
             state.vendor.done_until = izi.now() + 30

@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.140.0
+-- Version: 2.141.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -237,14 +237,17 @@ local function watch_stuck(t)
         return
     end
     if (t - R.stuck_since) < STUCK_GRACE then return end
-    R.stuck_grace_until = t + STUCK_GRACE
     -- The re-pathing ladder decides what "stuck" means now (2.84.0): re-plan,
     -- then unstick, then give the goal up - instead of cancelling and
     -- blacklisting on the first standstill.
+    -- No stuck grace before it (2.141.0): the grace blocked every new move in
+    -- may_issue for 4 s, so each report also froze the character. It is kept
+    -- for the fallback below, where the walker really is cancelled.
     if RP.stuck_now(t) then
         R.stuck_x, R.stuck_y, R.stuck_since = x, y, t
         return
     end
+    R.stuck_grace_until = t + STUCK_GRACE
     W.set_quiet(1.5)
     local had, dx, dy, dz = R.has_dest, R.dest_x, R.dest_y, R.dest_z
     W.clear_dest()

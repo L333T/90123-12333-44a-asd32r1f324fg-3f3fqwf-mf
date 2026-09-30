@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.173.0
+-- Version: 2.174.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -25,9 +25,11 @@
 --   4. Anything attacking the player comes first: the tick steps aside and
 --      the engine fights. Each corpse gets ENTRY_TIMEOUT, and the queue
 --      forgets entries after ENTRY_TTL, so looting can never stall the bot.
---   5. A fallback scan once per SCAN_GAP queues any lootable corpse within
---      SCAN_YARDS - kills the engines did not report. can_be_looted is only
---      true for the player holding loot rights, so these are ours.
+--   5. A fallback scan once per SCAN_GAP queues any of our corpses within
+--      SCAN_YARDS - kills the engines did not report, including adds that
+--      died off the current target. can_be_looted is only true for the
+--      player holding loot rights. A corpse the fight engaged is queued
+--      even before that flag is set.
 --
 -- The whole feature is the "Auto Loot Corpses" checkbox on the General tab.
 -- ============================================================================
@@ -68,9 +70,10 @@ local ignored = {}            -- guid -> ignored until
 -- queued in the kill tick used to be dropped on the next tick as "never ours"
 -- because can_be_looted was still false (2.38.0).
 local FLAG_GRACE = 3.0
-local QUEUE_MAX = 8
+local QUEUE_MAX = 32
 local SCAN_GAP = 1.0          -- seconds between fallback corpse scans
-local SCAN_YARDS = 40        -- the combat lock's range: every fight's corpses are in it
+local SCAN_YARDS = 100       -- same reach as the grind enemy scan: a kite still loots
+local working_guid = nil     -- the corpse being walked or looted right now
 
 local queue = {}              -- { guid, x, y, z, added, started, fires, fired_t }
 local next_scan = 0
@@ -280,6 +283,7 @@ function loot.reset()
     queue = {}
     ignored = {}
     close_at = nil
+    working_guid = nil
 end
 
 local function under_attack(player)
@@ -314,10 +318,12 @@ local function fallback_scan(player, now)
             local mine = guid and ((type(state.was_engaged) == "function" and state.was_engaged(guid))
                 or (type(state.was_killed) == "function" and state.was_killed(guid))) or false
             local can_c = lootable(c)
-            -- Plainly empty (not lootable, and has_loot says no): nothing to queue.
-            if (mine or can_c) and not (not can_c and empty(c)) then
+            -- Our kill is queued even before the loot flag is set. A corpse
+            -- the game says we may loot is ours too. Someone else's corpse
+            -- (not engaged, not lootable) stays where it is.
+            if mine or can_c then
                 local pos = safe(function() return c:get_position() end)
-                enqueue(guid, pos, mine == true)
+                enqueue(guid, pos, true)
             end
         end
     end
@@ -389,12 +395,27 @@ local function pause_clocks(dt)
     end
 end
 
+--- Corpses waiting behind the one being looted do not burn their give-up
+--- while that walk is still going (2.174.0).
+local function pause_waiting(dt, active)
+    for i = 1, #queue do
+        local e = queue[i]
+        if e.guid ~= active then
+            e.added = e.added + dt
+            if e.started then e.started = e.started + dt end
+            if e.fired_t then e.fired_t = e.fired_t + dt end
+        end
+    end
+end
+
 function loot.tick(player)
     local now_t = izi.now()
     if last_tick_t and player and #queue > 0 then
         local dt = now_t - last_tick_t
         if dt > 0 and dt < 2 and under_attack(player) then
             pause_clocks(dt)
+        elseif dt > 0 and dt < 2 and working_guid then
+            pause_waiting(dt, working_guid)
         end
     end
     last_tick_t = now_t
@@ -412,6 +433,7 @@ end
 
 tick_inner = function(player)
     if not player or not enabled() then
+        working_guid = nil
         return false
     end
     watch_target()
@@ -432,18 +454,22 @@ tick_inner = function(player)
     end
 
     if vendor_busy() then
+        working_guid = nil
         return false
     end
     if safe(function() return player:is_dead() end) == true then
+        working_guid = nil
         return false
     end
     -- Fighting comes first; the engine's fight-back handles it.
     if under_attack(player) then
+        working_guid = nil
         return false
     end
 
     fallback_scan(player, now)
     if not loot.has_work(player) then
+        working_guid = nil
         return false
     end
 
@@ -505,10 +531,12 @@ tick_inner = function(player)
         end
     end
     if not best_e then
+        working_guid = nil
         return false
     end
 
     local e = best_e
+    working_guid = e.guid
     if not lootable(best_obj) and (now - e.added) <= FLAG_GRACE then
         -- Fresh corpse, flag not set yet: walk over, but do not fire yet.
         if best_d <= LOOT_REACH then
@@ -549,6 +577,7 @@ tick_inner = function(player)
                 break
             end
         end
+        working_guid = nil
         return false
     end
 

@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.147.0
+-- Version: 2.148.0
 -- ============================================================================
 -- Out-of-combat travel.
 --
@@ -319,7 +319,10 @@ end
 --- The travel leg in flight is an approach to this mob (2.140.0), or nil.
 --- A stalled approach gives up on the mob (unreachable), never blacklists the
 --- ground it was standing on.
-function Nv.set_approach(guid)
+--- 2.148.0: renamed from set_approach, which silently replaced the older
+--- Nv.set_approach(kind) above - quest walks then stored "npc" / "enemy" as a
+--- mob guid and lost the NPC / enemy approach shape.
+function Nv.set_approach_target(guid)
     R.approach_guid = guid
 end
 

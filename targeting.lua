@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.171.0
+-- Version: 2.172.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -923,9 +923,21 @@ function targeting.start_auto_attack(player, unit)
             reach = 5
         end
     elseif (cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
-        or cid == enums.class_id.WARLOCK) and type(types.WAND) == "number" then
-        want = types.WAND
-        reach = 30
+        or cid == enums.class_id.WARLOCK or cid == enums.class_id.SHAMAN) then
+        -- Casters auto-attack on engage, the same as a melee class. A wand
+        -- shoots from spell range. In melee, and for a shaman or a caster
+        -- with no wand, the swing is armed so it connects as the mob closes.
+        local wand_class = cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
+            or cid == enums.class_id.WARLOCK
+        local close = type(d) == "number" and d <= 5
+        if not close and wand_class and type(types.WAND) == "number"
+            and targeting.has_wand_equipped(player) then
+            want = types.WAND
+            reach = 30
+        else
+            want = types.MELEE
+            reach = 30
+        end
     end
     if type(d) == "number" and d > reach then
         return false
@@ -938,14 +950,30 @@ function targeting.start_auto_attack(player, unit)
     end
     local g = ug
     local now = izi.now()
-    if g ~= nil and g == auto_guid and auto_type == want and (now - auto_t) < AUTO_GAP then
-        return true
+    if g ~= nil and g == auto_guid and (now - auto_t) < AUTO_GAP then
+        if auto_type == want then return true end
+        if auto_type == nil then return false end
+    end
+    if want == types.RANGED or want == types.WAND then
+        stop_attack_type(unit, types.MELEE)
+    elseif want == types.MELEE and type(types.WAND) == "number" then
+        stop_attack_type(unit, types.WAND)
+    end
+    local started = start_attack_type(unit, want)
+    local caster = cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
+        or cid == enums.class_id.WARLOCK or cid == enums.class_id.SHAMAN
+    if not started and caster and type(types.WAND) == "number" then
+        local other = (want == types.WAND) and types.MELEE or types.WAND
+        if other ~= want and start_attack_type(unit, other) then
+            want = other
+            started = true
+        end
+    end
+    if not started then
+        auto_guid, auto_t, auto_type = g, now, nil
+        return false
     end
     auto_guid, auto_t, auto_type = g, now, want
-    if want == types.RANGED then
-        stop_attack_type(unit, types.MELEE)
-    end
-    start_attack_type(unit, want)
     return true
 end
 

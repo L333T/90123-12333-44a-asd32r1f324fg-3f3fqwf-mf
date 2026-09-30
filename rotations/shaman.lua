@@ -3,7 +3,7 @@
 -- Shaman grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.171.0
+-- Version: 2.172.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WEAPON IMBUES - THE BUG NOT COPIED

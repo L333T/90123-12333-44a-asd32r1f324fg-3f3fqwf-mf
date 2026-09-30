@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.167.0
+-- Version: 2.168.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -465,10 +465,13 @@ end
 local SELL_MAX_SLOT = 36
 
 local function slot_ok(e)
-    if type(e.bag) ~= "number" or type(e.slot) ~= "number" or e.slot < 1 then return false end
-    local cap = safe(function() return core.inventory.get_num_bag_slots(e.bag + 1) end)
-    if type(cap) ~= "number" or cap < 1 or cap > SELL_MAX_SLOT then cap = (e.bag == 0) and 16 or SELL_MAX_SLOT end
-    return e.slot <= cap
+    -- inventory_helper's (bag_id, bag_slot) is documented as the pair the
+    -- container calls take (2.168.0). 2.166.0 also checked the slot against
+    -- get_num_bag_slots, whose backpack count the API docs call unreliable
+    -- on these clients - it rejected every slot and every sale fell back to
+    -- use_item ("via use_item" in the 13:11 log). Only a sanity range now.
+    return type(e.bag) == "number" and e.bag >= 0 and e.bag <= 4
+        and type(e.slot) == "number" and e.slot >= 1 and e.slot <= SELL_MAX_SLOT
 end
 
 local function sell_one(player)
@@ -483,7 +486,7 @@ local function sell_one(player)
             if (sell_fails[id] or 0) < SELL_RETRIES and should_sell_item(player, id) then
                 local before = bags.count(id)
                 if before > 0 then
-                    local how = "use_item"
+                    local how = string.format("use_item (helper pair bag %s slot %s)", tostring(e.bag), tostring(e.slot))
                     if container_sell and slot_ok(e) then
                         how = string.format("bag %d slot %d", e.bag, e.slot)
                         pcall(function() core.input.use_container_item(e.bag, e.slot) end)

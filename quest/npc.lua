@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.162.0
+-- Version: 2.163.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -709,6 +709,25 @@ end
 ---   "panel"        no list at all: a quest panel is (or is assumed) up
 ---   "not_listed"   the NPC lists quests and this one is not among them
 ---   "not_ready"    turn in only: listed, but the NPC marks it incomplete
+-- 2.162.0: how long a gossip with options but no quest rows is given.
+local ROWS_WAIT = 1.5
+
+--- One trail line with everything the open gossip holds, for a "not listed".
+local function dump_gossip(kind)
+    local opts = safe(function() return core.quests.get_gossip_options() end) or {}
+    local names = {}
+    for i = 1, #opts do names[#names + 1] = tostring(opts[i].name) .. "/" .. tostring(opts[i].gossip_type) end
+    local act = safe(function() return core.quests.get_gossip_active_quests() end) or {}
+    local av = safe(function() return core.quests.get_gossip_available_quests() end) or {}
+    local titles = {}
+    for i = 1, #act do titles[#titles + 1] = "A:" .. tostring(act[i].title) end
+    for i = 1, #av do titles[#titles + 1] = "N:" .. tostring(av[i].title) end
+    local g = izi.gossip
+    local iza = g and type(g.active_quests) == "function" and safe(function() return #g.active_quests() end) or -1
+    trail("%s %s: gossip holds options [%s], quests [%s], izi active %s",
+        dlg.key or "?", dlg.label, table.concat(names, ", "), table.concat(titles, ", "), tostring(iza))
+end
+
 local function select_quest(quest_id, quest_name, kind)
     if gossip_open() then
         local rows = quest_rows(kind)
@@ -727,7 +746,10 @@ local function select_quest(quest_id, quest_name, kind)
             return "selected"
         end
         if gossip_options_count() > 0 then
-            return "not_listed"
+            -- Options but no quest rows yet (2.162.0): a class trainer's
+            -- gossip (train, unlearn, the quest) can list its options a
+            -- moment before its quests. The caller waits ROWS_WAIT first.
+            return "no_rows"
         end
         return "panel"
     end
@@ -906,6 +928,11 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
             return dlg_finish("skipped")
         end
         local r = select_quest(quest_id, quest_name, "available")
+        if r == "no_rows" then
+            if (now - dlg.t) < ROWS_WAIT then return end
+            dump_gossip("available")
+            r = "not_listed"
+        end
         if r == "not_listed" then
             return dlg_finish("not_offered")
         end
@@ -1046,6 +1073,11 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
             return
         end
         local r = select_quest(quest_id, quest_name, "active")
+        if r == "no_rows" then
+            if (now - dlg.t) < ROWS_WAIT then return end
+            dump_gossip("active")
+            r = "not_listed"
+        end
         if r == "not_listed" then
             return dlg_finish("not_offered")
         end

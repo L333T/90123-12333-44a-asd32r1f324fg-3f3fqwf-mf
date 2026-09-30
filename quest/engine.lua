@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.166.0
+-- Version: 2.167.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -649,6 +649,220 @@ local function quest_title(goal, kind, qid)
         text = text:gsub("^[Tt]urn%s*[Ii]n%s+", "")
     end
     return text
+end
+
+-- ----------------------------------------------------------------------------
+-- BUY STEPS (2.167.0)
+-- ----------------------------------------------------------------------------
+-- RestedXP ".buy" ("Buy 2 stacks of Light Shot") was mapped to "collect",
+-- which went looking for a mob to kill. Now: the item name and amount are
+-- read from the goal text, the bot walks to the step's waypoint, opens the
+-- vendor there (the waypoint's named NPC, else the nearest NPC flagged
+-- vendor), finds the item on the vendor by name and buys until the bags hold
+-- the amount. buy_item's quantity is measured, not assumed: the first
+-- purchase is one unit, and what arrives decides the size of the next.
+-- Vendor item info does not exist on WoW Forever - the step is skipped there.
+local BUY_TIMEOUT = 120
+local BUY_GAP = 0.9
+local BUY_TALK_GAP = 1.5
+local BUY_FAILS = 3
+local g_buy = { key = nil }
+
+local function strip_codes(t)
+    t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cRXP_[%u_]-_", ""):gsub("|r", ""):gsub("|T.-|t", "")
+    t = t:gsub("[%[%]]", "")
+    return (t:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+--- item name, stacks (or nil), count (or nil) from "Buy 2 stacks of X" /
+--- "Buy 20 X" / "Buy X".
+local function parse_buy(text)
+    if type(text) ~= "string" then return nil end
+    local t = strip_codes(text)
+    local n, name = t:match("^[Bb]uy%s+(%d+)%s+stacks?%s+of%s+(.+)$")
+    if n then return name, tonumber(n), nil end
+    n, name = t:match("^[Bb]uy%s+(%d+)x?%s+(.+)$")
+    if n then return name, nil, tonumber(n) end
+    name = t:match("^[Bb]uy%s+(.+)$")
+    if name then return name, 1, nil end
+    return nil
+end
+
+local function vendor_find(name)
+    local want = string.lower(name)
+    local n = safe(function() return core.game_ui.get_vendor_item_count() end) or 0
+    local best = nil
+    for i = 1, n do
+        local info = safe(function() return core.game_ui.get_vendor_item_info(i) end)
+        local iname = type(info) == "table" and type(info.item_name) == "string" and string.lower(info.item_name) or nil
+        if iname and iname ~= "" then
+            if iname == want then return i, info end
+            if not best and (iname:find(want, 1, true) or want:find(iname, 1, true)) then best = { i, info } end
+        end
+    end
+    if best then return best[1], best[2] end
+    return nil
+end
+
+local function bag_count(item_id)
+    local ok_b, bags = pcall(require, "bags")
+    if not ok_b or type(bags) ~= "table" or type(bags.count) ~= "function" then return 0 end
+    return bags.count(item_id) or 0
+end
+
+local function merchant_up()
+    local ok_v, vendor = pcall(require, "vendor")
+    return ok_v and type(vendor) == "table" and type(vendor.merchant_open) == "function" and vendor.merchant_open() == true
+end
+
+local function buy_vendor_unit(player, wps)
+    for i = 1, #wps do
+        local title = wps[i].title
+        if title then
+            local u = targeting.find_named(player, title, nil, 60)
+            if u and not g_buy.bad[safe(function() return u:get_guid() end) or ""] then return u end
+        end
+    end
+    local list = targeting.visible_objects and targeting.visible_objects() or nil
+    if type(list) ~= "table" then return nil end
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_player() end) ~= true
+            and safe(function() return player:can_attack(u) end) ~= true then
+            local f = safe(function() return u:get_npc_flags() end)
+            local g = safe(function() return u:get_guid() end)
+            if type(f) == "number" and math.floor(f / 0x80) % 2 == 1 and not g_buy.bad[g or ""] then
+                local d = safe(function() return player:distance_to(u) end)
+                if type(d) == "number" and d <= 60 and (best_d == nil or d < best_d) then best, best_d = u, d end
+            end
+        end
+    end
+    return best
+end
+
+local function buy_done(goal, why)
+    trail("act", "buy step: %s", why)
+    pcall(function() core.input.close_merchant() end)
+    g_buy = { key = nil }
+    guide.mark_goal_done(guide.step_num(), goal.index)
+    return true
+end
+
+--- Drive a ".buy" goal. True while it holds the tick.
+local function buy_goal(player, goal, wps, label)
+    local a = type(goal.action) == "string" and string.lower(goal.action) or ""
+    if a ~= "buy" then return false end
+    local now = izi.now()
+    if g_buy.key ~= g_key then
+        local name, stacks, count = parse_buy(goal.text or label)
+        if not name then return false end
+        g_buy = { key = g_key, name = name, stacks = stacks, count = count, since = now,
+            item_id = nil, target = nil, unit_per_call = nil, pending = nil, fails = 0,
+            talk_t = -1e9, bad = {} }
+        trail("act", "buy step: %s x%s", name, stacks and (tostring(stacks) .. " stack(s)") or tostring(count or 1))
+    end
+    local b = g_buy
+    if gamever.is_forever() then
+        return buy_done(goal, "vendor items cannot be read on WoW Forever - skipped")
+    end
+    if (now - b.since) > BUY_TIMEOUT then
+        return buy_done(goal, "gave up after " .. BUY_TIMEOUT .. " s")
+    end
+    if b.item_id and b.target and bag_count(b.item_id) >= b.target then
+        return buy_done(goal, string.format("have %d %s", bag_count(b.item_id), b.name))
+    end
+
+    if merchant_up() then
+        movement.nav_stop()
+        local idx, info = vendor_find(b.name)
+        if not idx then
+            local u = state.target and state.target.unit
+            local g = u and safe(function() return u:get_guid() end)
+            if g then b.bad[g] = true end
+            trail("act", "buy step: this vendor does not sell %s - trying another", b.name)
+            pcall(function() core.input.close_merchant() end)
+            return true
+        end
+        if not b.item_id then
+            b.item_id = info.item_id
+            local lot = (type(info.quantity) == "number" and info.quantity > 0) and info.quantity or 1
+            -- A stack of ammo is 200; anything else sold by the lot counts the lot.
+            local per_stack = (lot > 1) and math.max(lot, 20) or 20
+            if lot >= 100 or b.name:lower():find("shot", 1, true) or b.name:lower():find("arrow", 1, true) then
+                per_stack = 200
+            end
+            b.lot = lot
+            b.target = b.count or ((b.stacks or 1) * per_stack)
+            trail("act", "buy step: %s is vendor item %d (id %s, %d per purchase, %dc) - want %d",
+                b.name, idx, tostring(b.item_id), lot, info.cost or 0, b.target)
+        end
+        local have = bag_count(b.item_id)
+        if b.pending then
+            if (now - b.pending.t) < BUY_GAP then return true end
+            local got = have - b.pending.before
+            if got > 0 then
+                if not b.unit_per_call then b.unit_per_call = got / b.pending.q end
+                b.fails = 0
+            else
+                b.fails = b.fails + 1
+            end
+            b.pending = nil
+            if b.fails >= BUY_FAILS then
+                return buy_done(goal, string.format("the vendor would not sell %s (gold %s)", b.name,
+                    tostring(safe(function() return core.inventory.get_gold() end))))
+            end
+        end
+        if have >= b.target then
+            return buy_done(goal, string.format("have %d %s", have, b.name))
+        end
+        local cost = type(info.cost) == "number" and info.cost or 0
+        local gold = safe(function() return core.inventory.get_gold() end) or 0
+        if cost > 0 and gold < cost then
+            return buy_done(goal, string.format("not enough gold for %s (%dc, have %dc)", b.name, cost, gold))
+        end
+        local q = 1
+        if b.unit_per_call and b.unit_per_call > 0 then
+            q = math.ceil((b.target - have) / b.unit_per_call)
+            local per_call_cap = (b.unit_per_call <= 1) and 200 or 1
+            q = math.max(1, math.min(q, per_call_cap))
+            if cost > 0 then q = math.max(1, math.min(q, math.floor(gold / cost))) end
+        end
+        b.pending = { before = have, q = q, t = now }
+        trail("act", "buy step: buy_item(%d, %d) - %d/%d %s", idx, q, have, b.target, b.name)
+        pcall(function() core.input.buy_item(idx, q) end)
+        state.set_note("Quest", string.format("Guide: buying %s  %d/%d", b.name, have, b.target))
+        return true
+    end
+
+    -- Not at the vendor yet: find it at the waypoint and open it.
+    local unit = buy_vendor_unit(player, wps)
+    if not unit then
+        if #wps > 0 then
+            if g_move > #wps then g_move = 1 end
+            if walk_to(wps[g_move].pos, label, TALK_ARRIVE) then return true end
+        end
+        state.set_note("Quest", "Guide: looking for the vendor - " .. tostring(label))
+        return true
+    end
+    local d = safe(function() return player:distance_to(unit) end) or 99
+    if d > 5 then
+        local up = safe(function() return unit:get_position() end)
+        if up and walk_to(up, label, 4) then return true end
+    end
+    movement.nav_stop()
+    if (now - b.talk_t) >= BUY_TALK_GAP then
+        b.talk_t = now
+        targeting.set_current(unit, "vendor")
+        pcall(function() core.input.interact_with_object(unit) end)
+        if gossip.is_open() then
+            gossip.select({ icon = "VENDOR", icon_num = 1, type = "vendor",
+                words = { "browse your goods", "let me browse", "your wares", "buy from you" } })
+        end
+    end
+    state.set_note("Quest", "Guide: opening the vendor for " .. tostring(b.name))
+    return true
 end
 
 -- QUEST TRAINER STEPS (2.149.0). The state of the train goal in progress.
@@ -2333,6 +2547,9 @@ tick_inner = function(player)
     -- walks to the step's waypoint until the class trainer is in sight, and
     -- is done when the visit finishes - or when RestedXP ticks it off first.
     if train_goal(player, goal, wps, label) then
+        return
+    end
+    if buy_goal(player, goal, wps, label) then
         return
     end
 

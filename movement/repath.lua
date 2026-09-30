@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.136.0
+-- Version: 2.137.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -145,8 +145,8 @@ local function escalate(x, y, z, kind, d, t)
         -- Do not stop Sentinel or the walker. A stop is what made the
         -- character stand still between hops. Sentinel retargets in place;
         -- the walker look-ahead turns onto the next hop by itself.
-        if kind ~= "combat" and R.sn_active and type(N.retarget) == "function" then
-            N.retarget({ x = x, y = y, z = z }, "steer")
+        if kind ~= "combat" and R.sn_active and type(N.replan) == "function" then
+            N.replan("no_progress")
         end
         R.block_streak = math.max(R.block_streak or 0, 2)
         R.detour_side = -(R.detour_side ~= 0 and R.detour_side or 1)
@@ -195,6 +195,11 @@ function RP.update(t)
     end
     if holding() or d <= DEAD_ZONE then
         g.best, g.best_t = math.min(g.best or d, d), t
+        return
+    end
+    if kind == "nav" and R.sn_active and type(N.progress_advanced) == "function"
+        and N.progress_advanced() then
+        g.best, g.best_t, g.level = d, t, 0
         return
     end
     if d < (g.best or d) - PROGRESS_YD then

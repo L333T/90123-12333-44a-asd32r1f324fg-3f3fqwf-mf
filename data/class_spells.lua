@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.136.0
+-- Version: 2.137.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -204,7 +204,7 @@ W.HUNTER = t({
     { "Deterrence",             "defensive", on = true },
     { "Intimidation",           "interrupt", on = true },
 
-    { "Hunter's Mark",          "debuff", on = true, min = 0 },
+    { "Hunter's Mark",          "debuff", on = true, min = 8 },
     { "Serpent Sting",          "debuff", on = true, min = 8, g = "sting", thp = 40 },
     { "Viper Sting",            "debuff", on = false, min = 8, g = "sting" },
 

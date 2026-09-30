@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.136.0
+-- Version: 2.137.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -28,7 +28,7 @@ local SN_MIN_GAP        = K.SN_MIN_GAP
 
 local pt, to_vec3 = R.pt, R.to_vec3
 local xyz, dlog = U.xyz, U.dlog
-local travel_near = U.travel_near
+local travel_near, here_xyz, dist2, walk_open = U.travel_near, U.here_xyz, U.dist2, U.walk_open
 
 local P_DEST = R.P_DEST
 
@@ -86,6 +86,7 @@ end
 N.fail_code = fail_code
 
 local chain_busy = false
+local try_random_unstick
 
 function N.on_nav_done(ok, reason, detail)
     if not R.sn_active then return end           -- stale: we already stopped/switched
@@ -140,14 +141,9 @@ function N.on_nav_done(ok, reason, detail)
     if r == "unreachable" or r == "max_repath_exceeded" then
         W.mark_fail("unreachable")
     elseif r == "max_stuck_exceeded" then
-        -- Sentinel exhausted its recovery. Hand back to the walker, but do
-        -- NOT blacklist anything here.
-        --
-        -- This used to blacklist the DESTINATION, which is the one place we
-        -- know is not the obstruction: failing to reach a quest giver would
-        -- blacklist the quest giver. Sentinel's own AddAvoidanceZone puts the
-        -- zone at obstacles.last_hit, or the player's position when there is
-        -- no hit - the place actually blocked - and it owns that memory.
+        if try_random_unstick() then
+            return
+        end
         W.mark_fail("max_stuck_exceeded")
     else
         W.mark_fail(r ~= "" and r or "failed")
@@ -242,7 +238,10 @@ local function bind_sn_events(c)
             local ok1 = pcall(bus.on, bus, "nav.stuck_detected", on_sn_stuck, opts)
             local ok2 = pcall(bus.on, bus, "nav.stuck_recovered", on_sn_recovered, opts)
             local ok3 = pcall(bus.on, bus, "nav.failed", on_sn_failed, opts)
-            if ok1 or ok2 or ok3 then
+            local ok4 = pcall(bus.on, bus, "nav.deviation_detected", function()
+                dlog("sentinel", "path deviation detected")
+            end, opts)
+            if ok1 or ok2 or ok3 or ok4 then
                 R.sn_events = true
                 return
             end
@@ -296,74 +295,21 @@ local client = N.client
 --- SN_MIN_GAP now goes out; a refused request returns false, and every caller
 --- already treats false as "use the walker instead".
 -- ----------------------------------------------------------------------------
--- TIGHT PATHS INDOORS (2.96.0)
+-- DOCUMENTED NAV QUERIES (client.nav_client)
 -- ----------------------------------------------------------------------------
--- Sentinel shapes its paths from its own config (get_path_opts): variation /
--- humanising and corridor width that look natural outdoors but walk the
--- character into door frames and walls inside buildings, caves and mines.
--- Indoors (player:is_indoors) each move_to gets a copy of those options with
---   * every numeric key named like variation / jitter / random / deviation /
---     wander / spread / noise / humaniz set to 0 (booleans to false)
---   * every corridor / path width capped at TIGHT_WIDTH yards
--- update_config is not used: Sentinel's UI rewrites it every frame. The key
--- names are not documented, so the first time the options are read they are
--- written to the session log (trail "sentinel").
-local TIGHT_WIDTH = 1.0
-local opts_logged = false
-
-local function loose_key(k)
-    k = tostring(k):lower()
-    return k:find("variation", 1, true) or k:find("jitter", 1, true) or k:find("random", 1, true)
-        or k:find("deviation", 1, true) or k:find("wander", 1, true) or k:find("spread", 1, true)
-        or k:find("noise", 1, true) or k:find("humaniz", 1, true)
-end
-
-local function width_key(k)
-    k = tostring(k):lower()
-    return (k:find("corridor", 1, true) or k:find("path", 1, true)) and
-        (k:find("width", 1, true) or k:find("margin", 1, true))
-end
-
-local function log_opts(c)
-    if opts_logged then return end
-    opts_logged = true
-    local ok_e, el = pcall(require, "errorlog")
-    if not (ok_e and type(el) == "table" and type(el.trail) == "function") then return end
-    for _, name in ipairs({ "get_path_opts", "get_corridor_opts" }) do
-        local ok, t = pcall(c[name], c)
-        if ok and type(t) == "table" then
-            local parts = {}
-            for k, v in pairs(t) do
-                if type(v) ~= "table" and type(v) ~= "function" then
-                    parts[#parts + 1] = tostring(k) .. "=" .. tostring(v)
-                end
-            end
-            table.sort(parts)
-            pcall(el.trail, "sentinel", "%s: %s", name, table.concat(parts, " "))
-        end
-    end
-end
-
--- LOOSE HEIGHT (2.112.0). The server finds a destination's polygon in three
--- tiers, (6,6,3) (10,10,6) (50,50,50) yards; its docs say to pass z_extent
--- when a position's height is imprecise. A quest waypoint whose height is
--- still the player's own (no navmesh answer yet) is flagged z_loose and gets
--- a wide vertical search instead of a 422.
-local LOOSE_Z_EXTENT = 250
-
--- AVOID DANGEROUS MOBS (2.118.0). targeting.scan_enemies keeps a danger map
--- of mobs too high to fight (movement/zones, R.danger: { x, y, z, r }). It
--- only steered the walker; Sentinel planned straight through their aggro
--- radius. Each leg now carries them as avoid_zones - Sentinel's own per-move
--- option ({ x, y, z, radius, cost }, merged with its obstacle zones and sent
--- as a path-avoid request) - the AVOID_MAX nearest within AVOID_RANGE of the
--- player. A zone that contains the destination is left out: walking up to a
--- quest giver standing next to an elite is still allowed.
+-- The Sentinel UI owns path config. We do not read get_path_opts, write
+-- update_config, or pass z_extent / avoid_zones / soft_update on move_to.
 local AVOID_MAX = 8
 local AVOID_RANGE = 200
-local AVOID_COST = 100
+local BODY_WIDTH = 1.0
 
-local function avoid_zones(p)
+local function nav()
+    local c = client()
+    if not c or type(c.nav_client) ~= "table" then return nil end
+    return c.nav_client
+end
+
+local function danger_zones(p)
     local list = R.danger
     if type(list) ~= "table" or #list == 0 then return nil end
     local me = nil
@@ -379,7 +325,7 @@ local function avoid_zones(p)
             local holds_dest = ex * ex + ey * ey <= d.r * d.r
             if dist <= AVOID_RANGE and not holds_dest then
                 picked[#picked + 1] = { dist = dist, zone = { x = d.x, y = d.y, z = d.z or me.z,
-                    radius = d.r, cost = AVOID_COST } }
+                    radius = d.r } }
             end
         end
     end
@@ -388,26 +334,6 @@ local function avoid_zones(p)
     local out = {}
     for i = 1, math.min(AVOID_MAX, #picked) do out[i] = picked[i].zone end
     return out
-end
-
--- densify_segment_length is a live get_path_opts key (logged 2.134.0 as 1).
--- 1-yard points put the first waypoint under the player; 6 yards is still
--- on the same mesh path, just not a dest the character has to orbit.
-local DENSIFY_MIN = 6
-
-local function apply_densify(opts, c)
-    if type(c) ~= "table" or type(c.get_path_opts) ~= "function" then return opts end
-    local ok, base = pcall(c.get_path_opts, c)
-    if not ok or type(base) ~= "table" or type(base.densify_segment_length) ~= "number" then
-        return opts
-    end
-    opts = opts or {}
-    local d = opts.densify_segment_length
-    if type(d) ~= "number" then d = base.densify_segment_length end
-    if d < DENSIFY_MIN then
-        opts.densify_segment_length = DENSIFY_MIN
-    end
-    return opts
 end
 
 --- Drop leading path points that are under the player. nil when every
@@ -432,40 +358,126 @@ local function skip_near_pts(pts)
 end
 N.skip_near_pts = skip_near_pts
 
---- move_to options for this leg, or nil (Sentinel's own defaults).
-local function leg_opts(c, p)
-    log_opts(c)
-    local loose = type(p) == "table" and rawget(p, "z_loose") == true
-    local zones = avoid_zones(p)
-    local extra = nil
-    if loose or zones then
-        extra = { z_extent = loose and LOOSE_Z_EXTENT or nil, avoid_zones = zones }
+local ray = { asked = -1e9, t = -1e9, clear = nil, ax = 0, ay = 0, bx = 0, by = 0 }
+
+local function line_clear(ax, ay, az, bx, by, bz)
+    local now = izi.now()
+    if ray.clear ~= nil and (now - ray.t) < 1.0
+        and ray.ax == ax and ray.ay == ay and ray.bx == bx and ray.by == by then
+        return ray.clear == true
     end
-    local indoors = false
-    pcall(function() indoors = izi.me():is_indoors() == true end)
-    if not indoors or type(c.get_path_opts) ~= "function" then
-        return apply_densify(extra, c)
+    local n = nav()
+    if n and type(n.raycast) == "function" and (now - ray.asked) >= 1.0 then
+        ray.asked = now
+        pcall(n.raycast, n, vec3.new(ax, ay, az), vec3.new(bx, by, bz), function(a)
+            ray.t, ray.ax, ray.ay, ray.bx, ray.by = izi.now(), ax, ay, bx, by
+            ray.clear = (a == true)
+        end)
     end
-    local ok, base = pcall(c.get_path_opts, c)
-    if not ok or type(base) ~= "table" then return apply_densify(extra, c) end
-    local out = {}
-    for k, v in pairs(base) do
-        if loose_key(k) and type(v) == "number" then
-            out[k] = 0
-        elseif loose_key(k) and type(v) == "boolean" then
-            out[k] = false
-        elseif width_key(k) and type(v) == "number" and v > TIGHT_WIDTH then
-            out[k] = TIGHT_WIDTH
-        else
-            out[k] = v
+    if ray.clear ~= nil and ray.ax == ax and ray.ay == ay and ray.bx == bx and ray.by == by then
+        return ray.clear == true
+    end
+    if type(walk_open) == "function" then
+        return walk_open({ x = ax, y = ay, z = az }, { x = bx, y = by, z = bz }) == true
+    end
+    return false
+end
+
+local av = { asked = -1e9, t = -1e9, pts = nil, gx = nil, gy = nil, pending = false }
+
+local function take_avoid_pts(from, dest, zones)
+    if type(zones) ~= "table" or #zones == 0 then return nil end
+    local n = nav()
+    if not n or type(n.find_path_avoid) ~= "function" then return nil end
+    local now = izi.now()
+    if av.pts and av.gx and (now - av.t) <= 2.5 then
+        local dx, dy = av.gx - dest.x, av.gy - dest.y
+        if dx * dx + dy * dy <= 16 then
+            local pts = av.pts
+            av.pts = nil
+            return pts
         end
     end
-    R.sn_tight = true
-    if extra then
-        out.z_extent = extra.z_extent
-        out.avoid_zones = extra.avoid_zones
+    if av.pending and (now - av.asked) < 5 then return nil end
+    if (now - av.asked) < 1.0 then return nil end
+    av.asked, av.pending = now, true
+    local gx, gy = dest.x, dest.y
+    local ok = pcall(n.find_path_avoid, n, vec3.new(from.x, from.y, from.z),
+        vec3.new(dest.x, dest.y, dest.z), zones, function(...)
+            av.pending = false
+            for i = 1, select("#", ...) do
+                local pts = select(i, ...)
+                if type(pts) == "table" and #pts >= 2 then
+                    av.pts, av.t, av.gx, av.gy = pts, izi.now(), gx, gy
+                    return
+                end
+            end
+        end)
+    if not ok then av.pending = false end
+    return nil
+end
+
+local chk = { key = nil, ok = nil, pending = false, asked = -1e9 }
+
+local function path_checked(from, pts)
+    local n = nav()
+    if not n or type(n.check_path) ~= "function" then return true end
+    if type(pts) ~= "table" or #pts < 2 then return true end
+    local a, b = pts[1], pts[#pts]
+    local key = string.format("%.0f|%.0f|%.0f|%.0f|%d", a.x, a.y, b.x, b.y, #pts)
+    local now = izi.now()
+    if chk.key == key and chk.ok ~= nil and (now - chk.asked) < 8 then
+        return chk.ok == true
     end
-    return apply_densify(out, c)
+    if chk.pending and (now - chk.asked) < 5 then return false end
+    if (now - chk.asked) < 1.0 and chk.key == key then return false end
+    chk.key, chk.pending, chk.asked, chk.ok = key, true, now, nil
+    local ok = pcall(n.check_path, n, vec3.new(from.x, from.y, from.z), pts, function(ok_path)
+        chk.pending = false
+        chk.ok = ok_path == true
+    end)
+    if not ok then
+        chk.pending, chk.ok = false, true
+        return true
+    end
+    return false
+end
+
+local unstick_at = -1e9
+
+try_random_unstick = function()
+    local n = nav()
+    if not n or type(n.random_point) ~= "function" then return false end
+    local now = izi.now()
+    if (now - unstick_at) < 8 then return false end
+    unstick_at = now
+    local gx, gy, gz = R.dest_x, R.dest_y, R.dest_z
+    local ok = pcall(n.random_point, n, function(p)
+        if type(p) ~= "table" or type(p.x) ~= "number" then return end
+        R.sn_active = false
+        if type(gx) == "number" then
+            R.goal_x, R.goal_y, R.goal_z = gx, gy, gz
+            R.keep_path = true
+        end
+        N.move({ x = p.x, y = p.y, z = p.z }, "unstick")
+    end)
+    if ok then
+        dlog("sentinel", "max_stuck - random_point then replan")
+    end
+    return ok == true
+end
+
+local function begin_leg(p, why)
+    local now = izi.now()
+    R.sn_last_issue_t = now
+    R.sn_issued = R.sn_issued + 1
+    R.sn_active, R.sn_reason = true, nil
+    R.sn_why = why
+    R.sn_leash_hold = true
+    R.sn_watch_t = now
+    R.sn_tight = false
+    R.sn_prog_idx, R.sn_prog_pct = nil, nil
+    W.begin_issue(p.x, p.y, p.z)
 end
 
 function N.move(p, why)
@@ -486,35 +498,44 @@ function N.move(p, why)
     -- SN_MIN_GAP rate limit above is what guards against flooding.
     if not xyz(p) then return false end
     if travel_near(p.x, p.y) then return false end
-    R.sn_last_issue_t = now
-    R.sn_issued = R.sn_issued + 1
+    local hx, hy, hz = here_xyz()
+    if R.sn_active then
+        return N.retarget(p, why)
+    end
     local okl, elog = pcall(require, "errorlog")
     if okl and type(elog) == "table" then
         elog.probe("sentinel move_to " .. tostring(why or ""))
     end
-    -- Already on a path: retarget in place. W.halt() here is what stood the
-    -- character still between RestedXP waypoints and on every re-issue.
-    local continuing = R.sn_active
-    if not continuing then
-        W.halt()
+    if hx then
+        local d = dist2(hx, hy, p.x, p.y)
+        if d < 30 and line_clear(hx, hy, hz, p.x, p.y, p.z) then
+            W.halt()
+            begin_leg(p, why)
+            local okd = pcall(c.move_direct, c, to_vec3(p), on_nav_done)
+            if not okd then
+                R.sn_active, R.sn_reason = false, nil
+                R.sn_leash_hold = false
+                W.clear_dest()
+                return false
+            end
+            dlog("issue", string.format("sentinel direct %s -> (%.1f, %.1f, %.1f)",
+                tostring(why or ""), p.x, p.y, p.z))
+            return true
+        end
+        local zones = danger_zones(p)
+        if zones then
+            local pts = take_avoid_pts({ x = hx, y = hy, z = hz }, p, zones)
+            if pts and #pts >= 2 then
+                pts = skip_near_pts(pts) or pts
+                if #pts >= 2 then
+                    return N.follow(pts, why or "avoid")
+                end
+            end
+        end
     end
-    W.begin_issue(p.x, p.y, p.z)
-    R.sn_active, R.sn_reason = true, nil
-    R.sn_why = why                -- what the leg is for (2.54.0): "pull", "travel", ...
-    R.sn_leash_hold = true
-    R.sn_watch_t = izi.now()
-    R.sn_tight = false
-    local opts = leg_opts(c, p)
-    if continuing then
-        opts = opts or {}
-        opts.soft_update = true
-    end
-    local ok
-    if opts then
-        ok = pcall(c.move_to, c, to_vec3(p), on_nav_done, opts)
-    else
-        ok = pcall(c.move_to, c, to_vec3(p), on_nav_done)
-    end
+    W.halt()
+    begin_leg(p, why)
+    local ok = pcall(c.move_to, c, to_vec3(p), on_nav_done)
     if not ok then
         R.sn_active, R.sn_reason = false, nil
         R.sn_leash_hold = false
@@ -527,13 +548,10 @@ function N.move(p, why)
 end
 
 -- ============================================================================
--- RETARGET WITHOUT STOPPING (2.118.0)
+-- RETARGET WITHOUT STOPPING
 -- ============================================================================
--- Sentinel's move_to takes opts.soft_update: while it is already moving, the
--- new destination is set and a soft repath is requested, and movement keeps
--- running (Client.lua, "seamless retarget"). It replaces the old re-aim,
--- which planned a separate path in the background and switched to it with
--- follow_path. Same one-request-per-SN_MIN_GAP limit as every other request.
+-- Prefetch a path (nav_client.find_path) while the current leg runs, then
+-- switch with follow_path. replan is reserved for the stuck ladder.
 function N.retarget(p, why)
     if not R.sn_active or R.cur_owner == OWNER.COMBAT then return false end
     local now = izi.now()
@@ -544,16 +562,20 @@ function N.retarget(p, why)
     -- out the request gap: that wait is the character standing at the hop.
     local urgent = why == "chain" or why == "avoid"
     if not urgent and (now - R.sn_last_issue_t) < SN_MIN_GAP then return false end
-    local opts = leg_opts(c, p) or {}
-    opts.soft_update = true
-    R.sn_last_issue_t = now
-    R.sn_issued = R.sn_issued + 1
-    local ok = pcall(c.move_to, c, to_vec3(p), on_nav_done, opts)
+    local hx, hy, hz = here_xyz()
+    if not hx then return false end
+    local pts = N.prefetch({ x = hx, y = hy, z = hz }, p)
+    if not pts or #pts < 2 then
+        return true
+    end
+    pts = skip_near_pts(pts) or pts
+    if #pts < 2 then return false end
+    begin_leg({ x = pts[#pts].x, y = pts[#pts].y, z = pts[#pts].z }, why or R.sn_why)
+    local ok = pcall(c.follow_path, c, pts, on_nav_done)
     if not ok then return false end
-    W.begin_issue(p.x, p.y, p.z)
     R.sn_active = true
     R.sn_why = why or R.sn_why
-    dlog("issue", string.format("sentinel retarget -> (%.1f, %.1f, %.1f)", p.x, p.y, p.z))
+    dlog("issue", string.format("sentinel retarget follow -> (%.1f, %.1f, %.1f)", p.x, p.y, p.z))
     return true
 end
 
@@ -598,6 +620,38 @@ function N.planning()
     plan_since = plan_since or t
     return (t - plan_since) < SN_PLAN_MAX
 end
+
+--- Path index or percent moved forward. A detour that walks away from the
+--- goal is still progress (euclidean distance is not).
+function N.progress_advanced()
+    local c = R.sn_client
+    if type(c) ~= "table" or type(c.get_progress) ~= "function" then return false end
+    local ok, p = pcall(c.get_progress, c)
+    if not ok or type(p) ~= "table" then return false end
+    local idx = tonumber(p.current_index)
+    local pct = tonumber(p.percent)
+    local moved = false
+    if idx and R.sn_prog_idx and idx > R.sn_prog_idx then moved = true end
+    if pct and R.sn_prog_pct and pct > R.sn_prog_pct + 0.01 then moved = true end
+    if idx then R.sn_prog_idx = idx end
+    if pct then R.sn_prog_pct = pct end
+    return moved
+end
+
+--- Re-request the current path. Does not stop the character.
+function N.replan(reason)
+    local c = client()
+    if not c or type(c.replan) ~= "function" then return false end
+    local now = izi.now()
+    if (now - R.sn_last_issue_t) < SN_MIN_GAP then return false end
+    R.sn_last_issue_t = now
+    local ok = pcall(c.replan, c, reason or "no_progress")
+    if ok then
+        dlog("sentinel", "replan " .. tostring(reason or ""))
+    end
+    return ok == true
+end
+
 local SN_STALL_YD = 1.5
 local stall_x, stall_y, stall_t = nil, nil, 0
 
@@ -623,6 +677,41 @@ local function stall_check(t)
         return false
     end
     return (t - stall_t) >= SN_STALL_SEC
+end
+
+local corr_asked = -1e9
+
+local function maybe_corridor(c)
+    local indoors = false
+    pcall(function() indoors = izi.me():is_indoors() == true end)
+    if not indoors then return end
+    if type(c.get_corridor_widths) ~= "function" then return end
+    local okw, widths = pcall(c.get_corridor_widths, c)
+    local oki, idx = pcall(c.get_path_index, c)
+    if not okw or type(widths) ~= "table" or type(idx) ~= "number" then return end
+    local w = widths[idx] or widths[idx + 1]
+    if type(w) ~= "number" or w >= BODY_WIDTH then return end
+    local n = nav()
+    if not n or type(n.find_path_corridor) ~= "function" then return end
+    local now = izi.now()
+    if (now - corr_asked) < 2 then return end
+    local dest = nil
+    if type(c.get_destination) == "function" then
+        local okd, d = pcall(c.get_destination, c)
+        if okd then dest = d end
+    end
+    local hx, hy, hz = here_xyz()
+    if not hx or type(dest) ~= "table" or type(dest.x) ~= "number" then return end
+    corr_asked = now
+    pcall(n.find_path_corridor, n, vec3.new(hx, hy, hz), vec3.new(dest.x, dest.y, dest.z), function(...)
+        for i = 1, select("#", ...) do
+            local pts = select(i, ...)
+            if type(pts) == "table" and #pts >= 2 then
+                N.follow(pts, "corridor")
+                return
+            end
+        end
+    end)
 end
 
 --- Sentinel's current waypoint is under the player: skip it. 1-yard densify
@@ -696,6 +785,7 @@ function N.watch(t)
     local c = R.sn_client
     if R.sn_active and type(c) == "table" then
         skip_near_wp(c)
+        maybe_corridor(c)
     end
     if type(c) == "table" then
         local ok, st = pcall(c.get_state, c)
@@ -897,6 +987,14 @@ function N.follow(points, why)
     end
     pts = skip_near_pts(pts)
     if not pts or #pts < 2 then return false end
+    local hx, hy, hz = here_xyz()
+    if hx then
+        local ready = path_checked({ x = hx, y = hy, z = hz }, pts)
+        if chk.ok == false then
+            return N.move({ x = pts[1].x, y = pts[1].y, z = pts[1].z }, why or "path")
+        end
+        if not ready then return false end
+    end
     R.sn_last_issue_t = now
     R.sn_issued = R.sn_issued + 1
     local last = pts[#pts]

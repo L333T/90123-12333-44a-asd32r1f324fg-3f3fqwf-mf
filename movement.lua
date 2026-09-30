@@ -3,7 +3,7 @@
 -- Intelligent Movement & Navigation System - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.147.0
+-- Version: 2.148.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- SINGLE-OWNER MOVEMENT STATE MACHINE
@@ -161,7 +161,7 @@ movement.set_approach  = Nv.set_approach
 movement.nudge         = Nv.nudge
 movement.nav_path      = Nv.nav_path
 movement.nav_stop      = Nv.nav_stop
-movement.set_approach  = Nv.set_approach     -- 2.140.0
+movement.set_approach_target = Nv.set_approach_target  -- 2.140.0 (renamed 2.148.0)
 movement.halt          = Nv.halt
 movement.nav_pause     = Nv.nav_pause
 movement.nav_resume    = Nv.nav_resume

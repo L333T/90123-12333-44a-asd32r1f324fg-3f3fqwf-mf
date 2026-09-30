@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.161.0
+-- Version: 2.162.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -971,6 +971,95 @@ local function recover_stall(now, goal, label)
     return false
 end
 
+-- FAILED QUESTS (2.162.0). A timed quest (Scalding Mornbrew Delivery: a hot
+-- drink to deliver in minutes) that runs out cannot be handed in - the NPC
+-- simply does not list it, and the 12:24 session "tried another NPC" at
+-- every unit near the trainer. The quest log says so (is_complete == -1):
+-- the quest is abandoned, the bot walks back to where it was accepted,
+-- takes it again, and the turn-in goal carries on. Where each quest was
+-- accepted is remembered (npc id + position), saved with the settings.
+local g_accept_at = {}       -- quest id -> { npc = id, x, y, z }
+local g_redo = nil           -- { qid, title, npc, pos, since }
+local REDO_TIMEOUT = 180
+
+do
+    local ok_s, settings = pcall(require, "settings")
+    if ok_s and type(settings) == "table" and type(settings.register) == "function" then
+        settings.register("accept_at", function()
+            local parts = {}
+            for qid, a in pairs(g_accept_at) do
+                parts[#parts + 1] = string.format("%d:%d:%.1f:%.1f:%.1f", qid, a.npc, a.x, a.y, a.z)
+            end
+            return #parts > 0 and table.concat(parts, ";") or nil
+        end, function(v)
+            if type(v) ~= "string" then return end
+            for qid, id, x, y, z in v:gmatch("(%d+):(%d+):([%-%d%.]+):([%-%d%.]+):([%-%d%.]+)") do
+                g_accept_at[tonumber(qid)] = { npc = tonumber(id), x = tonumber(x), y = tonumber(y), z = tonumber(z) }
+            end
+        end)
+    end
+end
+
+local function remember_accept(qid, npc_id, unit)
+    local p = unit and safe(function() return unit:get_position() end)
+    if type(qid) ~= "number" or type(npc_id) ~= "number" or not p then return end
+    g_accept_at[qid] = { npc = npc_id, x = p.x, y = p.y, z = p.z }
+    local ok_s, settings = pcall(require, "settings")
+    if ok_s and type(settings) == "table" and type(settings.mark_dirty) == "function" then
+        settings.mark_dirty()
+    end
+end
+
+--- Walk back to the giver of a failed quest and take it again. True while
+--- it holds the tick.
+local function redo_accept(player, goal, label)
+    local r = g_redo
+    if not r then return false end
+    local now = izi.now()
+    if safe(function() return core.quests.is_on_quest(r.qid) end) == true then
+        trail("act", "quest %d taken again - back to the turn-in", r.qid)
+        g_redo = nil
+        return false
+    end
+    if (now - r.since) > REDO_TIMEOUT then
+        trail("act", "could not take quest %d again in %ds - skipping the turn-in", r.qid, REDO_TIMEOUT)
+        g_redo = nil
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
+    end
+    local unit = targeting.find_npc(player, r.npc, 40)
+    local up = unit and safe(function() return unit:get_position() end)
+    local d = up and geometry.distance_flat(safe(function() return player:get_position() end) or up, up)
+    if not unit or (type(d) == "number" and d > TALK_ARRIVE) then
+        local dest = up or r.pos
+        if walk_to(dest, "take " .. tostring(r.title) .. " again", TALK_ARRIVE) then
+            state.set_note("Quest", "Guide: going back to take " .. tostring(r.title) .. " again")
+            return true
+        end
+        if not unit then
+            state.set_note("Quest", "Guide: looking for the giver of " .. tostring(r.title))
+            return true
+        end
+    end
+    movement.nav_stop()
+    local result = npc.accept(player, r.qid, r.title, r.npc, unit)
+    if result == "done" or result == "skipped" then
+        npc.close_frames()
+        trail("act", "quest %d taken again - back to the turn-in", r.qid)
+        g_redo = nil
+        return false
+    end
+    if result == "not_offered" or result == "gave_up" or result == "bags_full" then
+        npc.close()
+        trail("act", "the giver would not offer quest %d again (%s) - skipping the turn-in", r.qid, tostring(result))
+        g_redo = nil
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
+    end
+    state.set_note("Quest", "Guide: taking " .. tostring(r.title) .. " again")
+    return true
+end
+
 local function dialog_goal(player, goal, kind, wps, label)
     local now = izi.now()
     local qid = nil
@@ -984,6 +1073,27 @@ local function dialog_goal(player, goal, kind, wps, label)
                 return true
             end
             -- No quest id at all: an NPC to speak to is all that is known.
+        end
+    end
+    if kind == "turnin" and qid then
+        if g_redo and g_redo.qid == qid then
+            if redo_accept(player, goal, label) then return true end
+        elseif npc.quest_log_state(qid) == "failed" then
+            local title = quest_title(goal, kind, qid)
+            local a = g_accept_at[qid] or nil
+            core.log_warning(string.format("[Master Farmer - Grindbot] Quest %s has FAILED (its timer ran out)%s.",
+                tostring(title or qid), a and " - abandoning it and taking it again" or " - abandoning it"))
+            npc.close()
+            npc.abandon(qid)
+            if a then
+                trail("act", "quest %d failed - abandoned, back to npc %d to take it again", qid, a.npc)
+                g_redo = { qid = qid, title = title or tostring(qid), npc = a.npc,
+                    pos = { x = a.x, y = a.y, z = a.z }, since = now }
+                return true
+            end
+            trail("act", "quest %d failed - abandoned; its giver is not known, skipping the turn-in", qid)
+            guide.mark_goal_done(guide.step_num(), goal.index)
+            return true
         end
     end
     if now < g_hold_until then
@@ -1124,6 +1234,9 @@ local function dialog_goal(player, goal, kind, wps, label)
             state.set_note("Quest", "Guide: turn in " .. tostring(title or qid))
             result = npc.turn_in(player, qid, title, npc_id, unit)
         end
+        if result == "done" and kind == "accept" then
+            remember_accept(qid, npc_id, unit)
+        end
         if result == "done" or result == "skipped" then
             -- Landed and proven by quest/npc. Close the windows once and move
             -- on: the dialog keeps answering "done" for this quest, so nothing
@@ -1174,6 +1287,14 @@ local function dialog_goal(player, goal, kind, wps, label)
                 return true
             end
             result = "gave_up"
+        end
+        if kind == "turnin" and (result == "not_offered" or result == "gave_up")
+            and npc.quest_log_state(qid) == "failed" then
+            -- Not the NPC's fault: the quest failed. The check at the top of
+            -- dialog_goal abandons it and takes it again next tick.
+            npc.close()
+            g_pending = nil
+            return true
         end
         if result == "not_offered" or result == "gave_up" then
             -- Not this NPC: rule it out and let find_giver pick the next.

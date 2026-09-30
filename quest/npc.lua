@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.161.0
+-- Version: 2.162.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -405,6 +405,53 @@ local function dlg_to(stage, now)
     dlg.stage, dlg.t = stage, now
 end
 
+-- ----------------------------------------------------------------------------
+-- QUEST LOG STATE (2.162.0)
+-- ----------------------------------------------------------------------------
+--- The quest log row of `quest_id`: "failed", "complete", "active", or nil
+--- when it is not in the log (or the log cannot be read - WoW Forever), plus
+--- its log index. get_quest_log_title: is_complete 1 complete, -1 failed.
+local log_cache = { qid = nil, t = -1e9, st = nil, idx = nil }
+
+function npc.quest_log_state(quest_id)
+    if type(quest_id) ~= "number" then return nil end
+    local t = izi.now()
+    if log_cache.qid == quest_id and (t - log_cache.t) < 2.0 then
+        return log_cache.st, log_cache.idx
+    end
+    local st, idx = npc.quest_log_scan(quest_id)
+    log_cache.qid, log_cache.t, log_cache.st, log_cache.idx = quest_id, t, st, idx
+    return st, idx
+end
+
+function npc.quest_log_scan(quest_id)
+    pcall(function() core.quests.expand_quest_header(0) end)
+    local n = safe(function() return core.quests.get_num_quest_log_entries() end) or 0
+    for i = 1, n do
+        local e = safe(function() return core.quests.get_quest_log_title(i) end)
+        if type(e) == "table" and not e.is_header and e.quest_id == quest_id then
+            if e.is_complete == -1 then return "failed", i end
+            if e.is_complete == 1 then return "complete", i end
+            return "active", i
+        end
+    end
+    return nil
+end
+
+--- Abandon `quest_id` (a failed timed quest). True when the request was sent.
+function npc.abandon(quest_id)
+    local st, idx = npc.quest_log_scan(quest_id)
+    log_cache.qid = nil
+    if not idx then return false end
+    local ok = pcall(function()
+        core.quests.select_quest_log_entry(idx)
+        core.quests.set_abandon_quest()
+        core.quests.abandon_quest()
+    end)
+    trail("abandon quest %d (%s) at log index %d: %s", quest_id, tostring(st), idx, ok and "sent" or "failed")
+    return ok
+end
+
 --- End the dialog with `result`, which is returned on every later call too
 --- (2.63.0): "done" (landed), "skipped" (grey), "not_offered", "not_ready"
 --- (the NPC lists the quest but will not take it yet), "gave_up".
@@ -498,7 +545,10 @@ local function quest_rows(kind)
     local getter = g and (kind == "available" and g.available_quests or g.active_quests)
     if type(getter) == "function" then
         local views = safe(function() return getter() end)
-        if type(views) == "table" then
+        -- An empty view list falls through to the raw rows (2.162.0): the
+        -- 12:24 turn-in at a class trainer read no quests from izi and
+        -- called it "not offered".
+        if type(views) == "table" and #views > 0 then
             for i = 1, #views do
                 local v = views[i]
                 out[#out + 1] = {

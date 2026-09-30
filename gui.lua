@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.128.0
+-- Version: 2.129.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -474,52 +474,86 @@ function gui.fights_in_melee()
     return v
 end
 
--- A Hunter has its own Shooting / Melee distance sliders (2.120.0).
-local function is_hunter()
-    local ok, cid = pcall(function() return menu:player_class() end)
-    return ok and cid == enums.class_id.HUNTER
+-- Spells-tab sliders, one saved element per class (2.129.0). The menu
+-- stores a slider by its id for the whole account, so a single mfg_sp_heal
+-- was the mage's value on a hunter. class_id hides every other class's row.
+local class_slider_ids = {}
+
+local function add_class_slider(class_id, key, min_v, max_v, default, label, tip)
+    local id = string.format("mfg_%s_%d", key, class_id)
+    menu:slider_int(id, min_v, max_v, default, {
+        label = label,
+        tab = "class",
+        class_id = class_id,
+        tooltip = tip,
+    })
+    local map = class_slider_ids[class_id]
+    if not map then
+        map = {}
+        class_slider_ids[class_id] = map
+    end
+    map[key] = id
 end
 
-local function show_melee_slider()
-    return not is_hunter() and gui.fights_in_melee() == true
-end
+local TIP_MELEE = "How close this class walks before it starts swinging."
+local TIP_RANGED = "How close this class walks before it starts casting. Never farther than the longest ticked damage spell."
+local TIP_SHOOT = "The Hunter closes to this distance, then uses the ranged weapon. Default 25. Melee spells start only once a mob has closed inside the dead zone."
+local TIP_HEAL = "Ticked healing spells are cast on yourself below this health."
+local TIP_DEF = "Ticked defensive spells are used below this health."
+local TIP_AOE = "Ticked area spells are used when at least this many enemies are in reach."
+local TIP_WAND = "Shoot the wand once mana drops below this. 0 never wands."
+local TIP_PET = "Mend Pet is cast when the pet's health drops below this."
 
-local function show_ranged_slider()
-    return not is_hunter() and gui.fights_in_melee() ~= true
-end
+local C = enums.class_id
+-- Melee classes.
+add_class_slider(C.WARRIOR, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
+add_class_slider(C.WARRIOR, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(C.WARRIOR, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
 
-menu:slider_int("mfg_melee_yards", 1, 5, 5, {
-    label = "Melee attack distance (yd)",
-    tab = "class",
-    visible_if = show_melee_slider,
-    tooltip = "Melee classes walk this close to the target before attacking.",
-})
-menu:slider_int("mfg_ranged_yards", 10, 40, 30, {
-    label = "Ranged attack distance (yd)",
-    tab = "class",
-    visible_if = show_ranged_slider,
-    tooltip = "Casters and hunters get this close before opening. Never farther than the longest ticked damage spell reaches.",
-})
-menu:slider_int("mfg_sp_heal", 20, 90, 50, {
-    label = "Self-heal below %",
-    tab = "class",
-    tooltip = "Ticked healing spells are cast on yourself below this health.",
-})
-menu:slider_int("mfg_sp_def", 10, 70, 35, {
-    label = "Defensives below %",
-    tab = "class",
-    tooltip = "Ticked defensive spells (Evasion, Shield Wall, Barkskin...) are used below this health.",
-})
-menu:slider_int("mfg_sp_aoe", 2, 6, 3, {
-    label = "Area of effect at enemies",
-    tab = "class",
-    tooltip = "Ticked AoE spells are used when at least this many enemies are in reach.",
-})
-menu:slider_int("mfg_sp_wand", 0, 60, 20, {
-    label = "Wand below mana %",
-    tab = "class",
-    tooltip = "Casters shoot their wand (Shoot) once mana drops below this.",
-})
+add_class_slider(C.PALADIN, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
+add_class_slider(C.PALADIN, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
+add_class_slider(C.PALADIN, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(C.PALADIN, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+
+add_class_slider(C.ROGUE, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
+add_class_slider(C.ROGUE, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+
+-- Hunter: shooting distance, then melee only after the mob closes. No wand.
+add_class_slider(C.HUNTER, "ranged_yards", 10, 35, 25, "Shooting distance (yd)", TIP_SHOOT)
+add_class_slider(C.HUNTER, "melee_yards", 1, 5, 5, "Melee distance (yd)", TIP_MELEE)
+add_class_slider(C.HUNTER, "pet_heal_pct", 20, 90, 50, "Mend Pet below %", TIP_PET)
+add_class_slider(C.HUNTER, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(C.HUNTER, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+
+-- Casters.
+add_class_slider(C.PRIEST, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(C.PRIEST, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
+add_class_slider(C.PRIEST, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(C.PRIEST, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(C.PRIEST, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
+
+add_class_slider(C.SHAMAN, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(C.SHAMAN, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
+add_class_slider(C.SHAMAN, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(C.SHAMAN, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+
+add_class_slider(C.MAGE, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(C.MAGE, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(C.MAGE, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(C.MAGE, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
+
+add_class_slider(C.WARLOCK, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(C.WARLOCK, "sp_heal", 20, 90, 45, "Drain Life below %", TIP_HEAL)
+add_class_slider(C.WARLOCK, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(C.WARLOCK, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(C.WARLOCK, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
+
+-- Druid stands at range until Cat or Bear, so both distances are kept.
+add_class_slider(C.DRUID, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)
+add_class_slider(C.DRUID, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
+add_class_slider(C.DRUID, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
+add_class_slider(C.DRUID, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
+add_class_slider(C.DRUID, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
 
 menu:add_popup({
     id = "profiles",
@@ -996,7 +1030,9 @@ function gui.attack_level_band()
 end
 
 function gui.slider(key, fallback)
-    local id = slider_aliases[key] or key
+    local cid = menu:player_class()
+    local map = cid and class_slider_ids[cid]
+    local id = (map and map[key]) or slider_aliases[key] or key
     local value = menu:get(id)
     if type(value) == "number" then
         return value

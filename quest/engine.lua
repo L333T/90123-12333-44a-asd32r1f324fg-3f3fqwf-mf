@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.164.0
+-- Version: 2.165.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -467,9 +467,6 @@ local function path_pull(dest)
     if not gui.is_on("quest_path_pull") then
         return false
     end
-    if quest.rushing and quest.rushing() then
-        return false
-    end
     -- Do not peel off to a 100 yd fight when the walk is an NPC approach
     -- already near the giver. (approach_kind / near are locals below this
     -- function, so they are not visible here.)
@@ -795,13 +792,13 @@ local function find_giver(player, goal, kind, wps)
         end
     end
     for i = 1, #wps do
-        local unit = guide.nearest_talkable(player, TALK_SEARCH, wps[i].pos, g_bad_givers)
+        local unit = guide.nearest_talkable(player, TALK_SEARCH, wps[i].pos, g_bad_givers, kind == "accept" or kind == "turnin")
         if unit then
             return unit, "nearest at waypoint"
         end
     end
     if #wps == 0 then
-        local unit = guide.nearest_talkable(player, TALK_SEARCH, nil, g_bad_givers)
+        local unit = guide.nearest_talkable(player, TALK_SEARCH, nil, g_bad_givers, kind == "accept" or kind == "turnin")
         if unit then
             return unit, "nearest"
         end
@@ -982,78 +979,8 @@ end
 -- takes it again, and the turn-in goal carries on. Where each quest was
 -- accepted is remembered (npc id + position), saved with the settings.
 local g_accept_at = {}       -- quest id -> { npc = id, x, y, z }
--- 2.164.0: every quest NPC talked to, by npc id -> { x, y, z } (saved), so a
--- failed quest accepted in an earlier session can still be taken again from
--- the NPC learned as its giver. And quests known to be TIMED (saved): one
--- that ever fails joins the list.
-local g_npc_pos = {}
-local g_timed = { [3364] = true }    -- Scalding Mornbrew Delivery
 local g_redo = nil           -- { qid, title, npc, pos, since }
 local REDO_TIMEOUT = 180
-
-local function mark_settings()
-    local ok_s, settings = pcall(require, "settings")
-    if ok_s and type(settings) == "table" and type(settings.mark_dirty) == "function" then
-        settings.mark_dirty()
-    end
-end
-
-do
-    local ok_s, settings = pcall(require, "settings")
-    if ok_s and type(settings) == "table" and type(settings.register) == "function" then
-        settings.register("npc_pos", function()
-            local parts = {}
-            for id, p in pairs(g_npc_pos) do
-                parts[#parts + 1] = string.format("%d:%.1f:%.1f:%.1f", id, p.x, p.y, p.z)
-            end
-            return #parts > 0 and table.concat(parts, ";") or nil
-        end, function(v)
-            if type(v) ~= "string" then return end
-            for id, x, y, z in v:gmatch("(%d+):([%-%d%.]+):([%-%d%.]+):([%-%d%.]+)") do
-                g_npc_pos[tonumber(id)] = { x = tonumber(x), y = tonumber(y), z = tonumber(z) }
-            end
-        end)
-        settings.register("timed_quests", function()
-            local parts = {}
-            for id in pairs(g_timed) do parts[#parts + 1] = tostring(id) end
-            return table.concat(parts, ",")
-        end, function(v)
-            if type(v) ~= "string" then return end
-            for id in v:gmatch("%d+") do g_timed[tonumber(id)] = true end
-        end)
-    end
-end
-
-local function remember_npc(npc_id, unit)
-    local p = unit and safe(function() return unit:get_position() end)
-    if type(npc_id) ~= "number" or not p then return end
-    local old = g_npc_pos[npc_id]
-    if not old or math.abs(old.x - p.x) + math.abs(old.y - p.y) > 3 then
-        g_npc_pos[npc_id] = { x = p.x, y = p.y, z = p.z }
-        mark_settings()
-    end
-end
-
--- RUSH (2.164.0). While a timed quest is in the log, nothing optional runs:
--- no sell trip, no trainer visit of the bot's own, no pulling mobs off the
--- path. The 12:15 / 12:24 sessions lost Scalding Mornbrew Delivery to a
--- trainer detour and a vendor stop.
-local rush_cache = { t = -1e9, v = nil }
-
---- The title / id of a timed quest being carried, or nil.
-function quest.rushing()
-    local now = izi.now()
-    if (now - rush_cache.t) < 1.0 then return rush_cache.v end
-    rush_cache.t, rush_cache.v = now, nil
-    for id in pairs(g_timed) do
-        if safe(function() return core.quests.is_on_quest(id) end) == true
-            and npc.quest_log_state(id) ~= "failed" then
-            rush_cache.v = id
-            break
-        end
-    end
-    return rush_cache.v
-end
 
 do
     local ok_s, settings = pcall(require, "settings")
@@ -1153,15 +1080,7 @@ local function dialog_goal(player, goal, kind, wps, label)
             if redo_accept(player, goal, label) then return true end
         elseif npc.quest_log_state(qid) == "failed" then
             local title = quest_title(goal, kind, qid)
-            g_timed[qid] = true
-            mark_settings()
             local a = g_accept_at[qid] or nil
-            if not a then
-                -- The giver learned for this quest, at its saved position.
-                local gid = guide.known_quest_npc("accept", qid)
-                local gp = gid and g_npc_pos[gid]
-                if gp then a = { npc = gid, x = gp.x, y = gp.y, z = gp.z } end
-            end
             core.log_warning(string.format("[Master Farmer - Grindbot] Quest %s has FAILED (its timer ran out)%s.",
                 tostring(title or qid), a and " - abandoning it and taking it again" or " - abandoning it"))
             npc.close()
@@ -1235,14 +1154,14 @@ local function dialog_goal(player, goal, kind, wps, label)
         end
         if at_door then
             for i = 1, #wps do
-                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, wps[i].pos, g_bad_givers)
+                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, wps[i].pos, g_bad_givers, kind == "accept" or kind == "turnin")
                 if unit then
                     how = "inside the building"
                     break
                 end
             end
             if not unit then
-                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, nil, g_bad_givers)
+                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, nil, g_bad_givers, kind == "accept" or kind == "turnin")
                 if unit then
                     how = "nearest nearby"
                 end
@@ -1301,7 +1220,6 @@ local function dialog_goal(player, goal, kind, wps, label)
     movement.nav_stop()
 
     local npc_id = geometry.object_id(unit)
-    remember_npc(npc_id, unit)
     trail("act", "%s with %s npc %s via %s", kind,
         tostring(safe(function() return unit:get_name() end)), tostring(npc_id), tostring(how))
     if qid then

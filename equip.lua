@@ -3,7 +3,7 @@
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.169.0
+-- Version: 2.170.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
@@ -42,6 +42,13 @@
 --      is answered. Without that step the bot re-issues the same equip forever
 --      and never wears the upgrade. core.game_ui.get_pending_equip_slot detects
 --      the prompt and core.input.equip_pending_item answers it.
+--
+--   6. Bags are equipped even when Auto Equip is off. An ordinary bag in the
+--      bags fills an empty bag slot; a bigger one replaces the smallest
+--      ordinary bag only when that bag is empty. Ammo pouches, quivers and
+--      soul bags are never equipped. The destination is
+--      core.inventory.get_bag_inventory_slot, passed to
+--      core.input.equip_container_item.
 -- ============================================================================
 
 ---@type izi_api
@@ -72,6 +79,8 @@ local weapon_until = 0
 -- izi.now() happens to be, instead of sitting out the gap once at startup.
 local last_scan = -1e9
 local last_act  = -1e9
+local last_bag_scan = -1e9
+local bag_attempt = nil
 local debug_done = false
 
 local function safe(fn)
@@ -467,6 +476,238 @@ local function find_upgrade(player)
 end
 
 -- ----------------------------------------------------------------------------
+-- BAGS (always, not gated by Auto Equip)
+-- ----------------------------------------------------------------------------
+-- Classic / TBC ordinary bags. Slot counts are the classic ones (a later
+-- expansion changed a few quest bags). Ammo, quivers, soul bags and
+-- profession bags are absent on purpose.
+local BAG_SIZE = {
+    [805] = 6, [828] = 6, [4496] = 6, [5571] = 6, [5572] = 6,
+    [4238] = 6, [5762] = 6, [5081] = 6, [4957] = 6, [6756] = 6,
+    [11845] = 4, [23389] = 4, [20474] = 4, [22976] = 4, [23852] = 6,
+    [856] = 8, [2657] = 8, [3233] = 8, [4240] = 8, [4241] = 8,
+    [4498] = 8, [5573] = 8, [5574] = 8, [5763] = 8,
+    [857] = 10, [932] = 10, [933] = 10, [1470] = 10, [4245] = 10,
+    [4497] = 10, [5575] = 10, [5576] = 10, [5764] = 10, [5765] = 10,
+    [6446] = 10,
+    [1725] = 12, [4499] = 12, [10050] = 12, [10051] = 12, [19291] = 12,
+    [1685] = 14, [3914] = 14, [9587] = 14, [11324] = 14, [14046] = 14,
+    [30744] = 14,
+    [4500] = 16, [14155] = 16, [20400] = 16, [21841] = 16,
+    [17966] = 18, [21843] = 18, [27680] = 18, [33117] = 18,
+    [21876] = 20, [34067] = 20, [34845] = 20, [35516] = 20,
+    [38082] = 22,
+}
+local BAG_NAME = {
+    ["small brown pouch"] = 6, ["small red pouch"] = 6, ["small blue pouch"] = 6,
+    ["small black pouch"] = 6, ["small green pouch"] = 6, ["linen bag"] = 6,
+    ["red linen bag"] = 6, ["kodo hide bag"] = 6, ["old moneybag"] = 6,
+    ["jewelry box"] = 6, ["nolkai's bag"] = 6, ["handmade leather bag"] = 4,
+    ["empty draenei supply pouch"] = 4, ["sunstrider book satchel"] = 4,
+    ["magister's pouch"] = 4, ["brown leather satchel"] = 8, ["woolen bag"] = 8,
+    ["green woolen bag"] = 8, ["red woolen bag"] = 8, ["blue leather bag"] = 8,
+    ["red leather bag"] = 8, ["green leather bag"] = 8, ["white leather bag"] = 8,
+    ["gnoll hide sack"] = 8, ["heavy brown bag"] = 10, ["small silk pack"] = 10,
+    ["green silk pack"] = 10, ["black silk pack"] = 10, ["large red sack"] = 10,
+    ["large green sack"] = 10, ["large brown sack"] = 10, ["murloc skin bag"] = 10,
+    ["large rucksack"] = 10, ["fel steed saddlebags"] = 10, ["snakeskin bag"] = 10,
+    ["huge brown sack"] = 12, ["large knapsack"] = 12, ["mageweave bag"] = 12,
+    ["red mageweave bag"] = 12, ["darkmoon storage box"] = 12,
+    ["journeyman's backpack"] = 14, ["runecloth bag"] = 14, ["troll-hide bag"] = 14,
+    ["explorer's knapsack"] = 14, ["thawpelt sack"] = 14, ["draenic leather pack"] = 14,
+    ["traveler's backpack"] = 16, ["mooncloth bag"] = 16, ["pumpkin bag"] = 16,
+    ["netherweave bag"] = 16, ["onyxia hide backpack"] = 18,
+    ["imbued netherweave bag"] = 18, ["halaani bag"] = 18, ["jack-o'-lantern"] = 18,
+    ["primal mooncloth bag"] = 20, ["tattered hexcloth sack"] = 20,
+    ["pit lord's satchel"] = 20, ["sun touched satchel"] = 20,
+    ["\"gigantique\" bag"] = 22,
+}
+-- Quivers, ammo pouches and soul bags. Never auto-equipped.
+local BAG_SPECIAL = {}
+for _, id in ipairs({
+    2101, 2102, 2662, 2663, 3573, 3574, 3604, 3605, 5439, 5441, 7278, 7279,
+    7371, 7372, 8217, 8218, 11362, 11363, 18714, 19319, 19320,
+    21340, 21341, 21342, 22243, 22244, 21872,
+    29143, 29144, 34100, 34105, 34106,
+    22246, 22248, 22249, 22250, 22251, 22252,
+    30745, 30746, 30747, 30748, 34490,
+}) do BAG_SPECIAL[id] = true end
+local BAG_SPECIAL_WORDS = {
+    "quiver", "ammo pouch", "shot pouch", "bandolier", "soul pouch", "soul bag",
+    "felcloth bag", "box of souls", "ebon shadowbag", "herb", "enchant",
+    "mining", "gem pouch", "toolbox", "inscription",
+}
+local BAG_SCAN_GAP = 2.0
+
+local function bag_text_size(name, info)
+    local blob = ""
+    if type(name) == "string" then blob = name end
+    if type(info) == "table" and type(info.description) == "string" then
+        blob = blob .. " " .. info.description
+    end
+    local n = string.lower(blob):match("(%d+)%s*slot")
+    if n then
+        local v = tonumber(n)
+        if type(v) == "number" and v >= 4 and v <= 32 then return v end
+    end
+    if type(name) == "string" then
+        return BAG_NAME[string.lower(name)]
+    end
+    return nil
+end
+
+local function bag_is_special(item_id, info, name)
+    if type(item_id) == "number" and BAG_SPECIAL[item_id] then return true end
+    if type(info) == "table" then
+        if info.class_id == 11 then return true end
+        if info.class_id == 1 and type(info.subclass_id) == "number" and info.subclass_id ~= 0 then
+            return true
+        end
+    end
+    local low = type(name) == "string" and string.lower(name) or ""
+    if low == "" and type(info) == "table" and type(info.name) == "string" then
+        low = string.lower(info.name)
+    end
+    for i = 1, #BAG_SPECIAL_WORDS do
+        if low:find(BAG_SPECIAL_WORDS[i], 1, true) then return true end
+    end
+    return false
+end
+
+local function bag_slots_of(item_id, info, name)
+    if type(item_id) == "number" and type(BAG_SIZE[item_id]) == "number" then
+        return BAG_SIZE[item_id]
+    end
+    local named = type(name) == "string" and BAG_NAME[string.lower(name)] or nil
+    if type(named) == "number" then return named end
+    if type(info) == "table" and type(info.name) == "string" then
+        named = BAG_NAME[string.lower(info.name)]
+        if type(named) == "number" then return named end
+    end
+    return bag_text_size(name or (type(info) == "table" and info.name), info)
+end
+
+local function bag_is_ordinary(item_id, info, name)
+    if bag_is_special(item_id, info, name) then return false end
+    if bag_slots_of(item_id, info, name) then return true end
+    if type(info) == "table" and info.class_id == 1 and (info.subclass_id or 0) == 0 then
+        return true
+    end
+    return false
+end
+
+local function worn_bag(player, bag)
+    local inv = safe(function() return core.inventory.get_bag_inventory_slot(bag) end)
+    if type(inv) ~= "number" then return nil end
+    local cap = safe(function() return core.inventory.get_num_bag_slots(bag + 1) end)
+    local row = safe(function() return player:get_item_at_inventory_slot(inv) end)
+    local obj = type(row) == "table" and row.object or nil
+    local valid = obj and safe(function() return obj:is_valid() end) == true
+    if not valid then
+        local empty = type(cap) ~= "number" or cap <= 0
+        if not empty then return nil end
+        return { bag = bag, inv = inv, empty = true, size = 0, known_empty = true, special = false }
+    end
+    local item_id = safe(function() return obj:get_item_id() end)
+    local name = safe(function() return obj:get_name() end)
+    local info = item_info(item_id)
+    local ok_items, items = pcall(core.inventory.get_items_in_bag, bag)
+    local known_empty = ok_items and type(items) == "table" and #items == 0
+    local size = (type(cap) == "number" and cap > 0) and cap or bag_slots_of(item_id, info, name)
+    return {
+        bag = bag, inv = inv, empty = false, item_id = item_id, name = name,
+        size = size or 0, known_empty = known_empty,
+        special = bag_is_special(item_id, info, name),
+    }
+end
+
+--- One bag equip, or false when nothing should move.
+local function equip_one_bag(player)
+    local now = izi.now()
+    if bag_attempt and (now - bag_attempt.t) >= VERIFY_GAP then
+        local still = bags.item_at(player, bag_attempt.bag, bag_attempt.slot)
+        if still == bag_attempt.item_id then
+            local n = (fail_count[bag_attempt.item_id] or 0) + 1
+            fail_count[bag_attempt.item_id] = n
+            if n >= MAX_FAILS then
+                failed_ids[bag_attempt.item_id] = true
+                core.log_warning(string.format(
+                    "[Master Farmer - Grindbot] Bag equip: %s would not equip after %d tries - skipping it this session.",
+                    tostring(bag_attempt.label), n))
+            end
+        else
+            fail_count[bag_attempt.item_id] = nil
+        end
+        bag_attempt = nil
+        last_bag_scan = 0
+    end
+    if bag_attempt then return false end
+    if (now - last_bag_scan) < BAG_SCAN_GAP then return false end
+    last_bag_scan = now
+
+    local empty_slot = nil
+    local smallest = nil
+    for bag = 1, 4 do
+        local w = worn_bag(player, bag)
+        if w and w.empty and not empty_slot then
+            empty_slot = w
+        elseif w and not w.empty and not w.special and w.known_empty and w.size > 0 then
+            if not smallest or w.size < smallest.size then smallest = w end
+        end
+    end
+
+    local avoid = (not empty_slot and smallest) and smallest.bag or nil
+    local best, best_size = nil, -1
+    local list = bags.list(player)
+    for i = 1, #list do
+        local entry = list[i]
+        local item_id = entry.item_id
+        if item_id and not failed_ids[item_id] and entry.bag ~= avoid then
+            local info = item_info(item_id)
+            local name = type(info) == "table" and info.name or nil
+            if type(name) ~= "string" and entry.item then
+                local ok_n, got = pcall(entry.item.get_name, entry.item)
+                if ok_n and type(got) == "string" then name = got end
+            end
+            if bag_is_ordinary(item_id, info, name) then
+                local size = bag_slots_of(item_id, info, name) or 0
+                local label = name or ("bag " .. tostring(item_id))
+                if best == nil or size > best_size then
+                    best = { bag = entry.bag, slot = entry.slot, item_id = item_id, size = size, label = label }
+                    best_size = size
+                end
+            end
+        end
+    end
+    if not best then return false end
+
+    local dest = nil
+    if empty_slot then
+        dest = empty_slot
+    elseif smallest and best.size > smallest.size then
+        dest = smallest
+    end
+    if not dest or best.bag == dest.bag then return false end
+
+    local where = dest.empty and "an empty bag slot" or ("the " .. tostring(dest.size) .. "-slot bag")
+    local slots = best.size > 0 and string.format(" (%d slots)", best.size) or ""
+    bag_attempt = { bag = best.bag, slot = best.slot, item_id = best.item_id, label = best.label, t = now }
+    state.set_note("Equip", "Equipping " .. best.label)
+    core.log(string.format("[Master Farmer - Grindbot] Bag equip: %s%s into %s",
+        best.label, slots, where))
+    local ok, equipped = pcall(core.input.equip_container_item, best.bag, best.slot, dest.inv)
+    local pending = safe(function() return core.game_ui.get_pending_equip_slot() end)
+    if type(pending) == "number" and pending >= 0 then
+        pcall(core.input.equip_pending_item, pending)
+    elseif not (ok and equipped == true) then
+        if safe(function() return core.game_ui.has_cursor_item() end) == true then
+            pcall(core.input.clear_cursor)
+        end
+    end
+    return true
+end
+
+-- ----------------------------------------------------------------------------
 -- PUBLIC
 -- ----------------------------------------------------------------------------
 --- Called from the main cascade. Returns true when it acted this tick.
@@ -479,7 +720,7 @@ end
 --- Ragged Leather Gloves" loop that stopped questing mid-approach. The only
 --- hold left is answering a bind-on-equip prompt.
 function equip.tick(player)
-    if not player or not gui.is_on("auto_equip") then
+    if not player then
         return false
     end
 
@@ -529,6 +770,15 @@ function equip.tick(player)
         pcall(function() core.input.equip_pending_item(pending_slot) end)
         last_act = now
         return true
+    end
+
+    -- Bags are not behind the Auto Equip checkbox. One bag per scan, then
+    -- the gear pass below still runs on a later tick.
+    if equip_one_bag(player) then
+        return true
+    end
+    if not gui.is_on("auto_equip") then
+        return false
     end
 
     -- Judge the last attempt once it has had time to land.
@@ -725,6 +975,7 @@ end
 
 function equip.invalidate()
     last_scan = 0
+    last_bag_scan = 0
 end
 
 function equip.register_gui(menu)

@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.141.0
+-- Version: 2.142.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -352,8 +352,10 @@ function rotation.tick(player, target, ctx)
         end
     end
 
+    -- The class module's own tick was retired with the Spells-tab rotation
+    -- (2.64.0) and removed in 2.142.0; any loaded class module will do.
     local mod = rotation.active(player)
-    if not mod or type(mod.tick) ~= "function" then
+    if not mod or type(mod.combat_range) ~= "function" then
         return false
     end
 

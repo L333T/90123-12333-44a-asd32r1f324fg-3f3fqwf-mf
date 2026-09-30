@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.141.0
+-- Version: 2.142.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -71,6 +71,24 @@ local REGION_LABELS = { "Eastern Kingdoms", "Kalimdor", "Outland", "Alliance 1-6
 local REGION_KEYS = { "ek", "kalimdor", "outland", "ally160", "custom" }
 
 local factions = require("data/factions")
+
+-- PATH MODULES, LAZY (2.142.0). The grind tab called path_format.count and
+-- path_profiles.last_loaded / save_path / remember as globals nothing ever
+-- declared ("attempt to index a nil value" once a route was armed, or on
+-- Save). These proxies require the module on first use, so gui.lua still
+-- loads nothing extra at start.
+local function lazy_module(name)
+    local mod = nil
+    return setmetatable({}, { __index = function(_, key)
+        if mod == nil then
+            local ok, m = pcall(require, name)
+            mod = (ok and type(m) == "table") and m or false
+        end
+        return mod and mod[key] or nil
+    end })
+end
+local path_format = lazy_module("path_format")
+local path_profiles = lazy_module("path_profiles")
 local EMPTY_PATH = "(select Grinding first)"
 
 local PATH_LABELS = { EMPTY_PATH }

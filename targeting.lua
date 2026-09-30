@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.155.0
+-- Version: 2.156.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -867,28 +867,46 @@ function targeting.start_auto_attack(player, unit)
     local d = call(player.distance_to, player, unit)
     local reach = AUTO_REACH
     local want = types.MELEE
-    local hunter = call(player.get_class, player) == enums.class_id.HUNTER
+    local cid = call(player.get_class, player)
+    local hunter = cid == enums.class_id.HUNTER
+    local shaman = cid == enums.class_id.SHAMAN
+    local caster = cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
+        or cid == enums.class_id.WARLOCK
     local shoot = 35
-    if hunter then
-        local hm = package.loaded["rotations/hunter"]
-        if type(hm) == "table" and type(hm.gun_range) == "function" then
-            local okg, gr = pcall(hm.gun_range)
-            if okg and type(gr) == "number" and gr > 8 then
-                shoot = gr
-            end
-        else
-            local y = gui.slider and gui.slider("ranged_yards", 35)
-            if type(y) == "number" and y > 8 then
-                shoot = y
-            end
+    local melee_at = 5
+    if hunter or shaman then
+        local key = hunter and "rotations/hunter" or "rotations/shaman"
+        local hm = package.loaded[key]
+        if type(hm) ~= "table" then
+            local okm, loaded = pcall(require, key)
+            if okm and type(loaded) == "table" then hm = loaded end
         end
-    end
-    -- Hunter Auto Shot is ATTACK_TYPE.RANGED (75), not MELEE (6603).
-    -- 2.152 started melee from the engage distance, so the hunter never
-    -- shot and only white-hit after the mob closed (01:00 log).
-    if hunter and type(d) == "number" and d > 5 and type(types.RANGED) == "number" then
-        want = types.RANGED
-        reach = shoot
+        if type(hm) == "table" and hunter and type(hm.gun_range) == "function" then
+            local okg, gr = pcall(hm.gun_range)
+            if okg and type(gr) == "number" and gr > 8 then shoot = gr end
+        end
+        if type(hm) == "table" and type(hm.melee_mode) == "function" and hm.melee_mode(player, unit) then
+            want = types.MELEE
+            local y = gui.slider and gui.slider("melee_yards", 5)
+            if type(y) == "number" and y >= 1 and y <= 5 then melee_at = y end
+            reach = melee_at
+        elseif hunter and type(d) == "number" and d > 5 and type(types.RANGED) == "number" then
+            want = types.RANGED
+            local y = gui.slider and gui.slider("ranged_yards", shoot)
+            if type(y) == "number" and y > 8 then shoot = y end
+            reach = shoot
+        elseif shaman then
+            -- No ranged swing. Spells cover the gap; the melee swing starts
+            -- once the mob is inside the melee slider (the branch above).
+            return false
+        end
+    elseif caster and type(types.WAND) == "number" then
+        want = types.WAND
+        local y = gui.slider and gui.slider("ranged_yards", 30)
+        if type(y) == "number" and y > 8 then reach = y end
+    else
+        local y = gui.slider and gui.slider("melee_yards", 5)
+        if type(y) == "number" and y >= 1 and y <= 5 then reach = y end
     end
     if type(d) == "number" and d > reach then
         return false

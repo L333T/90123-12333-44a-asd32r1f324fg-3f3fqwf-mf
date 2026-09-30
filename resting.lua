@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.144.0
+-- Version: 2.145.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -295,12 +295,26 @@ local function ranked_ids(base, extra)
     return out
 end
 
+-- Ranked lists cached per class preference (2.145.0): they were rebuilt -
+-- four new tables - on every 0.1 s rest check.
+local ranked_cache = {}
+
+local function cached_ranked(key, base, extra)
+    local c = ranked_cache[key]
+    if c and c.extra == extra and c.n == (type(extra) == "table" and #extra or 0) then
+        return c.list
+    end
+    local list = ranked_ids(base, extra)
+    ranked_cache[key] = { extra = extra, n = type(extra) == "table" and #extra or 0, list = list }
+    return list
+end
+
 local function food_ids(player)
-    return ranked_ids(FOOD_ITEM_RANK, preferred("preferred_food_ids", player))
+    return cached_ranked("food", FOOD_ITEM_RANK, preferred("preferred_food_ids", player))
 end
 
 local function water_ids(player)
-    return ranked_ids(WATER_ITEM_RANK, preferred("preferred_drink_ids", player))
+    return cached_ranked("water", WATER_ITEM_RANK, preferred("preferred_drink_ids", player))
 end
 
 local function has_usable(ids)
@@ -493,10 +507,15 @@ end
 
 --- The nearest real threat within `yards`, or nil.
 local function rest_threat(player, yards)
-    local list = safe(function() return core.object_manager.get_visible_objects() end)
+    -- The shared object-list cache first (2.145.0); the raw call built a
+    -- fresh table of every object on each check and was then thrown away.
+    local list = nil
     local ok_t, targeting = pcall(require, "targeting")
     if ok_t and targeting and type(targeting.visible_objects) == "function" then
-        list = targeting.visible_objects() or list
+        list = targeting.visible_objects()
+    end
+    if type(list) ~= "table" then
+        list = safe(function() return core.object_manager.get_visible_objects() end)
     end
     if type(list) ~= "table" then
         return nil

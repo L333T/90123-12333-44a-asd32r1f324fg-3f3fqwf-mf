@@ -3,7 +3,7 @@
 -- header.lua - load gate
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Loader version: 1.2.0   (this is the LOADER's version, not the bot's - the
+-- Loader version: 1.2.1   (this is the LOADER's version, not the bot's - the
 --                          bot's version is whatever the manifest reports)
 -- ============================================================================
 -- DO NOT EDIT THIS FOLDER TO SHIP A BOT CHANGE.
@@ -40,7 +40,7 @@
 -- ============================================================================
 
 local LOADER_KEY     = "MFG_HTTP_LOADER"
-local LOADER_VERSION = "1.2.0"   -- retries the branch; no class filter; Tbc + Forever
+local LOADER_VERSION = "1.2.1"   -- Tbc / Forever, plus exact wow_forever_beta_us
 
 local plugin = {}
 plugin["name"]      = "Master Farmer - Grindbot (HTTP)"
@@ -60,11 +60,23 @@ if not local_player or not local_player:is_valid() then
     return refuse(nil)                       -- not in world yet; silent
 end
 
--- core.get_game_version() returns "Tbc" or "Forever" on the two clients this
--- bot runs. gamever.lua is not downloaded yet, so the names are checked here.
--- Any other answer (Vanilla, Mop, Titan, Midnight) is a different game.
+-- core.get_game_version() returns "Tbc" or "Forever". The Forever beta client
+-- can miss that coarse name; get_exact_game_version() is the documented way
+-- to tell a private-server build apart, so that string is a second chance
+-- and not a replacement for TBC.
 local game_version = core.get_game_version()
 if game_version ~= "Tbc" and game_version ~= "Forever" then
+    plugin.load = false
+end
+if not plugin.load
+    and type(core) == "table" and type(core.get_exact_game_version) == "function" then
+    local ev = core.get_exact_game_version()
+    plugin.load = (ev == "wow_forever_beta_us")
+    if plugin.load then
+        game_version = ev
+    end
+end
+if not plugin.load then
     return refuse(nil)                       -- wrong client; silent
 end
 

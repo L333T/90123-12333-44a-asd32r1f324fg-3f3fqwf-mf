@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.138.0
+-- Version: 2.139.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -420,6 +420,14 @@ end
 local REPAIR_TRIES = 3
 
 local function finish_trip(note)
+    -- A food / water run is over whatever happened (2.139.0); if nothing was
+    -- bought the rest asks again, and a run that could not pay is held until
+    -- the gold goes up (supplies.lua).
+    if state.vendor.reason == "supplies" then
+        supplies.trip_done(0)
+    end
+    state.vendor.reason = nil
+    state.vendor.inn = nil
     state.vendor.idle_since = 0
     state.vendor.repair_tries = 0
     sell_pending = nil
@@ -525,9 +533,37 @@ local function lap_wants_vendor()
     return safe(function() return runner.take_lap() end) == true
 end
 
+--- Anything in the bags this vendor trip would sell? (2.139.0; cached 5 s.)
+local junk_cache = { t = -1e9, v = false }
+function vendor.has_junk(player)
+    local now = izi.now()
+    if (now - junk_cache.t) < 5 then return junk_cache.v end
+    junk_cache.t = now
+    junk_cache.v = false
+    if not gui.is_on("sell") then return false end
+    local list = bags.list(player)
+    for i = 1, #list do
+        local id = list[i].item_id
+        if id and should_sell_item(player, id) then
+            junk_cache.v = true
+            break
+        end
+    end
+    return junk_cache.v
+end
+
 function vendor.needs_trip(player)
     if not player then
         return false
+    end
+    if not gui.is_on("sell") and not gui.is_on("repair") and not gui.is_on("buy_supplies") then
+        return false
+    end
+    -- OUT OF FOOD / WATER (2.139.0): a rest found nothing to eat or drink and
+    -- a run can pay for it (supplies.trip_wanted).
+    if supplies.trip_wanted(player) then
+        state.vendor.reason = "supplies"
+        return true
     end
     if not gui.is_on("sell") and not gui.is_on("repair") then
         return false
@@ -795,7 +831,7 @@ function vendor.tick(player)
             return true
         end
     end
-    if not gui.is_on("sell") and not gui.is_on("repair") then
+    if not gui.is_on("sell") and not gui.is_on("repair") and not gui.is_on("buy_supplies") then
         if state.vendor.active then
             vendor.reset()
         end
@@ -823,6 +859,26 @@ function vendor.tick(player)
     if not state.vendor.active then
         if not vendor.needs_trip(player) then
             return false
+        end
+        -- FOOD / WATER RUN (2.139.0): the nearest inn, or an innkeeper in sight.
+        if state.vendor.reason == "supplies" then
+            state.vendor.active = true
+            supplies.reset()
+            state.vendor.repaired = false
+            state.vendor.sold = 0
+            state.vendor.wait_npc = 0
+            state.vendor.tries = 0
+            local seller = supplies.find_supplier(player, SUPPLIER_RANGE, nil)
+            if seller then
+                state.vendor.supplier_guid = safe(function() return seller:get_guid() end)
+                state.vendor.supplier_name = safe(function() return seller:get_name() end)
+                trail("supply run: %s in sight", tostring(state.vendor.supplier_name))
+            else
+                local inn, d = supplies.nearest_inn(player)
+                state.vendor.inn = inn
+                trail("supply run: nearest inn %.0f yd away", d or -1)
+            end
+            state.set_note("Vendor", "Out of food / water - going to buy")
         end
         -- LOW DURABILITY -> HEARTHSTONE AND REPAIR (2.49.0). Out of combat,
         -- stop questing and hearth to the inn to find a merchant that can
@@ -955,6 +1011,39 @@ function vendor.tick(player)
     -- On the way to the food / water seller picked above.
     if state.vendor.supplier_guid then
         return supplier_tick(player)
+    end
+
+    -- Supply run to an inn (2.139.0): walk there, then find the innkeeper.
+    if state.vendor.inn then
+        local inn = state.vendor.inn
+        local me = safe(function() return player:get_position() end)
+        local d = me and math.sqrt((me.x - inn.x) ^ 2 + (me.y - inn.y) ^ 2) or 999
+        local seller = d <= 60 and supplies.find_supplier(player, 60, state.vendor.supplier_skip) or nil
+        if seller then
+            state.vendor.supplier_guid = safe(function() return seller:get_guid() end)
+            state.vendor.supplier_name = safe(function() return seller:get_name() end)
+            state.vendor.inn = nil
+            trail("supply run: innkeeper %s", tostring(state.vendor.supplier_name))
+            return true
+        end
+        if d > 12 then
+            if not nav_place(player, inn) then
+                return false
+            end
+            state.set_note("Vendor", string.format("Going to the inn for food / water  %.0fy", d))
+            return true
+        end
+        local now = izi.now()
+        local started = state.vendor.wait_npc
+        if type(started) ~= "number" or started <= 0 then
+            state.vendor.wait_npc = now
+        elseif now - started > 20 then
+            supplies.trip_done(600)
+            finish_trip("No innkeeper found at the inn")
+            return false
+        end
+        state.set_note("Vendor", "Looking for the innkeeper")
+        return true
     end
 
     local info = current_merchant(player)

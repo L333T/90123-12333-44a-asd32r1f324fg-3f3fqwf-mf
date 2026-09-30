@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.138.0
+-- Version: 2.139.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -209,6 +209,9 @@ end
 
 --- Fight the current kill target. Returns false once there is nothing left to
 --- fight - dead, gone, unreachable or timed out.
+local APPROACH_FROM = 35       -- 2.139.0: farther than this, walk in on a path
+local APPROACH_BAND = 15       -- hand over to combat movement this far outside the engage distance
+
 local function fight_unit(player, unit, note)
     local now = izi.now()
     -- VALID FIRST, ALWAYS (2.32.0). The unit is held across ticks; once the
@@ -261,6 +264,25 @@ local function fight_unit(player, unit, note)
     targeting.ensure_target(player, unit)
     probe("f:combat_range")
     local yards = combat_yards(player)
+    -- FAR TARGET: WALK IN ON A PATH (2.139.0). Combat movement walks straight
+    -- hops; from 40-70 yd over rough ground it stalled ("no progress toward
+    -- the combat ... 67 yd"). Out of combat and farther than APPROACH_FROM,
+    -- travel to the mob on a Sentinel path first; combat movement takes over
+    -- inside the engage distance + APPROACH_BAND.
+    if dist > math.max(APPROACH_FROM, yards + APPROACH_BAND)
+        and safe(function() return player:is_in_combat() end) ~= true then
+        local up = safe(function() return unit:get_position() end)
+        if up then
+            if type(movement.in_combat_movement) == "function" and movement.in_combat_movement()
+                and type(movement.combat_release) == "function" then
+                movement.combat_release()
+            end
+            if movement.is_moving() or movement.nav_to(up) then
+                state.set_note("Quest", string.format("%s (approaching %.0f yd)", note or "Closing", dist))
+                return true
+            end
+        end
+    end
     probe("f:start_auto_attack")
     targeting.start_auto_attack(player, unit)
     probe("f:combat_engage")
@@ -1752,25 +1774,57 @@ local function camp_mob(player, wps)
     return nil
 end
 
+-- CLOSEST OF THE QUEST'S MOB (2.139.0). The raid-marked unit used to win
+-- outright however far away it was: every log of 2026-09-29 engaged a marked
+-- Ragged Young Wolf 43-67 yd off ("no progress toward the combat", "target
+-- unreachable") with others of the same wolf much closer. The mark, a name
+-- match or a drop-source match now only says WHICH mob the step wants (its
+-- npc id); the closest fightable unit with that id is the one attacked, and
+-- the id is kept for the rest of the goal. The camp fallback (a guess) never
+-- sets it.
+local g_goal_npc = {}            -- "step|goal" -> npc id the goal is killing
+
+local function npc_id_of(unit)
+    local id = unit and safe(function() return unit:get_npc_id() end) or nil
+    if type(id) == "number" and id > 0 then return id end
+    return nil
+end
+
 local function kill_goal(player, goal, kind, wps, label)
     local now = izi.now()
     if now < g_scan_until then
         return false
     end
     g_scan_until = now + SCAN_GAP
-    -- A mob RestedXP has marked with a raid icon comes first (2.53.0).
-    local unit = guide.find_marked(player, MOB_RANGE, "hostile")
-    -- Not one combat movement has given up on (2.76.0): it was re-engaged
-    -- every 0.8 s - engage, "Skip unreachable", engage - for as long as the
-    -- mark stayed on it.
-    if unit and type(state.is_unreachable) == "function"
-        and state.is_unreachable(safe(function() return unit:get_guid() end)) then
-        unit = nil
+    local gkey = tostring(guide.step_num()) .. "|" .. tostring(goal.index)
+    local want_id = g_goal_npc[gkey]
+    -- A mob RestedXP has marked with a raid icon names the target (2.53.0).
+    local marked = guide.find_marked(player, MOB_RANGE, "hostile")
+    -- Not one combat movement has given up on (2.76.0).
+    if marked and type(state.is_unreachable) == "function"
+        and state.is_unreachable(safe(function() return marked:get_guid() end)) then
+        marked = nil
     end
-    if unit then
+    if not want_id and marked then
+        want_id = npc_id_of(marked)
+    end
+    local unit = nil
+    if want_id then
+        local d, n
+        unit, d, n = guide.find_npc_mob(player, MOB_RANGE, want_id)
+        if unit then
+            g_goal_npc[gkey] = want_id
+            trail("act", "closest %s (npc %d) at %.0f yd, %d in range",
+                tostring(safe(function() return unit:get_name() end)), want_id, d or -1, n or 1)
+        end
+    end
+    if not unit and marked then
+        unit = marked
         trail("act", "raid-marked target %s", tostring(safe(function() return unit:get_name() end)))
-    else
+    end
+    if not unit then
         unit = guide.find_mob(player, MOB_RANGE, goal)
+        if unit and npc_id_of(unit) then g_goal_npc[gkey] = npc_id_of(unit) end
     end
     if not unit and kind == "collect" then
         -- RestedXP names the item, not what drops it. First choice: a mob
@@ -1779,6 +1833,7 @@ local function kill_goal(player, goal, kind, wps, label)
         unit = guide.find_source_mob(player, MOB_RANGE, goal)
         if unit then
             g_nosource_since = 0
+            if npc_id_of(unit) then g_goal_npc[gkey] = npc_id_of(unit) end
         elseif guide.has_source_words(goal) then
             -- The item names its dropper but none is in sight: walk the goal's
             -- waypoints to find one rather than fight whatever is standing

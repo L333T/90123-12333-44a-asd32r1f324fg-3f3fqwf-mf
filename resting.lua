@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.138.0
+-- Version: 2.139.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -80,6 +80,8 @@ local WATER_ITEM_RANK = consumables.WATER_ITEM_IDS
 -- Rest at or below this, unless the rotation says otherwise.
 local REST_DEFAULT = 30
 local REST_DONE = 100
+local REGEN_DONE = 80          -- 2.139.0: no food / water - wait for this much HP and MP
+local regen_wait = false
 local REST_TOPUP = 95         -- 2.99.0: the other resource is topped up in the same rest below this
 
 -- Seconds a use is committed for before another of the same kind is
@@ -756,6 +758,52 @@ function resting_mod.tick(player, opts)
             and has_usable(waters) == true then
             rest_drink = true
             rtrail("also drinking (MP %.0f) while resting for health", mana)
+        end
+    end
+
+    -- NOTHING TO EAT OR DRINK (2.139.0). This used to log "no usable food -
+    -- not resting" and carry on at low health / mana. Now the rest asks for a
+    -- food / water run (supplies.request); when one can happen (a seller
+    -- known and gold or junk to pay) the cascade is released so vendor.lua
+    -- runs it. When none can, the character stands and waits until health
+    -- and mana have come back to REGEN_DONE by themselves. A mage keeps
+    -- conjuring meanwhile (conjure.tick runs first, as soon as the mana is
+    -- there), and the moment something usable is in the bags the normal rest
+    -- takes over.
+    if rest_eat ~= true and rest_drink ~= true then
+        local no_food = hp < eat_at and eating ~= true and has_usable(foods) ~= true
+        local no_water = has_mana and mana < drink_at and drinking ~= true and has_usable(waters) ~= true
+        if no_food or no_water or regen_wait then
+            local ok_s, supplies = pcall(require, "supplies")
+            if ok_s and type(supplies) == "table" and type(supplies.request) == "function" then
+                if no_food then supplies.request("food") end
+                if no_water then supplies.request("water") end
+            end
+            local recovered = hp >= REGEN_DONE and (not has_mana or mana >= REGEN_DONE)
+            local run, why = false, nil
+            if ok_s and type(supplies) == "table" and type(supplies.trip_wanted) == "function" then
+                run, why = supplies.trip_wanted(player)
+            end
+            local vendor_busy = state.vendor and state.vendor.active == true
+            if recovered or run or vendor_busy then
+                if regen_wait then
+                    rtrail("regen wait over - HP %.0f MP %.0f (%s)", hp, mana,
+                        recovered and "recovered" or "going to buy")
+                end
+                regen_wait = false
+            else
+                if not regen_wait then
+                    regen_wait = true
+                    rtrail("no %s and no way to buy it (%s) - waiting for HP / MP to reach %d%%",
+                        no_food and "food" or "water", tostring(why), REGEN_DONE)
+                    if movement and type(movement.nav_stop) == "function" then
+                        movement.nav_stop()
+                    end
+                end
+                state.set_note("Rest", string.format("No %s - waiting  HP %.0f%%  MP %.0f%%",
+                    (no_food or hp < REGEN_DONE) and "food" or "water", hp, has_mana and mana or 100))
+                return true
+            end
         end
     end
 

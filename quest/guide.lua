@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.138.0
+-- Version: 2.139.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1359,6 +1359,33 @@ end
 
 --- The nearest level-appropriate hostile near a point, or nil.
 ---
+--- The closest fightable unit with this npc id, within `range` (2.139.0).
+--- Returns unit, distance, how many of that id are in range.
+function guide.find_npc_mob(player, range, npc_id)
+    if not player or type(npc_id) ~= "number" or npc_id <= 0 then
+        return nil, nil, 0
+    end
+    range = math.min(tonumber(range) or 40, MAX_RANGE)
+    local list = visible_objects()
+    if type(list) ~= "table" then
+        return nil, nil, 0
+    end
+    local best, best_d, n = nil, nil, 0
+    for i = 1, #list do
+        local u = list[i]
+        if fightable(player, u) and call(u.get_npc_id, u) == npc_id then
+            local d = call(player.distance_to, player, u)
+            if type(d) == "number" and d <= range then
+                n = n + 1
+                if best_d == nil or d < best_d then
+                    best, best_d = u, d
+                end
+            end
+        end
+    end
+    return best, best_d, n
+end
+
 --- For an item objective whose drop source RestedXP does not name: its
 --- waypoints sit on the camp that drops it, so what stands there is what to
 --- fight. Kept to within LEVEL_GAP levels below the player, so critters and

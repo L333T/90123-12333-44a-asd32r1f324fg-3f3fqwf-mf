@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.170.0
+-- Version: 2.171.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -690,6 +690,33 @@ function vendor.has_junk(player)
         end
     end
     return junk_cache.v
+end
+
+--- Copper the next trip would raise by selling junk (2.171.0). A water run
+--- uses this plus the gold on hand: the trip sells before it buys.
+local junk_copper_cache = { t = -1e9, v = 0 }
+function vendor.junk_copper(player)
+    local now = izi.now()
+    if (now - junk_copper_cache.t) < 5 then return junk_copper_cache.v end
+    junk_copper_cache.t = now
+    local total = 0
+    if player and gui.is_on("sell") then
+        local list = bags.list(player)
+        for i = 1, #list do
+            local id = list[i].item_id
+            if id and should_sell_item(player, id) then
+                local info = safe(function() return core.quests.get_item_info(id) end)
+                local price = type(info) == "table" and info.sell_price or nil
+                local n = list[i].count
+                if type(n) ~= "number" or n < 1 then n = 1 end
+                if type(price) == "number" and price > 0 then
+                    total = total + price * n
+                end
+            end
+        end
+    end
+    junk_copper_cache.v = total
+    return total
 end
 
 -- VENDOR FIRST, THEN THE QUEST (2.160.0). A quest that hands over an item

@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.170.0
+-- Version: 2.171.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -391,15 +391,14 @@ end
 -- SUPPLY RUNS (2.139.0)
 -- ----------------------------------------------------------------------------
 -- A rest that finds nothing to eat / drink asks for food or water
--- (supplies.request). A run is wanted when:
---   * buying is on, and the client can read vendor items (not WoW Forever);
---   * the missing item is not one this mage conjures (Conjure Water / Food);
---   * there is gold (MIN_COPPER) or junk to sell for it;
---   * no run failed for lack of gold since the gold last went up.
--- vendor.lua then walks to the nearest inn on the recorded Alliance Eastern
+-- (supplies.request). A mana class also asks for water while questing when
+-- the bags are under the Keep Drink count (2.171.0). A water run pauses the
+-- RestedXP step only when one of the level's vendor waters is affordable:
+-- gold on hand, or that gold plus the junk a trip would sell. Otherwise the
+-- step keeps running until the water can be paid for. Food runs are unchanged.
+-- vendor.lua walks to the nearest inn on the recorded Alliance Eastern
 -- Kingdoms roads (data/ek_alliance_routes - innkeepers sell both), or to an
--- innkeeper in sight, sells junk, buys, and carries on. Otherwise the rest
--- waits for health / mana to come back by itself.
+-- innkeeper in sight, sells junk, buys, and carries on.
 -- (The run's state is declared with the module state at the top: supplies.tick
 -- writes poor_gold, and a declaration down here made that write a global.)
 
@@ -473,19 +472,96 @@ function supplies.nearest_inn(player)
 end
 
 local function has_mana(player)
+    local class_id = safe(function() return player:get_class() end)
+    if class_id == 1 or class_id == 4 then
+        return false
+    end
     local mx = safe(function() return player:mana_max() end)
-    return type(mx) == "number" and mx > 0
+    if type(mx) == "number" then
+        return mx > 0
+    end
+    return type(class_id) == "number"
+end
+
+-- Innkeeper water, cheapest rank first. Buy prices are copper (classicdb /
+-- TBC: Refreshing Spring Water 25c, Ice Cold Milk 1s25c, Melon Juice 5s,
+-- Sweet Nectar 10s, Moonberry Juice 20s, Morning Glory Dew 40s, Filtered
+-- Draenic Water 56s, Purified Draenic Water 64s).
+local VENDOR_WATER = {
+    { id = 159,   level = 1,  price = 25 },
+    { id = 1179,  level = 5,  price = 125 },
+    { id = 1205,  level = 15, price = 500 },
+    { id = 1708,  level = 25, price = 1000 },
+    { id = 1645,  level = 35, price = 2000 },
+    { id = 8766,  level = 45, price = 4000 },
+    { id = 28399, level = 60, price = 5600 },
+    { id = 27860, level = 65, price = 6400 },
+}
+
+local function drink_target()
+    local n = gui.slider("drink_target", 20)
+    if type(n) ~= "number" or n < 1 then return 0 end
+    return n
+end
+
+local function conjures_water()
+    local ok_c, conjure = pcall(require, "conjure")
+    return ok_c and type(conjure) == "table" and type(conjure.knows) == "function"
+        and conjure.knows("water") == true
+end
+
+--- Best innkeeper water this level can drink, or nil.
+local function water_offer(player)
+    local lvl = safe(function() return player:get_level() end) or 1
+    local best = nil
+    for i = 1, #VENDOR_WATER do
+        local row = VENDOR_WATER[i]
+        if lvl >= row.level then best = row end
+    end
+    return best
+end
+
+local function water_have(player)
+    local have = carried(consumables.WATER_ITEM_IDS)
+    local _, nw = bags.food_water_count(player)
+    if type(nw) == "number" and nw > have then have = nw end
+    return have
+end
+
+--- Mana class, under the Keep Drink count, and not a mage who conjures it.
+local function water_short(player)
+    if not player or not has_mana(player) or conjures_water() then return false end
+    local target = drink_target()
+    if target < 1 then return false end
+    return water_have(player) < target
+end
+
+--- One of this level's waters, from gold or from gold plus junk.
+local function can_afford_water(player)
+    local offer = water_offer(player)
+    if not offer then return false end
+    local gold = safe(function() return core.inventory.get_gold() end) or 0
+    if gold >= offer.price then return true end
+    local ok_v, vendor = pcall(require, "vendor")
+    local junk = 0
+    if ok_v and type(vendor) == "table" and type(vendor.junk_copper) == "function" then
+        junk = vendor.junk_copper(player) or 0
+    end
+    return (gold + junk) >= offer.price
 end
 
 --- What a run would be for: need_food, need_water (after mage conjuring).
 function supplies.missing(player)
     local need_food = requested.food
     local need_water = requested.water and has_mana(player)
-    -- Bags first (2.149.0): any food / water of any kind cancels the request.
     if need_food or need_water then
         local nf, nw = bags.food_water_count(player)
         if need_food and nf > 0 then need_food, requested.food = false, false end
-        if need_water and nw > 0 then need_water, requested.water = false, false end
+        if need_water then
+            local have = water_have(player)
+            if type(nw) == "number" and nw > have then have = nw end
+            if have >= drink_target() then need_water, requested.water = false, false end
+        end
     end
     local ok_c, conjure = pcall(require, "conjure")
     if ok_c and type(conjure) == "table" and type(conjure.knows) == "function" then
@@ -506,16 +582,24 @@ function supplies.trip_wanted(player)
         return false, "no vendoring below level 2"
     end
     if izi.now() < block_until then return false, "no seller reachable" end
+    if water_short(player) then requested.water = true end
     local need_food, need_water = supplies.missing(player)
     if not need_food and not need_water then return false, nil end
     local gold = safe(function() return core.inventory.get_gold() end) or 0
     if poor_gold ~= nil and gold > poor_gold + MIN_COPPER then poor_gold = nil end
+    if need_water and not can_afford_water(player) then
+        if not need_food then
+            return false, "cannot afford water"
+        end
+        need_water = false
+    end
     local ok_v, vendor = pcall(require, "vendor")
     local junk = ok_v and type(vendor) == "table" and type(vendor.has_junk) == "function"
         and vendor.has_junk(player) == true
-    if not junk and (gold < MIN_COPPER or poor_gold ~= nil) then
+    if need_food and not need_water and not junk and (gold < MIN_COPPER or poor_gold ~= nil) then
         return false, "no gold and nothing to sell"
     end
+    if not need_food and not need_water then return false, "cannot afford water" end
     local inn = supplies.nearest_inn(player)
     if not inn and not supplies.find_supplier(player, 80, nil) then
         return false, "no inn or innkeeper known here"

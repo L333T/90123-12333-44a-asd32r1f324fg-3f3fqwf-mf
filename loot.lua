@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.157.0
+-- Version: 2.158.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -45,6 +45,13 @@ local movement = require("movement")
 local loot = {}
 
 local LOOT_REACH = 3.5        -- yards: close enough to loot
+-- STOPPED SHORT (2.158.0). Movement calls a walk arrived at about 5 yd, so a
+-- corpse 4 yd away was walked to for ENTRY_TIMEOUT and never looted - three
+-- times in the 11:28 log ("walk to corpse 4 yd ... timed out after 0
+-- attempt(s)"). Standing still within LOOT_STOPPED, loot from there; the
+-- attempt count and the timeout still bound it.
+local LOOT_STOPPED = 5.0
+local walk_logged = {}        -- guid -> last distance logged (a line per 5 yd, not per tick)
 local FIRE_GAP = 1.0          -- seconds between loot_object attempts
 local SETTLE = 0.6            -- seconds after an attempt before judging it
 local MAX_FIRES = 3           -- attempts per corpse
@@ -181,6 +188,8 @@ local function find_entry(guid)
 end
 
 local function drop(i)
+    local e = queue[i]
+    if e and e.guid then walk_logged[e.guid] = nil end
     table.remove(queue, i)
 end
 
@@ -508,7 +517,8 @@ tick_inner = function(player)
             return true
         end
     end
-    if best_d > LOOT_REACH then
+    local stopped_near = best_d <= LOOT_STOPPED and not movement.is_moving()
+    if best_d > LOOT_REACH and not stopped_near then
         local pos = safe(function() return best_obj:get_position() end)
         if (not pos or type(pos.x) ~= "number") and type(e.x) == "number" then
             pos = { x = e.x, y = e.y, z = e.z }
@@ -526,7 +536,11 @@ tick_inner = function(player)
             movement.nav_to(pos, true)
             e.started = e.started or now
             state.set_note("Loot", string.format("Walking to corpse  %.0fy", best_d))
-            ltrail("walk to corpse %.0f yd", best_d)
+            local last = walk_logged[e.guid]
+            if not last or last - best_d >= 5 then
+                walk_logged[e.guid] = best_d
+                ltrail("walk to corpse %.0f yd", best_d)
+            end
             return true
         end
         for k = #queue, 1, -1 do

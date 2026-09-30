@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.135.0
+-- Version: 2.136.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -51,6 +51,7 @@ K.TAG              = "[Master Farmer - Grindbot]"
 
 -- navigation
 K.MIN_NAV          = 2.0    -- never issue a move shorter than this
+K.MIN_NAV_TRAVEL   = 4.0    -- travel dests closer than this are arrival, not a walk
 K.ARRIVE           = 2.0
 K.SAME_DEST        = 6.0    -- destinations closer than this are "the same"
 K.MOVE_GAP         = 0.85   -- seconds between navigation moves

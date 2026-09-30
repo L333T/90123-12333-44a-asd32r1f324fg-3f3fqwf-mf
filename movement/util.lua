@@ -3,7 +3,7 @@
 -- movement/util.lua - logging, position input, distance, ground and traces
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.135.0
+-- Version: 2.136.0
 -- ============================================================================
 -- The bottom layer. Depends only on const + rt, so every other movement module
 -- may require it without creating a cycle.
@@ -89,6 +89,16 @@ end
 function U.dist2(ax, ay, bx, by)
     local dx, dy = ax - bx, ay - by
     return sqrt(dx * dx + dy * dy)
+end
+
+--- True when (x, y) is too close to walk to: Sentinel densifies to 1-yard
+--- points, and a dest under MIN_NAV_TRAVEL makes the character orbit it.
+function U.travel_near(x, y)
+    local hx, hy = U.here_xyz()
+    if not hx or type(x) ~= "number" or type(y) ~= "number" then
+        return false
+    end
+    return U.dist2(hx, hy, x, y) < (K.MIN_NAV_TRAVEL or 4)
 end
 
 function U.unit_xyz(unit)

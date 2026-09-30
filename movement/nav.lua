@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.135.0
+-- Version: 2.136.0
 -- ============================================================================
 -- Out-of-combat travel.
 --
@@ -42,6 +42,7 @@ local QUIET_STOP    = K.QUIET_STOP
 local pt = R.pt
 local xyz, here_xyz, dist3, dlog, ground_z, walk_open =
       U.xyz, U.here_xyz, U.dist3, U.dlog, U.ground_z, U.walk_open
+local travel_near = U.travel_near
 
 local P_HERE, P_DEST = R.P_HERE, R.P_DEST
 
@@ -123,6 +124,22 @@ local function navigate(dest, prefer_direct)
     if type(dest) == "table" and rawget(dest, "z_loose") == true then sn_goal.z_loose = true end
     x, y, z = clamp_leg(x, y, z)
     dest = pt(P_DEST, x, y, z)
+    -- A dest under the player is not a walk. Sentinel's 1-yard densify
+    -- points were issued as dests and the character orbited them.
+    if travel_near(x, y) then
+        -- A hop that landed: keep_path still has a far RestedXP goal.
+        -- A close dest with no far goal is arrival, not a walk.
+        if R.keep_path and R.goal_x and not travel_near(R.goal_x, R.goal_y) then
+            x, y, z = R.goal_x, R.goal_y, R.goal_z
+            dest = pt(P_DEST, x, y, z)
+            sn_goal = { x = x, y = y, z = z }
+        else
+            if R.sn_active then N.stop() end
+            W.clear_dest()
+            W.halt()
+            return true
+        end
+    end
     if not want_nav() then return false end
     -- A goal that has moved away from the move in flight re-aims it
     -- (2.84.0, movement/repath): distance-scaled rate, 3 yd dead zone.
@@ -249,7 +266,15 @@ function Nv.nav_path(points)
             if x and not Z.blocked_xy(x, y) then pts[#pts + 1] = vec3.new(x, y, z) end
         end
         if #pts >= 2 then
-            if N.follow(pts, "route") then return true end
+            local trimmed = N.skip_near_pts(pts)
+            if not trimmed then
+                if R.sn_active then N.stop() end
+                W.clear_dest()
+                W.halt()
+                return true
+            end
+            if #trimmed == 1 then return navigate(trimmed[1], true) end
+            if N.follow(trimmed, "route") then return true end
             return true
         end
     end
@@ -276,7 +301,13 @@ function Nv.nav_path(points)
         end
         R.path_src, R.path_pts = points, pts
     end
-    local pts = R.path_pts
+    local pts = N.skip_near_pts(R.path_pts)
+    if not pts then
+        if R.sn_active then N.stop() end
+        W.clear_dest()
+        W.halt()
+        return true
+    end
     if #pts == 0 then return false end
     if #pts == 1 then return navigate(pts[1], true) end
     -- A recorded route goes to Sentinel's follow_path (2.59.0) for its stuck

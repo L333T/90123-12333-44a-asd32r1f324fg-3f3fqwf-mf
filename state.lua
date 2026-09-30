@@ -3,7 +3,7 @@
 -- Shared runtime state (no leaked globals)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.142.0
+-- Version: 2.143.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -71,6 +71,13 @@ function state.set_note(head, text)
     state.note = text or ""
 end
 
+-- ONE CURRENT TARGET (2.143.0). state.target is the authority. Other
+-- copies (combat.lua's hold latch) register here so clearing the target
+-- clears them too - a target an engine dropped (unreachable, released) was
+-- otherwise still held by the latch and could be picked up again by a caller
+-- that passes no target (Rotation Only).
+state.on_target_reset = {}
+
 function state.reset_target()
     state.target.unit = nil
     state.target.guid = nil
@@ -78,6 +85,9 @@ function state.reset_target()
     state.target.y = nil
     state.target.z = nil
     state.target.kind = nil
+    for i = 1, #state.on_target_reset do
+        pcall(state.on_target_reset[i])
+    end
 end
 
 local KILLED_MAX = 48

@@ -3,7 +3,7 @@
 -- Combat engine - pack scan, target latch, kill-first priority, class hooks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.142.0
+-- Version: 2.143.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared by every class rotation. Class modules opt in by exposing interrupt,
@@ -301,6 +301,11 @@ end
 function combat.release()
     fixed_unit = nil
     fixed_at = 0
+end
+
+-- The latch follows state.target (2.143.0): a cleared target clears it too.
+if type(state.on_target_reset) == "table" then
+    state.on_target_reset[#state.on_target_reset + 1] = function() combat.release() end
 end
 
 function combat.fixed_target()

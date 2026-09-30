@@ -3,7 +3,7 @@
 -- Conjured food and water, for mages
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.172.0
+-- Version: 2.173.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- A mage never has to buy food or water, and until now the bot made it do
@@ -39,16 +39,13 @@ local izi = require("common/izi_sdk")
 local enums = require("common/enums")
 
 local consumables = require("data/consumables")
-local spellbook = require("spellbook")
 local auras = require("auras")
 local state = require("state")
 
 local conjure = {}
 
--- Conjuring makes a stack, so this does not need to be large. It is the mark
--- below which a top-up happens, not a target count.
-local LOW_WATER = 5
-local LOW_FOOD = 5
+-- Conjuring makes a stack. Keep at most this many of each in the bags.
+local KEEP = 20
 
 local CAST_GAP = 2.5         -- seconds between conjure attempts
 local FAIL_GAP = 15.0        -- back-off after one that did not land
@@ -106,18 +103,18 @@ local function held(ids)
 end
 
 --- The highest rank of `spell_ids` the character actually knows.
---- The tables are ordered highest first, so the first known one is the best.
+--- The tables are ordered highest first, so the first one in the spellbook
+--- is the best. has_spell and is_spell_known are both accepted: a learned
+--- rank is in the book either way.
 local function best_known(spell_ids)
     if type(spell_ids) ~= "table" then
         return nil
     end
     for i = 1, #spell_ids do
         local id = spell_ids[i]
-        local known = safe(function() return spellbook.spell_known(id) end)
-        if known ~= true then
-            known = safe(function() return core.spell_book.has_spell(id) end)
-        end
-        if known == true then
+        local known = safe(function() return core.spell_book.has_spell(id) end) == true
+            or safe(function() return core.spell_book.is_spell_known(id) end) == true
+        if known then
             return id
         end
     end
@@ -156,8 +153,8 @@ end
 -- going on - not in combat, nobody attacking, not resting / eating /
 -- drinking, not mounted - movement is stopped first, a cast lock holds the
 -- walker for the cast, and the tick is held until the conjure is done. Then
--- movement resumes on its own. "Needs" counts EVERY water / food carried,
--- not only conjured, so a mage with vendor water does not stop for nothing.
+-- movement resumes on its own. "Needs" is the conjured stock only, under
+-- KEEP: vendor food does not stand in for a conjure, and a full 20 stops it.
 local CAST_HOLD = 5.0        -- seconds the cascade is held for a conjure in progress
 local movement_mod = nil
 
@@ -209,13 +206,12 @@ function conjure.tick(player)
         return false
     end
 
-    -- Water first. A mage out of water is stuck; a mage out of food can still
-    -- drink its health back up far more slowly, so water is the binding one.
-    -- Every water / food carried counts, conjured or bought.
-    local water = math.max(held(consumables.CONJURED_WATER_ITEM_IDS), held(consumables.WATER_ITEM_IDS))
-    local food = math.max(held(consumables.CONJURED_FOOD_ITEM_IDS), held(consumables.FOOD_ITEM_IDS))
-    local want_water = water < LOW_WATER
-    local want_food = food < LOW_FOOD
+    -- Water first. Only conjured stacks count, and only while that spell is
+    -- in the book: the highest known rank, stopped at KEEP.
+    local water_spell = best_known(consumables.CONJURE_WATER_SPELL_IDS)
+    local food_spell = best_known(consumables.CONJURE_FOOD_SPELL_IDS)
+    local want_water = water_spell ~= nil and held(consumables.CONJURED_WATER_ITEM_IDS) < KEEP
+    local want_food = food_spell ~= nil and held(consumables.CONJURED_FOOD_ITEM_IDS) < KEEP
 
     if not want_water and not want_food then
         idle_until = now + IDLE_RECHECK
@@ -224,11 +220,10 @@ function conjure.tick(player)
 
     local spell_id, label
     if want_water then
-        spell_id = best_known(consumables.CONJURE_WATER_SPELL_IDS)
+        spell_id = water_spell
         label = "Conjure Water"
-    end
-    if not spell_id and want_food then
-        spell_id = best_known(consumables.CONJURE_FOOD_SPELL_IDS)
+    elseif want_food then
+        spell_id = food_spell
         label = "Conjure Food"
     end
     if not spell_id then

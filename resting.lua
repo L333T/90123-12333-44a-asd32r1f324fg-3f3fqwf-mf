@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.172.0
+-- Version: 2.173.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -285,13 +285,15 @@ local function ranked_ids(base, extra)
             out[#out + 1] = id
         end
     end
-    for i = 1, #base do
-        add(base[i])
-    end
+    -- Class preference first (2.173.0): a mage's conjured water and food are
+    -- what the rest drinks and eats while any are in the bags.
     if type(extra) == "table" then
         for i = 1, #extra do
             add(extra[i])
         end
+    end
+    for i = 1, #base do
+        add(base[i])
     end
     return out
 end

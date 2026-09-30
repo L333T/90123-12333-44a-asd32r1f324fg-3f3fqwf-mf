@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.172.0
+-- Version: 2.173.0
 -- Folder: Master_Farmer_Grindbot
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -36,9 +36,14 @@ local targeting = require("targeting")
 
 local mage = {}
 
--- Highest rank first. Conjured IDs from Orca, then vendor food/water.
-local FOOD_ITEM_IDS = consumables.FOOD_ITEM_IDS
-local WATER_ITEM_IDS = consumables.WATER_ITEM_IDS
+-- Highest rank first. Rest eats and drinks these before any other food.
+function mage.preferred_food_ids()
+    return consumables.CONJURED_FOOD_ITEM_IDS
+end
+
+function mage.preferred_drink_ids()
+    return consumables.CONJURED_WATER_ITEM_IDS
+end
 
 local function make(ids, track_buff, track_debuff)
     local spell = izi.spell(ids)
@@ -141,14 +146,6 @@ end
 
 function mage.label()
     return "Mage"
-end
-
-function mage.preferred_food_ids()
-    return FOOD_ITEM_IDS
-end
-
-function mage.preferred_drink_ids()
-    return WATER_ITEM_IDS
 end
 
 function mage.combat_range(player)

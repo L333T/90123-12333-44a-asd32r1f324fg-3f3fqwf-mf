@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.170.0
+-- Version: 2.171.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -82,6 +82,7 @@ local REST_DEFAULT = 30
 local REST_DONE = 100
 local REGEN_DONE = 80          -- 2.139.0: no food / water - wait for this much HP and MP
 local regen_wait = false
+local water_stay_logged = false
 local REST_TOPUP = 95         -- 2.99.0: the other resource is topped up in the same rest below this
 
 -- Seconds a use is committed for before another of the same kind is
@@ -826,13 +827,25 @@ function resting_mod.tick(player, opts)
                 run, why = supplies.trip_wanted(player)
             end
             local vendor_busy = state.vendor and state.vendor.active == true
-            if recovered or run or vendor_busy then
+            -- Out of water, health is fine, and one drink is not affordable
+            -- yet: stay on the RestedXP step. The run starts on its own once
+            -- gold or junk covers the water (2.171.0).
+            local water_only = no_water and not no_food and hp >= eat_at
+            if water_only and not run and not vendor_busy then
+                if not water_stay_logged then
+                    water_stay_logged = true
+                    rtrail("no water and cannot buy it yet (%s) - staying on the quest", tostring(why))
+                end
+                regen_wait = false
+            elseif recovered or run or vendor_busy then
+                water_stay_logged = false
                 if regen_wait then
                     rtrail("regen wait over - HP %.0f MP %.0f (%s)", hp, mana,
                         recovered and "recovered" or "going to buy")
                 end
                 regen_wait = false
             else
+                water_stay_logged = false
                 if not regen_wait then
                     regen_wait = true
                     rtrail("no %s and no way to buy it (%s) - waiting for HP / MP to reach %d%%",

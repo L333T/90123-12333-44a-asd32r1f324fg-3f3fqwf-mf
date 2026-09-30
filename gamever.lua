@@ -3,7 +3,7 @@
 -- Game version: TBC Classic or WoW Forever
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.145.0
+-- Version: 2.146.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.get_game_version() answers "Tbc" on TBC Classic (and the TBC 2.5.3
@@ -73,6 +73,35 @@ function gamever.race_playable(race_id)
     if type(race_id) ~= "number" then return false end
     if gamever.is_forever() then return RACES_FOREVER[race_id] == true end
     return RACES_TBC[race_id] == true
+end
+
+-- CONTINENT (2.146.0): 0 Eastern Kingdoms, 1 Kalimdor, 530 Outland. One
+-- answer for the flight planner and the supply runs, which each had their own.
+-- core.get_map_id() when it is one of those ids (it is only documented as
+-- "the current map"), else the continent of the nearest flight point that
+-- exists on this game version (data/taxi_nodes).
+function gamever.continent_of(pos)
+    local raw = nil
+    pcall(function() raw = core.get_map_id() end)
+    if raw == 0 or raw == 1 or raw == 530 then
+        return raw, raw
+    end
+    if type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number" then
+        return nil, raw
+    end
+    local ok, cat = pcall(require, "data/taxi_nodes")
+    if not ok or type(cat) ~= "table" or type(cat.nodes) ~= "table" then
+        return nil, raw
+    end
+    local best, best_d = nil, nil
+    for i = 1, #cat.nodes do
+        local n = cat.nodes[i]
+        if type(cat.in_game) ~= "function" or cat.in_game(n) then
+            local d = (n.x - pos.x) ^ 2 + (n.y - pos.y) ^ 2
+            if best_d == nil or d < best_d then best, best_d = n, d end
+        end
+    end
+    return best and best.map or nil, raw
 end
 
 return gamever

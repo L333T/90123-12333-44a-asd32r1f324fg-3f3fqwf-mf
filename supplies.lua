@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.145.0
+-- Version: 2.146.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -43,6 +43,7 @@
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
+local gamever = require("gamever")
 
 local consumables = require("data/consumables")
 local gui = require("gui")
@@ -287,8 +288,7 @@ end
 local forever_logged = false
 
 local function forever_blind()
-    local ok, gamever = pcall(require, "gamever")
-    if not (ok and type(gamever) == "table" and gamever.is_forever()) then
+    if not gamever.is_forever() then
         return false
     end
     if not forever_logged then
@@ -395,8 +395,7 @@ end
 -- writes poor_gold, and a declaration down here made that write a global.)
 
 local function forever()
-    local ok, gamever = pcall(require, "gamever")
-    return ok and type(gamever) == "table" and gamever.is_forever()
+    return gamever.is_forever()
 end
 
 --- A rest found no food ("food") or no water ("water").
@@ -442,15 +441,7 @@ end
 
 --- On Eastern Kingdoms? The continent of the nearest flight point.
 local function in_eastern_kingdoms(me)
-    local ok, cat = pcall(require, "data/taxi_nodes")
-    if not ok or type(cat) ~= "table" or type(cat.nodes) ~= "table" then return false end
-    local best, best_d = nil, nil
-    for i = 1, #cat.nodes do
-        local n = cat.nodes[i]
-        local d = (n.x - me.x) ^ 2 + (n.y - me.y) ^ 2
-        if best_d == nil or d < best_d then best, best_d = n, d end
-    end
-    return best ~= nil and best.map == 0
+    return (gamever.continent_of(me)) == 0
 end
 
 --- The nearest known inn as { x, y, z }, or nil.

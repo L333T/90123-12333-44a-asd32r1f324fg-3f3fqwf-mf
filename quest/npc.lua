@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.145.0
+-- Version: 2.146.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -73,6 +73,7 @@
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
+local gamever = require("gamever")
 
 local gossip = require("gossip")
 
@@ -335,8 +336,7 @@ local function ev_opened(t)
 end
 
 local function forever()
-    local ok, gamever = pcall(require, "gamever")
-    return ok and type(gamever) == "table" and gamever.is_forever()
+    return gamever.is_forever()
 end
 
 local function on_quest(quest_id)

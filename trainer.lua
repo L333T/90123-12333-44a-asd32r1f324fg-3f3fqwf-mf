@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.160.0
+-- Version: 2.161.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -401,8 +401,11 @@ local function trainer_in_sight(player)
                 rank = 1
             elseif type(name) == "string" and names[name] then
                 rank = 2
-            elseif not (guid and rejected[guid])
+            elseif quest_wanted and not (guid and rejected[guid])
                 and has_flag(safe(function() return u:get_npc_flags() end), NPC_CLASS_TRAINER) then
+                -- Any flagged class trainer only for a quest ".train" step
+                -- (2.161.0): the bot's own level-up visits walked to other
+                -- classes' trainers - one of them the 12:15 turn-in NPC.
                 rank = 3
             end
             if rank and safe(function() return player:can_attack(u) end) ~= true then
@@ -454,7 +457,26 @@ local function bot_running()
 end
 
 --- Walk to a class trainer in sight after a level-up. True while doing so.
+-- THE QUEST STEP FIRST (2.161.0). The quest goal being worked, or nil.
+-- A trainer visit the bot decides on itself waits while questing is on an
+-- NPC goal (accept / turn in / talk / fly): the 12:15 session walked to a
+-- turn-in NPC who is a class trainer while this module walked it to a
+-- trainer too - "Nav settle" every few seconds, then standing.
+local DIALOG_KINDS = { accept = true, turnin = true, talk = true, fly = true }
+
+local function quest_goal_kind()
+    local ok_q, quest = pcall(require, "quest/engine")
+    if not ok_q or type(quest) ~= "table" then return nil end
+    if type(gui.is_on) == "function" and not gui.is_on("use_quest") then return nil end
+    if type(quest.current_kind) ~= "function" then return nil end
+    return quest.current_kind()
+end
+
 local function seek_tick(player, now)
+    if not quest_wanted and DIALOG_KINDS[quest_goal_kind() or ""] then
+        seek = nil
+        return false
+    end
     local level = safe(function() return player:get_level() end) or 0
     -- Every CHECK_EVERY levels (2.104.0), saved per character.
     if skip_reset then
@@ -638,6 +660,13 @@ function trainer.tick(player)
         return seek_tick(player, now)
     end
     if already_tried(player) then
+        return false
+    end
+    -- A quest giver / turn-in NPC who also trains (2.161.0): the quest goes
+    -- first, whether or not the dialog has started yet. Training there is
+    -- the bot's own visit, and it can come back once the goal moves on.
+    local gk = quest_goal_kind()
+    if not quest_wanted and (gk == "accept" or gk == "turnin") then
         return false
     end
     local ok_q, quest = pcall(require, "quest/engine")

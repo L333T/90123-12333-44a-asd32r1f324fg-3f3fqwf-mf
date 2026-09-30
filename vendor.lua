@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.160.0
+-- Version: 2.161.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -198,15 +198,51 @@ local SPECIAL_WORDS = { "quiver", "ammo pouch", "shot pouch", "bandolier", "soul
     "soul bag", "felcloth bag", "box of souls", "herb", "enchant", "mining sack" }
 local special_cache = {}      -- item id -> true / false
 
+-- 2.161.0: item info is empty on this client (the 12:15 count never saw the
+-- ammo pouch), so the bag is also known by id, and by what it holds.
+-- Quivers, ammo / shot pouches, bandoliers and soul bags (Vanilla + TBC).
+local SPECIAL_IDS = {}
+for _, id in ipairs({
+    2101, 2102, 2662, 2663, 3573, 3574, 3604, 3605, 5439, 5441, 7278, 7279,
+    7371, 7372, 8217, 8218, 11362, 11363, 18714, 19319, 19320,
+    21340, 21341, 21342, 22243, 22244,
+}) do SPECIAL_IDS[id] = true end
+-- Arrows and bullets (Vanilla + TBC): a bag holding nothing else is an
+-- ammo bag even when its id is not listed.
+local AMMO_IDS = {}
+for _, id in ipairs({
+    2512, 2515, 3030, 3464, 9399, 11285, 12654, 18042, 19316, 24412, 24417,
+    28053, 28056, 30319, 31737, 31949, 32760, 33803, 34581,
+    2516, 2519, 3033, 3465, 4960, 5568, 8067, 8068, 8069, 10512, 10513,
+    11284, 11630, 13377, 15997, 19317, 23772, 23773, 28060, 28061, 30612,
+    31735, 32761, 32882, 32883, 34582,
+}) do AMMO_IDS[id] = true end
+
+local function holds_only_ammo(bag)
+    local items = safe(function() return core.inventory.get_items_in_bag(bag) end)
+    if type(items) ~= "table" or #items == 0 then return false end
+    for i = 1, #items do
+        local e = items[i]
+        local id = type(e) == "table" and e.object and safe(function() return e.object:get_item_id() end)
+        if not AMMO_IDS[id] then return false end
+    end
+    return true
+end
+
 local function special_bag(bag)
     local me = safe(function() return izi.me() end)
     if not me then return false end
-    local row = safe(function() return me:get_item_at_inventory_slot(19 + bag) end)
+    -- The client's own slot for bag N (20-23 on the private servers, 31-34
+    -- on retail), 19 + N when it cannot say.
+    local inv = safe(function() return core.inventory.get_bag_inventory_slot(bag) end)
+    if type(inv) ~= "number" then inv = 19 + bag end
+    local row = safe(function() return me:get_item_at_inventory_slot(inv) end)
     local obj = type(row) == "table" and row.object or nil
-    if not obj then return false end
+    if not obj then return holds_only_ammo(bag) end
     local id = safe(function() return obj:get_item_id() end)
-    if type(id) ~= "number" then return false end
-    if special_cache[id] ~= nil then return special_cache[id] end
+    if type(id) ~= "number" then return holds_only_ammo(bag) end
+    if SPECIAL_IDS[id] then return true end
+    if special_cache[id] ~= nil then return special_cache[id] or holds_only_ammo(bag) end
     local info = safe(function() return core.quests.get_item_info(id) end)
     local yes = false
     if type(info) == "table" and type(info.class_id) == "number" then
@@ -222,7 +258,7 @@ local function special_bag(bag)
         end
     end
     special_cache[id] = yes
-    return yes
+    return yes or holds_only_ammo(bag)
 end
 
 --- Free slots in special bags (not usable for loot).
@@ -666,7 +702,11 @@ function vendor.needs_trip(player)
     if state.vendor.lap_due == true then
         return true
     end
-    if izi.now() < (state.vendor.done_until or 0) and not state.vendor.active then
+    -- FULL IS FULL (2.161.0): with no free slot at all (special bags not
+    -- counted) the trip is forced - the after-trip cooldown does not apply,
+    -- only the "that trip freed nothing" hold does.
+    local full_now = gui.is_on("sell") and bag_free() == 0
+    if izi.now() < (state.vendor.done_until or 0) and not state.vendor.active and not full_now then
         return false
     end
     if gui.is_on("sell") then

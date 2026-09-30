@@ -3,7 +3,7 @@
 -- Shaman grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.155.0
+-- Version: 2.156.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WEAPON IMBUES - THE BUG NOT COPIED
@@ -35,6 +35,12 @@ local auras = require("auras")
 
 local shaman = {}
 
+local function safe(fn)
+    local ok, r = pcall(fn)
+    if ok then return r end
+    return nil
+end
+
 local function make(ids, track_buff, track_debuff)
     local spell = izi.spell(ids)
     if not spell then return nil end
@@ -55,16 +61,39 @@ function shaman.is_melee(player)
     return false
 end
 
---- Stand at Lightning Bolt range. Melee spells fire on their own once the
---- mob is inside 5 yards; the approach does not walk in to get there.
+local function slider(key, fallback)
+    if type(gui.slider) == "function" then
+        local v = gui.slider(key, fallback)
+        if type(v) == "number" then return v end
+    end
+    return fallback
+end
+
+--- The mob has closed inside the melee slider: fight in melee.
+function shaman.melee_mode(player, target)
+    if not player or not target then return false end
+    local d = safe(function() return player:distance_to(target) end)
+    if type(d) ~= "number" then return false end
+    return d <= slider("melee_yards", 5)
+end
+
+--- Ranged attack distance until the mob closes, then the melee distance.
+--- Both come from this class's Spells-tab sliders.
 function shaman.engage_range(player, target)
-    local reach = nil
+    if shaman.melee_mode(player, target) then
+        local m = slider("melee_yards", 5)
+        if m < 1 then m = 1 elseif m > 5 then m = 5 end
+        return m, true
+    end
+    local want = slider("ranged_yards", 30)
+    local reach = 36
     if lightning_bolt and type(lightning_bolt.maximum_range) == "number"
         and lightning_bolt.maximum_range > 8 then
         reach = lightning_bolt.maximum_range - 1
     end
-    if type(reach) ~= "number" or reach < 8 then reach = 30 end
-    return reach
+    if want > reach then want = reach end
+    if want < 8 then want = 8 end
+    return want, false
 end
 
 function shaman.combat_range(player)
@@ -81,10 +110,7 @@ end
 -- (2.151.0) These read an "enhancement" GUI toggle removed with the old
 -- class checkboxes in 2.142.0; is_melee is the one answer now.
 function shaman.scan_range(player)
-    if shaman.is_melee(player) then
-        return 20
-    end
-    return 35
+    return 100
 end
 
 function shaman.combat_profile()

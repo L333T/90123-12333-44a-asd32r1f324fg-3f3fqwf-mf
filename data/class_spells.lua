@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.155.0
+-- Version: 2.156.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -218,12 +218,14 @@ W.HUNTER = t({
     { "Wing Clip",              "control", on = true, melee = true,
       when = function(c) return c.dist() <= 5 and not c.debuff("Wing Clip") and not c.debuff("Concussive Shot") end,
       tip = "In melee: slow the mob so the Hunter can back out of the dead zone." },
-    { "Raptor Strike",          "damage", on = true, melee = true },
-    { "Mongoose Bite",          "damage", on = true, melee = true },
-    { "Concussive Shot",        "damage", on = false, min = 8, when = function(c) return c.dist() <= 10 end },
+    -- Shots before melee swings. A shot that is out of its minimum range is
+    -- skipped, so inside the dead zone Raptor Strike is the one that lands.
     { "Arcane Shot",            "damage", on = true, min = 8 },
     { "Steady Shot",            "damage", on = true, min = 8 },
     { "Kill Command",           "damage", on = true, when = function(c) return c.dist() > 5 end },
+    { "Concussive Shot",        "damage", on = false, min = 8, when = function(c) return c.dist() <= 10 end },
+    { "Raptor Strike",          "damage", on = true, melee = true },
+    { "Mongoose Bite",          "damage", on = true, melee = true },
 
     { "Auto Shot",              "filler", on = true, min = 8 },
 })
@@ -238,7 +240,7 @@ W.ROGUE = t({
     { "Gouge",                  "interrupt", on = false, melee = true },
 
     { "Adrenaline Rush",        "cooldown", on = true, self = true },
-    { "Blade Flurry",           "cooldown", on = true, self = true, when = function(c) return c.near(8) >= 2 end },
+    { "Blade Flurry",           "cooldown", on = true, self = true, when = function(c) return c.near(8) >= c.aoe_n() end },
     { "Cold Blood",             "cooldown", on = true, self = true, when = function(c) return c.cp() >= 4 end },
 
     { "Slice and Dice",         "finisher", on = true, self = true, cp = 2, thp = 30,
@@ -336,14 +338,16 @@ W.SHAMAN = t({
     { "Bloodlust",              "cooldown", on = false, self = true },
     { "Heroism",                "cooldown", on = false, self = true },
 
-    { "Chain Lightning",        "aoe", on = true, n = 2, when = function(c) return c.dist() > 5 end },
+    { "Chain Lightning",        "aoe", on = true, n = 2, when = function(c) return c.dist() > c.melee_yards() end },
     { "Fire Nova Totem",        "aoe", on = false, self = true, center = "self", r = 10 },
 
+    -- At the shooting distance: the bolt. Once the mob is inside the melee
+    -- slider: Stormstrike, then a shock, and the melee swing.
+    { "Lightning Bolt",         "damage", on = true, when = function(c) return c.dist() > c.melee_yards() end },
     { "Stormstrike",            "damage", on = true, melee = true,
-      tip = "Melee only, once the mob has closed. The approach stays at Lightning Bolt range." },
-    { "Earth Shock",            "damage", on = true, when = function(c) return c.dist() <= 5 end },
-    { "Frost Shock",            "damage", on = false, when = function(c) return c.dist() <= 5 end },
-    { "Lightning Bolt",         "damage", on = true, when = function(c) return c.dist() > 5 end },
+      tip = "Melee only, once the mob has closed inside the melee distance." },
+    { "Earth Shock",            "damage", on = true, when = function(c) return c.dist() <= c.melee_yards() end },
+    { "Frost Shock",            "damage", on = false, when = function(c) return c.dist() <= c.melee_yards() end },
 })
 
 -- ============================================================================

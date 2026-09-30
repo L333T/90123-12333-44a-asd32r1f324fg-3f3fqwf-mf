@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.155.0
+-- Version: 2.156.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -459,6 +459,11 @@ function c.heal_pct() return slider("sp_heal", 50) end
 function c.def_pct() return slider("sp_def", 35) end
 function c.aoe_n() return slider("sp_aoe", 3) end
 function c.wand_pct() return slider("sp_wand", 20) end
+function c.melee_yards()
+    local m = slider("melee_yards", 5)
+    if m < 1 then m = 1 elseif m > 5 then m = 5 end
+    return m
+end
 
 --- The druid form / warrior stance the player is in ("caster" when none).
 function c.form()
@@ -743,7 +748,11 @@ function COND.cooldown(e)
 end
 
 function COND.aoe(e)
-    return T ~= nil and aoe_count(e) >= (e.def.n or c.aoe_n())
+    -- The Spells-tab "Area of effect at enemies" slider is the count.
+    -- A catalog `n` is only the fallback when that slider is missing.
+    local need = c.aoe_n()
+    if type(need) ~= "number" then need = e.def.n or 3 end
+    return T ~= nil and aoe_count(e) >= need
 end
 
 function COND.finisher(e)
@@ -1092,16 +1101,13 @@ function smart.combat(player, target, ctx)
         pcall(pets.attack, player, target)
     end
 
-    -- NOT BEFORE THE ENGAGE DISTANCE (2.90.0 / 2.152.0). Offensive spells
-    -- wait until the target is at the GUI range or closer. Charge / aggro
-    -- used to clear this the moment combat started, so a warrior opened
-    -- from 32 yd. Buffs, heals, defensives and openers (Charge) still run.
-    -- Hunter: the melee-mode slider (5 yd) must not hold shots. Fire from
-    -- the shooting distance; inside the dead zone, melee abilities run.
+    -- Hunter and Shaman: the melee slider must not hold the ranged spells.
+    -- Fire from the ranged / shooting distance; inside melee, melee spells run.
     local hold_fire = false
     if ctx and type(ctx.engage) == "number" and target then
         local limit = ctx.engage
-        if built.class == enums.class_id.HUNTER then
+        local hybrid = built.class == enums.class_id.HUNTER or built.class == enums.class_id.SHAMAN
+        if hybrid then
             local hmod = mod("rotation")
             hmod = hmod and type(hmod.active) == "function" and hmod.active(player) or nil
             if hmod and type(hmod.melee_mode) == "function" and hmod.melee_mode(player, target) then

@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.173.0
+-- Version: 2.174.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -195,6 +195,74 @@ local function node_row(zone, index)
     return zone.coords[index], n
 end
 
+--- Every living enemy in this fight, so a corpse is still "ours" after the
+--- target switches. The current kill, anything on the player or the pet, and
+--- anything hitting that kill.
+local function remember_fight(player)
+    if type(state.note_engaged) ~= "function" then
+        return
+    end
+    if state.target and state.target.kind == "kill" and state.target.guid then
+        state.note_engaged(state.target.guid)
+    end
+    local me = safe(function() return player:get_guid() end)
+    local pet = safe(function() return player:get_pet() end)
+    local pet_guid = nil
+    if pet and safe(function() return pet:is_valid() end) == true then
+        pet_guid = safe(function() return pet:get_guid() end)
+    end
+    local cur = (state.target and state.target.kind == "kill") and state.target.guid or nil
+    local attack = nil
+    if type(targeting.scan_enemies) == "function" then
+        attack = targeting.scan_enemies(player)
+    end
+    if type(attack) ~= "table" then
+        return
+    end
+    for i = 1, #attack do
+        local u = attack[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_dead() end) ~= true
+            and safe(function() return u:is_in_combat() end) == true then
+            local tar = safe(function() return u:get_target() end)
+            local tg = tar and safe(function() return tar:is_valid() end) == true
+                and safe(function() return tar:get_guid() end) or nil
+            local ours = (me ~= nil and tg == me)
+                or (pet_guid ~= nil and tg == pet_guid)
+                or (cur ~= nil and tg == cur)
+            if ours then
+                local g = safe(function() return u:get_guid() end)
+                if g then
+                    state.note_engaged(g)
+                end
+            end
+        end
+    end
+end
+
+--- Put every dead enemy from this fight on the loot queue. Returns true
+--- when a corpse is still waiting, so the next pull does not start.
+local function queue_our_corpses(player)
+    if gui and type(gui.is_on) == "function" and gui.is_on("loot") ~= true then
+        return false
+    end
+    local ok_l, lt = pcall(require, "loot")
+    if not ok_l or type(lt) ~= "table" or type(lt.note_kill) ~= "function" then
+        return false
+    end
+    local list = targeting.find_corpses(player, targeting.ENEMY_SCAN or 100)
+    if type(list) == "table" and type(state.was_engaged) == "function" then
+        for i = 1, #list do
+            local c = list[i]
+            local guid = c and safe(function() return c:get_guid() end)
+            if guid and state.was_engaged(guid) then
+                lt.note_kill(c)
+            end
+        end
+    end
+    return type(lt.has_work) == "function" and lt.has_work(player) == true
+end
+
 local function snap_grind_node(zone, n, here)
     if not zone or not here or type(n) ~= "number" or n < 1 then
         return
@@ -346,6 +414,11 @@ function grind.tick(player)
     if not player then
         return
     end
+    -- The whole fight, not only the unit in the target frame (2.174.0).
+    -- Adds that die while another mob is focused are still queued, and the
+    -- next pull waits until those corpses are looted.
+    remember_fight(player)
+    queue_our_corpses(player)
     -- Attacked: fight back now (2.38.0) - every tick, before the rest check
     -- and whether or not there is a target. With no target the old check only
     -- ran when the periodic scan came round, and the route kept walking.

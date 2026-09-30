@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.148.0
+-- Version: 2.149.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -581,6 +581,76 @@ local function quest_title(goal, kind, qid)
         text = text:gsub("^[Tt]urn%s*[Ii]n%s+", "")
     end
     return text
+end
+
+-- QUEST TRAINER STEPS (2.149.0). The state of the train goal in progress.
+local TRAIN_WAIT = 20          -- seconds at the waypoint with no trainer before moving on
+local g_train = { key = nil, at_wp = 0 }
+
+local function is_train_action(goal)
+    local a = type(goal.action) == "string" and string.lower(goal.action) or ""
+    return a == "train" or a == "trainer"
+end
+
+--- Drive a ".train" / ".trainer" goal. True while it holds the tick.
+local function train_goal(player, goal, wps, label)
+    if not is_train_action(goal) then
+        if g_train.key then
+            g_train.key = nil
+            local ok_x, tx = pcall(require, "trainer")
+            if ok_x and type(tx) == "table" and type(tx.quest_visit) == "function" then
+                tx.quest_visit(false)
+            end
+        end
+        return false
+    end
+    local ok_tr, tr = pcall(require, "trainer")
+    if not ok_tr or type(tr) ~= "table" or type(tr.quest_visit) ~= "function" then
+        return false
+    end
+    if gui.is_on("train") ~= true then
+        trail("quest", "trainer goal skipped - Train Spells is off")
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
+    end
+    if g_train.key ~= g_key then
+        g_train.key, g_train.at_wp = g_key, 0
+        tr.quest_visit(false)
+        tr.quest_visit(true)
+        trail("quest", "trainer step: visiting the class trainer for %s", tostring(label))
+    end
+    if tr.quest_visit_done() then
+        trail("quest", "trainer step done - %s", tostring(label))
+        tr.quest_visit(false)
+        g_train.key = nil
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
+    end
+    -- trainer.tick runs earlier in the cascade and walks to / talks to a
+    -- trainer in sight; while it does, the quest engine waits.
+    if (type(tr.busy) == "function" and tr.busy()) or tr.in_sight(player) then
+        state.set_note("Quest", "Guide: training - " .. tostring(label))
+        return true
+    end
+    -- No trainer in sight yet: walk the step's waypoints.
+    if #wps > 0 then
+        if g_move > #wps then g_move = 1 end
+        if walk_to(wps[g_move].pos, label, TALK_ARRIVE) then
+            g_train.at_wp = 0
+            return true
+        end
+    end
+    local now = izi.now()
+    if g_train.at_wp == 0 then g_train.at_wp = now end
+    if (now - g_train.at_wp) >= TRAIN_WAIT then
+        trail("quest", "trainer step: no class trainer found in %ds - next goal", TRAIN_WAIT)
+        tr.quest_visit(false)
+        g_train.key = nil
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
+    end
+    state.set_note("Quest", "Guide: looking for the trainer - " .. tostring(label))
+    return true
 end
 
 --- Find the NPC for an accept, a turnin or a talk goal.
@@ -1975,15 +2045,21 @@ tick_inner = function(player)
         return
     end
 
-    -- TRAINER STEPS EVERY 3 LEVELS (2.104.0): a RestedXP ".trainer" goal
-    -- before the next check is due is skipped to the next goal.
-    if type(goal.action) == "string" and string.lower(goal.action) == "trainer" then
-        local ok_tr, tr = pcall(require, "trainer")
-        local no_train = gui.is_on("train") ~= true
-        if ok_tr and type(tr) == "table" and type(tr.due) == "function"
-            and (no_train or not tr.due(player)) then
-            trail("quest", "trainer goal skipped - %s", no_train and "Train Spells is off"
-                or ("next check at level " .. tostring(tr.next_level())))
+    -- QUEST TRAINER STEPS (2.149.0): questing follows the step. A RestedXP
+    -- ".train" / ".trainer" goal asks trainer.lua for a visit now (the
+    -- every-3-levels rule is only for visits the bot decides on itself),
+    -- walks to the step's waypoint until the class trainer is in sight, and
+    -- is done when the visit finishes - or when RestedXP ticks it off first.
+    if train_goal(player, goal, wps, label) then
+        return
+    end
+
+    -- NO VENDORING BELOW LEVEL 2 (2.149.0): a ".vendor" step is passed over.
+    if type(goal.action) == "string" and string.lower(goal.action) == "vendor" then
+        local ok_v, vnd = pcall(require, "vendor")
+        if ok_v and type(vnd) == "table" and type(vnd.level_ok) == "function"
+            and not vnd.level_ok(player) then
+            trail("quest", "vendor goal skipped - no vendoring below level 2")
             guide.mark_goal_done(guide.step_num(), goal.index)
             return
         end

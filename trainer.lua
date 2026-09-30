@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.148.0
+-- Version: 2.149.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -73,6 +73,7 @@ local tried_gold = nil
 -- claimed ~95% of all ticks - so nothing walked the bot away, which is the
 -- only thing that closes it. Cleared when the window closes.
 local finished = false
+local skip_reset = false     -- 2.149.0: a quest visit clears the "trainer never opened" level
 local bought_this_visit = 0
 local MAX_PER_VISIT = 30      -- hard stop if a purchase keeps silently failing
 
@@ -154,9 +155,37 @@ local function level_of(player)
     return safe(function() return player:get_level() end) or 0
 end
 
---- Is a trainer check due? Never checked (this character), or 3+ levels since.
+-- QUEST TRAINER STEPS (2.149.0). A RestedXP ".train" / ".trainer" step is
+-- followed when questing: it asks for a visit now, whatever the every-3-levels
+-- check says. The visit walks to the class trainer in sight, trains what can
+-- be afforded, and reports done so the quest engine moves on.
+local quest_wanted = false
+local quest_done = false
+
+--- A quest step wants a trainer visit now (true), or no longer (false).
+function trainer.quest_visit(on)
+    if on then
+        if not quest_wanted then
+            quest_wanted, quest_done = true, false
+            tried_level, tried_gold = nil, nil
+            skip_reset = true
+            finished = false
+        end
+    else
+        quest_wanted, quest_done = false, false
+    end
+end
+
+--- Did the visit a quest step asked for finish?
+function trainer.quest_visit_done()
+    return quest_done == true
+end
+
+--- Is a trainer check due? Never checked (this character), 3+ levels since,
+--- or a quest step asked for one.
 function trainer.due(player)
     if not player then return false end
+    if quest_wanted and not quest_done then return true end
     if checked_level == nil then return true end
     return level_of(player) >= checked_level + CHECK_EVERY
 end
@@ -360,6 +389,11 @@ local function trainer_in_sight(player)
     return best
 end
 
+--- The nearest class trainer in sight (SEEK_RANGE), or nil.
+function trainer.in_sight(player)
+    return trainer_in_sight(player)
+end
+
 local function unit_by_guid(guid)
     local ok_t, targeting = pcall(require, "targeting")
     local list = ok_t and targeting and type(targeting.visible_objects) == "function"
@@ -386,6 +420,10 @@ end
 local function seek_tick(player, now)
     local level = safe(function() return player:get_level() end) or 0
     -- Every CHECK_EVERY levels (2.104.0), saved per character.
+    if skip_reset then
+        skip_reset = false
+        seek_skip_level = nil
+    end
     if not trainer.due(player) or seek_skip_level == level then
         seek = nil
         return false
@@ -532,6 +570,7 @@ function trainer.tick(player)
         forget_bought()
         finished = true
         note_checked(player)
+        if quest_wanted then quest_done = true end
         seek = nil
         local msg
         if trained_this_visit == 0 and short == 0 then

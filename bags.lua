@@ -3,7 +3,7 @@
 -- Bag items with the (bag, slot) pair the container calls actually take
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.148.0
+-- Version: 2.149.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.input.use_container_item documents it plainly: the slot index that
@@ -134,6 +134,136 @@ function bags.count(item_id)
         end
     end
     return total
+end
+
+-- ----------------------------------------------------------------------------
+-- FOOD AND WATER IN THE BAGS, WHATEVER THEY ARE (2.149.0)
+-- ----------------------------------------------------------------------------
+-- Resting and the supply runs only knew the ids in data/consumables.lua. Food
+-- that list misses - a quest reward, a new drop - counted as "nothing to eat",
+-- and the bot went to a vendor with food in its bags. Every bag item is now
+-- classified once:
+--   1. the curated lists (data/consumables.lua);
+--   2. the item's use spell (core.quests.get_item_spell): "Food", "Drink",
+--      "Refreshment" (both);
+--   3. the item class (core.quests.get_item_info): Consumable (0) / Food &
+--      Drink (5), split by the drink words below.
+-- 2 and 3 are empty on WoW Forever (per the API docs), where only 1 applies.
+-- An item the player's level cannot use yet is left out.
+local consumables = require("data/consumables")
+
+local KNOWN_FOOD, KNOWN_WATER = {}, {}
+for i = 1, #consumables.FOOD_ITEM_IDS do KNOWN_FOOD[consumables.FOOD_ITEM_IDS[i]] = true end
+for i = 1, #consumables.WATER_ITEM_IDS do KNOWN_WATER[consumables.WATER_ITEM_IDS[i]] = true end
+
+local DRINK_WORDS = { "water", "milk", "juice", "tea", "nectar", "dew", "drink", "tonic", "spring" }
+local CLASS_RETRY = 30.0
+local class_cache = {}         -- item id -> { food, water, min_level } or { none = true, t = time }
+local scan_cache = { t = -1e9, food = nil, water = nil }
+local SCAN_TTL = 2.0
+
+---@type izi_api
+local izi = require("common/izi_sdk")
+
+local function now_s()
+    local ok, t = pcall(izi.now)
+    if ok and type(t) == "number" then return t end
+    return 0
+end
+
+local function has_drink_word(name)
+    if type(name) ~= "string" then return false end
+    local text = string.lower(name)
+    for i = 1, #DRINK_WORDS do
+        if text:find(DRINK_WORDS[i], 1, true) then return true end
+    end
+    return false
+end
+
+--- What an item is for: food, water (booleans) and its minimum level, or nil.
+local function classify(id)
+    if KNOWN_FOOD[id] or KNOWN_WATER[id] then
+        return { food = KNOWN_FOOD[id] == true, water = KNOWN_WATER[id] == true, min_level = 0 }
+    end
+    local c = class_cache[id]
+    if c and not c.none then return c end
+    local t = now_s()
+    if c and c.none and (t - c.t) < CLASS_RETRY then return nil end
+    local ok_i, info = pcall(core.quests.get_item_info, id)
+    info = (ok_i and type(info) == "table") and info or {}
+    local min_level = type(info.min_level) == "number" and info.min_level or 0
+    local ok_s, sp = pcall(core.quests.get_item_spell, id)
+    local spell = ok_s and type(sp) == "table" and sp.spell_name or nil
+    local food, water = false, false
+    if spell == "Food" then
+        food = true
+    elseif spell == "Drink" then
+        water = true
+    elseif spell == "Refreshment" or spell == "Food & Drink" then
+        food, water = true, true
+    elseif info.class_id == 0 and info.subclass_id == 5 then
+        if has_drink_word(info.name) then water = true else food = true end
+    end
+    if not food and not water then
+        -- Nothing known yet: the client may not have the item cached. Ask again later.
+        class_cache[id] = { none = true, t = t }
+        return nil
+    end
+    c = { food = food, water = water, min_level = min_level }
+    class_cache[id] = c
+    return c
+end
+
+--- Food and water in the bags: two maps item id -> count, usable at the
+--- player's level. Cached SCAN_TTL seconds.
+function bags.food_water(player)
+    local t = now_s()
+    if scan_cache.food and (t - scan_cache.t) < SCAN_TTL then
+        return scan_cache.food, scan_cache.water
+    end
+    local food, water = {}, {}
+    local ok_l, level = pcall(function() return player:get_level() end)
+    level = (ok_l and type(level) == "number") and level or 1
+    local list = bags.list(player)
+    for i = 1, #list do
+        local e = list[i]
+        local id = e.item_id
+        if id then
+            local c = classify(id)
+            if c and (c.min_level or 0) <= level then
+                local n = (type(e.count) == "number" and e.count > 0) and e.count or 1
+                if c.food then food[id] = (food[id] or 0) + n end
+                if c.water then water[id] = (water[id] or 0) + n end
+            end
+        end
+    end
+    scan_cache.t, scan_cache.food, scan_cache.water = t, food, water
+    return food, water
+end
+
+--- Forget the cached scan (a purchase or a use just changed the bags).
+function bags.food_water_invalidate()
+    scan_cache.t = -1e9
+end
+
+--- Total food / water items carried (every kind, not only the curated ids).
+function bags.food_water_count(player)
+    local food, water = bags.food_water(player)
+    local nf, nw = 0, 0
+    for _, n in pairs(food) do nf = nf + n end
+    for _, n in pairs(water) do nw = nw + n end
+    return nf, nw
+end
+
+--- Bag food / water ids the curated lists do not have (for resting's use list).
+function bags.extra_food_water(player)
+    local food, water = bags.food_water(player)
+    local ef, ew = {}, {}
+    for id in pairs(food) do if not KNOWN_FOOD[id] then ef[#ef + 1] = id end end
+    for id in pairs(water) do if not KNOWN_WATER[id] then ew[#ew + 1] = id end end
+    table.sort(ef)
+    table.sort(ew)
+    return ef, ew
 end
 
 return bags

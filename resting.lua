@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.148.0
+-- Version: 2.149.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -309,12 +309,34 @@ local function cached_ranked(key, base, extra)
     return list
 end
 
+-- Bag food / water the curated lists miss (2.149.0, bags.food_water): a
+-- quest reward or a new drop is eaten after every ranked item, instead of the
+-- rest calling it "no usable food" and sending the bot to a vendor.
+local bags = require("bags")
+local extra_cache = {}
+
+local function with_bag_extras(key, list, extras)
+    if #extras == 0 then return list end
+    local sig = table.concat(extras, ",")
+    local c = extra_cache[key]
+    if c and c.base == list and c.sig == sig then return c.list end
+    local out = {}
+    for i = 1, #list do out[i] = list[i] end
+    for i = 1, #extras do out[#out + 1] = extras[i] end
+    extra_cache[key] = { base = list, sig = sig, list = out }
+    return out
+end
+
 local function food_ids(player)
-    return cached_ranked("food", FOOD_ITEM_RANK, preferred("preferred_food_ids", player))
+    local list = cached_ranked("food", FOOD_ITEM_RANK, preferred("preferred_food_ids", player))
+    local ef = bags.extra_food_water(player)
+    return with_bag_extras("food", list, ef)
 end
 
 local function water_ids(player)
-    return cached_ranked("water", WATER_ITEM_RANK, preferred("preferred_drink_ids", player))
+    local list = cached_ranked("water", WATER_ITEM_RANK, preferred("preferred_drink_ids", player))
+    local _, ew = bags.extra_food_water(player)
+    return with_bag_extras("water", list, ew)
 end
 
 local function has_usable(ids)

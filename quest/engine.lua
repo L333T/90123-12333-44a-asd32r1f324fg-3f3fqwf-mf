@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.145.0
+-- Version: 2.146.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -25,6 +25,7 @@
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
+local gamever = require("gamever")
 
 local gossip = require("gossip")
 
@@ -1466,18 +1467,7 @@ local function far_travel(player, goal, kind, wps, label)
     -- current map"; the 02:18 log refused a 3795 yd trip from Lakeshire with
     -- "no flight point shortens it", which is what a non-continent id gives.
     -- Anything else is replaced by the continent of the nearest flight point.
-    local raw_map = safe(function() return core.get_map_id() end)
-    local map = raw_map
-    if map ~= 0 and map ~= 1 and map ~= 530 then
-        local best_d = nil
-        for i = 1, #cat.nodes do
-            local n = cat.nodes[i]
-            if type(cat.in_game) ~= "function" or cat.in_game(n) then
-                local d = d2(here, n)
-                if best_d == nil or d < best_d then map, best_d = n.map, d end
-            end
-        end
-    end
+    local map, raw_map = gamever.continent_of(here)
     if type(map) ~= "number" then return false end
     if not g_map_logged then
         g_map_logged = true

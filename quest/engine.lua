@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.157.0
+-- Version: 2.158.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -306,16 +306,20 @@ local function fight_unit(player, unit, note)
                         tostring(safe(function() return unit:get_name() end)), dist)
                 end
                 g_appr.since = now
-                state.set_note("Quest", string.format("%s (approaching %.0f yd)", note or "Closing", dist))
+                state.set_note("Quest", string.format("%s (approaching %d yd)", note or "Closing", math.floor(dist / 5) * 5))
                 return true
             end
             if (now - g_appr.since) < APPROACH_WAIT then
-                state.set_note("Quest", string.format("%s (approaching %.0f yd)", note or "Closing", dist))
+                state.set_note("Quest", string.format("%s (approaching %d yd)", note or "Closing", math.floor(dist / 5) * 5))
                 return true
             end
             g_appr.off = true
-            trail("act", "no path leg to %s in %.0fs - closing directly",
-                tostring(safe(function() return unit:get_name() end)), APPROACH_WAIT)
+            local why = type(movement.last_fail_reason) == "function" and movement.last_fail_reason() or nil
+            trail("act", "no path leg to %s in %.0fs (%s%s) - closing directly",
+                tostring(safe(function() return unit:get_name() end)), APPROACH_WAIT,
+                tostring(why or "no reason given"),
+                (type(movement.in_combat_movement) == "function" and movement.in_combat_movement())
+                    and ", combat movement owns" or "")
         end
     end
     -- Inside the approach band: combat movement owns it, the tag is done.
@@ -430,6 +434,35 @@ end
 local PATH_SCAN_GAP = 0.8
 local g_path_scan_until = 0
 
+local XP_GREY_GAP = 5
+local CRITTER_TYPE = nil
+local function xp_critter(u)
+    if CRITTER_TYPE == nil then
+        local ok, enums = pcall(require, "common/enums")
+        CRITTER_TYPE = (ok and type(enums) == "table" and type(enums.creature_type) == "table"
+            and enums.creature_type.CRITTER) or false
+    end
+    if not CRITTER_TYPE then return false end
+    return safe(function() return u:get_creature_type() end) == CRITTER_TYPE
+end
+
+--- The nearest enemy within `range` worth XP (2.158.0): no critters, no greys.
+local function nearest_xp_enemy(player, range)
+    local list = targeting.find_mobs(player, nil, range, true)
+    local keep = {}
+    local my_level = safe(function() return player:get_level() end) or 1
+    for i = 1, #(list or {}) do
+        local u = list[i]
+        local lvl = safe(function() return u:get_level() end) or my_level
+        if not xp_critter(u) and lvl >= my_level - XP_GREY_GAP then
+            keep[#keep + 1] = u
+        end
+    end
+    local unit = targeting.nearest(player, keep)
+    local d = unit and safe(function() return player:distance_to(unit) end) or nil
+    return unit, d
+end
+
 local function path_pull(dest)
     if not gui.is_on("quest_path_pull") then
         return false
@@ -460,7 +493,9 @@ local function path_pull(dest)
         return false
     end
     local range = targeting.ENEMY_SCAN or 100
-    local unit, d = targeting.nearest_enemy(player, range)
+    -- Worth XP only (2.158.0): the 11:28 log fought Rabbits and walked to
+    -- their empty corpses.
+    local unit, d = nearest_xp_enemy(player, range)
     if not unit then
         return false
     end
@@ -963,12 +998,20 @@ local function dialog_goal(player, goal, kind, wps, label)
     -- floor) jitters by more than STALL_GAIN while the character circles.
     local me = safe(function() return player:get_position() end)
     local track_d
+    local wp_t = (#wps > 0) and wps[math.min(g_move, #wps)].pos or nil
     if unit then
         local up = safe(function() return unit:get_position() end)
         track_d = me and up and geometry.distance_flat(me, up) or nil
-    elseif #wps > 0 then
-        local wp = wps[math.min(g_move, #wps)].pos
-        track_d = me and geometry.distance_flat(me, wp) or nil
+        -- An NPC picked away from the waypoint (2.158.0): the 11:28 turn-in
+        -- chose Balir by the previous step's waypoint, then walked 354 yd to
+        -- the real one - away from Balir - and the stall check fired at 30 s
+        -- on a walk that was going fine. Track the waypoint then.
+        local off = up and wp_t and geometry.distance_flat(up, wp_t)
+        if type(off) == "number" and off > TALK_SEARCH_FAR then
+            track_d = me and geometry.distance_flat(me, wp_t) or track_d
+        end
+    elseif wp_t then
+        track_d = me and geometry.distance_flat(me, wp_t) or nil
     end
     if stalled(now, goal, track_d) then
         recover_stall(now, goal, label)
@@ -1940,7 +1983,7 @@ local function xp_goal(player, goal, wps, label)
     end
     g_scan_until = now + SCAN_GAP
     local range = targeting.ENEMY_SCAN or 100
-    local unit, d = targeting.nearest_enemy(player, range)
+    local unit, d = nearest_xp_enemy(player, range)
     if not unit then
         return false
     end

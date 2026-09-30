@@ -3,7 +3,7 @@
 -- main.lua - download the bot, then hand off to its real main.lua
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Loader version: 1.2.1
+-- Loader version: 1.2.2
 -- ============================================================================
 -- FLOW
 --   frame 1      issue the manifest request

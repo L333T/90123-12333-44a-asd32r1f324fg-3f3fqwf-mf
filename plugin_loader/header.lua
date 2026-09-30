@@ -3,7 +3,7 @@
 -- header.lua - load gate
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Loader version: 1.2.1   (this is the LOADER's version, not the bot's - the
+-- Loader version: 1.2.2   (this is the LOADER's version, not the bot's - the
 --                          bot's version is whatever the manifest reports)
 -- ============================================================================
 -- DO NOT EDIT THIS FOLDER TO SHIP A BOT CHANGE.
@@ -19,12 +19,11 @@
 -- Install this folder on its own; do not install it alongside a local copy of
 -- the bot, or two update callbacks will drive the same character.
 --
--- WHY NOTHING HERE TOUCHES THE NETWORK
+-- WHY THE BOOT POST DOES NOT DECIDE THE LOAD
 --   Sylvanas reads `plugin.load` from the value this chunk RETURNS, so the
---   decision must be made synchronously. core.http_get is asynchronous and its
---   callback fires on a later frame - there is no spin-wait and no coroutine
---   trick that changes that. Every gate below is therefore local. The first
---   request is issued from main.lua.
+--   decision is made here, from the two version calls. The POST to the local
+--   nav boot log is fire-and-forget: its callback cannot change plugin.load.
+--   The download itself starts from main.lua.
 --
 -- WHY THERE IS NO INLINED COPY OF THE BOT'S IDENTITY
 --   An earlier version of this loader hardcoded the bot's `folder` string so it
@@ -40,7 +39,7 @@
 -- ============================================================================
 
 local LOADER_KEY     = "MFG_HTTP_LOADER"
-local LOADER_VERSION = "1.2.1"   -- Tbc / Forever, plus exact wow_forever_beta_us
+local LOADER_VERSION = "1.2.2"   -- version via pcall; no player gate; boot line posted
 
 local plugin = {}
 plugin["name"]      = "Master Farmer - Grindbot (HTTP)"
@@ -55,39 +54,31 @@ local function refuse(msg)
     return plugin
 end
 
-local local_player = core.object_manager.get_local_player()
-if not local_player or not local_player:is_valid() then
-    return refuse(nil)                       -- not in world yet; silent
+-- Same shape as the AmeisenNav gate. pcall both version calls, decide load
+-- from the answers, and post the line. The header runs before a player
+-- exists and is not asked again, so a player check here meant the plugin
+-- never loaded. Class is not a gate.
+local SUPPORTED = { Forever = true, Tbc = true }
+local BOOT_URL = "http://127.0.0.1:47110/log?src=boot"
+
+local function call(fn, ...)
+    if type(fn) ~= "function" then return false, "missing" end
+    return pcall(fn, ...)
 end
 
--- core.get_game_version() returns "Tbc" or "Forever". The Forever beta client
--- can miss that coarse name; get_exact_game_version() is the documented way
--- to tell a private-server build apart, so that string is a second chance
--- and not a replacement for TBC.
-local game_version = core.get_game_version()
-if game_version ~= "Tbc" and game_version ~= "Forever" then
-    plugin.load = false
-end
-if not plugin.load
-    and type(core) == "table" and type(core.get_exact_game_version) == "function" then
-    local ev = core.get_exact_game_version()
-    plugin.load = (ev == "wow_forever_beta_us")
-    if plugin.load then
-        game_version = ev
-    end
-end
-if not plugin.load then
-    return refuse(nil)                       -- wrong client; silent
-end
+local okv, version = call(core.get_game_version)
+local oke, exact = call(core.get_exact_game_version)
+local load = (okv and SUPPORTED[version] == true) or (oke and exact == "wow_forever_beta_us")
 
--- Class is never a gate. get_class() is logged so a refused load can be told
--- apart from "this class is not allowed" - it is always allowed.
-local class_id = nil
-pcall(function()
-    class_id = local_player:get_class()
-end)
-core.log(string.format("[MFG-HTTP] %s, class %s - loading (every class is allowed)",
-    tostring(game_version), tostring(class_id)))
+local line = string.format("Master Farmer %s header: load=%s game_version=%s exact=%s",
+    plugin["version"], tostring(load), tostring(version), tostring(oke and exact or exact))
+call(core.http_post, BOOT_URL, line .. "\n", function() end)
+call(core.log, "[MFG-HTTP] " .. line)
+
+if not load then
+    plugin["load"] = false
+    return plugin
+end
 
 -- Without HTTP this plugin can do literally nothing, so refuse here rather than
 -- loading and then sitting idle with no explanation.

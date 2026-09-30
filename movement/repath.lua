@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.154.0
+-- Version: 2.155.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -136,6 +136,18 @@ local function holding()
     return false
 end
 
+--- Within attack distance of the combat target (2.155.0): standing there is
+--- fighting, not being stuck. The 01:00 log climbed the ladder at 3 yd -
+--- "no progress toward the combat (3 yd) - jumping" - beside the boar it was
+--- killing, whenever the in-position latch had not caught (a line-of-sight
+--- miss at contact range).
+local function in_reach(kind, d)
+    if kind ~= "combat" then return false end
+    local reach = (tonumber(R.combat_yards) or 5) + 1
+    if reach < DEAD_ZONE then reach = DEAD_ZONE end
+    return d <= reach
+end
+
 local function escalate(x, y, z, kind, d, t)
     g.level = g.level + 1
     local secs = t - g.best_t
@@ -210,7 +222,7 @@ function RP.update(t)
         reset(key, d, t)
         return
     end
-    if holding() or d <= DEAD_ZONE then
+    if holding() or d <= DEAD_ZONE or in_reach(kind, d) then
         g.best, g.best_t = math.min(g.best or d, d), t
         return
     end
@@ -257,7 +269,7 @@ function RP.stuck_now(t)
         reset(key, d, t)
         return true
     end
-    if holding() then
+    if holding() or in_reach(kind, d) then
         g.best_t = t
         return true
     end

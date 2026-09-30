@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.154.0
+-- Version: 2.155.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -213,6 +213,8 @@ end
 --- Fight the current kill target. Returns false once there is nothing left to
 --- fight - dead, gone, unreachable or timed out.
 local APPROACH_BAND = 15       -- hand over to combat movement this far outside the engage distance
+local APPROACH_WAIT = 3.0      -- 2.155.0: seconds an approach waits for its path leg
+local g_appr = { guid = nil, since = 0, off = false, released = false }
 
 local function fight_unit(player, unit, note)
     local now = izi.now()
@@ -270,21 +272,50 @@ local function fight_unit(player, unit, note)
     -- (00:52 log: no progress at 32 yd). Stay on the Sentinel walk until
     -- inside the GUI engage distance + APPROACH_BAND, then combat movement
     -- finishes the close.
-    if dist > (yards + APPROACH_BAND)
+    --
+    -- NO RELEASE / RE-TAKE LOOP (2.155.0). This released combat movement
+    -- (a stop), asked navigation for the leg - refused, the move gap after a
+    -- stop had not passed - then fell through to combat_engage, which took
+    -- COMBAT back and could not move for the same gap; next tick, release
+    -- again. The 00:49 session stood 70 s at "engage Ragged Young Wolf", and
+    -- the 01:00 one dropped three boars at 30-37 yd as "unreachable" with no
+    -- "approaching" line. Now combat movement is released once per target,
+    -- the approach waits APPROACH_WAIT for its leg instead of falling
+    -- through, and only then is the target closed on by combat movement.
+    local guid_a = safe(function() return unit:get_guid() end)
+    if g_appr.guid ~= guid_a then
+        g_appr.guid, g_appr.since, g_appr.off, g_appr.released = guid_a, now, false, false
+    end
+    if not g_appr.off and dist > (yards + APPROACH_BAND)
         and safe(function() return player:is_in_combat() end) ~= true then
         local up = safe(function() return unit:get_position() end)
         if up then
-            if type(movement.in_combat_movement) == "function" and movement.in_combat_movement()
-                and type(movement.combat_release) == "function" then
+            if not g_appr.released and type(movement.in_combat_movement) == "function"
+                and movement.in_combat_movement() and type(movement.combat_release) == "function" then
                 movement.combat_release()
             end
+            g_appr.released = true
             if type(movement.set_approach_target) == "function" then
-                movement.set_approach_target(safe(function() return unit:get_guid() end))
+                movement.set_approach_target(guid_a)
             end
-            if movement.is_moving() or movement.nav_to(up) then
+            local walking = movement.is_moving()
+                and not (type(movement.in_combat_movement) == "function" and movement.in_combat_movement())
+            if walking or movement.nav_to(up) then
+                if not walking then
+                    trail("act", "approach %s on a path (%.0f yd)",
+                        tostring(safe(function() return unit:get_name() end)), dist)
+                end
+                g_appr.since = now
                 state.set_note("Quest", string.format("%s (approaching %.0f yd)", note or "Closing", dist))
                 return true
             end
+            if (now - g_appr.since) < APPROACH_WAIT then
+                state.set_note("Quest", string.format("%s (approaching %.0f yd)", note or "Closing", dist))
+                return true
+            end
+            g_appr.off = true
+            trail("act", "no path leg to %s in %.0fs - closing directly",
+                tostring(safe(function() return unit:get_name() end)), APPROACH_WAIT)
         end
     end
     -- Inside the approach band: combat movement owns it, the tag is done.

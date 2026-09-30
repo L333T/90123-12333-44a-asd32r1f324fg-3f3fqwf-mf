@@ -3,7 +3,7 @@
 -- Recorded Alliance roads to inns and flight masters
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.171.0
+-- Version: 2.172.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- data/ek_alliance_routes.lua holds the PathTool roads. A destination that

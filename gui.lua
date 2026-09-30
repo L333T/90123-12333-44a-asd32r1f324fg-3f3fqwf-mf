@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -488,13 +488,13 @@ local function show_ranged_slider()
     return not is_hunter() and gui.fights_in_melee() ~= true
 end
 
-menu:slider_int("mfg_melee_yards", 1, 5, 3, {
+menu:slider_int("mfg_melee_yards", 1, 5, 5, {
     label = "Melee attack distance (yd)",
     tab = "class",
     visible_if = show_melee_slider,
     tooltip = "Melee classes walk this close to the target before attacking.",
 })
-menu:slider_int("mfg_ranged_yards", 10, 40, 25, {
+menu:slider_int("mfg_ranged_yards", 10, 40, 30, {
     label = "Ranged attack distance (yd)",
     tab = "class",
     visible_if = show_ranged_slider,

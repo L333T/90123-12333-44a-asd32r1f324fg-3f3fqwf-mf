@@ -3,7 +3,7 @@
 -- Shaman grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WEAPON IMBUES - THE BUG NOT COPIED
@@ -206,12 +206,23 @@ function shaman.class_id() return enums.class_id.SHAMAN end
 function shaman.label() return "Shaman" end
 
 function shaman.is_melee(player)
-    return gui.is_on("enhancement") == true
+    return false
+end
+
+--- Stand at Lightning Bolt range. Melee spells fire on their own once the
+--- mob is inside 5 yards; the approach does not walk in to get there.
+function shaman.engage_range(player, target)
+    local reach = nil
+    if lightning_bolt and type(lightning_bolt.maximum_range) == "number"
+        and lightning_bolt.maximum_range > 8 then
+        reach = lightning_bolt.maximum_range - 1
+    end
+    if type(reach) ~= "number" or reach < 8 then reach = 30 end
+    return reach
 end
 
 function shaman.combat_range(player)
-    if gui.is_on("enhancement") then return 5 end
-    return 30
+    return shaman.engage_range(player, nil)
 end
 
 --- How far out to look for something to fight.

@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -158,7 +158,7 @@ local function combat_yards(player)
     if type(rotation.combat_range) == "function" then
         yards = rotation.combat_range(player)
     end
-    if type(yards) ~= "number" or yards < 5 then
+    if type(yards) ~= "number" or yards < 1 then
         yards = 30
     end
     return yards

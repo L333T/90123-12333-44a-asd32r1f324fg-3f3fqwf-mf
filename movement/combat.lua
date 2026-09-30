@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -287,7 +287,7 @@ function C.combat_engage(player, unit, yards)
     if R.backpedal_until then return false end
     if not unit_valid(unit) then return false end
     yards = tonumber(yards) or 20
-    if yards < 5 then yards = 5 end
+    if yards < 1 then yards = 5 end
     -- MELEE (2.26.0): every melee rotation reports a 5-yard combat range.
     -- Stopping at 5 yards from the target's centre left melee out of swing
     -- range of anything small, so melee closes to MELEE_REACH instead.

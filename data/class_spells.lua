@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -220,10 +220,10 @@ W.HUNTER = t({
       tip = "In melee: slow the mob so the Hunter can back out of the dead zone." },
     { "Raptor Strike",          "damage", on = true, melee = true },
     { "Mongoose Bite",          "damage", on = true, melee = true },
-    { "Concussive Shot",        "damage", on = false, when = function(c) return c.dist() <= 10 end },
-    { "Kill Command",           "damage", on = true },
+    { "Concussive Shot",        "damage", on = false, min = 8, when = function(c) return c.dist() <= 10 end },
     { "Arcane Shot",            "damage", on = true, min = 8 },
     { "Steady Shot",            "damage", on = true, min = 8 },
+    { "Kill Command",           "damage", on = true, when = function(c) return c.dist() > 5 end },
 
     { "Auto Shot",              "filler", on = true, min = 8 },
 })
@@ -336,12 +336,14 @@ W.SHAMAN = t({
     { "Bloodlust",              "cooldown", on = false, self = true },
     { "Heroism",                "cooldown", on = false, self = true },
 
-    { "Chain Lightning",        "aoe", on = true, n = 2 },
+    { "Chain Lightning",        "aoe", on = true, n = 2, when = function(c) return c.dist() > 5 end },
     { "Fire Nova Totem",        "aoe", on = false, self = true, center = "self", r = 10 },
 
-    { "Stormstrike",            "damage", on = true, melee = true, tip = "Ticking this makes the shaman fight in melee." },
-    { "Frost Shock",            "damage", on = false },
-    { "Lightning Bolt",         "damage", on = true },
+    { "Stormstrike",            "damage", on = true, melee = true,
+      tip = "Melee only, once the mob has closed. The approach stays at Lightning Bolt range." },
+    { "Earth Shock",            "damage", on = true, when = function(c) return c.dist() <= 5 end },
+    { "Frost Shock",            "damage", on = false, when = function(c) return c.dist() <= 5 end },
+    { "Lightning Bolt",         "damage", on = true, when = function(c) return c.dist() > 5 end },
 })
 
 -- ============================================================================

@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.137.0
+-- Version: 2.138.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2228,31 +2228,30 @@ local function to_world(wp)
     if not e.final then
         local me = safe(function() return izi.me():get_position() end)
         local mx, my, mz = tonumber(get(me, "x")), tonumber(get(me, "y")), tonumber(get(me, "z"))
-        if not mx or not my or not mz then
-            return nil
-        end
-        z = mz
-        local dx, dy = e.x - mx, e.y - my
-        if dx * dx + dy * dy <= HEIGHT_RANGE * HEIGHT_RANGE then
-            local ok, h = pcall(izi.get_terrain_height, e.x, e.y)
-            -- 0 is what the height query returns when it has no answer
-            -- (2.71.0): "Eagan Peltskinner" got z 0 at a spot ~82 high, Sentinel
-            -- answered "Position not on navmesh" and the goal was skipped as
-            -- unreachable. A 0 is only believed where the player stands near
-            -- 0 too, and any height must be within 60 yards of the player's.
-            local bogus_zero = ok and h == 0 and math.abs(mz) > 5
-            if ok and finite(h) and not bogus_zero and math.abs(h - mz) < 60 then
-                e.z, e.final = h, true
-                z = h
+        if mx and my and mz then
+            z = mz
+            local dx, dy = e.x - mx, e.y - my
+            if dx * dx + dy * dy <= HEIGHT_RANGE * HEIGHT_RANGE then
+                local ok, h = pcall(izi.get_terrain_height, e.x, e.y)
+                -- 0 is what the height query returns when it has no answer
+                -- (2.71.0): "Eagan Peltskinner" got z 0 at a spot ~82 high, Sentinel
+                -- answered "Position not on navmesh" and the goal was skipped as
+                -- unreachable. A 0 is only believed where the player stands near
+                -- 0 too, and any height must be within 60 yards of the player's.
+                local bogus_zero = ok and h == 0 and math.abs(mz) > 5
+                if ok and finite(h) and not bogus_zero and math.abs(h - mz) < 60 then
+                    e.z, e.final = h, true
+                    z = h
+                end
+            else
+                -- Far away: the navmesh height, asked of Sentinel once (2.108.0).
+                request_nav_height(e, mz)
             end
-        else
-            -- Far away: the navmesh height, asked of Sentinel once (2.108.0).
-            request_nav_height(e, mz)
         end
     end
-    if not e.final and not e.navz_failed then
-        return nil
-    end
+    -- Always return a walkable point. Waiting here for a height (2.137.0)
+    -- left collect/kill goals with 0 waypoints and the character standing
+    -- still. Player z is replaced when the query lands.
     return vec3.new(e.x, e.y, z)
 end
 
@@ -2287,7 +2286,14 @@ local compute_goal_waypoints
 --- target is used when no step waypoint names the goal.
 function guide.goal_waypoints(goal)
     local key = "wps:" .. tostring(type(goal) == "table" and goal.index or 0)
-    return memo(key, function() return compute_goal_waypoints(goal) end) or {}
+    local wps = memo(key, function() return compute_goal_waypoints(goal) end)
+    if type(wps) == "table" and #wps > 0 then
+        return wps
+    end
+    -- An empty list must not stick in the memo: 2.137.0 cached "0 waypoints"
+    -- while the height query was in flight and never walked again.
+    snap.memo[key] = nil
+    return compute_goal_waypoints(goal)
 end
 
 compute_goal_waypoints = function(goal)

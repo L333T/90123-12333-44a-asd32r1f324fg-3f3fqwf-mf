@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.136.0
+-- Version: 2.137.0
 -- ============================================================================
 -- Out-of-combat travel.
 --
@@ -119,9 +119,6 @@ local function navigate(dest, prefer_direct)
     -- The real destination, for Sentinel (2.59.0): it plans the whole path.
     -- MAX_LEG only limits the WALKER's straight-line legs.
     local sn_goal = { x = x, y = y, z = z }
-    -- A height that is still a guess (quest waypoint, no navmesh answer yet)
-    -- asks Sentinel for a wide vertical search (2.112.0).
-    if type(dest) == "table" and rawget(dest, "z_loose") == true then sn_goal.z_loose = true end
     x, y, z = clamp_leg(x, y, z)
     dest = pt(P_DEST, x, y, z)
     -- A dest under the player is not a walk. Sentinel's 1-yard densify
@@ -146,9 +143,8 @@ local function navigate(dest, prefer_direct)
     local ok_rp, RP = pcall(require, "movement/repath")
     if ok_rp and RP and RP.reaim(x, y) then
         if R.sn_active then
-            -- Sentinel leg: retarget it in place (soft_update, 2.118.0) -
-            -- movement keeps running. Refused by the rate limit: keep the
-            -- current leg; the next re-aim tries again.
+            -- Sentinel leg: prefetch a path and switch with follow_path.
+            -- Refused by the rate limit: keep the current leg.
             N.retarget(sn_goal, "reaim")
             return true
         end

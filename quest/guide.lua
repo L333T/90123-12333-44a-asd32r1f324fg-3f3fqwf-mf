@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.136.0
+-- Version: 2.137.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2131,6 +2131,7 @@ local function request_nav_height(e, mz)
     local c = type(g) == "table" and g.client or nil
     if not c or type(c.get_all_heights) ~= "function" then
         e.navz_asked = true
+        e.navz_failed = true
         return
     end
     e.navz_asked = true
@@ -2176,9 +2177,14 @@ local function request_nav_height(e, mz)
             if log then
                 log.trail("waypoint", "world (%.1f, %.1f) navmesh z %.1f (player z %.1f)", e.x, e.y, best, mz)
             end
+        else
+            e.navz_failed = true
         end
     end, hopts)
-    if not ok then navz_busy = false end
+    if not ok then
+        navz_busy = false
+        e.navz_failed = true
+    end
 end
 
 local function to_world(wp)
@@ -2244,13 +2250,10 @@ local function to_world(wp)
             request_nav_height(e, mz)
         end
     end
-    local out = vec3.new(e.x, e.y, z)
-    -- Still the player's height, not the spot's (2.112.0): let Sentinel
-    -- search wide vertically for the destination polygon.
-    if not e.final and type(out) == "table" then
-        pcall(rawset, out, "z_loose", true)
+    if not e.final and not e.navz_failed then
+        return nil
     end
-    return out
+    return vec3.new(e.x, e.y, z)
 end
 
 local function raw_waypoint()

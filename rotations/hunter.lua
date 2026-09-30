@@ -3,7 +3,7 @@
 -- Hunter grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.153.0
+-- Version: 2.154.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Warlock.
@@ -162,7 +162,7 @@ function hunter.is_melee(player) return false end
 --- A hunter pulls at range and has a pet to hold what it pulls,
 --- so it wants the same warning a caster does.
 function hunter.scan_range(player)
-    return 35
+    return 100
 end
 
 function hunter.combat_profile()

@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.153.0
+-- Version: 2.154.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -806,6 +806,8 @@ local ACTIONS = {
     target          = "kill",
     unitscan        = "kill",
     rare            = "kill",
+    xp              = "xp",     -- 2.154.0: RestedXP ".xp" / grind-to-level
+    grind           = "xp",
 
     -- move
     ["goto"]        = "goto",
@@ -904,6 +906,14 @@ classify_raw = function(goal)
         return "goto"
     end
     local kind = ACTIONS[a] or ACTIONS[string.lower(a)] or "goto"
+    -- A ".goto" whose line is a grind ("Grind to 1130+/1400xp") is an xp
+    -- step: walk the camp and pull, do not sit waiting for the addon.
+    if kind == "goto" then
+        local t = type(goal.text) == "string" and string.lower(goal.text) or ""
+        if t:find("grind", 1, true) then
+            return "xp"
+        end
+    end
     if kind == "objective" or kind == "collect" then
         local o = guide.goal_objective(goal)
         local t = o and o.type and string.lower(o.type) or nil

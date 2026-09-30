@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.132.0
+-- Version: 2.133.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -40,6 +40,7 @@ local state = require("state")
 local supplies = require("supplies")
 local targeting = require("targeting")
 local movement = require("movement")
+local travel_routes = require("travel_routes")
 local rotation = require("rotation")
 
 local vendor = {}
@@ -441,6 +442,9 @@ local function finish_trip(note)
     -- A merchant window still open is not worked again for HERE_COOLDOWN.
     state.vendor.here_until = izi.now() + HERE_COOLDOWN
     movement.nav_stop()
+    if type(movement.keep_path) == "function" then
+        movement.keep_path(false)
+    end
     close_vendor()
     -- Let go of the merchant (2.42.0): the trip targeted it with kind
     -- "vendor" and nothing ever cleared it, so the character kept the NPC.
@@ -450,6 +454,29 @@ local function finish_trip(note)
     if note then
         state.set_note("Vendor", note)
     end
+end
+
+local vend_aim_x, vend_aim_y = nil, nil
+
+--- Walk `dest`. When it is an inn or flight master on a recorded road, and
+--- the player is on that road or the straight line crosses it, follow the
+--- road. A running walk is retargeted, not stopped.
+local function nav_place(player, dest, direct)
+    local here = safe(function() return player:get_position() end)
+    local hop = here and travel_routes.hop(here, dest) or nil
+    local target = hop or dest
+    if hop and type(movement.keep_path) == "function" then
+        movement.keep_path(true)
+    end
+    if hop and movement.is_moving() and type(movement.nudge) == "function" then
+        local tx, ty = math.floor(target.x), math.floor(target.y)
+        if tx ~= vend_aim_x or ty ~= vend_aim_y then
+            vend_aim_x, vend_aim_y = tx, ty
+            movement.nudge(target)
+        end
+        return true
+    end
+    return movement.nav_to(target, direct) == true
 end
 
 --- Is a vendor trip under way? The quest engine waits on it before it counts
@@ -655,7 +682,7 @@ local function hearth_tick(player)
     if n.d > 4 then
         local p = safe(function() return n.unit:get_position() end)
         if p and not movement.is_moving() then
-            movement.nav_to(p, true)
+            nav_place(player, p, true)
         end
         state.set_note("Vendor", "Looking for a merchant")
         return true
@@ -726,7 +753,7 @@ local function supplier_tick(player)
     local d = safe(function() return player:distance_to(unit) end) or 99
     if d > 5 then
         local p = safe(function() return unit:get_position() end)
-        if not p or not movement.nav_to(p) then
+        if not p or not nav_place(player, p) then
             return false
         end
         state.set_note("Vendor", "Travel to " .. tostring(state.vendor.supplier_name))
@@ -940,7 +967,7 @@ function vendor.tick(player)
     if not movement.arrived(dest, ARRIVE) then
         -- Claim the tick only if movement took the request; combat still owning
         -- the player (post-fight settle) must not stall the rest of the cascade.
-        if not movement.nav_to(dest) then
+        if not nav_place(player, dest) then
             return false
         end
         local who = (info and info.name) or (info and info.npc_id) or "merchant"
@@ -980,7 +1007,7 @@ function vendor.tick(player)
     if type(d) == "number" and d > 5 then
         local p = safe(function() return unit:get_position() end) or dest
         state.vendor.idle_since = 0
-        return movement.nav_to(p) == true
+        return nav_place(player, p) == true
     end
 
     if idle_check(now) then

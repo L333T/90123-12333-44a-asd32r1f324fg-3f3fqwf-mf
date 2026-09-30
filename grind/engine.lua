@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.151.0
+-- Version: 2.152.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -362,12 +362,25 @@ function grind.tick(player)
             state.set_note("Grind", "Fight back")
             attacked = true
         elseif state.grind.step == 1 and targeting.combat_hold(player) then
-            -- In combat with nothing in view: do not walk the route off
-            -- into the next pack while the fight may not be over (2.39.0).
-            if movement and type(movement.nav_stop) == "function" then
-                movement.nav_stop()
+            -- A corpse waiting outranks the sit: loot.tick walks it.
+            local ok_l, lt = pcall(require, "loot")
+            if not (ok_l and type(lt) == "table" and type(lt.has_work) == "function" and lt.has_work(player)) then
+                if movement and type(movement.nav_stop) == "function" then
+                    movement.nav_stop()
+                end
+                state.set_note("Grind", "Holding - combat not over")
+                return
             end
-            state.set_note("Grind", "Holding - combat not over")
+        end
+    end
+    if not attacked then
+        local ok_l, lt = pcall(require, "loot")
+        if ok_l and type(lt) == "table" and type(lt.has_work) == "function" and lt.has_work(player)
+            and (type(targeting.attackers) ~= "function" or targeting.attackers(player) <= 0) then
+            if type(movement.combat_release) == "function" then
+                movement.combat_release()
+            end
+            state.set_note("Grind", "Looting before the next pull")
             return
         end
     end

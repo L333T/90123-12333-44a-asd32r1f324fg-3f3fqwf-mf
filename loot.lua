@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.151.0
+-- Version: 2.152.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -508,10 +508,11 @@ tick_inner = function(player)
             return true
         end
     end
-    e.started = e.started or now
-
     if best_d > LOOT_REACH then
         local pos = safe(function() return best_obj:get_position() end)
+        if (not pos or type(pos.x) ~= "number") and type(e.x) == "number" then
+            pos = { x = e.x, y = e.y, z = e.z }
+        end
         if pos then
             elog_probe("loot:walk")
             -- The fight is over (under_attack said so): give the player
@@ -520,10 +521,12 @@ tick_inner = function(player)
                 and type(movement.combat_release) == "function" then
                 movement.combat_release()
             end
-            if not movement.is_moving() then
-                movement.nav_to(pos, true)
-            end
+            -- Always ask. Skipping while is_moving() left the 00:52 log
+            -- standing 15 s on "already moving" with 0 loot attempts.
+            movement.nav_to(pos, true)
+            e.started = e.started or now
             state.set_note("Loot", string.format("Walking to corpse  %.0fy", best_d))
+            ltrail("walk to corpse %.0f yd", best_d)
             return true
         end
         for k = #queue, 1, -1 do
@@ -535,6 +538,7 @@ tick_inner = function(player)
         return false
     end
 
+    e.started = e.started or now
     movement.nav_stop()
     if (now - e.fired_t) >= FIRE_GAP and e.fires < MAX_FIRES then
         e.fires = e.fires + 1

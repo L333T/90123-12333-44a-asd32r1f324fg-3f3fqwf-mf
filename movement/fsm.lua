@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -62,6 +62,7 @@ local LOOKAHEAD = K.LOOKAHEAD
 local LOOK_GAP = K.LOOK_GAP
 local look_next = 0
 local S_mod = nil
+local steered_x, steered_y = nil, nil
 
 local function look_ahead(t)
     if t < look_next then return end
@@ -83,7 +84,10 @@ local function look_ahead(t)
     end
     -- Walking into a too-high mob's radius counts as blocked (2.95.0).
     local danger_ahead = Z.dangerous_xy(ahead.x, ahead.y) and not Z.dangerous_xy(R.dest_x, R.dest_y)
-    if not danger_ahead and U.corridor(here, ahead) ~= false then return end
+    if not danger_ahead and U.corridor(here, ahead) ~= false then
+        steered_x, steered_y = nil, nil
+        return
+    end
     if not S_mod then
         local ok, m = pcall(require, "movement/steer")
         S_mod = ok and m or false
@@ -91,11 +95,17 @@ local function look_ahead(t)
     if not S_mod then return end
     local hop = S_mod.pick_steer(here, dest, K.STEER_HOP, false, true)
     if hop then
-        local keep_x, keep_y, keep_z = R.dest_x, R.dest_y, R.dest_z
+        local gx = R.goal_x or R.dest_x
+        local gy = R.goal_y or R.dest_y
+        local gz = R.goal_z or R.dest_z
+        if steered_x and dist2(hop.x, hop.y, steered_x, steered_y) < 1 then
+            return
+        end
         dlog("avoid", string.format("obstacle ahead - detour to (%.1f, %.1f)", hop.x, hop.y))
-        if W.move(hop, "avoid") then
-            -- keep the real destination known for the next look-ahead / stuck check
-            R.dest_x, R.dest_y, R.dest_z = keep_x, keep_y, keep_z
+        local pts = { R.to_vec3(hop), R.to_vec3({ x = gx, y = gy, z = gz }) }
+        if W.steer_on(pts, "avoid") then
+            steered_x, steered_y = hop.x, hop.y
+            R.goal_x, R.goal_y, R.goal_z = gx, gy, gz
             R.avoid_hops = (R.avoid_hops or 0) + 1
         end
     end
@@ -153,11 +163,11 @@ local function chain_hops(t)
         return
     end
     local gx, gy, gz = R.goal_x, R.goal_y, R.goal_z
-    local hop = pt(P_TMP, planned.x, planned.y, planned.z)
+    local hop = { x = planned.x, y = planned.y, z = planned.z }
     planned = nil
-    if W.move(hop, "chain") then
+    local pts = { R.to_vec3(hop), R.to_vec3({ x = gx, y = gy, z = gz }) }
+    if W.steer_on(pts, "chain") then
         R.goal_x, R.goal_y, R.goal_z = gx, gy, gz
-        dlog("chain", string.format("next hop (%.1f, %.1f) - no stop", hop.x, hop.y))
     end
 end
 

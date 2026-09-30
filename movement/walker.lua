@@ -3,7 +3,7 @@
 -- movement/walker.lua - actuator: simple_movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- ============================================================================
 -- The only thing that actually moves the player, plus the bookkeeping that
 -- wraps every issued move (destination latch, quiet windows, failure marking)
@@ -180,6 +180,29 @@ function W.move(p, why)
     end
     R.walker_moving = true
     dlog("issue", string.format("%s -> (%.1f, %.1f, %.1f)", why, p.x, p.y, p.z))
+    return true
+end
+
+--- Replace the waypoint list without stop() or clear_navigation().
+--- Point 1 is the hop being walked; the last point is the real goal, so
+--- arriving at the hop is not a final stop. The destination latch stays on
+--- the hop so the next hop can be chained before the character arrives.
+function W.steer_on(pts, why)
+    if type(pts) ~= "table" or #pts < 1 then return false end
+    local first = pts[1]
+    if type(first) ~= "table" and type(first) ~= "userdata" then return false end
+    local x, y, z = first.x, first.y, first.z
+    if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+        return false
+    end
+    if not W.ensure() then return false end
+    local ok, issued = pcall(walker.navigate, walker, pts, false, true)
+    if not ok or issued ~= true then
+        return false
+    end
+    W.begin_issue(x, y, z)
+    R.walker_moving = true
+    dlog("steer", string.format("%s (%d pts) - no stop", tostring(why or ""), #pts))
     return true
 end
 

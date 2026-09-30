@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -307,16 +307,24 @@ function rotation.combat_range(player)
         end
     end
     if fights_in_melee(player) then
-        local m = slider("melee_yards", 3)
+        local m = slider("melee_yards", 5)
         if m < 1 then m = 1 elseif m > 5 then m = 5 end
         return m
     end
-    local want = slider("ranged_yards", 25)
+    -- Class reach first (Frostbolt, Mind Flay, Lightning Bolt, Wrath), then
+    -- the ranged slider. Never stand farther than 1 yard inside the longest
+    -- ticked damage spell, and never inside melee.
+    local want = nil
+    if mod and type(mod.combat_range) == "function" then
+        local ok, yards = pcall(mod.combat_range, player)
+        if ok and type(yards) == "number" and yards > 5 then want = yards end
+    end
+    if not want then want = slider("ranged_yards", 30) end
     local reach = smart.max_range(player)
     if type(reach) == "number" and reach > 6 and want > reach - 1 then
         want = reach - 1
     end
-    if want < 6 then want = 6 end
+    if want < 8 then want = 8 end
     return want
 end
 

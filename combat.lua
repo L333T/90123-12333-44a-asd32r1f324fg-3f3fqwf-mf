@@ -3,7 +3,7 @@
 -- Combat engine - pack scan, target latch, kill-first priority, class hooks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared by every class rotation. Class modules opt in by exposing interrupt,
@@ -310,16 +310,81 @@ function combat.fixed_target()
     return nil
 end
 
+local CLOSER_BY = 3
+
+local function is_kill_first(unit)
+    local id = indexable(unit) and call(unit.get_npc_id, unit)
+    if type(id) ~= "number" then return false end
+    for k = 1, #kill_first do
+        if kill_first[k] == id then return true end
+    end
+    return false
+end
+
+local function same_unit(a, b)
+    if not a or not b then return false end
+    local ga, gb = guid_of(a), guid_of(b)
+    return ga ~= nil and ga == gb
+end
+
+--- A living pack member that should replace `candidate`: a kill-first npc
+--- the current target is not, or an enemy at least CLOSER_BY yards nearer
+--- and already inside the class engage distance.
+local function closer_target(player, candidate, pack, engage)
+    if type(pack) ~= "table" then return nil end
+    if not is_kill_first(candidate) then
+        for k = 1, #kill_first do
+            for i = 1, #pack do
+                local u = pack[i]
+                if alive(u) and not same_unit(u, candidate) then
+                    local id = indexable(u) and call(u.get_npc_id, u)
+                    if id == kill_first[k] then return u end
+                end
+            end
+        end
+    end
+    local cd = call(player.distance_to, player, candidate)
+    if type(cd) ~= "number" then return nil end
+    local limit = tonumber(engage) or 30
+    local best, best_d = nil, cd
+    for i = 1, #pack do
+        local u = pack[i]
+        if alive(u) and not same_unit(u, candidate) then
+            local d = call(player.distance_to, player, u)
+            if type(d) == "number" and d <= limit and d <= best_d - CLOSER_BY then
+                best, best_d = u, d
+            end
+        end
+    end
+    return best
+end
+
+local function adopt(unit, kind)
+    combat.hold(unit)
+    local targeting = targeting_ref()
+    if targeting and type(targeting.set_current) == "function" then
+        pcall(function()
+            targeting.set_current(unit, kind or "kill")
+        end)
+    end
+end
+
 --- Resolve who to fight.
 ---
---- A caller's own live target always wins. The latch only fills in when that
---- target is gone, so a grind or quest route never has its choice overridden.
+--- A caller's live target is kept unless a kill-first npc, or an enemy
+--- already inside the class range and at least 3 yards closer, should take
+--- over. The latch only fills in when that target is gone.
 ---@return game_object|nil target, game_object[] pack
 function combat.acquire(player, range, candidate, pack)
     if type(pack) ~= "table" then
         pack = combat.scan(player, range)
     end
     if alive(candidate) then
+        local nearer = closer_target(player, candidate, pack, range)
+        if nearer then
+            adopt(nearer, "kill")
+            return nearer, pack
+        end
         combat.hold(candidate)
         return candidate, pack
     end

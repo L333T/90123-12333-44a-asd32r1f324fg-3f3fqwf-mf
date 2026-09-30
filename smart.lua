@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1153,13 +1153,9 @@ function smart.is_melee(player)
         local f = chosen("form")
         return f ~= nil and (FORM_OF[f.name] == "cat" or FORM_OF[f.name] == "bear")
     end
+    -- Shaman stands at Lightning Bolt range and melees only once the mob
+    -- has closed. Stormstrike being ticked does not pull the approach in.
     if built.class == enums.class_id.SHAMAN then
-        local list = built.by_role.damage or {}
-        for i = 1, #list do
-            if list[i].name == "Stormstrike" then
-                return enabled(list[i])
-            end
-        end
         return false
     end
     return nil

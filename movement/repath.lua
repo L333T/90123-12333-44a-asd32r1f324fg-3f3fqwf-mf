@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -23,10 +23,9 @@
 --    against a wall, circling a rock or orbiting a mob is motion without
 --    progress. Here, progress is the distance TO THE GOAL shrinking by
 --    PROGRESS_YD; without it for WINDOW[level] seconds the ladder climbs:
---      1  re-plan   Sentinel is benched for SN_BENCH s (walker steering
---                   instead), the steering search widens and tries the
---                   other side first
---      2  unstick   jump, and a short hop back and to the side
+--      1  steer     widen the search and retarget Sentinel in place.
+--                   The walk is not stopped.
+--      2  unstick   jump, still moving
 --      3  give up   a combat target is marked unreachable and released (the
 --                   engines pick another); a destination is blacklisted, so
 --                   its caller moves on
@@ -59,7 +58,6 @@ local REAIM_MIN   = 2.0
 local REAIM_FRAC  = 0.15
 local PROGRESS_YD = 1.0
 local WINDOW      = { 4.0, 3.0, 4.0 }   -- seconds without progress before rung 1, 2, 3
-local SN_BENCH    = 20.0
 local GIVEUP_ZONE = 8.0
 
 local g = { key = nil, best = nil, best_t = 0, level = 0 }
@@ -131,7 +129,9 @@ local function holding()
     local pr = R.pause_reason
     if pr.cast or pr.restrict or pr.rest or pr.loot then return true end
     if R.cur_owner == OWNER.COMBAT and R.combat_stopped then return true end
-    -- Sentinel still planning a long path (2.111.0): not stuck.
+    -- Sentinel still planning, or recovering from its own stuck handler.
+    -- Climbing the ladder here would retarget or stop a walk that is moving.
+    if R.sn_recovering then return true end
     if type(N.planning) == "function" and N.planning() then return true end
     return false
 end
@@ -141,41 +141,20 @@ local function escalate(x, y, z, kind, d, t)
     local secs = t - g.best_t
     g.best_t = t
     if g.level == 1 then
-        trail("no progress toward the %s for %.0fs (%.0f yd) - re-planning", kind, secs, d)
-        R.sn_bench_until = t + SN_BENCH
-        if R.sn_active then N.stop() end
-        -- No W.halt (2.85.0): clearing the destination is enough for the next
-        -- move to be issued at once; halting stood the character still for
-        -- the move gap in the middle of the re-plan.
-        W.clear_dest()
-        R.force_reissue = true
+        trail("no progress toward the %s for %.0fs (%.0f yd) - steering, not stopping", kind, secs, d)
+        -- Do not stop Sentinel or the walker. A stop is what made the
+        -- character stand still between hops. Sentinel retargets in place;
+        -- the walker look-ahead turns onto the next hop by itself.
+        if kind ~= "combat" and R.sn_active and type(N.retarget) == "function" then
+            N.retarget({ x = x, y = y, z = z }, "steer")
+        end
         R.block_streak = math.max(R.block_streak or 0, 2)
         R.detour_side = -(R.detour_side ~= 0 and R.detour_side or 1)
         return
     end
     if g.level == 2 then
-        trail("still stuck (%.0f yd) - jumping and backing off", d)
+        trail("still stuck (%.0f yd) - jumping, still moving", d)
         pcall(function() core.input.jump() end)
-        local hx, hy, hz = here_xyz()
-        if hx then
-            local dx, dy = hx - x, hy - y
-            local len = math.sqrt(dx * dx + dy * dy)
-            if len > 0.1 then
-                dx, dy = dx / len, dy / len
-                local side = (R.detour_side ~= 0) and R.detour_side or 1
-                -- back and to the side, 45 degrees
-                local bx = hx + (dx - dy * side) * 2.2
-                local by = hy + (dy + dx * side) * 2.2
-                local hop = pt(R.P_TMP, bx, by, hz)
-                -- Out of combat with Sentinel-only travel (2.109.0) the jump
-                -- is all: Sentinel re-plans from wherever it lands, and its
-                -- own stuck recovery handles the rest. No walker hop.
-                local sn_only = kind ~= "combat" and K.SENTINEL_TRAVEL and type(N.client) == "function" and N.client() ~= nil
-                if not sn_only and U.walk_open(pt(R.P_HERE, hx, hy, hz), hop) then
-                    W.move(hop, "unstick")
-                end
-            end
-        end
         return
     end
     -- rung 3: give up on this goal

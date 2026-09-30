@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -506,11 +506,13 @@ function N.planning()
     local c = R.sn_client
     if type(c) ~= "table" or type(c.get_full_state) ~= "function" then return false end
     local ok, st = pcall(c.get_full_state, c)
-    -- awaiting_path, repathing and deferred (a move_to made while casting)
-    -- are all "path not in hand yet" - the grouping Sentinel's own questing
-    -- adapter uses (2.112.0).
+    -- awaiting_path, repathing, deferred (a move_to made while casting) and
+    -- recovering (Sentinel's own stuck handler) are all "still working" -
+    -- the grouping Sentinel's own questing adapter uses (2.112.0), plus
+    -- recovering so a jump or strafe is not counted as a stall.
     if not ok or type(st) ~= "string"
-        or not (st:find("awaiting", 1, true) or st:find("repathing", 1, true) or st:find("deferred", 1, true)) then
+        or not (st:find("awaiting", 1, true) or st:find("repathing", 1, true)
+            or st:find("deferred", 1, true) or st:find("recovering", 1, true)) then
         plan_since = nil
         return false
     end
@@ -529,7 +531,7 @@ local function stall_check(t)
     pcall(function() casting = me:is_channeling_or_casting() == true end)
     local pos = nil
     pcall(function() pos = me:get_position() end)
-    if casting or not pos or N.planning() then
+    if casting or not pos or R.sn_recovering or N.planning() then
         stall_x, stall_y, stall_t = nil, nil, t
         return false
     end

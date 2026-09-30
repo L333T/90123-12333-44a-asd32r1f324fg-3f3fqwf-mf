@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.126.0
+-- Version: 2.127.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach
@@ -124,7 +124,7 @@ end
 
 function Rg.in_fight_range(player, unit, yards)
     yards = tonumber(yards) or 20
-    if yards < 5 then yards = 5 end
+    if yards < 1 then yards = 5 end
     if not player or not unit then return false, 99, false end
     local ok, range = pcall(player.distance_to, player, unit)
     if not ok or type(range) ~= "number" then return false, 99, false end

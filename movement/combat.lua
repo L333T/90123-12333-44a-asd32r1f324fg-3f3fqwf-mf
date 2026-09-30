@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.151.0
+-- Version: 2.152.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -294,13 +294,14 @@ function C.combat_engage(player, unit, yards)
     -- Stopping at 5 yards from the target's centre left melee out of swing
     -- range of anything small, so melee closes to MELEE_REACH instead.
     local melee = yards <= MELEE_YARDS
-    -- Melee distance from the GUI (2.90.0): the stand-off is the engage
-    -- distance, "in position" 1 yd beyond it, and the hold band 2 yd beyond.
+    -- Melee distance from the GUI: stand at the slider, in position at the
+    -- slider, chase again 1 yd past it. 2.90.0 arrived 1-2 yd outside the
+    -- setting; the 00:52 warrior then stopped well short of it.
     local m_stand, m_reach, m_hold = MELEE_STANDOFF, MELEE_REACH, MELEE_HOLD
     if melee then
         m_stand = yards
-        m_reach = yards + 1
-        m_hold = yards + 2
+        m_reach = yards
+        m_hold = yards + 1
     end
 
     R.combat_req, R.combat_req_t = true, izi.now()
@@ -388,8 +389,7 @@ function C.combat_engage(player, unit, yards)
     if hold_in < 5 then hold_in = yards end
     local in_band
     if melee then
-        -- Arrive inside m_reach (4 yd); once there, hold until the target
-        -- is past m_hold (5 yd). The gap is what stops the circling.
+        -- Arrive at the GUI slider; once there, hold until 1 yd past it.
         if R.combat_stopped then
             in_band = range <= m_hold
         else

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.151.0
+-- Version: 2.152.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1070,14 +1070,13 @@ function smart.combat(player, target, ctx)
         pcall(pets.attack, player, target)
     end
 
-    -- NOT BEFORE THE ENGAGE DISTANCE (2.90.0). Out of combat, the fight is
-    -- opened only once the target is inside the GUI engage distance
-    -- (ctx.engage) - a mage no longer opens with a max-range Fireball while
-    -- still closing. Buffs, heals, defensives and openers (Charge) still run.
-    -- In combat every spell is fair game at its own range, as before.
+    -- NOT BEFORE THE ENGAGE DISTANCE (2.90.0 / 2.152.0). Offensive spells
+    -- wait until the target is at the GUI range or closer. Charge / aggro
+    -- used to clear this the moment combat started, so a warrior opened
+    -- from 32 yd. Buffs, heals, defensives and openers (Charge) still run.
     local hold_fire = false
-    if ctx and type(ctx.engage) == "number" and target and not c.in_combat() then
-        hold_fire = c.dist() > ctx.engage + 1.0
+    if ctx and type(ctx.engage) == "number" and target then
+        hold_fire = c.dist() > ctx.engage
     end
 
     for i = 1, #COMBAT_ORDER do

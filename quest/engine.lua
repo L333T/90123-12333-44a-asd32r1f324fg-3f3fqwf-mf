@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.151.0
+-- Version: 2.152.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -212,7 +212,6 @@ end
 
 --- Fight the current kill target. Returns false once there is nothing left to
 --- fight - dead, gone, unreachable or timed out.
-local APPROACH_FROM = 35       -- 2.139.0: farther than this, walk in on a path
 local APPROACH_BAND = 15       -- hand over to combat movement this far outside the engage distance
 
 local function fight_unit(player, unit, note)
@@ -267,12 +266,11 @@ local function fight_unit(player, unit, note)
     targeting.ensure_target(player, unit)
     probe("f:combat_range")
     local yards = combat_yards(player)
-    -- FAR TARGET: WALK IN ON A PATH (2.139.0). Combat movement walks straight
-    -- hops; from 40-70 yd over rough ground it stalled ("no progress toward
-    -- the combat ... 67 yd"). Out of combat and farther than APPROACH_FROM,
-    -- travel to the mob on a Sentinel path first; combat movement takes over
-    -- inside the engage distance + APPROACH_BAND.
-    if dist > math.max(APPROACH_FROM, yards + APPROACH_BAND)
+    -- FAR TARGET: WALK IN ON A PATH (2.139.0). Combat hops stall from 35 yd
+    -- (00:52 log: no progress at 32 yd). Stay on the Sentinel walk until
+    -- inside the GUI engage distance + APPROACH_BAND, then combat movement
+    -- finishes the close.
+    if dist > (yards + APPROACH_BAND)
         and safe(function() return player:is_in_combat() end) ~= true then
         local up = safe(function() return unit:get_position() end)
         if up then
@@ -1939,9 +1937,32 @@ tick_inner = function(player)
     -- early returns below (RestedXP not loaded, no active step, step
     -- complete, resting) used to come first, and the first two also released
     -- combat movement every tick - a mob could hit the bot with no answer.
+    -- Loot a finished kill before fight_back's "combat not over" sit and
+    -- before the next pull. The 00:52 log queued every corpse, then the
+    -- next wolf was engaged and each corpse timed out with 0 attempts.
+    do
+        local u = state.target.unit
+        local live = u and state.target.kind == "kill"
+            and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_dead() end) ~= true
+        local attacked = type(targeting.attackers) == "function" and targeting.attackers(player) > 0
+        if not live and not attacked and loot and type(loot.has_work) == "function" and loot.has_work(player) then
+            if not g_loot_wait then
+                g_loot_wait = true
+                movement.nav_stop()
+                if type(movement.combat_release) == "function" then
+                    movement.combat_release()
+                end
+            end
+            state.set_note("Quest", "Guide: looting before the next pull")
+            return
+        end
+    end
     probe("q:fight_back")
     if fight_back(player, g_label) then
-        g_loot_wait = false
+        if type(targeting.attackers) == "function" and targeting.attackers(player) > 0 then
+            g_loot_wait = false
+        end
         return
     end
 

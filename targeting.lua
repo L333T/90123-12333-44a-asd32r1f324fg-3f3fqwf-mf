@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.152.0
+-- Version: 2.153.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -840,7 +840,7 @@ end
 -- in from 10+ yards while the character was still walking up.
 local AUTO_GAP = 1.0
 local AUTO_REACH = 6.0
-local auto_guid, auto_t = nil, -1e9
+local auto_guid, auto_t, auto_type = nil, -1e9, nil
 
 function targeting.start_auto_attack(player, unit)
     if not player or not unit then
@@ -852,12 +852,37 @@ function targeting.start_auto_attack(player, unit)
     end
     local d = call(player.distance_to, player, unit)
     local reach = AUTO_REACH
-    local ok_r, rot = pcall(require, "rotation")
-    if ok_r and type(rot) == "table" and type(rot.combat_range) == "function" then
-        local y = rot.combat_range(player)
-        if type(y) == "number" and y > 0 then
-            reach = y
+    local want = types.MELEE
+    local hunter = false
+    local shoot = 35
+    do
+        local ok_r, rot = pcall(require, "rotation")
+        if ok_r and type(rot) == "table" then
+            if type(rot.active) == "function" then
+                local mod = rot.active(player)
+                if mod and type(mod.class_id) == "function" then
+                    local okc, cid = pcall(mod.class_id)
+                    hunter = okc and cid == enums.class_id.HUNTER
+                end
+                if hunter and type(mod.gun_range) == "function" then
+                    local okg, gr = pcall(mod.gun_range)
+                    if okg and type(gr) == "number" and gr > 8 then shoot = gr end
+                end
+            end
+            if type(rot.combat_range) == "function" then
+                local y = rot.combat_range(player)
+                if type(y) == "number" and y > 0 then
+                    reach = y
+                end
+            end
         end
+    end
+    -- Hunter Auto Shot is ATTACK_TYPE.RANGED (75), not MELEE (6603).
+    -- 2.152 started melee from the engage distance, so the hunter never
+    -- shot and only white-hit after the mob closed (01:00 log).
+    if hunter and type(d) == "number" and d > 5 and type(types.RANGED) == "number" then
+        want = types.RANGED
+        reach = shoot
     end
     if type(d) == "number" and d > reach then
         return false
@@ -870,22 +895,15 @@ function targeting.start_auto_attack(player, unit)
     end
     local g = call(unit.get_guid, unit)
     local now = izi.now()
-    if g ~= nil and g == auto_guid and (now - auto_t) < AUTO_GAP then
+    if g ~= nil and g == auto_guid and auto_type == want and (now - auto_t) < AUTO_GAP then
         return true
     end
-    auto_guid, auto_t = g, now
+    auto_guid, auto_t, auto_type = g, now, want
     targeting.ensure_target(player, unit)
-    local attacking = safe(function() return auto_attack:is_auto_attacking(player) end) == true
-    local current = safe(function() return player:get_target() end)
-    local same = false
-    if current and attacking then
-        local cg = safe(function() return current:get_guid() end)
-        local ug = safe(function() return unit:get_guid() end)
-        same = cg ~= nil and cg == ug
+    if want == types.RANGED then
+        stop_attack_type(unit, types.MELEE)
     end
-    if same ~= true then
-        start_attack_type(unit, types.MELEE)
-    end
+    start_attack_type(unit, want)
     return true
 end
 

@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.163.0
+-- Version: 2.164.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -474,6 +474,12 @@ end
 
 local function seek_tick(player, now)
     if not quest_wanted and DIALOG_KINDS[quest_goal_kind() or ""] then
+        seek = nil
+        return false
+    end
+    -- A timed quest is being carried (2.164.0): no detour.
+    local q = package.loaded["quest/engine"]
+    if not quest_wanted and type(q) == "table" and type(q.rushing) == "function" and q.rushing() then
         seek = nil
         return false
     end

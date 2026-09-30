@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.165.0
+-- Version: 2.166.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -414,6 +414,7 @@ end
 local SELL_RETRIES = 2
 local sell_pending = nil        -- { item_id, count } of the last sale sent
 local sell_fails = {}           -- item id -> failed attempts this trip
+local container_sell = true      -- 2.166.0: sell by (bag, slot); off after a wrong-item sale
 
 local function trail(fmt, ...)
     local ok, el = pcall(require, "errorlog")
@@ -434,6 +435,17 @@ local function check_last_sale()
         sell_fails[p.item_id] = nil
         return
     end
+    -- Something else left the bags: the slot pair named another item.
+    if container_sell and p.how ~= "use_item" and type(p.total) == "number" then
+        local me = safe(function() return izi.me() end)
+        local total = me and #bags.list(me) or p.total
+        if total < p.total then
+            container_sell = false
+            trail("sale via %s removed a different item - selling by item id from now on", tostring(p.how))
+            core.log_warning("[Master Farmer - Grindbot] A vendor sale took a different item than intended - "
+                .. "switching to item-id selling for this session.")
+        end
+    end
     sell_fails[p.item_id] = (sell_fails[p.item_id] or 0) + 1
     if sell_fails[p.item_id] >= SELL_RETRIES then
         trail("could not sell item %s (%d in bags) - skipped for this trip", tostring(p.item_id), now_count)
@@ -441,6 +453,24 @@ local function check_last_sale()
 end
 
 --- Sell the first sellable bag item, BY ITEM ID (2.80.0) - see bags.use_id.
+-- SELLING BY BAG AND SLOT (2.166.0). bags.use_id calls core.input.use_item,
+-- which the API describes as "use a self cast item" - it never sold
+-- anything: every sale in the 12:53 log (4865, 1370, 2654, 2651, 7074, 7073,
+-- 7098, all grey junk) came back "could not sell", the bags stayed full and
+-- the trips repeated. A merchant sells what core.input.use_container_item
+-- clicks; the pair comes from inventory_helper (the documented source of
+-- the shift) and is checked first: the slot must lie inside the bag. If a
+-- sale ever takes a DIFFERENT item out of the bags, container selling is
+-- switched off for the session and use_item is used again.
+local SELL_MAX_SLOT = 36
+
+local function slot_ok(e)
+    if type(e.bag) ~= "number" or type(e.slot) ~= "number" or e.slot < 1 then return false end
+    local cap = safe(function() return core.inventory.get_num_bag_slots(e.bag + 1) end)
+    if type(cap) ~= "number" or cap < 1 or cap > SELL_MAX_SLOT then cap = (e.bag == 0) and 16 or SELL_MAX_SLOT end
+    return e.slot <= cap
+end
+
 local function sell_one(player)
     check_last_sale()
     local list = bags.list(player)
@@ -453,9 +483,15 @@ local function sell_one(player)
             if (sell_fails[id] or 0) < SELL_RETRIES and should_sell_item(player, id) then
                 local before = bags.count(id)
                 if before > 0 then
-                    bags.use_id(id)
-                    sell_pending = { item_id = id, count = before }
-                    trail("sell item %s (%d in bags)", tostring(id), before)
+                    local how = "use_item"
+                    if container_sell and slot_ok(e) then
+                        how = string.format("bag %d slot %d", e.bag, e.slot)
+                        pcall(function() core.input.use_container_item(e.bag, e.slot) end)
+                    else
+                        bags.use_id(id)
+                    end
+                    sell_pending = { item_id = id, count = before, total = #list, how = how }
+                    trail("sell item %s (%d in bags) via %s", tostring(id), before, how)
                     return true, id
                 end
             end
@@ -480,6 +516,9 @@ local function select_vendor_gossip()
 end
 
 local function close_vendor()
+    -- The merchant window too (2.166.0): left open, it was taken as a new
+    -- "trip right here" every 60 s while the bot stood by the vendor.
+    pcall(function() core.input.close_merchant() end)
     if izi.gossip and type(izi.gossip.close) == "function" then
         pcall(function()
             izi.gossip.close()
@@ -656,6 +695,8 @@ local forced_last = {}        -- why -> time last requested
 --- in the last FORCE_AGAIN seconds).
 function vendor.request_bag_trip(why, player)
     if not gui.is_on("sell") then return false end
+    -- Only at or below the Vendor at Free Slots slider (2.166.0).
+    if bag_free() > gui.slider("bag_free", 1) then return false end
     player = player or safe(function() return izi.me() end)
     if player and not vendor.level_ok(player) then return false end
     local now = izi.now()
@@ -1004,6 +1045,25 @@ function vendor.level_ok(player)
     return type(lvl) ~= "number" or lvl >= MIN_VENDOR_LEVEL
 end
 
+-- A merchant window that is simply open (2.166.0) is worked only when a trip
+-- would be wanted anyway - free slots at or below the slider, gear due for
+-- repair, or food / water asked for - or when the quest step is the one that
+-- opened it (a RestedXP ".vendor" talk goal). Otherwise it is left alone.
+local function window_trip_wanted(player)
+    if gui.is_on("sell") and bag_free() <= gui.slider("bag_free", 1) then return true end
+    if gui.is_on("repair") then
+        local ratio, broken = worst_durability()
+        if broken or ratio <= gui.slider("repair_pct", 10) / 100 then return true end
+    end
+    if supplies.trip_wanted(player) then return true end
+    local q = package.loaded["quest/engine"]
+    if type(q) == "table" and type(q.current_kind) == "function" and q.current_kind() == "talk"
+        and gui.is_on("use_quest") then
+        return true
+    end
+    return false
+end
+
 function vendor.tick(player)
     if not player then
         return false
@@ -1036,7 +1096,8 @@ function vendor.tick(player)
     -- player - is a trip right here (2.42.0): sell, restock and repair while
     -- it is open. It used to be ignored unless this module had started the
     -- trip itself, and then bailed with "No merchant for this zone".
-    if not state.vendor.active and merchant_open() and izi.now() >= (state.vendor.here_until or 0) then
+    if not state.vendor.active and merchant_open() and izi.now() >= (state.vendor.here_until or 0)
+        and window_trip_wanted(player) then
         state.vendor.active = true
         supplies.reset()
         state.vendor.repaired = false

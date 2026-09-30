@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.138.0
+-- Version: 2.139.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -314,6 +314,9 @@ function supplies.tick(player)
     -- Out of gold is terminal: trying drink next would only overwrite the note
     -- with a stock message and hide the real reason from the operator.
     if failure == "gold" then
+        -- No further run until the gold goes up (2.139.0).
+        poor_gold = safe(function() return core.inventory.get_gold() end) or 0
+        trail("not enough gold for food - no supply run until the gold goes up")
         return false
     end
 
@@ -364,6 +367,143 @@ function supplies.needs_supplier(player)
         return class_id ~= 1 and class_id ~= 4
     end
     return false
+end
+
+-- ----------------------------------------------------------------------------
+-- SUPPLY RUNS (2.139.0)
+-- ----------------------------------------------------------------------------
+-- A rest that finds nothing to eat / drink asks for food or water
+-- (supplies.request). A run is wanted when:
+--   * buying is on, and the client can read vendor items (not WoW Forever);
+--   * the missing item is not one this mage conjures (Conjure Water / Food);
+--   * there is gold (MIN_COPPER) or junk to sell for it;
+--   * no run failed for lack of gold since the gold last went up.
+-- vendor.lua then walks to the nearest inn on the recorded Alliance Eastern
+-- Kingdoms roads (data/ek_alliance_routes - innkeepers sell both), or to an
+-- innkeeper in sight, sells junk, buys, and carries on. Otherwise the rest
+-- waits for health / mana to come back by itself.
+local MIN_COPPER = 25
+local requested = { food = false, water = false }
+local poor_gold = nil            -- gold on hand when a run last could not pay
+local block_until = 0
+local inn_list = nil
+
+local function forever()
+    local ok, gamever = pcall(require, "gamever")
+    return ok and type(gamever) == "table" and gamever.is_forever()
+end
+
+--- A rest found no food ("food") or no water ("water").
+function supplies.request(kind)
+    if kind == "food" or kind == "water" then requested[kind] = true end
+end
+
+--- A run is finished; `blocked_for` seconds before another is wanted.
+function supplies.trip_done(blocked_for)
+    requested.food, requested.water = false, false
+    if type(blocked_for) == "number" and blocked_for > 0 then
+        block_until = izi.now() + blocked_for
+    end
+end
+
+--- Innkeeper spots: every recorded road end tagged "inn".
+local function inns()
+    if inn_list then return inn_list end
+    inn_list = {}
+    local ok, routes = pcall(require, "data/ek_alliance_routes")
+    if not ok or type(routes) ~= "table" then return inn_list end
+    local function add(x, y, z)
+        if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return end
+        for i = 1, #inn_list do
+            local p = inn_list[i]
+            if (p.x - x) ^ 2 + (p.y - y) ^ 2 < 1600 then return end
+        end
+        inn_list[#inn_list + 1] = { x = x, y = y, z = z }
+    end
+    for i = 1, #routes do
+        local r = routes[i]
+        if type(r) == "table" and #r >= 7 then
+            local n = math.floor((#r - 4) / 3)
+            if r[2] == "inn" then add(r[5], r[6], r[7]) end
+            if r[3] == "inn" and n >= 1 then
+                local b = 5 + (n - 1) * 3
+                add(r[b], r[b + 1], r[b + 2])
+            end
+        end
+    end
+    return inn_list
+end
+
+--- On Eastern Kingdoms? The continent of the nearest flight point.
+local function in_eastern_kingdoms(me)
+    local ok, cat = pcall(require, "data/taxi_nodes")
+    if not ok or type(cat) ~= "table" or type(cat.nodes) ~= "table" then return false end
+    local best, best_d = nil, nil
+    for i = 1, #cat.nodes do
+        local n = cat.nodes[i]
+        local d = (n.x - me.x) ^ 2 + (n.y - me.y) ^ 2
+        if best_d == nil or d < best_d then best, best_d = n, d end
+    end
+    return best ~= nil and best.map == 0
+end
+
+--- The nearest known inn as { x, y, z }, or nil.
+function supplies.nearest_inn(player)
+    local me = safe(function() return player:get_position() end)
+    if not me then return nil end
+    local ok_f, factions = pcall(require, "data/factions")
+    if ok_f and type(factions) == "table" and factions.of_player(player) ~= "alliance" then
+        return nil
+    end
+    if not in_eastern_kingdoms(me) then return nil end
+    local best, best_d = nil, nil
+    local list = inns()
+    for i = 1, #list do
+        local p = list[i]
+        local d = math.sqrt((p.x - me.x) ^ 2 + (p.y - me.y) ^ 2)
+        if best_d == nil or d < best_d then best, best_d = p, d end
+    end
+    return best, best_d
+end
+
+local function has_mana(player)
+    local mx = safe(function() return player:mana_max() end)
+    return type(mx) == "number" and mx > 0
+end
+
+--- What a run would be for: need_food, need_water (after mage conjuring).
+function supplies.missing(player)
+    local need_food = requested.food
+    local need_water = requested.water and has_mana(player)
+    local ok_c, conjure = pcall(require, "conjure")
+    if ok_c and type(conjure) == "table" and type(conjure.knows) == "function" then
+        if need_water and conjure.knows("water") then need_water = false end
+        if need_food and conjure.knows("food") then need_food = false end
+    end
+    return need_food, need_water
+end
+
+--- Should vendor.lua start a food / water run now? Also returns a reason
+--- when it should not (for the resting note).
+function supplies.trip_wanted(player)
+    if not player or not gui.is_on("buy_supplies") then return false, "buying is off" end
+    if forever() then return false, "vendor items unreadable on WoW Forever" end
+    if izi.now() < block_until then return false, "no seller reachable" end
+    local need_food, need_water = supplies.missing(player)
+    if not need_food and not need_water then return false, nil end
+    local gold = safe(function() return core.inventory.get_gold() end) or 0
+    if poor_gold ~= nil and gold > poor_gold + MIN_COPPER then poor_gold = nil end
+    local ok_v, vendor = pcall(require, "vendor")
+    local junk = ok_v and type(vendor) == "table" and type(vendor.has_junk) == "function"
+        and vendor.has_junk(player) == true
+    if not junk and (gold < MIN_COPPER or poor_gold ~= nil) then
+        return false, "no gold and nothing to sell"
+    end
+    local inn = supplies.nearest_inn(player)
+    if not inn and not supplies.find_supplier(player, 80, nil) then
+        return false, "no inn or innkeeper known here"
+    end
+    return true, nil
 end
 
 -- NPCs that sell food and water. Every innkeeper does; these general-goods

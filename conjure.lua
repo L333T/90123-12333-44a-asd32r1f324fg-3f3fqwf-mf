@@ -3,7 +3,7 @@
 -- Conjured food and water, for mages
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.138.0
+-- Version: 2.139.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- A mage never has to buy food or water, and until now the bot made it do
@@ -239,6 +239,15 @@ function conjure.tick(player)
     end
 
     -- Stop first: a conjure cannot be cast on the move.
+    -- ENOUGH MANA FIRST (2.139.0). With too little mana the cast failed and
+    -- the 15 s back-off started; the resting code now waits for mana when
+    -- there is nothing to drink, so the conjure just waits for the moment
+    -- the spell is castable (core.spell_book.is_usable_spell covers mana).
+    if safe(function() return core.spell_book.is_usable_spell(spell_id) end) == false then
+        state.set_note("Conjure", "Waiting for mana to " .. label)
+        idle_until = now + 1.0
+        return false
+    end
     local mv = get_movement()
     local moving = safe(function() return player:is_moving() end) == true
         or (mv and type(mv.is_moving) == "function" and mv.is_moving() == true)
@@ -269,6 +278,17 @@ function conjure.tick(player)
 end
 
 --- Forget the back-off timers. Called when the bot stops.
+--- Does this mage know Conjure Water ("water") / Conjure Food ("food")?
+--- supplies.lua asks, so a mage who conjures it is not sent to a vendor.
+function conjure.knows(kind)
+    local ok_p, me = pcall(function() return izi.me() end)
+    if not ok_p or not me or not conjure.is_mage(me) then return false end
+    if kind == "water" then
+        return best_known(consumables.CONJURE_WATER_SPELL_IDS) ~= nil
+    end
+    return best_known(consumables.CONJURE_FOOD_SPELL_IDS) ~= nil
+end
+
 function conjure.reset()
     last_cast = -1e9
     fail_until = 0

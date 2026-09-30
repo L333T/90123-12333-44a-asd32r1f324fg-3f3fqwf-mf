@@ -59,8 +59,9 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   travel (`K.SENTINEL_TRAVEL` in `movement/const.lua`); the local walker owns
   combat (chase, stand-off, kite, Frost Nova backpedal). Never flood Sentinel
   (≤ 1 request/s). Hand the SDK movement handler positions, never units.
+- **Supplies**: a rest with nothing to eat / drink asks `supplies.request`; `vendor.lua` runs a food / water trip to the nearest inn (`data/ek_alliance_routes` inn ends) when gold or junk allows, else `resting.lua` waits for 80% HP / MP. Mages conjure once `is_usable_spell` allows.
 - **Questing**: all quest data comes from RestedXP (`core.addons.rested_xp`) via
-  `quest/guide.lua`; `quest/engine.lua` acts on it. Far goals may use flight paths
+  `quest/guide.lua`; `quest/engine.lua` acts on it; kill goals attack the closest unit of the step's npc id. Far goals may use flight paths
   (`data/taxi_nodes.lua`).
 - **Game version**: `gamever.lua` — `is_tbc()` / `is_forever()`, playable races.
   On Forever: no Blood Elf / Draenei (adds the Skyborne races 95 / 96), no quest-log

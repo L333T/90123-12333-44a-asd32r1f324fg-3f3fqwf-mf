@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.135.0
+-- Version: 2.136.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -28,6 +28,7 @@ local SN_MIN_GAP        = K.SN_MIN_GAP
 
 local pt, to_vec3 = R.pt, R.to_vec3
 local xyz, dlog = U.xyz, U.dlog
+local travel_near = U.travel_near
 
 local P_DEST = R.P_DEST
 
@@ -389,6 +390,48 @@ local function avoid_zones(p)
     return out
 end
 
+-- densify_segment_length is a live get_path_opts key (logged 2.134.0 as 1).
+-- 1-yard points put the first waypoint under the player; 6 yards is still
+-- on the same mesh path, just not a dest the character has to orbit.
+local DENSIFY_MIN = 6
+
+local function apply_densify(opts, c)
+    if type(c) ~= "table" or type(c.get_path_opts) ~= "function" then return opts end
+    local ok, base = pcall(c.get_path_opts, c)
+    if not ok or type(base) ~= "table" or type(base.densify_segment_length) ~= "number" then
+        return opts
+    end
+    opts = opts or {}
+    local d = opts.densify_segment_length
+    if type(d) ~= "number" then d = base.densify_segment_length end
+    if d < DENSIFY_MIN then
+        opts.densify_segment_length = DENSIFY_MIN
+    end
+    return opts
+end
+
+--- Drop leading path points that are under the player. nil when every
+--- remaining point is too close (the caller treats that as arrived).
+local function skip_near_pts(pts)
+    if type(pts) ~= "table" or #pts == 0 then return pts end
+    local i = 1
+    while i <= #pts do
+        local p = pts[i]
+        if type(p) == "table" and not travel_near(p.x, p.y) then
+            break
+        end
+        i = i + 1
+    end
+    if i <= 1 then return pts end
+    if i > #pts then return nil end
+    local out = {}
+    for j = i, #pts do
+        out[#out + 1] = pts[j]
+    end
+    return out
+end
+N.skip_near_pts = skip_near_pts
+
 --- move_to options for this leg, or nil (Sentinel's own defaults).
 local function leg_opts(c, p)
     log_opts(c)
@@ -400,9 +443,11 @@ local function leg_opts(c, p)
     end
     local indoors = false
     pcall(function() indoors = izi.me():is_indoors() == true end)
-    if not indoors or type(c.get_path_opts) ~= "function" then return extra end
+    if not indoors or type(c.get_path_opts) ~= "function" then
+        return apply_densify(extra, c)
+    end
     local ok, base = pcall(c.get_path_opts, c)
-    if not ok or type(base) ~= "table" then return extra end
+    if not ok or type(base) ~= "table" then return apply_densify(extra, c) end
     local out = {}
     for k, v in pairs(base) do
         if loose_key(k) and type(v) == "number" then
@@ -420,7 +465,7 @@ local function leg_opts(c, p)
         out.z_extent = extra.z_extent
         out.avoid_zones = extra.avoid_zones
     end
-    return out
+    return apply_densify(out, c)
 end
 
 function N.move(p, why)
@@ -440,6 +485,7 @@ function N.move(p, why)
     -- and a straight-line midpoint can be off the mesh. The one-request-per-
     -- SN_MIN_GAP rate limit above is what guards against flooding.
     if not xyz(p) then return false end
+    if travel_near(p.x, p.y) then return false end
     R.sn_last_issue_t = now
     R.sn_issued = R.sn_issued + 1
     local okl, elog = pcall(require, "errorlog")
@@ -493,6 +539,7 @@ function N.retarget(p, why)
     local now = izi.now()
     local c = client()
     if not c or type(p) ~= "table" or not xyz(p) then return false end
+    if travel_near(p.x, p.y) then return false end
     -- A chain onto the real waypoint, or one avoidance hop, must not wait
     -- out the request gap: that wait is the character standing at the hop.
     local urgent = why == "chain" or why == "avoid"
@@ -578,6 +625,52 @@ local function stall_check(t)
     return (t - stall_t) >= SN_STALL_SEC
 end
 
+--- Sentinel's current waypoint is under the player: skip it. 1-yard densify
+--- points were walked as dests and the character orbited them.
+local function skip_near_wp(c)
+    if type(c) ~= "table" then return end
+    if N.planning() or R.sn_recovering then return end
+    if type(c.get_current_path) ~= "function" or type(c.get_path_index) ~= "function" then
+        return
+    end
+    local okp, path = pcall(c.get_current_path, c)
+    if not okp or type(path) ~= "table" or #path == 0 then return end
+    local oki, idx = pcall(c.get_path_index, c)
+    if not oki or type(idx) ~= "number" then idx = 1 end
+    if not path[idx] then idx = idx + 1 end
+    local cur = path[idx]
+    if type(cur) ~= "table" or not travel_near(cur.x, cur.y) then return end
+    local rest = {}
+    for i = idx, #path do
+        local p = path[i]
+        if type(p) == "table" and not travel_near(p.x, p.y) then
+            rest[#rest + 1] = vec3.new(p.x, p.y, p.z)
+        end
+    end
+    if #rest == 0 then
+        if type(c.get_destination) == "function" then
+            local okd, dest = pcall(c.get_destination, c)
+            if okd and type(dest) == "table" and not travel_near(dest.x, dest.y) then
+                N.retarget({ x = dest.x, y = dest.y, z = dest.z }, "skip")
+                return
+            end
+        end
+        on_nav_done(true, "arrived")
+        return
+    end
+    if #rest == 1 then
+        N.retarget({ x = rest[1].x, y = rest[1].y, z = rest[1].z }, "skip")
+        return
+    end
+    local now = izi.now()
+    if (now - R.sn_last_issue_t) < SN_MIN_GAP then return end
+    R.sn_last_issue_t = now
+    local last = rest[#rest]
+    W.begin_issue(last.x, last.y, last.z)
+    pcall(c.follow_path, c, rest, on_nav_done)
+    dlog("sentinel", "skipped underfoot waypoint")
+end
+
 function N.watch(t)
     if (t - R.sn_watch_t) < 1.0 then return end
     R.sn_watch_t = t
@@ -601,6 +694,9 @@ function N.watch(t)
         stall_x, stall_y = nil, nil
     end
     local c = R.sn_client
+    if R.sn_active and type(c) == "table" then
+        skip_near_wp(c)
+    end
     if type(c) == "table" then
         local ok, st = pcall(c.get_state, c)
         if ok then
@@ -799,7 +895,8 @@ function N.follow(points, why)
         local x, y, z = xyz(points[i])
         if x then pts[#pts + 1] = vec3.new(x, y, z) end
     end
-    if #pts < 2 then return false end
+    pts = skip_near_pts(pts)
+    if not pts or #pts < 2 then return false end
     R.sn_last_issue_t = now
     R.sn_issued = R.sn_issued + 1
     local last = pts[#pts]
@@ -863,8 +960,11 @@ function N.prefetch(from, to)
         for i = 1, select("#", ...) do
             local pts = as_points((select(i, ...)))
             if pts and #pts >= 2 then
-                pre.pts, pre.t, pre.gx, pre.gy = pts, izi.now(), gx, gy
-                return
+                pts = skip_near_pts(pts)
+                if pts and #pts >= 2 then
+                    pre.pts, pre.t, pre.gx, pre.gy = pts, izi.now(), gx, gy
+                    return
+                end
             end
         end
     end)

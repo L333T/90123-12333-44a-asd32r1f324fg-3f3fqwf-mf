@@ -3,7 +3,7 @@
 -- movement/own.lua - ownership, state transitions, restrictions, shared gates
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.135.0
+-- Version: 2.136.0
 -- ============================================================================
 -- The arbiter primitives every higher module shares:
 --
@@ -34,6 +34,7 @@ local COMBAT_GAP       = K.COMBAT_GAP
 local INFLIGHT_TIMEOUT = K.INFLIGHT_TIMEOUT
 
 local here_xyz, dist3, dlog = U.here_xyz, U.dist3, U.dlog
+local travel_near = U.travel_near
 local unit_valid, unit_alive = U.unit_valid, U.unit_alive
 
 local O = {}
@@ -165,13 +166,18 @@ function O.may_issue(x, y, z)
     -- "already going" and move-gap checks once.
     local force = R.force_reissue == true
     R.force_reissue = false
+    local hx, hy, hz = here_xyz()
+    -- Underfoot dest first, before "already going": otherwise a 1-yard
+    -- Sentinel point keeps the character circling and this never refuses.
+    if hx and travel_near(x, y) then
+        return false, true
+    end
     if is_moving() and not force then return false, true end     -- already going
     local t = izi.now()
     if t < R.quiet_until or t < R.stuck_grace_until or t < R.steer_backoff_until then
         return false, W.same_dest(x, y)
     end
     if not force and not O.nav_gap_ok() then return false, W.same_dest(x, y) end
-    local hx, hy, hz = here_xyz()
     if not hx then return false, false end
     if dist3(hx, hy, hz, x, y, z) < MIN_NAV then return false, false end
     local lf = R.last_fail

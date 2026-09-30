@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.135.0
+-- Version: 2.136.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -105,7 +105,7 @@ local function look_ahead(t)
     local x, y, z = here_xyz()
     if not x then return end
     local remain = dist2(x, y, R.dest_x, R.dest_y)
-    if remain <= 1.5 then return end
+    if remain <= (K.MIN_NAV_TRAVEL or 4) then return end
     local here = pt(R.P_HERE, x, y, z)
     -- A plain table, not a pool slot: the steering search below reuses the pool.
     local dest = { x = R.dest_x, y = R.dest_y, z = R.dest_z }

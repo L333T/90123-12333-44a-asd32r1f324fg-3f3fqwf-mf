@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.167.0
+-- Version: 2.168.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -560,6 +560,15 @@ end
 --- mob kept chasing it while another hit it from behind. Compared by GUID
 --- (current_guid), never by calling the stored target's methods - that
 --- handle may belong to an object the game has freed.
+-- NO PING-PONG (2.168.0). The current target was kept only while it
+-- attacked the PLAYER; with a hunter's pet tanking, two whelps took turns
+-- hitting the pet and the player, and the bot switched between them every
+-- tick for 2 s (13:11 log, "switch to attacker" x40). A current target that
+-- is alive and in combat - on us or on the pet - is kept, and switches are
+-- at least SWITCH_GAP apart.
+local SWITCH_GAP = 1.5
+local last_switch_t = -1e9
+
 function targeting.attacker_to_switch(player, current_guid, range)
     if not player or call(player.is_in_combat, player) ~= true then
         return nil
@@ -575,8 +584,19 @@ function targeting.attacker_to_switch(player, current_guid, range)
                 return nil          -- the current target is attacking us: stay on it
             end
         end
+        local cur = state.target and state.target.unit
+        if indexable(cur) and call(cur.is_valid, cur) == true and call(cur.get_guid, cur) == current_guid
+            and call(cur.is_dead_or_ghost, cur) ~= true and call(cur.is_in_combat, cur) == true then
+            return nil              -- still fighting (the pet, say): stay on it
+        end
     end
-    return targeting.nearest(player, pack)
+    local now = izi.now()
+    if (now - last_switch_t) < SWITCH_GAP then
+        return nil
+    end
+    local pick = targeting.nearest(player, pack)
+    if pick then last_switch_t = now end
+    return pick
 end
 
 function targeting.combat_scan(player, range)

@@ -3,7 +3,7 @@
 -- movement/rt.lua - shared mutable runtime state
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.139.0
+-- Version: 2.140.0
 -- ============================================================================
 -- Upvalues cannot cross a chunk boundary, so every piece of state that more
 -- than one movement module touches lives here as a field of R. Values that only
@@ -105,6 +105,7 @@ R.sn_client, R.sn_checked_t, R.sn_ok = nil, -1e9, false
 R.sn_active = false
 R.sn_reason = nil
 R.sn_why = nil              -- why the running Sentinel leg was issued
+R.approach_guid = nil       -- 2.140.0: the mob a travel leg is walking to (approach, not a destination)
 R.sn_events = false
 -- true while Sentinel is running its own stuck recovery; we hold off.
 R.sn_recovering = false

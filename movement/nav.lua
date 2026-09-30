@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.139.0
+-- Version: 2.140.0
 -- ============================================================================
 -- Out-of-combat travel.
 --
@@ -316,8 +316,16 @@ function Nv.nav_path(points)
     return W.navigate_path(pts)
 end
 
+--- The travel leg in flight is an approach to this mob (2.140.0), or nil.
+--- A stalled approach gives up on the mob (unreachable), never blacklists the
+--- ground it was standing on.
+function Nv.set_approach(guid)
+    R.approach_guid = guid
+end
+
 --- Stop navigation and release ownership. Returns true when something stopped.
 function Nv.nav_stop()
+    R.approach_guid = nil
     local stopped = O.halt_all()
     if stopped then W.set_quiet(QUIET_STOP) end
     if O.owns(OWNER.NAV) then R.cur_owner = OWNER.NONE end
@@ -327,6 +335,7 @@ end
 --- Full stop: drop every actuator, every lock and all ownership. Used when the
 --- bot is switched off, changes mode, or dies - not on the per-frame path.
 function Nv.halt()
+    R.approach_guid = nil
     pcall(function() require("movement/locks").backpedal_stop() end)
     R.combat_req = false
     R.combat_target = nil

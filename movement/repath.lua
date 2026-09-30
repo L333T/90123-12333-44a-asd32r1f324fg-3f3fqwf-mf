@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.139.0
+-- Version: 2.140.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -175,6 +175,16 @@ local function escalate(x, y, z, kind, d, t)
         if ok_c and C and type(C.combat_release) == "function" then
             C.combat_release()
         end
+    elseif R.approach_guid ~= nil then
+        -- An approach to a mob (2.140.0): give up on the mob, not the ground.
+        trail("approach to the target stalled (%.0f yd) - target unreachable, no blacklist", d)
+        local ok_s, state = pcall(require, "state")
+        if ok_s and state and type(state.mark_unreachable) == "function" then
+            state.mark_unreachable(R.approach_guid)
+        end
+        R.approach_guid = nil
+        O.halt_all()
+        W.clear_dest()
     else
         trail("destination (%.0f, %.0f) unreachable - blacklisted", x, y)
         Z.blacklist_area(pt(R.P_TMP, x, y, z), GIVEUP_ZONE, "unreachable")

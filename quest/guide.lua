@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.139.0
+-- Version: 2.140.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -522,6 +522,11 @@ end
 -- THE CURRENT STEP
 -- ============================================================================
 
+-- Declared before guide.update (2.140.0): it was declared further down, so
+-- guide.update read a global that was always nil and a detection reading
+-- asked for from the Questing tab never ran in the update window.
+local diag_wanted = false
+
 --- Called by main.lua every bot tick while Questing is enabled, inside the
 --- update window: keeps the snapshot (and a requested detection reading)
 --- current for the GUI even while the bot is not started.
@@ -550,7 +555,6 @@ end
 --- Everything the Questing tab shows about how the addon is being read, so a
 --- "no quest information" report can be answered by looking at the tab.
 local diag_cache, diag_t = nil, -1
-local diag_wanted = false
 local DIAG_PENDING = {
     addons = "-", namespace = "-", missing = {}, is_loaded = "(reading)",
     has_step = "(reading)", step_type = "-", step_num = 0, goal_count = 0,

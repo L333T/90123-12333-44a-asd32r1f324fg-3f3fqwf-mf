@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.139.0
+-- Version: 2.140.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -65,6 +65,15 @@ local missing = { food = false, drink = false }
 -- A buy that does not raise the bag count is not repeated for ever.
 local pending = nil            -- { reason, have } of the last buy sent
 local refused = {}             -- reason -> failed buys at this merchant
+
+-- Supply runs (2.139.0; moved up in 2.140.0 - supplies.tick writes poor_gold,
+-- and a later declaration turned that write into a global, so the "no run
+-- until the gold goes up" hold never engaged).
+local MIN_COPPER = 25
+local requested = { food = false, water = false }
+local poor_gold = nil            -- gold on hand when a run last could not pay
+local block_until = 0
+local inn_list = nil
 local MAX_REFUSED = 3
 
 local function trail(fmt, ...)
@@ -382,11 +391,8 @@ end
 -- Kingdoms roads (data/ek_alliance_routes - innkeepers sell both), or to an
 -- innkeeper in sight, sells junk, buys, and carries on. Otherwise the rest
 -- waits for health / mana to come back by itself.
-local MIN_COPPER = 25
-local requested = { food = false, water = false }
-local poor_gold = nil            -- gold on hand when a run last could not pay
-local block_until = 0
-local inn_list = nil
+-- (The run's state is declared with the module state at the top: supplies.tick
+-- writes poor_gold, and a declaration down here made that write a global.)
 
 local function forever()
     local ok, gamever = pcall(require, "gamever")

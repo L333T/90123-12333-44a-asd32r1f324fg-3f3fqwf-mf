@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.139.0
+-- Version: 2.140.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -277,11 +277,18 @@ local function fight_unit(player, unit, note)
                 and type(movement.combat_release) == "function" then
                 movement.combat_release()
             end
+            if type(movement.set_approach) == "function" then
+                movement.set_approach(safe(function() return unit:get_guid() end))
+            end
             if movement.is_moving() or movement.nav_to(up) then
                 state.set_note("Quest", string.format("%s (approaching %.0f yd)", note or "Closing", dist))
                 return true
             end
         end
+    end
+    -- Inside the approach band: combat movement owns it, the tag is done.
+    if type(movement.set_approach) == "function" then
+        movement.set_approach(nil)
     end
     probe("f:start_auto_attack")
     targeting.start_auto_attack(player, unit)

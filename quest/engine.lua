@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.153.0
+-- Version: 2.154.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -391,23 +391,28 @@ end
 -- normal path: combat lock, loot, then on. Off while a rest is due (the rest
 -- would come first anyway) and when the Questing tab's box is unticked.
 --
--- ALL AROUND, CLOSEST FIRST (2.119.0). It only looked 20 yd out in a 70-degree
--- cone ahead, up to 3 levels above: a mob beside or just behind the path was
--- walked past until it aggroed, and with several around the nearest in the
--- cone won, not the nearest. Now every hostile within the engage distance + 5
--- yd (20-30 yd) is counted, all the way round, up to 5 levels above
--- (targeting's LEVEL_CAP), and the closest one is targeted. The count is
--- logged with the pull.
-local PATH_RANGE_MIN = 20
-local PATH_RANGE_MAX = 30
-local PATH_CONE = 180          -- all around (was 70 either side of travel)
-local PATH_ABOVE = 5
+-- 100 yd from the PLAYER (2.154.0). The 01:11 xp grind walked 76-213 yd
+-- past wolves and boars: path_pull only looked 20-30 yd, required
+-- is_enemy_with (yellow mobs skipped), and did nothing once the waypoint
+-- was reached (find_path_mob needs a heading). Targeting's 360-degree
+-- scan from the player's x,y,z is the pull now.
 local PATH_SCAN_GAP = 0.8
 local g_path_scan_until = 0
 
 local function path_pull(dest)
     if not gui.is_on("quest_path_pull") then
         return false
+    end
+    -- Do not peel off to a 100 yd fight when the walk is an NPC approach
+    -- already near the giver. (approach_kind / near are locals below this
+    -- function, so they are not visible here.)
+    local kind = g_cur_kind
+    if dest and (kind == "accept" or kind == "turnin" or kind == "talk" or kind == "fly") then
+        local me = safe(function() return izi.me():get_position() end)
+        local d = me and geometry.distance_flat(me, dest)
+        if type(d) == "number" and d <= TALK_SEARCH_FAR then
+            return false
+        end
     end
     local now = izi.now()
     if now < g_path_scan_until then
@@ -423,14 +428,13 @@ local function path_pull(dest)
     if type(hp) == "number" and hp < 50 then
         return false
     end
-    local range = math.max(PATH_RANGE_MIN, math.min(PATH_RANGE_MAX, combat_yards(player) + 5))
-    local unit, d, count = guide.find_path_mob(player, dest, range, PATH_CONE, 4, PATH_ABOVE)
+    local range = targeting.ENEMY_SCAN or 100
+    local unit, d = targeting.nearest_enemy(player, range)
     if not unit then
         return false
     end
-    trail("act", "clear the path: %s at %.0f yd (closest of %d enem%s within %.0f yd)",
-        tostring(safe(function() return unit:get_name() end)), d or -1, count or 1,
-        (count or 1) == 1 and "y" or "ies", range)
+    trail("act", "clear the path: %s at %.0f yd (within %.0f yd of the player)",
+        tostring(safe(function() return unit:get_name() end)), d or -1, range)
     engage(player, unit, "Guide: clearing the path")
     return true
 end
@@ -442,7 +446,7 @@ local function approach_kind()
     if kind == "accept" or kind == "turnin" or kind == "talk" or kind == "fly" then
         return "npc"
     end
-    if kind == "kill" or kind == "collect" then
+    if kind == "kill" or kind == "collect" or kind == "xp" then
         return "enemy"
     end
     return nil
@@ -1895,6 +1899,26 @@ local function kill_goal(player, goal, kind, wps, label)
     return false
 end
 
+-- RestedXP ".xp" / "Grind to N xp": pull the nearest valid enemy within
+-- ENEMY_SCAN yards of the player, then walk the grind waypoints when none
+-- are in range. Sitting "waiting at" never gained the XP (01:11 log).
+local function xp_goal(player, goal, wps, label)
+    local now = izi.now()
+    if now < g_scan_until then
+        return false
+    end
+    g_scan_until = now + SCAN_GAP
+    local range = targeting.ENEMY_SCAN or 100
+    local unit, d = targeting.nearest_enemy(player, range)
+    if not unit then
+        return false
+    end
+    trail("act", "xp grind: %s at %.0f yd (within %.0f yd of the player)",
+        tostring(safe(function() return unit:get_name() end)), d or -1, range)
+    engage(player, unit, "Guide: " .. (label or "grinding"))
+    return true
+end
+
 -- ----------------------------------------------------------------------------
 -- TICK
 -- ----------------------------------------------------------------------------
@@ -2132,6 +2156,10 @@ tick_inner = function(player)
         if object_goal(player, goal, label) or kill_goal(player, goal, kind, wps, label) then
             return
         end
+    elseif kind == "xp" then
+        if xp_goal(player, goal, wps, label) then
+            return
+        end
     end
 
     -- Nothing to act on here yet: walk the goal's waypoints.
@@ -2183,15 +2211,19 @@ tick_inner = function(player)
     if walk_to(wps[g_move].pos, label, arrive) then
         return
     end
-    -- Standing on this waypoint with nothing to do. A kill or collect loop
-    -- moves on to the next of its waypoints; anything else waits here for the
-    -- addon to tick the goal off.
+    -- Standing on this waypoint with nothing to do. A kill, collect or xp
+    -- loop moves on to the next of its waypoints; anything else waits here
+    -- for the addon to tick the goal off.
     if #wps > 1 then
         g_move = g_move + 1
         if g_move > #wps then
             g_move = 1
         end
         walk_to(wps[g_move].pos, label, arrive)
+        return
+    end
+    if kind == "xp" then
+        state.set_note("Quest", "Guide: grinding - scanning for enemies")
         return
     end
     state.set_note("Quest", "Guide: waiting at " .. label)

@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.153.0
+-- Version: 2.154.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -435,6 +435,16 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
     return found
 end
 
+--- The closest fightable enemy within `range` (default ENEMY_SCAN) of the
+--- player's current position, or nil. Same filters as find_mobs.
+function targeting.nearest_enemy(player, range)
+    range = cap(range) or targeting.ENEMY_SCAN
+    if range > targeting.ENEMY_SCAN then
+        range = targeting.ENEMY_SCAN
+    end
+    return targeting.nearest(player, targeting.find_mobs(player, nil, range, true))
+end
+
 function targeting.threat_nearby(player, yards)
     yards = cap(yards)
     if not player then
@@ -843,7 +853,11 @@ local AUTO_REACH = 6.0
 local auto_guid, auto_t, auto_type = nil, -1e9, nil
 
 function targeting.start_auto_attack(player, unit)
-    if not player or not unit then
+    if not player or not indexable(unit) then
+        return false
+    end
+    -- A freed unit here is a native crash (2.32.0 / 01:11 session).
+    if call(unit.is_valid, unit) ~= true then
         return false
     end
     local types = auto_attack.ATTACK_TYPE
@@ -853,27 +867,19 @@ function targeting.start_auto_attack(player, unit)
     local d = call(player.distance_to, player, unit)
     local reach = AUTO_REACH
     local want = types.MELEE
-    local hunter = false
+    local hunter = call(player.get_class, player) == enums.class_id.HUNTER
     local shoot = 35
-    do
-        local ok_r, rot = pcall(require, "rotation")
-        if ok_r and type(rot) == "table" then
-            if type(rot.active) == "function" then
-                local mod = rot.active(player)
-                if mod and type(mod.class_id) == "function" then
-                    local okc, cid = pcall(mod.class_id)
-                    hunter = okc and cid == enums.class_id.HUNTER
-                end
-                if hunter and type(mod.gun_range) == "function" then
-                    local okg, gr = pcall(mod.gun_range)
-                    if okg and type(gr) == "number" and gr > 8 then shoot = gr end
-                end
+    if hunter then
+        local hm = package.loaded["rotations/hunter"]
+        if type(hm) == "table" and type(hm.gun_range) == "function" then
+            local okg, gr = pcall(hm.gun_range)
+            if okg and type(gr) == "number" and gr > 8 then
+                shoot = gr
             end
-            if type(rot.combat_range) == "function" then
-                local y = rot.combat_range(player)
-                if type(y) == "number" and y > 0 then
-                    reach = y
-                end
+        else
+            local y = gui.slider and gui.slider("ranged_yards", 35)
+            if type(y) == "number" and y > 8 then
+                shoot = y
             end
         end
     end

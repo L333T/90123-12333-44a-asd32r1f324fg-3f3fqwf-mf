@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.146.0
+-- Version: 2.147.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -59,14 +59,12 @@ local PLUGIN_MODULES = {
     "data/class_spells",
     "settings",
     "data/spell_categories",
-    "config",
     -- The path INDEXES. These were missing, and the effect was invisible and
     -- very confusing: a reload reused the previous session's grind/catalog
     -- table, so a newly added route list never appeared in the menu however
     -- many times the plugin was reloaded. They are index tables of a few
     -- kilobytes, so dropping them costs nothing.
     "grind/catalog",
-    "grind/paths/catalog",
     "grind/paths/ally160/catalog",
 }
 
@@ -326,15 +324,6 @@ local function unit_has_los(player, unit)
     local los = safe(function() return player:los_to(unit) end)
     if los == true then
         return true
-    end
-    if type(izi.is_los) == "function" then
-        local izi_los = safe(function() return izi.is_los(player, unit) end)
-        if izi_los == true then
-            return true
-        end
-        if izi_los == false then
-            return false
-        end
     end
     return los ~= false
 end

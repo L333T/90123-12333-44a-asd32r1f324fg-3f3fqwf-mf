@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.134.0
+-- Version: 2.135.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -58,6 +58,9 @@ local KILL_TIMEOUT = 60.0     -- give up on one mob after this
 local ARRIVE = 3.0            -- yards: standing on a waypoint
 local TALK_REACH = 4.0        -- yards: close enough to interact
 local TALK_SEARCH = 12.0      -- yards around the waypoint to look for a giver
+local TALK_SEARCH_FAR = 40.0  -- yards: search from the door of a building
+local TALK_ARRIVE = 8.0       -- yards: at the door is close enough to stop walking
+local STEP_INSIDE = 6.0       -- yards toward the waypoint, at the player's height
 local ACT_GAP = 1.5           -- seconds between interacts / item uses
 local MOB_RANGE = 100         -- yards: named quest mobs (2.94.0: the shared enemy scan)
 local OBJECT_RANGE = 40       -- yards: quest objects on the ground
@@ -432,8 +435,19 @@ local function near(pos, yards)
 end
 
 local function walk_to(pos, note, arrive)
-    if near(pos, arrive or ARRIVE) then
+    arrive = arrive or ARRIVE
+    if near(pos, arrive) then
         return false
+    end
+    -- Movement treats 5 yards as arrived and stops. Asking it for another
+    -- 2 yards at a building door is the stall both Kharanos sessions showed:
+    -- "no progress toward the nav for 4s (7 yd) - steering".
+    if arrive >= TALK_ARRIVE then
+        local me = safe(function() return izi.me():get_position() end)
+        local d = me and geometry.distance_flat(me, pos)
+        if type(d) == "number" and d <= TALK_ARRIVE then
+            return false
+        end
     end
     if path_pull(pos) then
         return true
@@ -456,6 +470,12 @@ local function walk_to(pos, note, arrive)
     end
     if movement.is_blocked(pos) or movement.last_fail_offmesh() then
         movement.clear_fail()
+        local me = safe(function() return izi.me():get_position() end)
+        local d = me and geometry.distance_flat(me, pos)
+        -- Close enough to search for the NPC instead of walking forever.
+        if type(d) == "number" and d <= TALK_SEARCH_FAR then
+            return false
+        end
         state.set_note("Quest", "Guide: cannot reach " .. note)
         return true
     end
@@ -583,7 +603,8 @@ local function find_giver(player, goal, kind, wps)
         if not near and tp then
             for i = 1, #wps do
                 local p = wps[i].pos
-                if p and geometry.distance(tp, p) <= TALK_SEARCH * 2 then
+                local td = p and geometry.distance_flat(tp, p)
+                if type(td) == "number" and td <= TALK_SEARCH_FAR then
                     near = true
                     break
                 end
@@ -674,16 +695,16 @@ local function log_signature(goal)
     local parts = {}
     for i = 1, #ids do
         local id = ids[i]
-        local on = safe(function() return core.quests.is_on_quest(id) end)
-        local done = safe(function() return core.quests.is_quest_flagged_completed(id) end)
-        parts[#parts + 1] = tostring(on) .. tostring(done)
+        local on = safe(function() return core.quests.is_on_quest(id) end) == true
+        local done = safe(function() return core.quests.is_quest_flagged_completed(id) end) == true
+        parts[#parts + 1] = (on and "1" or "0") .. (done and "1" or "0")
     end
     return table.concat(parts, ",")
 end
 
 local function stall_reset(now)
     g_stall.t, g_stall.seen, g_stall.best, g_stall.reach = now, now, nil, false
-    g_stall.npc_seq, g_stall.log, g_stall.recoveries, g_stall.pos = nil, nil, 0, nil
+    g_stall.npc_seq, g_stall.log, g_stall.recoveries, g_stall.pos, g_stall.talked = nil, nil, 0, nil, nil
 end
 
 --- Record this tick's progress. `d` is the distance to what the bot is
@@ -697,9 +718,16 @@ local function stalled(now, goal, d)
     g_stall.seen = now
     local moved = false
     if type(d) == "number" then
+        -- Circling a door at 5-8 yards looks like 2-yard gains. Once we are
+        -- that close, only reaching the NPC (or a dialog / log change) counts.
+        local was_far = g_stall.best == nil or g_stall.best > TALK_ARRIVE
         if g_stall.best == nil or d < g_stall.best - STALL_GAIN then
-            g_stall.best = d
-            moved = true
+            if was_far or d <= TALK_REACH then
+                g_stall.best = d
+                moved = true
+            elseif d < g_stall.best then
+                g_stall.best = d
+            end
         end
         local in_reach = d <= TALK_REACH
         if in_reach and not g_stall.reach then
@@ -717,7 +745,8 @@ local function stalled(now, goal, d)
         g_stall.log = sig
         moved = true
     end
-    if g_talk_opened ~= 0 then
+    if g_talk_opened ~= 0 and g_stall.talked ~= true then
+        g_stall.talked = true
         moved = true
     end
     -- A recorded road can lead away from the goal for a while before it
@@ -788,11 +817,14 @@ local function dialog_goal(player, goal, kind, wps, label)
     local unit, how = find_giver(player, goal, kind, wps)
 
     -- Distance to what the bot is working toward, for the stall check.
+    -- Flat: a 3D read against an outdoor-terrain z (or an NPC on another
+    -- floor) jitters by more than STALL_GAIN while the character circles.
+    local me = safe(function() return player:get_position() end)
     local track_d
     if unit then
-        track_d = safe(function() return player:distance_to(unit) end)
+        local up = safe(function() return unit:get_position() end)
+        track_d = me and up and geometry.distance_flat(me, up) or nil
     elseif #wps > 0 then
-        local me = safe(function() return player:get_position() end)
         local wp = wps[math.min(g_move, #wps)].pos
         track_d = me and geometry.distance_flat(me, wp) or nil
     end
@@ -815,7 +847,54 @@ local function dialog_goal(player, goal, kind, wps, label)
                 g_bad_since = 0
             end
         end
-        return false
+        -- At the door of a building the 12-yard search misses the NPC inside,
+        -- and walking to the outdoor-terrain z never enters. Search farther,
+        -- then walk a few yards in at the player's own height.
+        local at_door = false
+        for i = 1, #wps do
+            if near(wps[i].pos, TALK_ARRIVE) then
+                at_door = true
+                break
+            end
+        end
+        if at_door then
+            for i = 1, #wps do
+                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, wps[i].pos, g_bad_givers)
+                if unit then
+                    how = "inside the building"
+                    break
+                end
+            end
+            if not unit then
+                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, nil, g_bad_givers)
+                if unit then
+                    how = "nearest nearby"
+                end
+            end
+        end
+        if not unit then
+            if at_door and me and #wps > 0 then
+                local dest = wps[1].pos
+                local dx = dest.x - me.x
+                local dy = dest.y - me.y
+                local len = math.sqrt(dx * dx + dy * dy)
+                if len > 1 then
+                    local step = math.min(STEP_INSIDE, len)
+                    local inside = {
+                        x = me.x + dx / len * step,
+                        y = me.y + dy / len * step,
+                        z = me.z,
+                    }
+                    trail("act", "%s: at the door, no giver - stepping inside", kind)
+                    walk_to(inside, label, 2)
+                    return true
+                end
+            end
+            if at_door then
+                trail("act", "%s: at the door, no giver within %.0f yd", kind, TALK_SEARCH_FAR)
+            end
+            return false
+        end
     end
     g_bad_since = 0
     local d = track_d or 99
@@ -1967,7 +2046,8 @@ tick_inner = function(player)
             g_move = 1
         end
     end
-    if walk_to(wps[g_move].pos, label) then
+    local arrive = must_do and TALK_ARRIVE or ARRIVE
+    if walk_to(wps[g_move].pos, label, arrive) then
         return
     end
     -- Standing on this waypoint with nothing to do. A kill or collect loop
@@ -1978,7 +2058,7 @@ tick_inner = function(player)
         if g_move > #wps then
             g_move = 1
         end
-        walk_to(wps[g_move].pos, label)
+        walk_to(wps[g_move].pos, label, arrive)
         return
     end
     state.set_note("Quest", "Guide: waiting at " .. label)

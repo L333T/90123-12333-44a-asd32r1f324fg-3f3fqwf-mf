@@ -3,7 +3,7 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.159.0
+-- Version: 2.160.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS FILE EXISTS
@@ -158,6 +158,18 @@ function handlers.UI_ERROR_MESSAGE(args)
     ui.error_id = args and args[3]
     ui.error_text = args and args[2]
     ui.seq = ui.seq + 1
+    -- Full bags (2.160.0): quest/npc.lua sends the bot to a vendor on it.
+    local text = type(ui.error_text) == "string" and string.lower(ui.error_text) or ""
+    if text:find("inventory is full", 1, true) or text:find("bags are full", 1, true)
+        or text:find("inventory full", 1, true) then
+        ui.inv_full_at = ui.UI_ERROR_MESSAGE
+    end
+end
+
+--- Did the client say the bags are full at or after time `t`?
+function events.inventory_full_since(t)
+    local at = ui.inv_full_at
+    return type(at) == "number" and type(t) == "number" and at >= t
 end
 
 --- Did `name` fire at or after time `t`?

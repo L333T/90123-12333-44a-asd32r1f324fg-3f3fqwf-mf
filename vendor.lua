@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.159.0
+-- Version: 2.160.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -187,16 +187,74 @@ end
 -- or counted the backpack twice. The helper's number is used alone.
 local last_free_logged = nil
 
+-- SPECIAL BAGS DO NOT HOLD LOOT (2.160.0). A hunter's quiver / ammo pouch
+-- (item class 11) and a soul bag or other profession bag (container class 1
+-- with a subclass) take only their own item type, but their empty slots were
+-- counted as free: the 12:07 session read "5 free" with the bags full, and a
+-- quest that hands over an item could not be accepted. Their free slots are
+-- taken off. The bag objects sit at inventory slots 20-23 (bag 1-4); the
+-- name is the fallback where item info is empty (WoW Forever).
+local SPECIAL_WORDS = { "quiver", "ammo pouch", "shot pouch", "bandolier", "soul pouch",
+    "soul bag", "felcloth bag", "box of souls", "herb", "enchant", "mining sack" }
+local special_cache = {}      -- item id -> true / false
+
+local function special_bag(bag)
+    local me = safe(function() return izi.me() end)
+    if not me then return false end
+    local row = safe(function() return me:get_item_at_inventory_slot(19 + bag) end)
+    local obj = type(row) == "table" and row.object or nil
+    if not obj then return false end
+    local id = safe(function() return obj:get_item_id() end)
+    if type(id) ~= "number" then return false end
+    if special_cache[id] ~= nil then return special_cache[id] end
+    local info = safe(function() return core.quests.get_item_info(id) end)
+    local yes = false
+    if type(info) == "table" and type(info.class_id) == "number" then
+        yes = info.class_id == 11 or (info.class_id == 1 and (info.subclass_id or 0) ~= 0)
+    end
+    if not yes then
+        local name = (type(info) == "table" and info.name) or safe(function() return obj:get_name() end)
+        if type(name) == "string" then
+            local low = string.lower(name)
+            for i = 1, #SPECIAL_WORDS do
+                if low:find(SPECIAL_WORDS[i], 1, true) then yes = true break end
+            end
+        end
+    end
+    special_cache[id] = yes
+    return yes
+end
+
+--- Free slots in special bags (not usable for loot).
+local function special_free()
+    local total = 0
+    for bag = 1, 4 do
+        if special_bag(bag) then
+            -- get_num_bag_slots is one higher than get_items_in_bag.
+            local cap = safe(function() return core.inventory.get_num_bag_slots(bag + 1) end) or 0
+            local items = safe(function() return core.inventory.get_items_in_bag(bag) end)
+            local used = type(items) == "table" and #items or 0
+            if type(cap) == "number" and cap > used then
+                total = total + (cap - used)
+            end
+        end
+    end
+    return total
+end
+
 local function bag_free()
     local helper_free = safe(function()
         return inventory_helper:get_total_free_slots()
     end)
     if type(helper_free) == "number" and helper_free >= 0 then
+        local sp = special_free()
+        helper_free = math.max(0, helper_free - sp)
         if helper_free ~= last_free_logged then
             last_free_logged = helper_free
             local ok_e, el = pcall(require, "errorlog")
             if ok_e and type(el) == "table" and type(el.trail) == "function" then
-                pcall(el.trail, "vendor", "bags: %d free slot(s)", helper_free)
+                pcall(el.trail, "vendor", "bags: %d free slot(s)%s", helper_free,
+                    sp > 0 and string.format(" (%d in ammo / special bags not counted)", sp) or "")
             end
         end
         return helper_free
@@ -217,7 +275,7 @@ local function bag_free()
             end
         end
     end
-    return free
+    return math.max(0, free - special_free())
 end
 
 local function worst_durability()
@@ -547,9 +605,44 @@ function vendor.has_junk(player)
     return junk_cache.v
 end
 
+-- VENDOR FIRST, THEN THE QUEST (2.160.0). A quest that hands over an item
+-- cannot be accepted with full bags; RestedXP keeps the bot at the giver and
+-- the free-slot count can be wrong (special bags). quest/npc.lua reports an
+-- accept that was clicked but never landed, or an "inventory is full" error,
+-- and asks for a trip here; it runs before the quest step gets the tick back.
+local FORCE_TTL = 120
+local FORCE_AGAIN = 600
+local forced = nil            -- { why, at }
+local forced_last = {}        -- why -> time last requested
+
+--- Ask for a sell trip now, whatever the free-slot count says. Returns true
+--- when one will run (selling on, level 2+, not asked for the same reason
+--- in the last FORCE_AGAIN seconds).
+function vendor.request_bag_trip(why, player)
+    if not gui.is_on("sell") then return false end
+    player = player or safe(function() return izi.me() end)
+    if player and not vendor.level_ok(player) then return false end
+    local now = izi.now()
+    why = tostring(why or "bags full")
+    if forced_last[why] and (now - forced_last[why]) < FORCE_AGAIN then return false end
+    forced_last[why] = now
+    forced = { why = why, at = now }
+    state.vendor.bag_hold_free = nil
+    trail("sell trip requested: %s", why)
+    return true
+end
+
 function vendor.needs_trip(player)
     if not player then
         return false
+    end
+    if forced and not state.vendor.active then
+        if (izi.now() - forced.at) <= FORCE_TTL then
+            state.vendor.reason = "bags"
+            forced = nil
+            return true
+        end
+        forced = nil
     end
     if not gui.is_on("sell") and not gui.is_on("repair") and not gui.is_on("buy_supplies") then
         return false

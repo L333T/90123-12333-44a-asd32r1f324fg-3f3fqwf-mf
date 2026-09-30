@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.159.0
+-- Version: 2.160.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -386,6 +386,7 @@ local function dlg_reset(key, label)
     dlg.no_unit, dlg.result = 0, nil
     dlg.t_interact, dlg.frame, dlg.continued, dlg.info_t, dlg.was_on = 0, nil, false, nil, nil
     dlg.refused = false
+    dlg.refusals = 0
     dlg.label = label or ""
 end
 
@@ -894,6 +895,17 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
                     "Accepted a quest at this NPC, but %s is still not in the log - "
                     .. "it offered a different quest.", dlg.label)
                 return dlg_finish("not_offered")
+            end
+            -- FULL BAGS (2.160.0). The NPC showed the quest and Accept was
+            -- clicked, but it never landed. The client said the bags are
+            -- full, or it happened twice: that is the bags (a quest that
+            -- hands over an item), not a wrong NPC - vendor first.
+            local ok_ev, ev = pcall(require, "events")
+            local full = ok_ev and type(ev) == "table" and type(ev.inventory_full_since) == "function"
+                and ev.inventory_full_since(dlg.t_interact)
+            dlg.refusals = (dlg.refusals or 0) + 1
+            if full or dlg.refusals >= 2 then
+                return dlg_finish("bags_full")
             end
             return dlg_retry(now, "still not on the quest")
         end

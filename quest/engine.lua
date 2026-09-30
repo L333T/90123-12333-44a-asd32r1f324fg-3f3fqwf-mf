@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.159.0
+-- Version: 2.160.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1157,6 +1157,23 @@ local function dialog_goal(player, goal, kind, wps, label)
                 g_hold_until = now + NOT_READY_HOLD
             end
             return true
+        end
+        if result == "bags_full" then
+            -- The quest was offered and Accept did not land (2.160.0): full
+            -- bags. Sell first; the giver is not ruled out, and the accept
+            -- is tried again once the trip is over.
+            npc.close()
+            g_pending = nil
+            g_close_in = false
+            local ok_vd, vnd = pcall(require, "vendor")
+            local going = ok_vd and type(vnd) == "table" and type(vnd.request_bag_trip) == "function"
+                and vnd.request_bag_trip("accept " .. tostring(title or qid) .. " failed - bags full", player)
+            if going then
+                trail("act", "accept %d: bags full - selling first, then back to this quest", qid)
+                g_hold_until = now + 2
+                return true
+            end
+            result = "gave_up"
         end
         if result == "not_offered" or result == "gave_up" then
             -- Not this NPC: rule it out and let find_giver pick the next.

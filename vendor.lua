@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.163.0
+-- Version: 2.164.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -668,8 +668,17 @@ function vendor.request_bag_trip(why, player)
     return true
 end
 
+local function rushing()
+    local q = package.loaded["quest/engine"]
+    return type(q) == "table" and type(q.rushing) == "function" and q.rushing() ~= nil
+end
+
 function vendor.needs_trip(player)
     if not player then
+        return false
+    end
+    -- A timed quest is being carried (2.164.0): deliver it first.
+    if rushing() then
         return false
     end
     if forced and not state.vendor.active then

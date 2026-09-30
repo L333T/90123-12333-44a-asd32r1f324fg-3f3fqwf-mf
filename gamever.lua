@@ -3,12 +3,13 @@
 -- Game version: TBC Classic or WoW Forever
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.130.0
+-- Version: 2.131.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.get_game_version() answers "Tbc" on TBC Classic (and the TBC 2.5.3
--- private-server client) and "Forever" on WoW Forever (exact build
--- "wowforeverbetaus"). Everything that differs between the two asks here
+-- private-server client) and "Forever" on WoW Forever. The beta client is
+-- also accepted when get_exact_game_version() is "wow_forever_beta_us".
+-- Everything that differs between the two asks here
 -- instead of calling the core itself, so the answer is read once.
 --
 -- PLAYABLE RACES (wowhead.com/forever/races, checked 2026-09-29)
@@ -37,7 +38,24 @@ function gamever.version()
     return cached
 end
 
-function gamever.is_forever() return gamever.version() == gamever.FOREVER end
+-- The coarse name is "Forever". The beta client is identified by the exact
+-- build when get_game_version() does not say that.
+local FOREVER_EXACT = "wow_forever_beta_us"
+
+local function exact_version()
+    if type(core) ~= "table" or type(core.get_exact_game_version) ~= "function" then
+        return ""
+    end
+    local ev = core.get_exact_game_version()
+    if type(ev) ~= "string" then
+        return ""
+    end
+    return ev
+end
+
+function gamever.is_forever()
+    return gamever.version() == gamever.FOREVER or exact_version() == FOREVER_EXACT
+end
 function gamever.is_tbc() return gamever.version() == gamever.TBC end
 
 --- Is this a game version the plugin runs on?

@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.127.0
+-- Version: 2.128.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -84,6 +84,8 @@ local function fail_code(reason, detail)
 end
 N.fail_code = fail_code
 
+local chain_busy = false
+
 function N.on_nav_done(ok, reason, detail)
     if not R.sn_active then return end           -- stale: we already stopped/switched
     local r, msg = "arrived", ""
@@ -95,8 +97,25 @@ function N.on_nav_done(ok, reason, detail)
         end
     end
     if ok == true then
+        -- A steering hop finished and the RestedXP waypoint is still ahead.
+        -- Continue to it. Stopping here is the full stop between points.
+        if R.keep_path and type(R.goal_x) == "number" then
+            local dx = R.goal_x - (R.dest_x or R.goal_x)
+            local dy = R.goal_y - (R.dest_y or R.goal_y)
+            if dx * dx + dy * dy > 9 and not chain_busy then
+                local goal = { x = R.goal_x, y = R.goal_y, z = R.goal_z }
+                chain_busy = true
+                local went = N.retarget(goal, "chain")
+                chain_busy = false
+                if went then return end
+            end
+        end
         R.sn_active, R.sn_reason = false, r
         R.sn_leash_hold = false
+        if R.keep_path then
+            W.clear_dest()
+            return
+        end
         W.clear_dest()
         W.halt()
         return
@@ -427,7 +446,12 @@ function N.move(p, why)
     if okl and type(elog) == "table" then
         elog.probe("sentinel move_to " .. tostring(why or ""))
     end
-    W.halt()
+    -- Already on a path: retarget in place. W.halt() here is what stood the
+    -- character still between RestedXP waypoints and on every re-issue.
+    local continuing = R.sn_active
+    if not continuing then
+        W.halt()
+    end
     W.begin_issue(p.x, p.y, p.z)
     R.sn_active, R.sn_reason = true, nil
     R.sn_why = why                -- what the leg is for (2.54.0): "pull", "travel", ...
@@ -435,6 +459,10 @@ function N.move(p, why)
     R.sn_watch_t = izi.now()
     R.sn_tight = false
     local opts = leg_opts(c, p)
+    if continuing then
+        opts = opts or {}
+        opts.soft_update = true
+    end
     local ok
     if opts then
         ok = pcall(c.move_to, c, to_vec3(p), on_nav_done, opts)
@@ -463,9 +491,12 @@ end
 function N.retarget(p, why)
     if not R.sn_active or R.cur_owner == OWNER.COMBAT then return false end
     local now = izi.now()
-    if (now - R.sn_last_issue_t) < SN_MIN_GAP then return false end
     local c = client()
     if not c or type(p) ~= "table" or not xyz(p) then return false end
+    -- A chain onto the real waypoint, or one avoidance hop, must not wait
+    -- out the request gap: that wait is the character standing at the hop.
+    local urgent = why == "chain" or why == "avoid"
+    if not urgent and (now - R.sn_last_issue_t) < SN_MIN_GAP then return false end
     local opts = leg_opts(c, p) or {}
     opts.soft_update = true
     R.sn_last_issue_t = now
@@ -558,6 +589,10 @@ function N.watch(t)
             pcall(el.trail, "move", "Sentinel leg '%s' made no progress for %.0fs - dropped", why, SN_STALL_SEC)
         end
         stall_x, stall_y = nil, nil
+        if R.keep_path and R.has_dest then
+            N.retarget({ x = R.dest_x, y = R.dest_y, z = R.dest_z }, "chain")
+            return
+        end
         N.stop()
         W.clear_dest()
         return

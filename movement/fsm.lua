@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.127.0
+-- Version: 2.128.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -64,10 +64,42 @@ local look_next = 0
 local S_mod = nil
 local steered_x, steered_y = nil, nil
 
+local APPROACH_NPC = 25
+local APPROACH_ENEMY = 30
+
+--- "wall" when the body does not fit, "tight" when only a narrow body fits,
+--- nil when the way ahead is open.
+local function passage(here, ahead)
+    local was = R.tight_corridor
+    R.tight_corridor = false
+    local wide = U.corridor(here, ahead)
+    R.tight_corridor = true
+    local narrow = U.corridor(here, ahead)
+    R.tight_corridor = was
+    if wide == false and narrow ~= true then return "wall" end
+    if wide == false and narrow == true then return "tight" end
+    return nil
+end
+
+--- Avoidance is calculated only while closing on an NPC, closing on an
+--- enemy, or running a wall / tight gap. Open ground does not detour.
+local function avoidance_reason(here, ahead, remain)
+    local pass = passage(here, ahead)
+    if pass then return pass end
+    if Z.dangerous_xy(ahead.x, ahead.y) and not Z.dangerous_xy(R.dest_x, R.dest_y) then
+        return "enemy"
+    end
+    if R.approach == "npc" and remain <= APPROACH_NPC then return "npc" end
+    if R.approach == "enemy" and remain <= APPROACH_ENEMY then return "enemy" end
+    return nil
+end
+
 local function look_ahead(t)
     if t < look_next then return end
     look_next = t + LOOK_GAP
-    if not R.walker_moving or R.sn_active or not R.has_dest or R.rest_lock then return end
+    if not R.has_dest or R.rest_lock then return end
+    local sentinel = R.sn_active and R.keep_path
+    if not sentinel and (not R.walker_moving or R.sn_active) then return end
     local pr = R.pause_reason
     if pr.cast or pr.restrict or pr.rest or pr.loot or pr.nav then return end
     local x, y, z = here_xyz()
@@ -82,9 +114,8 @@ local function look_ahead(t)
         local s = LOOKAHEAD / remain
         ahead = pt(R.P_MID, x + (R.dest_x - x) * s, y + (R.dest_y - y) * s, z + (R.dest_z - z) * s)
     end
-    -- Walking into a too-high mob's radius counts as blocked (2.95.0).
-    local danger_ahead = Z.dangerous_xy(ahead.x, ahead.y) and not Z.dangerous_xy(R.dest_x, R.dest_y)
-    if not danger_ahead and U.corridor(here, ahead) ~= false then
+    local why = avoidance_reason(here, ahead, remain)
+    if not why then
         steered_x, steered_y = nil, nil
         return
     end
@@ -93,21 +124,34 @@ local function look_ahead(t)
         S_mod = ok and m or false
     end
     if not S_mod then return end
+    local was_tight = R.tight_corridor
+    if why == "tight" then R.tight_corridor = true end
     local hop = S_mod.pick_steer(here, dest, K.STEER_HOP, false, true)
-    if hop then
-        local gx = R.goal_x or R.dest_x
-        local gy = R.goal_y or R.dest_y
-        local gz = R.goal_z or R.dest_z
-        if steered_x and dist2(hop.x, hop.y, steered_x, steered_y) < 1 then
-            return
-        end
-        dlog("avoid", string.format("obstacle ahead - detour to (%.1f, %.1f)", hop.x, hop.y))
-        local pts = { R.to_vec3(hop), R.to_vec3({ x = gx, y = gy, z = gz }) }
-        if W.steer_on(pts, "avoid") then
+    R.tight_corridor = was_tight
+    if not hop then return end
+    -- Approaching a target with a clear line: the search ran, nothing to change.
+    local straight = (R.detour_side == 0) and ((R.block_streak or 0) == 0)
+    if straight and why ~= "wall" and why ~= "tight" then return end
+    if steered_x and dist2(hop.x, hop.y, steered_x, steered_y) < 1 then
+        return
+    end
+    local gx = R.goal_x or R.dest_x
+    local gy = R.goal_y or R.dest_y
+    local gz = R.goal_z or R.dest_z
+    dlog("avoid", string.format("%s ahead - detour to (%.1f, %.1f)", why, hop.x, hop.y))
+    if sentinel then
+        if N.retarget({ x = hop.x, y = hop.y, z = hop.z }, "avoid") then
             steered_x, steered_y = hop.x, hop.y
             R.goal_x, R.goal_y, R.goal_z = gx, gy, gz
             R.avoid_hops = (R.avoid_hops or 0) + 1
         end
+        return
+    end
+    local pts = { R.to_vec3(hop), R.to_vec3({ x = gx, y = gy, z = gz }) }
+    if W.steer_on(pts, "avoid") then
+        steered_x, steered_y = hop.x, hop.y
+        R.goal_x, R.goal_y, R.goal_z = gx, gy, gz
+        R.avoid_hops = (R.avoid_hops or 0) + 1
     end
 end
 
@@ -126,6 +170,17 @@ local chain_next = 0
 local planned = nil          -- { x, y, z } of the pre-computed next hop
 
 local function chain_hops(t)
+    -- Sentinel steering hop finished enough of its way: the waypoint is
+    -- still the destination, and the walk is not stopped to switch.
+    if R.sn_active and R.keep_path and R.goal_x and R.has_dest then
+        local x, y = here_xyz()
+        if x and dist2(x, y, R.dest_x, R.dest_y) <= CHAIN_DIST
+            and dist2(R.dest_x, R.dest_y, R.goal_x, R.goal_y) > 4 then
+            N.retarget({ x = R.goal_x, y = R.goal_y, z = R.goal_z }, "chain")
+        end
+        planned = nil
+        return
+    end
     if not R.walker_moving or R.sn_active or not R.has_dest or not R.goal_x then
         planned = nil
         return

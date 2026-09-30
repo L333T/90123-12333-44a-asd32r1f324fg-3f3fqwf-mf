@@ -3,7 +3,7 @@
 -- movement/rt.lua - shared mutable runtime state
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.127.0
+-- Version: 2.128.0
 -- ============================================================================
 -- Upvalues cannot cross a chunk boundary, so every piece of state that more
 -- than one movement module touches lives here as a field of R. Values that only
@@ -116,6 +116,10 @@ R.sn_reach_index, R.sn_reach_ok, R.sn_reach_pending = nil, nil, false
 -- issued or refused by the rate limit since the error log last reported.
 R.sn_last_issue_t = -1e9
 R.sn_issued, R.sn_refused = 0, 0
+-- RestedXP waypoint travel: course changes must not stop the walk.
+R.keep_path = false
+-- "npc" | "enemy" | nil — when the avoidance search is worth running.
+R.approach = nil
 -- Combat pull-in throttle (2.23.0): per-target retry clock and attempt count.
 R.pull_key, R.pull_next_t, R.pull_tries = nil, 0, 0
 

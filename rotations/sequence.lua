@@ -3,7 +3,7 @@
 -- rotations/sequence.lua - the damage sequencer, shared by the class rotations
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.132.0
+-- Version: 2.133.0
 -- ============================================================================
 -- mage.lua has routed its damage through izi.advanced_sequence for several
 -- versions; the other seven called cast_at straight down a priority list.

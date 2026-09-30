@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.132.0
+-- Version: 2.133.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -35,6 +35,7 @@ local movement = require("movement")
 local healing = require("healing")
 local geometry = require("geometry")
 local guide = require("quest/guide")
+local travel_routes = require("travel_routes")
 local loot = nil
 do
     local ok, mod = pcall(require, "loot")
@@ -109,6 +110,8 @@ do
 end
 
 local last_walk_x, last_walk_y = nil, nil
+local last_aim_x, last_aim_y = nil, nil
+local last_road = nil
 local last_note = nil
 
 local function trail(tag, fmt, ...)
@@ -403,19 +406,41 @@ local function walk_to(pos, note)
     end
     state.set_note("Quest", "Guide: " .. note)
     g_in_travel = true
+    -- A destination on a recorded inn or flight-path road is walked as the
+    -- next point of that road. The real waypoint stays the arrival test.
+    local me = safe(function() return izi.me():get_position() end)
+    local hop = me and travel_routes.hop(me, pos) or nil
+    local target = hop or pos
+    if travel_routes.road ~= last_road then
+        last_road = travel_routes.road
+        if last_road then
+            trail("walk", "recorded road %s toward %s", last_road, tostring(note))
+        end
+    end
+    local tx = math.floor(target.x or 0)
+    local ty = math.floor(target.y or 0)
+    local aim_moved = tx ~= last_aim_x or ty ~= last_aim_y
+    if aim_moved then
+        last_aim_x, last_aim_y = tx, ty
+    end
     if type(movement.keep_path) == "function" then
         movement.keep_path(true)
     end
     if type(movement.set_approach) == "function" then
-        movement.set_approach(approach_kind())
+        -- A short road hop is not "closing on the NPC". Wall checks still run.
+        -- The last yards use the real destination, so the NPC approach returns.
+        local approach = approach_kind()
+        if hop then approach = nil end
+        movement.set_approach(approach)
     end
     if movement.is_moving() then
-        -- The arrow moved, or the next waypoint is up. One retarget, no stop.
-        if moved and type(movement.nudge) == "function" then
-            movement.nudge(pos)
+        -- The arrow moved, the next waypoint is up, or the road point advanced.
+        -- One retarget, no stop.
+        if (moved or aim_moved) and type(movement.nudge) == "function" then
+            movement.nudge(target)
         end
     else
-        movement.nav_to(pos, true)
+        movement.nav_to(target, true)
     end
     return true
 end

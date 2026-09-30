@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.152.0
+-- Version: 2.153.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -503,6 +503,7 @@ local seal_cast_at = -1e9
 -- So it is started once per target and left alone; any other cast (which
 -- stops the wand anyway) clears the latch.
 local wand_guid = nil
+local shot_guid = nil
 
 local function form_ok(def)
     local need = def.form
@@ -546,6 +547,21 @@ end
 --- Cast entry `e` at `unit` (or at `pos` for a ground spell). One attempt,
 --- no waiting. Returns true when the cast went out.
 local function cast(e, unit, pos)
+    -- Auto Shot is a toggle via auto_attack_helper (id 75), not a cast.
+    -- cast_safe fails and FAIL_GAP then silences the hunter rotation.
+    if e.name == "Auto Shot" and unit and not pos then
+        local aa = require("common/utility/auto_attack_helper")
+        local types = aa and aa.ATTACK_TYPE
+        if type(types) == "table" and type(types.RANGED) == "number" then
+            local ok_s = safe(function() return aa:start_attack(unit, types.RANGED) end)
+            if ok_s == true then
+                shot_guid = safe(unit.get_guid, unit)
+                last_cast[e.key] = izi.now()
+                note(e.name)
+                return true
+            end
+        end
+    end
     local sp = spell_of(e)
     if not sp then return false end
     if safe(sp.cooldown_up, sp) == false then return false end
@@ -597,6 +613,8 @@ local function cast(e, unit, pos)
         last_cast[e.key] = now
         if e.name == "Shoot" then
             wand_guid = unit and safe(unit.get_guid, unit) or nil
+        elseif e.name == "Auto Shot" then
+            shot_guid = unit and safe(unit.get_guid, unit) or nil
         elseif not e.self then
             wand_guid = nil
         end
@@ -763,6 +781,10 @@ function COND.filler(e)
         if not wand_time() then return false end
         local g = safe(T.get_guid, T)
         return g == nil or g ~= wand_guid
+    end
+    if e.name == "Auto Shot" then
+        local g = safe(T.get_guid, T)
+        return g == nil or g ~= shot_guid
     end
     return true
 end
@@ -1074,9 +1096,26 @@ function smart.combat(player, target, ctx)
     -- wait until the target is at the GUI range or closer. Charge / aggro
     -- used to clear this the moment combat started, so a warrior opened
     -- from 32 yd. Buffs, heals, defensives and openers (Charge) still run.
+    -- Hunter: the melee-mode slider (5 yd) must not hold shots. Fire from
+    -- the shooting distance; inside the dead zone, melee abilities run.
     local hold_fire = false
     if ctx and type(ctx.engage) == "number" and target then
-        hold_fire = c.dist() > ctx.engage
+        local limit = ctx.engage
+        if built.class == enums.class_id.HUNTER then
+            local hmod = mod("rotation")
+            hmod = hmod and type(hmod.active) == "function" and hmod.active(player) or nil
+            if hmod and type(hmod.melee_mode) == "function" and hmod.melee_mode(player, target) then
+                hold_fire = false
+            else
+                if hmod and type(hmod.engage_range) == "function" then
+                    local y = safe(function() return hmod.engage_range(player, nil) end)
+                    if type(y) == "number" and y > 0 then limit = y end
+                end
+                hold_fire = c.dist() > limit
+            end
+        else
+            hold_fire = c.dist() > limit
+        end
     end
 
     for i = 1, #COMBAT_ORDER do

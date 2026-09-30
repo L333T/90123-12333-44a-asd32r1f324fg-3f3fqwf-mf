@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.141.0
+-- Version: 2.142.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -41,10 +41,6 @@ local PLUGIN_MODULES = {
     "path_runner",
     "rotations/mage",
     "rotations/warrior",
-    -- Shared by the seven class rotations that use the sequencer. It holds no
-    -- state across a reload, but it must drop with them or a reloaded class
-    -- module would be talking to the previous session's copy.
-    "rotations/sequence",
     "rotation",
     "death",
     "healing",

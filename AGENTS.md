@@ -53,7 +53,8 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 - **Rotation**: the Spells tab ticks (`picks.lua`) + `data/class_spells.lua` (per-class
   catalog by spell name and role) drive `smart.lua` for every class.
   `rotations/*.lua` only supply range, melee shape, the movement combat profile
-  and rest; their old `tick` / `register_gui` code is dead. The spellbook
+  and rest (their old `tick` / `buffs_ooc` / `register_gui` / `interrupt` code was
+  removed in 2.142.0 - do not reintroduce class-module casting). The spellbook
   (`spellbook.lua`) admits only spells this character owns.
 - **Movement** (`movement/*`): Sentinel (`SentinelNavClient`) owns out-of-combat
   travel (`K.SENTINEL_TRAVEL` in `movement/const.lua`); the local walker owns
@@ -68,6 +69,9 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   index API, no vendor item info (food buying off), no Outland flight points.
 
 ## Testing
+
+After any removal or large refactor, run an AST scan for undeclared reads and
+global writes (luaparser) - both must stay at 0.
 
 No test suite ships with the repo. Offline checks use `lupa` (Python) to load
 modules with stubbed `core` / `izi`; `make_local.py` does the syntax pass. In-game

@@ -3,7 +3,7 @@
 -- Shared runtime state (no leaked globals)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.150.0
+-- Version: 2.151.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -18,6 +18,7 @@ local state = {
 state.grind = {
     step = 1,
     move = 1,
+    finished = false,        -- 2.151.0: a non-loop profile reached its last node
     scan_until = 0,
     black_until = 0,
     killed = {},

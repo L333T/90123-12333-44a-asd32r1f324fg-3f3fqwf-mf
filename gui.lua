@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.150.0
+-- Version: 2.151.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1587,9 +1587,19 @@ local function start_bot()
             state.set_note("Start", err or "Choose a grind profile")
             return
         end
+        -- Reverse Path (2.151.0): the grind engine walks the reversed copy.
+        if is_on("path_reverse") then
+            local rev = path_format.reversed(path)
+            if rev then path = rev end
+        end
         local grind = loader.grind()
         if grind and type(grind.set_profile) == "function" then
             grind.set_profile(path)
+        end
+        -- Draw Loaded Path shows what is walked - the reversed copy included.
+        local ok_pr, runner = pcall(require, "path_runner")
+        if ok_pr and type(runner) == "table" and type(runner.set_preview) == "function" then
+            pcall(runner.set_preview, path)
         end
         menu:set("mfg_mode", 1)
     else

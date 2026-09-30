@@ -3,7 +3,7 @@
 -- Druid grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.150.0
+-- Version: 2.151.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and
@@ -131,15 +131,19 @@ end
 --- starts from where the bot is already standing, so the extra warning is
 --- free. This class does both, so the scan follows the same toggle its
 --- combat range does.
---- Melee only in cat form. The toggle has no GUI control yet, so this is
---- false today and the druid stays a caster - but when cat form lands, combat
---- movement will close it to 2 yards like every other melee class.
+--- Melee while in Cat or Bear form (2.151.0). This read a "cat_form" GUI
+--- toggle that was never registered, so it was always false; the form the
+--- druid is actually in decides now (GetShapeshiftFormID: 1 Cat, 5 Bear,
+--- 8 Dire Bear), and the druid's melee distance slider applies in form.
+local MELEE_FORMS = { [1] = true, [5] = true, [8] = true }
+
 function druid.is_melee(player)
-    return gui.is_on("cat_form") == true
+    local form = safe(function() return core.spell_book.get_shapeshift_form_id() end)
+    return MELEE_FORMS[form] == true
 end
 
 function druid.scan_range(player)
-    if gui.is_on("cat_form") then
+    if druid.is_melee(player) then
         return 20
     end
     return 35
@@ -157,9 +161,9 @@ function druid.combat_profile()
             if ctx.melee_count < 1 and ctx.distance > 8 then
                 return false
             end
-            if not gui.is_on("entangling") then
-                return false
-            end
+            -- Rooted: step out of reach. (This also required an "entangling"
+            -- GUI toggle that no longer exists - 2.151.0; the Spells tab
+            -- decides whether Roots is cast at all.)
             return auras.debuff_up(ctx.target, ROOTS_IDS)
         end,
     }

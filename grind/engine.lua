@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.150.0
+-- Version: 2.151.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -85,14 +85,34 @@ function grind.clear_hunt()
     hunt = nil
 end
 
+-- LAPS AND THE PROFILE'S MERCHANT (2.151.0). vendor.lua read both from
+-- path_runner, which nothing starts - grind profiles run here - so "Vendor
+-- each lap" never fired and a profile's own merchant was never used.
+local lap_pending = 0
+
 function grind.set_profile(path)
     profile = path
     hunt = nil
+    state.grind.finished = false
+    lap_pending = 0
+end
+
+--- The grind profile being walked, or nil.
+function grind.current_profile()
+    return profile
+end
+
+--- True once per completed lap of the profile; the caller consumes it.
+function grind.take_lap()
+    if lap_pending <= 0 then return false end
+    lap_pending = lap_pending - 1
+    return true
 end
 
 function grind.clear_profile()
     profile = nil
     hunt = nil
+    state.grind.finished = false
 end
 
 --- Turn a loaded grind path into the zone shape the engine walks.
@@ -282,8 +302,24 @@ function grind.kill_mobs(player)
             state.grind.move = state.grind.move + 1
         end
         if state.grind.move > n then
-            state.grind.move = 1
+            -- LOOP PATH (2.151.0): a profile that is not a loop stops at its
+            -- last node unless "Loop Path" forces a replay. Fights still run.
+            if zone.path and zone.path.loop == false and not gui.is_on("path_loop") then
+                state.grind.move = n
+                state.grind.finished = true
+            else
+                state.grind.move = 1
+            end
+            if zone.path then lap_pending = math.min(lap_pending + 1, 1) end
         end
+        return
+    end
+    if state.grind.finished and gui.is_on("path_loop") then
+        state.grind.finished = false
+        state.grind.move = 1
+    end
+    if state.grind.finished then
+        state.set_note("Grind", tostring(zone.name or "Path") .. " finished - tick Loop Path to replay")
         return
     end
     if type(movement.node_reachable) == "function" and movement.node_reachable(pos, state.grind.move) == false then

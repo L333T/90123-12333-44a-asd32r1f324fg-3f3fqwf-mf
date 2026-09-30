@@ -8,7 +8,7 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.150.0
+-- Version: 2.151.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -741,6 +741,11 @@ function path_runner.draw()
         current = session.index or 0
     elseif preview then
         path = preview
+        -- A grind profile being walked (2.151.0): highlight its current node.
+        local g = package.loaded["grind/engine"]
+        if type(g) == "table" and type(g.current_profile) == "function" and g.current_profile() == preview then
+            current = (state.grind and state.grind.move) or 0
+        end
     end
     if not path or path_format.count(path) < 1 then
         return

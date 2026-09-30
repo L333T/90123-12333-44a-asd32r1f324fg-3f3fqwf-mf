@@ -3,10 +3,10 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.146.0
+-- Version: 2.147.0
 -- Folder: Master_Farmer_Grindbot
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
--- Re-scan every 2 seconds. DEFS are rank-1 IDs; highest matching ID wins.
+-- Re-scan on a level-up or a trainer visit (60 s safety net). DEFS are rank-1 IDs; highest matching ID wins.
 -- ============================================================================
 
 ---@type izi_api

@@ -67,6 +67,11 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 - **Game version**: `gamever.lua` — `is_tbc()` / `is_forever()`, playable races.
   On Forever: no Blood Elf / Draenei (adds the Skyborne races 95 / 96), no quest-log
   index API, no vendor item info (food buying off), no Outland flight points.
+- **Intentional undeclared API**: `core.reload_game_ui()` (reload after a flight
+  lands, 2.107.0) is called on purpose even though the API docs do not list it.
+  `izi.is_los` does not exist - LoS is `player:los_to(unit)` only (2.147.0).
+- **Loader**: the in-game loader is `plugin_loader/` (http_loader.lua reads
+  manifest.lua). The old `bootstrap/` and root `net_loader.lua` were removed in 2.147.0.
 
 ## Testing
 

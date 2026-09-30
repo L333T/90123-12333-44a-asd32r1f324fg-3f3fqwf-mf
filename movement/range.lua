@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.146.0
+-- Version: 2.147.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach
@@ -86,10 +86,6 @@ local los_cache = { guid = nil, t = -1, v = false }
 local function raw_los(player, unit, range)
     local ok, has_los = pcall(player.los_to, player, unit)
     has_los = ok and has_los == true
-    if not has_los and type(izi.is_los) == "function" then
-        ok, has_los = pcall(izi.is_los, player, unit)
-        has_los = ok and has_los == true
-    end
     if not has_los and FLAG_LOS then
         local fx, fy, fz = here_xyz()
         if not fx then fx, fy, fz = unit_xyz(player) end

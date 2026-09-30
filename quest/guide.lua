@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.149.0
+-- Version: 2.150.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -682,6 +682,18 @@ function guide.mark_goal_done(step_num, index)
     end
     done_goals[tostring(step_num) .. "|" .. tostring(index)] = true
     snap.memo = {}            -- recompute the current goal
+end
+
+--- Were any goals of the current step finished by the bot, not by RestedXP?
+function guide.has_local_done()
+    return done_step == guide.step_num() and next(done_goals) ~= nil
+end
+
+--- Forget the goals the bot finished itself (2.150.0): RestedXP never moved
+--- on, so they were not really done - do them again.
+function guide.forget_local_done()
+    done_goals = {}
+    snap.memo = {}
 end
 
 --- Every quest id a goal names: quest_id first, then the multi-quest ids

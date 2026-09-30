@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.149.0
+-- Version: 2.150.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -585,6 +585,8 @@ end
 
 -- QUEST TRAINER STEPS (2.149.0). The state of the train goal in progress.
 local TRAIN_WAIT = 20          -- seconds at the waypoint with no trainer before moving on
+local STEP_RETRY = 30          -- 2.150.0: seconds on "step complete" (our marks only) before retrying
+local g_complete_since = 0
 local g_train = { key = nil, at_wp = 0 }
 
 local function is_train_action(goal)
@@ -615,9 +617,14 @@ local function train_goal(player, goal, wps, label)
     end
     if g_train.key ~= g_key then
         g_train.key, g_train.at_wp = g_key, 0
+        local title = nil
+        for i = 1, #wps do
+            if type(wps[i].title) == "string" and wps[i].title ~= "" then title = wps[i].title break end
+        end
         tr.quest_visit(false)
-        tr.quest_visit(true)
-        trail("quest", "trainer step: visiting the class trainer for %s", tostring(label))
+        tr.quest_visit(true, title)
+        trail("quest", "trainer step: visiting the class trainer for %s%s", tostring(label),
+            title and (" (" .. title .. ")") or "")
     end
     if tr.quest_visit_done() then
         trail("quest", "trainer step done - %s", tostring(label))
@@ -1961,9 +1968,27 @@ tick_inner = function(player)
         -- Standing still is right: inventing work here would fight whatever
         -- it does next.
         commit_pending()
+        -- STEP COMPLETE ONLY ON OUR SIDE (2.150.0). Goals the bot marked done
+        -- itself (a trainer not found, a talk that timed out) do not move
+        -- RestedXP on; standing here waited for ever. After STEP_RETRY the
+        -- marks are forgotten and the goals are tried again.
+        local now_c = izi.now()
+        if guide.has_local_done() then
+            if g_complete_since == 0 then g_complete_since = now_c end
+            if (now_c - g_complete_since) >= STEP_RETRY then
+                g_complete_since = 0
+                trail("quest", "step %d: RestedXP did not move on in %ds - retrying its goals",
+                    guide.step_num(), STEP_RETRY)
+                guide.forget_local_done()
+                return
+            end
+        else
+            g_complete_since = 0
+        end
         state.set_note("Quest", "Guide: step complete")
         return
     end
+    g_complete_since = 0
 
     -- A rest outranks the guide.
     if healing and type(healing.is_resting) == "function" and healing.is_resting() then
@@ -2054,16 +2079,10 @@ tick_inner = function(player)
         return
     end
 
-    -- NO VENDORING BELOW LEVEL 2 (2.149.0): a ".vendor" step is passed over.
-    if type(goal.action) == "string" and string.lower(goal.action) == "vendor" then
-        local ok_v, vnd = pcall(require, "vendor")
-        if ok_v and type(vnd) == "table" and type(vnd.level_ok) == "function"
-            and not vnd.level_ok(player) then
-            trail("quest", "vendor goal skipped - no vendoring below level 2")
-            guide.mark_goal_done(guide.step_num(), goal.index)
-            return
-        end
-    end
+    -- BELOW LEVEL 2 (2.150.0): a ".vendor" step is still followed - RestedXP
+    -- ticks it off when the merchant window opens, and skipping it on our
+    -- side left the guide on that step for good ("step complete", standing
+    -- at the vendor). vendor.tick sells and buys nothing below level 2.
 
     if kind == "accept" or kind == "turnin" or kind == "talk" then
         if dialog_goal(player, goal, kind, wps, label) then

@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.149.0
+-- Version: 2.150.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -160,10 +160,12 @@ end
 -- check says. The visit walks to the class trainer in sight, trains what can
 -- be afforded, and reports done so the quest engine moves on.
 local quest_wanted = false
+local quest_title = nil      -- the quest step's waypoint title, while a quest visit runs
 local quest_done = false
 
 --- A quest step wants a trainer visit now (true), or no longer (false).
-function trainer.quest_visit(on)
+function trainer.quest_visit(on, title)
+    quest_title = (on and type(title) == "string" and title ~= "") and title or nil
     if on then
         if not quest_wanted then
             quest_wanted, quest_done = true, false
@@ -333,7 +335,7 @@ end
 -- flag call) is walked to and trained at, once per level. Out of combat and
 -- only while the bot is running.
 local TRAINERS = {
-    WARRIOR = { "Llane Beanshield", "Lyria Du Lac", "Thran Khorman", "Granis Swiftaxe", "Ilsa Corbin", "Wu Shen", "Ander Germaine" },
+    WARRIOR = { "Llane Beshere", "Lyria Du Lac", "Thran Khorman", "Granis Swiftaxe", "Ilsa Corbin", "Wu Shen", "Ander Germaine" },
     PALADIN = { "Brother Sammuel", "Brother Wilhelm", "Bromos Grummner", "Azar Stronghammer", "Arthur the Faithful", "Brother Joshua" },
     HUNTER  = { "Thorgas Grimson", "Grif Wildheart", "Ayanna Everstride", "Dazalar", "Kildar" },
     ROGUE   = { "Jorik Kerridan", "Keryn Sylvius", "Solm Hargrin", "Hogral Bakkan", "Osborne the Night Man" },
@@ -365,28 +367,63 @@ local function class_trainers(player)
     return nil
 end
 
+-- FINDING THE TRAINER (2.150.0). The name list alone missed trainers - the
+-- Northshire warrior trainer was listed as "Llane Beanshield" (he is Llane
+-- Beshere), so a quest ".train" step stood beside him finding nobody. In
+-- order of certainty:
+--   1. the name a quest step's waypoint gives (RestedXP titles it);
+--   2. this class's names in TRAINERS;
+--   3. any unit flagged class trainer (get_npc_flags 0x20) that has not
+--      already refused us - another class's trainer offers no training, is
+--      marked `rejected`, and the next one is tried.
+local NPC_CLASS_TRAINER = 0x20
+local rejected = {}          -- guid -> true: a class trainer that did not train us
+
+local function has_flag(value, bit)
+    return type(value) == "number" and value > 0 and math.floor(value / bit) % 2 == 1
+end
+
 local function trainer_in_sight(player)
-    local names = class_trainers(player)
-    if not names then return nil end
+    local names = class_trainers(player) or {}
     local ok_t, targeting = pcall(require, "targeting")
     local list = ok_t and targeting and type(targeting.visible_objects) == "function"
         and targeting.visible_objects() or nil
     if type(list) ~= "table" then return nil end
-    local best, best_d = nil, nil
+    local best, best_d, best_rank = nil, nil, nil
     for i = 1, #list do
         local u = list[i]
         if u and safe(function() return u:is_valid() end) == true
             and safe(function() return u:is_player() end) ~= true then
             local name = safe(function() return u:get_name() end)
-            if type(name) == "string" and names[name] then
+            local guid = safe(function() return u:get_guid() end)
+            local rank = nil
+            if type(name) == "string" and quest_title and name == quest_title then
+                rank = 1
+            elseif type(name) == "string" and names[name] then
+                rank = 2
+            elseif not (guid and rejected[guid])
+                and has_flag(safe(function() return u:get_npc_flags() end), NPC_CLASS_TRAINER) then
+                rank = 3
+            end
+            if rank and safe(function() return player:can_attack(u) end) ~= true then
                 local d = safe(function() return player:distance_to(u) end)
-                if type(d) == "number" and d <= SEEK_RANGE and (best_d == nil or d < best_d) then
-                    best, best_d = u, d
+                if type(d) == "number" and d <= SEEK_RANGE
+                    and (best_rank == nil or rank < best_rank or (rank == best_rank and d < best_d)) then
+                    best, best_d, best_rank = u, d, rank
                 end
             end
         end
     end
     return best
+end
+
+--- The trainer being walked to did not train us: skip it and try another.
+local function reject_seek(why)
+    if seek and seek.guid then
+        rejected[seek.guid] = true
+        trail("%s did not train us (%s) - trying another trainer", tostring(seek.name), tostring(why))
+    end
+    seek = nil
 end
 
 --- The nearest class trainer in sight (SEEK_RANGE), or nil.
@@ -461,9 +498,11 @@ local function seek_tick(player, now)
     end
     seek.tries = seek.tries + 1
     if seek.tries > SEEK_TRIES then
-        seek_skip_level = level
-        seek = nil
         state.set_note("Trainer", "Trainer did not open")
+        reject_seek("no trainer window")
+        if not trainer_in_sight(player) then
+            seek_skip_level = level
+        end
         return false
     end
     last_act = now
@@ -611,6 +650,12 @@ function trainer.tick(player)
     end
     local select_fn, label = trainer_option()
     if not select_fn then
+        -- Walked up to a class trainer and it offers no training: another
+        -- class's trainer (2.150.0). Close, mark it, try the next.
+        if seek then
+            reject_seek("no training option")
+            pcall(function() core.quests.close_gossip() end)
+        end
         return false
     end
     -- Selected SELECT_MAX times and no trainer window: stop for this visit.

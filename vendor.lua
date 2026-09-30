@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.143.0
+-- Version: 2.144.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -27,6 +27,8 @@
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
+
+local gossip = require("gossip")
 
 ---@type inventory_helper
 local inventory_helper = require("common/utility/inventory_helper")
@@ -339,71 +341,18 @@ local function sell_one(player)
 end
 
 local function gossip_open()
-    if izi.gossip and type(izi.gossip.is_open) == "function" then
-        if safe(function() return izi.gossip.is_open() end) == true then
-            return true
-        end
-    end
-    return safe(function() return core.quests.is_gossip_frame_shown() end) == true
+    return gossip.is_open()
 end
 
-local function gossip_option_id(opt)
-    if type(opt) == "number" and opt ~= 0 then
-        return opt
-    end
-    if type(opt) ~= "table" then
-        return nil
-    end
-    if type(opt.gossip_option_id) == "number" and opt.gossip_option_id ~= 0 then
-        return opt.gossip_option_id
-    end
-    if type(opt.id) == "number" and opt.id ~= 0 then
-        return opt.id
-    end
-    if type(opt.index) == "number" and opt.index ~= 0 then
-        return opt.index
-    end
-    return nil
-end
+
+-- The vendor option (gossip.lua, 2.144.0). This read gossip_option_id from
+-- izi's option view - a field a view does not have - so izi's VENDOR icon
+-- match was always discarded and only a raw gossip_type of "vendor" could
+-- open an innkeeper's or merchant's goods.
+local VENDOR_WORDS = { "browse your goods", "let me browse", "your wares" }
 
 local function select_vendor_gossip()
-    if izi.gossip and type(izi.gossip.find_option_by_icon) == "function" then
-        local icon = 1
-        if type(izi.gossip.ICON) == "table" and type(izi.gossip.ICON.VENDOR) == "number" then
-            icon = izi.gossip.ICON.VENDOR
-        end
-        local opt = safe(function()
-            return izi.gossip.find_option_by_icon(icon)
-        end)
-        local id = nil
-        if type(opt) == "table" and type(opt.gossip_option_id) == "number" and opt.gossip_option_id ~= 0 then
-            id = opt.gossip_option_id
-        end
-        if type(id) == "number" then
-            pcall(function()
-                core.quests.select_gossip_option(id)
-            end)
-            return true
-        end
-    end
-    local options = safe(function() return core.quests.get_gossip_options() end)
-    if type(options) ~= "table" then
-        return false
-    end
-    for i = 1, #options do
-        local opt = options[i]
-        if type(opt) == "table" then
-            local gtype = opt.gossip_type
-            if type(gtype) == "string" and string.lower(gtype) == "vendor" then
-                local id = gossip_option_id(opt) or i
-                pcall(function()
-                    core.quests.select_gossip_option(id)
-                end)
-                return true
-            end
-        end
-    end
-    return false
+    return (gossip.select({ icon = "VENDOR", icon_num = 1, type = "vendor", words = VENDOR_WORDS }))
 end
 
 local function close_vendor()

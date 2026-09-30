@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.148.0
+-- Version: 2.149.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -770,8 +770,25 @@ local function supplier_tick(player)
     return true
 end
 
+-- NO VENDORING BELOW LEVEL 2 (2.149.0): a fresh character has nothing worth
+-- selling and cannot afford food; the trips (and a quest ".vendor" step)
+-- only cost it time.
+local MIN_VENDOR_LEVEL = 2
+
+--- May vendoring run at this level?
+function vendor.level_ok(player)
+    local lvl = safe(function() return player:get_level() end)
+    return type(lvl) ~= "number" or lvl >= MIN_VENDOR_LEVEL
+end
+
 function vendor.tick(player)
     if not player then
+        return false
+    end
+    if not vendor.level_ok(player) then
+        if state.vendor.active then
+            vendor.reset()
+        end
         return false
     end
     if ht then

@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.148.0
+-- Version: 2.149.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -46,6 +46,7 @@ local izi = require("common/izi_sdk")
 local gamever = require("gamever")
 
 local consumables = require("data/consumables")
+local bags = require("bags")
 local gui = require("gui")
 local state = require("state")
 
@@ -219,12 +220,20 @@ end
 --- Returns acted, failure - where failure is nil, "stock" or "gold".
 --- The caller needs the distinction: running out of gold is terminal for the
 --- whole trip, while an unstocked item only rules out that one line.
-local function restock(ids, target, reason)
+local function restock(ids, target, reason, player)
     if type(ids) ~= "table" or #ids == 0 or target <= 0 then
         return false
     end
 
+    -- Every kind in the bags counts (2.149.0, bags.food_water), not only the
+    -- curated ids: food the list does not know is still food.
     local have = carried(ids)
+    if player then
+        bags.food_water_invalidate()
+        local nf, nw = bags.food_water_count(player)
+        local all = reason == "food" and nf or nw
+        if type(all) == "number" and all > have then have = all end
+    end
     if pending and pending.reason == reason then
         if have <= pending.have then
             refused[reason] = (refused[reason] or 0) + 1
@@ -315,7 +324,7 @@ function supplies.tick(player)
     end
 
     local food_target = gui.slider("food_target", 20) or 20
-    local acted, failure = restock(consumables.FOOD_ITEM_IDS, food_target, "food")
+    local acted, failure = restock(consumables.FOOD_ITEM_IDS, food_target, "food", player)
     missing.food = failure == "stock"
     if acted then
         return true
@@ -334,7 +343,7 @@ function supplies.tick(player)
     local no_mana = (class_id == 1) or (class_id == 4)   -- WARRIOR, ROGUE
     if not no_mana then
         local drink_target = gui.slider("drink_target", 20) or 20
-        local d_acted, d_failure = restock(consumables.WATER_ITEM_IDS, drink_target, "drink")
+        local d_acted, d_failure = restock(consumables.WATER_ITEM_IDS, drink_target, "drink", player)
         missing.drink = d_failure == "stock"
         if d_acted then
             return true
@@ -472,6 +481,12 @@ end
 function supplies.missing(player)
     local need_food = requested.food
     local need_water = requested.water and has_mana(player)
+    -- Bags first (2.149.0): any food / water of any kind cancels the request.
+    if need_food or need_water then
+        local nf, nw = bags.food_water_count(player)
+        if need_food and nf > 0 then need_food, requested.food = false, false end
+        if need_water and nw > 0 then need_water, requested.water = false, false end
+    end
     local ok_c, conjure = pcall(require, "conjure")
     if ok_c and type(conjure) == "table" and type(conjure.knows) == "function" then
         if need_water and conjure.knows("water") then need_water = false end
@@ -485,6 +500,11 @@ end
 function supplies.trip_wanted(player)
     if not player or not gui.is_on("buy_supplies") then return false, "buying is off" end
     if forever() then return false, "vendor items unreadable on WoW Forever" end
+    local ok_lv, vendor_lv = pcall(require, "vendor")
+    if ok_lv and type(vendor_lv) == "table" and type(vendor_lv.level_ok) == "function"
+        and not vendor_lv.level_ok(player) then
+        return false, "no vendoring below level 2"
+    end
     if izi.now() < block_until then return false, "no seller reachable" end
     local need_food, need_water = supplies.missing(player)
     if not need_food and not need_water then return false, nil end

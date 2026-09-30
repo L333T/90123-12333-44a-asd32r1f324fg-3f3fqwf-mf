@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.133.0
+-- Version: 2.134.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -442,10 +442,17 @@ local function refresh()
     end
 
     local step = plain_step((ns_call("get_current_step")))
-    local has = as_bool((ns_call("has_current_step")))
-    -- has_current_step is the documented test; a step with a number or goals
-    -- is the same answer read a second way, kept in case the flag is missing.
-    snap.ready = has or (step ~= nil and (step.num > 0 or #step.goals > 0))
+    local has_raw, has_err = ns_call("has_current_step")
+    -- has_current_step is authoritative (2.134.0): an explicit false means
+    -- no step, even when get_current_step hands back a leftover table - the
+    -- zero-valued step RestedXP returns between guides used to pass as
+    -- "ready" and sent the engine after goals that no longer exist. The step
+    -- shape decides only when the flag could not be read at all.
+    if (type(has_raw) == "boolean" or type(has_raw) == "number") and not has_err then
+        snap.ready = as_bool(has_raw) and step ~= nil
+    else
+        snap.ready = step ~= nil and (step.num > 0 or #step.goals > 0)
+    end
     if not snap.ready then
         return
     end
@@ -673,6 +680,36 @@ function guide.mark_goal_done(step_num, index)
     snap.memo = {}            -- recompute the current goal
 end
 
+--- Every quest id a goal names: quest_id first, then the multi-quest ids
+--- (turninmultiple / acceptmultiple), each once.
+function guide.goal_quest_ids(goal)
+    local out, seen = {}, {}
+    if type(goal) ~= "table" then
+        return out
+    end
+    local function add(v)
+        local id = tonumber(v)
+        if id and id > 0 and not seen[id] then
+            seen[id] = true
+            out[#out + 1] = id
+        end
+    end
+    add(goal.quest_id)
+    if type(goal.ids) == "table" then
+        for i = 1, #goal.ids do
+            add(goal.ids[i])
+        end
+    end
+    return out
+end
+
+--- Drop the snapshot so the next read in the update callback asks the addon
+--- again instead of reusing up to WINDOW seconds of old state.
+function guide.invalidate()
+    snap.t = -1
+    snap.memo = {}
+end
+
 local function compute_goal()
     local step = guide.step()
     if not step or step.is_complete == true then
@@ -761,7 +798,7 @@ local ACTIONS = {
     flygoto         = "goto",
     waypoint        = "goto",
     zone            = "goto",
-    home            = "goto",
+    home            = "talk",       -- 2.134.0: speak to the innkeeper and bind
     hs              = "goto",
 
     -- click a thing in the world
@@ -1805,6 +1842,8 @@ function guide.known_npc_id(title)
     return learned[title]
 end
 
+local CENTER_DZ = 30
+
 --- The nearest NPC that can be spoken to.
 ---
 --- Once the bot is standing where the guide sent it, the nearest unit it
@@ -1833,8 +1872,16 @@ function guide.nearest_talkable(player, range, center, exclude)
                 and not (exclude and exclude[call(u.get_guid, u) or ""]) then
                 local d
                 if center then
+                    -- Flat (2.134.0): a waypoint's height is the terrain
+                    -- under it, which indoors is the ground outside, not the
+                    -- floor the NPC stands on. CENTER_DZ keeps a unit on a
+                    -- floor far above or below out.
                     local pos = call(u.get_position, u)
-                    d = pos and geometry.distance(center, pos) or nil
+                    d = pos and geometry.distance_flat(center, pos) or nil
+                    if d and type(center.z) == "number" and type(pos.z) == "number"
+                        and math.abs(center.z - pos.z) > CENTER_DZ then
+                        d = nil
+                    end
                 else
                     d = call(player.distance_to, player, u)
                 end

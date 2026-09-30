@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.133.0
+-- Version: 2.134.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -43,6 +43,13 @@ do
         loot = mod
     end
 end
+local events = nil
+do
+    local ok, mod = pcall(require, "events")
+    if ok and type(mod) == "table" then
+        events = mod
+    end
+end
 
 local quest = {}
 
@@ -76,15 +83,45 @@ local g_talk_opened = 0
 local g_in_dialog = false      -- the last tick was spent on an NPC dialog goal
 local g_in_travel = false      -- the last tick was spent walking to a waypoint
 local TALK_DONE = 2.0         -- seconds a frame is left open before the goal counts
--- A dialog that has landed (accepted / handed in / skipped): how long RestedXP
--- gets to tick the goal off itself before the engine counts it done (2.63.0).
-local DIALOG_DONE_WAIT = 1.5
-local g_dialog_done_at = 0
 -- Every candidate NPC ruled out: when, so the list can be retried later.
 local g_bad_since = 0
 local BAD_GIVER_RETRY = 20.0
 -- Where the bot was last sent to reach the giver, to re-route when it moves.
 local g_giver_walk = nil
+
+-- ARRIVAL IS FLAT (2.134.0). A RestedXP waypoint's height is the terrain
+-- under it, and indoors that is the ground outside, not the floor the NPC
+-- stands on: a 3D "within 3 yards" never came true inside a building, so the
+-- bot circled the spot forever. Within ARRIVE_DZ of the guessed height is
+-- arrival; beyond it, standing on the spot once navigation has stopped is.
+local ARRIVE_DZ = 12
+
+-- NO-PROGRESS CHECK (2.134.0). An accept / turn-in / talk goal that makes no
+-- progress for STALL_AFTER seconds - no yard gained on the NPC, no dialog
+-- stage advanced, no quest-log change - is recovered: frames closed, the
+-- guide re-read, the giver searched for again and a fresh path requested.
+-- STALL_MAX recoveries in a row skip the goal. The 5-minute watchdog stays
+-- as the last line behind it.
+local STALL_AFTER = 30.0
+local STALL_MAX = 3
+local STALL_GAIN = 2.0        -- yards closer that count as progress
+local g_stall = { t = 0, seen = 0, best = nil, reach = false, npc_seq = nil, log = nil, recoveries = 0 }
+local g_force_path = false    -- next walk drops the old path and asks for a new one
+
+-- The NPC refused an interact (a UI error): close in before the next one.
+local CLOSE_REACH = 2.5
+local g_close_in = false
+
+-- The NPC lists the quest as not complete: wait, then ask once more.
+local NOT_READY_HOLD = 10.0
+local NOT_READY_MAX = 2
+local g_not_ready = 0
+local g_hold_until = 0
+
+-- An innkeeper for a ".home" goal: the bind option was selected.
+local g_bind_asked = false
+-- Talk goals: when the last interact went out.
+local g_talk_interact_t = 0
 
 -- The NPC the bot opened a dialog with, remembered until the goal changes so
 -- it can be recorded as that quest's giver once the accept or turnin lands.
@@ -378,12 +415,34 @@ local function approach_kind()
     return nil
 end
 
-local function walk_to(pos, note)
-    if movement.arrived(pos, ARRIVE) then
+--- Standing within `yards` of `pos`, measured flat (see ARRIVE_DZ).
+local function near(pos, yards)
+    local me = safe(function() return izi.me():get_position() end)
+    if not me or not pos then
+        return false
+    end
+    local d = geometry.distance_flat(me, pos)
+    if type(d) ~= "number" or d > yards then
+        return false
+    end
+    if type(me.z) ~= "number" or type(pos.z) ~= "number" or math.abs(me.z - pos.z) <= ARRIVE_DZ then
+        return true
+    end
+    return not movement.is_moving()
+end
+
+local function walk_to(pos, note, arrive)
+    if near(pos, arrive or ARRIVE) then
         return false
     end
     if path_pull(pos) then
         return true
+    end
+    if g_force_path then
+        -- A stall recovery: whatever path is running got the bot nowhere.
+        g_force_path = false
+        movement.nav_stop()
+        last_walk_x, last_walk_y, last_aim_x, last_aim_y = nil, nil, nil, nil
     end
     -- Only when the destination moves to a new yard: formatting the line
     -- every frame just to have errorlog throw it away is what this avoids.
@@ -450,10 +509,15 @@ end
 --- The quest log has it for a turnin. An accept is not in the log yet, so the
 --- guide line is used with its verb stripped; quest/npc also takes a lone
 --- entry without any title match, which covers most givers.
-local function quest_title(goal, kind)
-    local title = guide.log_title(goal.quest_id)
+local function quest_title(goal, kind, qid)
+    qid = qid or goal.quest_id
+    local title = qid and guide.log_title(qid) or nil
     if title then
         return title
+    end
+    -- A multi-quest goal's line names several quests: no single title.
+    if qid ~= goal.quest_id then
+        return nil
     end
     local text = goal.text
     if type(text) ~= "string" then
@@ -564,39 +628,185 @@ end
 -- GOAL HANDLERS
 -- ----------------------------------------------------------------------------
 
---- The goal is already satisfied in the quest log: accepted, or handed in.
---- RestedXP normally ticks these off itself, but its snapshot can lag a
---- tick - or the player did it by hand - and the bot walked to the NPC and
---- opened a dialog for nothing (2.63.0).
-local function dialog_already_done(goal, kind)
-    local qid = goal.quest_id
-    if not qid then
+--- The quest this accept / turn-in goal is about right now (2.134.0).
+---
+--- RestedXP names it in quest_id, or in ids for a multi-quest goal
+--- (acceptmultiple / turninmultiple), which used to fall through to the
+--- generic talk path: the bot opened a frame, called the goal done after two
+--- seconds and never handed anything in. The first id still to do wins:
+--- an accept not yet in the log and never completed, a turn-in in the log and
+--- not handed in this session.
+---
+--- Returns (quest_id) to work on, or (nil, why) when every id the goal names
+--- is already satisfied - RestedXP's snapshot can lag a tick, or the player
+--- did it by hand (2.63.0) - or the goal names none.
+local function resolve_quest(goal, kind)
+    local ids = guide.goal_quest_ids(goal)
+    if #ids == 0 then
+        return nil, "names no quest"
+    end
+    local skipped = type(state.quest.skipped) == "table" and state.quest.skipped or {}
+    for i = 1, #ids do
+        local id = ids[i]
+        local on = safe(function() return core.quests.is_on_quest(id) end)
+        local done = safe(function() return core.quests.is_quest_flagged_completed(id) end) == true
+        if kind == "accept" then
+            if on ~= true and not done and not skipped[id] then
+                return id
+            end
+        elseif on == true and not npc.was_turned_in(id) then
+            return id
+        elseif on == nil and not done and not npc.was_turned_in(id) then
+            -- The build cannot say: try it, the NPC's list decides.
+            return id
+        end
+    end
+    if kind == "accept" then
+        return nil, "already accepted or completed"
+    end
+    return nil, "no quest of this goal is in the log (handed in, or never taken)"
+end
+
+--- Anything the quest log says about the goal's quests, as one string, so
+--- a change between ticks counts as progress.
+local function log_signature(goal)
+    local ids = guide.goal_quest_ids(goal)
+    local parts = {}
+    for i = 1, #ids do
+        local id = ids[i]
+        local on = safe(function() return core.quests.is_on_quest(id) end)
+        local done = safe(function() return core.quests.is_quest_flagged_completed(id) end)
+        parts[#parts + 1] = tostring(on) .. tostring(done)
+    end
+    return table.concat(parts, ",")
+end
+
+local function stall_reset(now)
+    g_stall.t, g_stall.seen, g_stall.best, g_stall.reach = now, now, nil, false
+    g_stall.npc_seq, g_stall.log, g_stall.recoveries, g_stall.pos = nil, nil, 0, nil
+end
+
+--- Record this tick's progress. `d` is the distance to what the bot is
+--- walking to (the NPC, or the waypoint while no NPC is found). Returns true
+--- when STALL_AFTER seconds have passed without any.
+local function stalled(now, goal, d)
+    -- Ticks spent fighting, resting or looting are not this goal's time.
+    if (now - g_stall.seen) > 1.0 then
+        g_stall.t = now
+    end
+    g_stall.seen = now
+    local moved = false
+    if type(d) == "number" then
+        if g_stall.best == nil or d < g_stall.best - STALL_GAIN then
+            g_stall.best = d
+            moved = true
+        end
+        local in_reach = d <= TALK_REACH
+        if in_reach and not g_stall.reach then
+            moved = true
+        end
+        g_stall.reach = in_reach
+    end
+    local ns = npc.progress_seq()
+    if ns ~= g_stall.npc_seq then
+        g_stall.npc_seq = ns
+        moved = true
+    end
+    local sig = log_signature(goal)
+    if sig ~= g_stall.log then
+        g_stall.log = sig
+        moved = true
+    end
+    if g_talk_opened ~= 0 then
+        moved = true
+    end
+    -- A recorded road can lead away from the goal for a while before it
+    -- turns toward it; covering ground on one is progress.
+    if travel_routes.road then
+        local me = safe(function() return izi.me():get_position() end)
+        if me and (g_stall.pos == nil or (geometry.distance_flat(me, g_stall.pos) or 0) >= 5) then
+            g_stall.pos = { x = me.x, y = me.y, z = me.z }
+            moved = true
+        end
+    end
+    if moved then
+        g_stall.t = now
         return false
     end
-    local on = safe(function() return core.quests.is_on_quest(qid) end) == true
-    if kind == "accept" then
-        return on
-    end
-    if kind == "turnin" then
-        return not on and safe(function() return core.quests.is_quest_flagged_completed(qid) end) == true
+    return (now - g_stall.t) >= STALL_AFTER
+end
+
+--- The recovery sequence for a stalled NPC goal. Returns true when the goal
+--- was given up on.
+local function recover_stall(now, goal, label)
+    g_stall.recoveries = g_stall.recoveries + 1
+    trail("act", "%s: no progress for %.0f s - recovery %d of %d", tostring(label),
+        STALL_AFTER, g_stall.recoveries, STALL_MAX)
+    npc.close()
+    movement.nav_stop()
+    guide.invalidate()
+    g_giver_walk = nil
+    g_talk_opened = 0
+    g_act_until = 0
+    g_hold_until = 0
+    g_close_in = false
+    g_bind_asked = false
+    g_bad_givers = {}
+    g_bad_since = 0
+    g_force_path = true
+    g_stall.t, g_stall.best, g_stall.reach = now, nil, false
+    if g_stall.recoveries >= STALL_MAX then
+        core.log_warning(string.format(
+            "[Master Farmer - Grindbot] Quest goal '%s': no progress after %d recoveries - skipping it.",
+            tostring(label), STALL_MAX))
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
     end
     return false
 end
 
 local function dialog_goal(player, goal, kind, wps, label)
-    if dialog_already_done(goal, kind) then
-        trail("act", "%s quest %s: already done in the quest log - next goal", kind, tostring(goal.quest_id))
-        guide.mark_goal_done(guide.step_num(), goal.index)
+    local now = izi.now()
+    local qid = nil
+    if kind == "accept" or kind == "turnin" then
+        local why
+        qid, why = resolve_quest(goal, kind)
+        if not qid then
+            trail("act", "%s goal %d: %s - next goal", kind, goal.index or 0, tostring(why))
+            if why ~= "names no quest" then
+                guide.mark_goal_done(guide.step_num(), goal.index)
+                return true
+            end
+            -- No quest id at all: an NPC to speak to is all that is known.
+        end
+    end
+    if now < g_hold_until then
+        state.set_note("Quest", "Guide: waiting - " .. tostring(label) .. " not complete at the NPC")
         return true
     end
+
     local unit, how = find_giver(player, goal, kind, wps)
+
+    -- Distance to what the bot is working toward, for the stall check.
+    local track_d
+    if unit then
+        track_d = safe(function() return player:distance_to(unit) end)
+    elseif #wps > 0 then
+        local me = safe(function() return player:get_position() end)
+        local wp = wps[math.min(g_move, #wps)].pos
+        track_d = me and geometry.distance_flat(me, wp) or nil
+    end
+    if stalled(now, goal, track_d) then
+        recover_stall(now, goal, label)
+        return true
+    end
+
     if not unit then
         -- Every NPC here was ruled out. Give them another chance after a
         -- while (2.63.0): a giver that timed out once - lag, a frame that
         -- opened late - is usually fine the second time, and until now the
         -- list was only cleared when the goal changed, i.e. by the watchdog.
         if next(g_bad_givers) ~= nil then
-            local now = izi.now()
             if g_bad_since == 0 then
                 g_bad_since = now
             elseif (now - g_bad_since) >= BAD_GIVER_RETRY then
@@ -608,8 +818,15 @@ local function dialog_goal(player, goal, kind, wps, label)
         return false
     end
     g_bad_since = 0
-    local d = safe(function() return player:distance_to(unit) end) or 99
-    if d > TALK_REACH then
+    local d = track_d or 99
+    -- An interact the NPC refused (out of range, a UI error): the next one
+    -- is made from closer.
+    if npc.take_refused() and not g_close_in then
+        g_close_in = true
+        trail("act", "%s: the NPC refused the interaction - closing in", tostring(label))
+    end
+    local reach = g_close_in and CLOSE_REACH or TALK_REACH
+    if d > reach then
         local p = safe(function() return unit:get_position() end)
         if p then
             -- Re-route when the giver is not where the bot is already
@@ -620,7 +837,7 @@ local function dialog_goal(player, goal, kind, wps, label)
                 g_giver_walk = { x = p.x, y = p.y, z = p.z }
                 movement.nav_stop()
             end
-            walk_to(p, label)
+            walk_to(p, label, math.max(reach - 1.0, 1.5))
             return true
         end
         return false
@@ -631,30 +848,49 @@ local function dialog_goal(player, goal, kind, wps, label)
     local npc_id = geometry.object_id(unit)
     trail("act", "%s with %s npc %s via %s", kind,
         tostring(safe(function() return unit:get_name() end)), tostring(npc_id), tostring(how))
-    if (kind == "accept" or kind == "turnin") and goal.quest_id then
-        g_pending = { kind = kind, quest_id = goal.quest_id, npc_id = npc_id }
-        state.quest.id = goal.quest_id
-        local title = quest_title(goal, kind)
+    if qid then
+        g_pending = { kind = kind, quest_id = qid, npc_id = npc_id }
+        state.quest.id = qid
+        local title = quest_title(goal, kind, qid)
         local result
         if kind == "accept" then
-            state.set_note("Quest", "Guide: accept " .. tostring(title or goal.quest_id))
-            result = npc.accept(player, goal.quest_id, title, npc_id, unit)
+            state.set_note("Quest", "Guide: accept " .. tostring(title or qid))
+            result = npc.accept(player, qid, title, npc_id, unit)
         else
-            state.set_note("Quest", "Guide: turn in " .. tostring(title or goal.quest_id))
-            result = npc.turn_in(player, goal.quest_id, title, npc_id, unit)
+            state.set_note("Quest", "Guide: turn in " .. tostring(title or qid))
+            result = npc.turn_in(player, qid, title, npc_id, unit)
         end
         if result == "done" or result == "skipped" then
-            -- Landed. RestedXP gets DIALOG_DONE_WAIT to tick the goal off;
-            -- after that it is counted done here so the bot moves on instead
-            -- of standing at the NPC (2.63.0).
-            local now = izi.now()
-            if g_dialog_done_at == 0 then
-                g_dialog_done_at = now
-                trail("act", "%s quest %d: %s", kind, goal.quest_id, result)
-            elseif (now - g_dialog_done_at) >= DIALOG_DONE_WAIT then
+            -- Landed and proven by quest/npc. Close the windows once and move
+            -- on: the dialog keeps answering "done" for this quest, so nothing
+            -- re-interacts while RestedXP catches up. A multi-quest goal comes
+            -- back here for its next id rather than being counted done.
+            trail("act", "%s quest %d: %s", kind, qid, result)
+            npc.close_frames()
+            guide.invalidate()
+            g_not_ready = 0
+            g_close_in = false
+            if resolve_quest(goal, kind) == nil then
                 guide.mark_goal_done(guide.step_num(), goal.index)
-                npc.close()
-                g_dialog_done_at = 0
+            end
+            return true
+        end
+        if result == "not_ready" then
+            -- The NPC has the quest but will not take it yet. Re-reading the
+            -- guide once more covers an objective that finished a moment ago;
+            -- a second refusal means RestedXP is ahead of the server.
+            g_not_ready = g_not_ready + 1
+            npc.close()
+            guide.invalidate()
+            if g_not_ready >= NOT_READY_MAX then
+                core.log_warning(string.format(
+                    "[Master Farmer - Grindbot] Quest %s: RestedXP says turn it in, the NPC says it is not complete - skipping the goal.",
+                    tostring(title or qid)))
+                guide.mark_goal_done(guide.step_num(), goal.index)
+                g_not_ready = 0
+            else
+                trail("act", "turn in %d: not complete at the NPC - holding %.0f s", qid, NOT_READY_HOLD)
+                g_hold_until = now + NOT_READY_HOLD
             end
             return true
         end
@@ -665,11 +901,12 @@ local function dialog_goal(player, goal, kind, wps, label)
                 g_bad_givers[g] = true
             end
             trail("act", "%s: %s does not have quest %d (%s) - trying another NPC", kind,
-                tostring(safe(function() return unit:get_name() end)), goal.quest_id, result)
+                tostring(safe(function() return unit:get_name() end)), qid, result)
             npc.close()
             g_pending = nil
+            g_close_in = false
         end
-        debug("%s quest %d at %s (npc %s)", kind, goal.quest_id, tostring(how), tostring(npc_id))
+        debug("%s quest %d at %s (npc %s)", kind, qid, tostring(how), tostring(npc_id))
         return true
     end
 
@@ -684,8 +921,23 @@ local function dialog_goal(player, goal, kind, wps, label)
     -- long finished. Now: once any NPC frame is open (gossip, merchant,
     -- trainer) and the vendor trip is over, the goal counts as done after
     -- TALK_DONE and the bot moves on.
-    local now = izi.now()
     local gossip = safe(function() return core.quests.is_gossip_frame_shown() end) == true
+    -- ".home" (2.134.0): the innkeeper's bind option, picked by its icon from
+    -- this frame's own options. The confirmation popup is answered by
+    -- events.lua (CONFIRM_BINDER).
+    if gossip and not g_bind_asked and string.lower(goal.action or "") == "home" then
+        local g = izi.gossip
+        local opt = g and g.ICON and type(g.find_option_by_icon) == "function"
+            and safe(function() return g.find_option_by_icon(g.ICON.BINDER) end) or nil
+        if opt then
+            g_bind_asked = true
+            pcall(function() opt:select() end)
+            g_talk_opened = now
+            trail("act", "asked %s to bind the hearthstone", tostring(safe(function() return unit:get_name() end)))
+            state.set_note("Quest", "Guide: binding the hearthstone")
+            return true
+        end
+    end
     local ok_v, vendor = pcall(require, "vendor")
     local merchant = ok_v and type(vendor) == "table" and type(vendor.merchant_open) == "function"
         and vendor.merchant_open() == true
@@ -718,7 +970,16 @@ local function dialog_goal(player, goal, kind, wps, label)
         return true
     end
     if now >= g_act_until then
+        -- The last interact drew a UI error instead of a window: the next is
+        -- made from closer, not repeated from the same spot.
+        if g_talk_interact_t > 0 and not g_close_in and events
+            and type(events.since) == "function" and events.since("UI_ERROR_MESSAGE", g_talk_interact_t) then
+            g_close_in = true
+            trail("act", "%s: the NPC refused the interaction - closing in", tostring(label))
+            return true
+        end
         g_act_until = now + ACT_GAP
+        g_talk_interact_t = now
         pcall(function() core.input.interact_with_object(unit) end)
         debug("talk to %s", tostring(how))
     end
@@ -1560,8 +1821,8 @@ tick_inner = function(player)
         end
     end
 
-    local key = string.format("%d|%d|%s|%s", guide.step_num(), goal.index or 0,
-        tostring(goal.quest_id), kind)
+    local key = string.format("%d|%d|%s|%s|%s", guide.step_num(), goal.index or 0,
+        tostring(goal.quest_id), kind, tostring(goal.action))
     if key ~= g_key then
         commit_pending()
         g_key = key
@@ -1575,8 +1836,14 @@ tick_inner = function(player)
         g_bad_since = 0
         g_obj.guid, g_obj.uses = nil, 0
         g_fly_taken, g_fly_warned, g_fly_noopt = 0, false, 0
-        g_dialog_done_at = 0
         g_giver_walk = nil
+        g_close_in = false
+        g_not_ready = 0
+        g_hold_until = 0
+        g_bind_asked = false
+        g_talk_interact_t = 0
+        g_force_path = false
+        stall_reset(izi.now())
         -- A step change mid-fight keeps the fight; only an idle target is
         -- dropped.
         if safe(function() return player:is_in_combat() end) ~= true then
@@ -1694,7 +1961,7 @@ tick_inner = function(player)
     end
     -- Still short of this waypoint, with another after it: hand the path
     -- the next point before this one is reached, so the walk does not stop.
-    if #wps > 1 and movement.is_moving() and movement.arrived(wps[g_move].pos, CHAIN_WP) then
+    if #wps > 1 and movement.is_moving() and near(wps[g_move].pos, CHAIN_WP) then
         g_move = g_move + 1
         if g_move > #wps then
             g_move = 1

@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.133.0
+-- Version: 2.134.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -56,6 +56,19 @@
 -- ESCORTS NEED A SECOND YES
 --   accept_quest() is not enough for an auto-accept / escort quest; the client
 --   raises a confirmation popup that confirm_accept_quest() answers.
+--
+-- AN INTERACT IS NOT A WINDOW (2.134.0)
+--   interact_with_object returns true whether or not the NPC answered, and the
+--   machine went straight on to read a frame. An interact from the wrong floor
+--   or out of reach was read as "an empty frame", Continue and reward calls
+--   went out against nothing, and the verify stage called the quest handed in
+--   because it was simply not in a log the build cannot read. Now:
+--     - "await" waits for a window to open (the events events.lua records, or
+--       a gossip / greeting list that can be read) before anything is selected;
+--       a UI error or silence is a failed attempt, not a frame;
+--     - the NPC's own active row must say is_complete before it is selected;
+--     - a hand-in is proven by QUEST_TURNED_IN, the completed flag, or the
+--       quest leaving a log it was in when the attempt began.
 -- ============================================================================
 
 ---@type izi_api
@@ -284,36 +297,123 @@ local function interact_once(player, npc_id, unit)
 end
 
 -- ----------------------------------------------------------------------------
+-- WINDOW EVENTS (2.134.0)
+-- ----------------------------------------------------------------------------
+-- interact_with_object always returns true; whether the NPC answered is only
+-- known from the window events events.lua records. There is no "quest frame
+-- shown" query, so the detail / progress / completion panels are seen through
+-- QUEST_DETAIL / QUEST_PROGRESS / QUEST_COMPLETE alone. events.live() stays
+-- false until the core has delivered one of them this session; until then
+-- the machine falls back to the timers it has always used.
+local ok_ev, events = pcall(require, "events")
+if not ok_ev or type(events) ~= "table" then
+    events = nil
+end
+
+local ok_log, errorlog = pcall(require, "errorlog")
+if not ok_log or type(errorlog) ~= "table" then
+    errorlog = nil
+end
+
+local function trail(fmt, ...)
+    quest_debug(fmt, ...)
+    if errorlog and type(errorlog.trail) == "function" then
+        errorlog.trail("npc", fmt, ...)
+    end
+end
+
+local function ev_live()
+    return events ~= nil and type(events.live) == "function" and events.live() == true
+end
+
+local function ev_since(name, t)
+    return events ~= nil and type(events.since) == "function" and events.since(name, t) == true
+end
+
+local function ev_opened(t)
+    if events ~= nil and type(events.opened_since) == "function" then
+        return events.opened_since(t)
+    end
+    return nil
+end
+
+local function forever()
+    local ok, gamever = pcall(require, "gamever")
+    return ok and type(gamever) == "table" and gamever.is_forever()
+end
+
+local function on_quest(quest_id)
+    return safe(function() return core.quests.is_on_quest(quest_id) end)
+end
+
+local function flagged_done(quest_id)
+    return safe(function() return core.quests.is_quest_flagged_completed(quest_id) end) == true
+end
+
+-- ----------------------------------------------------------------------------
 -- DIALOG STATE MACHINE
 -- ----------------------------------------------------------------------------
 -- Each step gets its own tick. The client needs a frame or two to open a
 -- window, and every step here reads a window the previous step opened.
-local STEP_GAP    = 0.5   -- seconds between steps
-local FRAME_WAIT  = 2.0   -- how long to let the reward frame appear
-local RETRY_GAP   = 8.0   -- restart a stalled dialog after this
-local MAX_TRIES   = 3
+--
+--   interact -> await -> select -> wait -> finish -> reward -> verify   (turn in)
+--   interact -> await -> select -> accept -> verify                     (accept)
+--
+-- "await" is the step that was missing: the machine used to go from interact
+-- straight to reading a frame, so an interact the NPC never answered (out of
+-- reach, wrong floor, busy) was read as an empty frame and walked on to
+-- Continue and reward calls against nothing.
+local STEP_GAP      = 0.5   -- seconds between steps
+local FRAME_WAIT    = 2.0   -- timer fallback: how long to let a panel appear
+local FRAME_TIMEOUT = 3.0   -- events live: no window by now means no answer
+local VERIFY_WAIT   = 6.0   -- how long a completion may take to show
+local INFO_WAIT     = 2.0   -- reward item info still loading
+local MAX_TRIES     = 3
 
 local MAX_NO_UNIT = 10     -- interact attempts with no NPC in reach before giving up
 
-local dlg = { key = nil, stage = nil, t = -1e9, tries = 0, picked = nil, no_unit = 0, result = nil }
+local WRONG_WINDOWS = { MERCHANT_SHOW = true, TRAINER_SHOW = true, TAXIMAP_OPENED = true }
 
-local function dlg_reset(key)
+local dlg = {
+    key = nil, stage = nil, t = -1e9, tries = 0, picked = nil, no_unit = 0, result = nil,
+    t_interact = 0, frame = nil, continued = false, info_t = nil, was_on = nil,
+    refused = false, seq = 0, label = "",
+}
+
+-- Quests this session has seen handed in, by id. Guards against selecting a
+-- quest again while the log and RestedXP catch up.
+local turned_in = {}
+
+local function dlg_reset(key, label)
     dlg.key, dlg.stage, dlg.t, dlg.tries, dlg.picked = key, "interact", -1e9, 0, nil
     dlg.no_unit, dlg.result = 0, nil
+    dlg.t_interact, dlg.frame, dlg.continued, dlg.info_t, dlg.was_on = 0, nil, false, nil, nil
+    dlg.refused = false
+    dlg.label = label or ""
 end
 
+-- Stages reached only by moving FORWARD through a dialog. Going back to
+-- interact / await is a retry, which the engine's stall check must not
+-- mistake for progress.
+local FORWARD = { select = true, accept = true, wait = true, finish = true, reward = true, verify = true }
+
 local function dlg_to(stage, now)
+    if dlg.stage ~= stage then
+        if FORWARD[stage] then
+            dlg.seq = dlg.seq + 1
+        end
+        trail("%s %s: %s", dlg.key or "?", dlg.label, stage)
+    end
     dlg.stage, dlg.t = stage, now
 end
 
 --- End the dialog with `result`, which is returned on every later call too
---- (2.63.0): "done" (landed), "skipped" (grey), "not_offered", "gave_up".
---- The engine used to get nil back once a dialog had finished, so it could
---- not tell "finished" from "still working" and stood at the NPC until
---- RestedXP ticked the goal off - or, when it did not, until the 5-minute
---- watchdog.
+--- (2.63.0): "done" (landed), "skipped" (grey), "not_offered", "not_ready"
+--- (the NPC lists the quest but will not take it yet), "gave_up".
 local function dlg_finish(result)
     dlg.stage, dlg.result = "done", result
+    dlg.seq = dlg.seq + 1
+    trail("%s %s: finished - %s", dlg.key or "?", dlg.label, tostring(result))
     return result
 end
 
@@ -324,7 +424,9 @@ local function dlg_interact(player, npc_id, unit, now)
     if interact_once(player, npc_id, unit) then
         dlg.tries = dlg.tries + 1
         dlg.no_unit = 0
-        dlg_to("select", now)
+        dlg.t_interact = now
+        dlg.frame, dlg.continued, dlg.info_t, dlg.picked = nil, false, nil, nil
+        dlg_to("await", now)
         return true
     end
     dlg.no_unit = dlg.no_unit + 1
@@ -332,14 +434,85 @@ local function dlg_interact(player, npc_id, unit, now)
     return false
 end
 
---- A gossip frame is open and lists NO quest of `kind`, but does list other
---- options (a guard's directions, a flight master's "show me where I can
---- fly"): this NPC does not have the quest, and saying so at once beats three
---- 8-second retries (2.63.0). An empty frame with no options at all may still
---- be loading, so that is left to the normal retry.
-local function gossip_lacks(kind)
-    if not gossip_open() then
-        return false
+local function has_choices()
+    local link = safe(function() return core.quests.get_quest_item_link("choice", 1) end)
+    return type(link) == "string" and link ~= ""
+end
+
+local function greeting_lists()
+    local act = frame_titles(function(i) return core.quests.get_active_title(i) end)
+    local avail = frame_titles(function(i) return core.quests.get_available_title(i) end)
+    return act, avail
+end
+
+--- Which window the last interact opened, "refused", "timeout", or nil while
+--- it is still worth waiting.
+local function await_frame(now)
+    local since = dlg.t_interact
+    local ev = ev_opened(since)
+    if ev then
+        return ev
+    end
+    if gossip_open() then
+        return "GOSSIP_SHOW"
+    end
+    local act, avail = greeting_lists()
+    if next(act) ~= nil or next(avail) ~= nil then
+        return "QUEST_GREETING"
+    end
+    if has_choices() then
+        return "QUEST_COMPLETE"
+    end
+    if ev_since("UI_ERROR_MESSAGE", since) then
+        return "refused"
+    end
+    if (now - since) < FRAME_TIMEOUT then
+        return nil
+    end
+    -- No event pump on this core: the old assumption, that a single-quest
+    -- NPC opened a detail panel nothing here can see, is all there is.
+    if not ev_live() then
+        return "assumed"
+    end
+    return "timeout"
+end
+
+--- Back to interact after a failed attempt. The tries counter is what ends
+--- it: three unanswered interacts is "gave_up", never an endless loop.
+local function dlg_retry(now, why)
+    trail("%s %s: %s - retrying (try %d of %d)", dlg.key or "?", dlg.label, why, dlg.tries, MAX_TRIES)
+    dlg_to("interact", now)
+end
+
+-- ----------------------------------------------------------------------------
+-- GOSSIP ROWS
+-- ----------------------------------------------------------------------------
+--- The NPC's gossip quests of `kind`, normalised to
+--- { title, real_id, is_complete, is_trivial, pick }.
+---
+--- izi.gossip is preferred: its views say whether `id` is a real quest id
+--- (has_real_id) and route :select() to the right selector on every build.
+--- The raw rows are the fallback; their quest_id is a real id only on a
+--- Blizzard client (Forever), and a row index on the private-server builds.
+local function quest_rows(kind)
+    local out = {}
+    local g = izi.gossip
+    local getter = g and (kind == "available" and g.available_quests or g.active_quests)
+    if type(getter) == "function" then
+        local views = safe(function() return getter() end)
+        if type(views) == "table" then
+            for i = 1, #views do
+                local v = views[i]
+                out[#out + 1] = {
+                    title = v.title,
+                    real_id = (v.has_real_id == true) and v.id or nil,
+                    is_complete = v.is_complete,
+                    is_trivial = v.is_trivial,
+                    pick = function() v:select() end,
+                }
+            end
+            return out
+        end
     end
     local list = safe(function()
         if kind == "available" then
@@ -347,18 +520,64 @@ local function gossip_lacks(kind)
         end
         return core.quests.get_gossip_active_quests()
     end)
-    if type(list) ~= "table" or #list > 0 then
-        return false
+    if type(list) ~= "table" then
+        return out
     end
-    local opts = safe(function() return core.quests.get_gossip_options() end)
-    return type(opts) == "table" and #opts > 0
+    local real = forever()
+    for i = 1, #list do
+        local r = list[i]
+        -- `handle` is opaque: only valid in this frame, handed straight back
+        -- to the selector, never stored or compared (1.5.2).
+        local handle = r.quest_id
+        out[#out + 1] = {
+            title = r.title,
+            real_id = real and r.quest_id or nil,
+            is_complete = r.is_complete,
+            is_trivial = r.is_trivial,
+            pick = function()
+                if kind == "available" then
+                    core.quests.select_gossip_available_quest(handle)
+                else
+                    core.quests.select_gossip_active_quest(handle)
+                end
+            end,
+        }
+    end
+    return out
 end
 
---- Find a quest in a gossip list.
----
---- Title first, because on TBC the quest_id field is only a row index and can
---- never equal a real quest id. The id comparison is kept for retail, where it
---- is a real id and is the more reliable of the two.
+--- Find a quest in normalised rows: real id first (only where the build has
+--- one), then title, then the only row there is.
+local function find_row(rows, quest_id, quest_name)
+    for i = 1, #rows do
+        if rows[i].real_id ~= nil and rows[i].real_id == quest_id then
+            return rows[i]
+        end
+    end
+    if type(quest_name) == "string" and quest_name ~= "" then
+        for i = 1, #rows do
+            if rows[i].title == quest_name then
+                return rows[i]
+            end
+        end
+        local lower = quest_name:lower()
+        for i = 1, #rows do
+            if type(rows[i].title) == "string" and rows[i].title:lower() == lower then
+                return rows[i]
+            end
+        end
+    end
+    if #rows == 1 then
+        -- A single row with a real id that is not ours is someone else's quest.
+        if rows[1].real_id ~= nil and rows[1].real_id ~= quest_id then
+            return nil
+        end
+        return rows[1]
+    end
+    return nil
+end
+
+--- Raw-row lookup kept for npc.is_complete.
 local function gossip_row(list, quest_id, quest_name)
     if type(quest_name) == "string" and quest_name ~= "" then
         for i = 1, #list do
@@ -373,17 +592,22 @@ local function gossip_row(list, quest_id, quest_name)
             end
         end
     end
-    -- Retail: quest_id really is the quest id.
-    for i = 1, #list do
-        if list[i].quest_id == quest_id then
-            return list[i]
+    if forever() then
+        for i = 1, #list do
+            if list[i].quest_id == quest_id then
+                return list[i]
+            end
         end
     end
-    -- One quest and nothing matched: it can only be this one.
     if #list == 1 then
         return list[1]
     end
     return nil
+end
+
+local function gossip_options_count()
+    local opts = safe(function() return core.quests.get_gossip_options() end)
+    return type(opts) == "table" and #opts or 0
 end
 
 --- Is this quest grey for us?
@@ -401,14 +625,8 @@ local function is_trivial_quest(player, quest_id, quest_name)
     end
 
     if gossip_open() then
-        local list = safe(function() return core.quests.get_gossip_available_quests() end)
-        if type(list) == "table" and #list > 0 then
-            local row = gossip_row(list, quest_id, quest_name)
-            if row then
-                return row.is_trivial == true
-            end
-        end
-        return false
+        local row = find_row(quest_rows("available"), quest_id, quest_name)
+        return row ~= nil and row.is_trivial == true
     end
 
     -- Greeting frame: no is_trivial, but it does report the quest level.
@@ -437,60 +655,67 @@ local function mark_skipped(quest_id, quest_name)
 end
 
 --- Select `quest_id` at the NPC, whichever frame it is showing.
+---
+--- Returns one of:
+---   "selected"     the row was selected; a quest panel should follow
+---   "panel"        no list at all: a quest panel is (or is assumed) up
+---   "not_listed"   the NPC lists quests and this one is not among them
+---   "not_ready"    turn in only: listed, but the NPC marks it incomplete
 local function select_quest(quest_id, quest_name, kind)
-    local gossip_list, gossip_pick, frame_title, frame_pick
-    if kind == "available" then
-        gossip_list = function() return core.quests.get_gossip_available_quests() end
-        gossip_pick = function(id) core.quests.select_gossip_available_quest(id) end
-        frame_title = function(i) return core.quests.get_available_title(i) end
-        frame_pick  = function(i) core.quests.select_available_quest(i) end
-    else
-        gossip_list = function() return core.quests.get_gossip_active_quests() end
-        gossip_pick = function(id) core.quests.select_gossip_active_quest(id) end
-        frame_title = function(i) return core.quests.get_active_title(i) end
-        frame_pick  = function(i) core.quests.select_active_quest(i) end
-    end
-
     if gossip_open() then
-        local list = safe(gossip_list)
-        if type(list) == "table" and #list > 0 then
-            local row = gossip_row(list, quest_id, quest_name)
-            if row then
-                -- `row.quest_id` is opaque: a real id on retail, the row index
-                -- on TBC. It is only valid in this frame, so it goes straight
-                -- back to the selector and is never stored or compared.
-                local handle = row.quest_id
-                pcall(function() gossip_pick(handle) end)
-                quest_debug("selected %s quest '%s' in the gossip frame (handle %s)",
-                    kind, tostring(row.title), tostring(handle))
-                return true
+        local rows = quest_rows(kind)
+        if #rows > 0 then
+            local row = find_row(rows, quest_id, quest_name)
+            if not row then
+                trail("%s quest '%s' is not in this NPC's gossip list of %d",
+                    kind, tostring(quest_name or quest_id), #rows)
+                return "not_listed"
             end
-            -- A list came back and this quest is not in it. Selecting a row at
-            -- random would pick up the wrong quest, so do nothing.
-            quest_debug("%s quest '%s' is not in this NPC's gossip list of %d",
-                kind, tostring(quest_name or quest_id), #list)
-            return false
+            if kind == "active" and row.is_complete == false then
+                return "not_ready"
+            end
+            pcall(row.pick)
+            quest_debug("selected %s quest '%s' in the gossip frame", kind, tostring(row.title))
+            return "selected"
         end
-        -- Frame open but no list: a single-quest NPC goes straight to detail.
-        return true
+        if gossip_options_count() > 0 then
+            return "not_listed"
+        end
+        return "panel"
     end
 
-    local titles = frame_titles(frame_title)
+    local titles = frame_titles(function(i)
+        if kind == "available" then
+            return core.quests.get_available_title(i)
+        end
+        return core.quests.get_active_title(i)
+    end)
     local idx = index_of_title(titles, quest_name)
     if idx then
-        pcall(function() frame_pick(idx) end)
+        pcall(function()
+            if kind == "available" then
+                core.quests.select_available_quest(idx)
+            else
+                core.quests.select_active_quest(idx)
+            end
+        end)
         quest_debug("selected %s quest at greeting-frame index %d (%s)", kind, idx, tostring(titles[idx]))
-        return true
+        return "selected"
     end
     if next(titles) ~= nil then
         warn_once(kind .. ":" .. tostring(quest_id),
             "Quest %s is not among the quests this NPC lists by that name - "
             .. "the quest data name may not match the client's locale.",
             tostring(quest_name or quest_id))
-        return false
+        return "not_listed"
     end
-    -- No list at all: the quest detail frame is already up.
-    return true
+    -- A greeting that lists only the OTHER kind (turning in at an NPC that
+    -- shows only new quests) does not have this one.
+    local act, avail = greeting_lists()
+    if next(act) ~= nil or next(avail) ~= nil then
+        return "not_listed"
+    end
+    return "panel"
 end
 
 -- ----------------------------------------------------------------------------
@@ -512,48 +737,59 @@ local function reward_choices()
     return out
 end
 
---- Best choice index for this character, or nil when nothing is on offer.
+--- Best choice index for this character.
 ---
 --- Ranked by equip.rate: a usable upgrade beats a usable item, which beats
 --- something not equippable at all, which beats an item this class cannot use.
 --- Vendor price only breaks ties. Picking blind - which is what index 0 did -
 --- routinely took a plate chest on a Mage.
-local function best_choice(player)
+---
+--- An item the client has not cached yet comes back as an info table with no
+--- name, which equip.rate would call "not equippable". That is waited out for
+--- INFO_WAIT seconds (`waited`) before the choice is made on what is known.
+---
+--- Returns (index or nil, number of choices, ready).
+local function best_choice(player, waited)
     local choices = reward_choices()
     if #choices == 0 then
-        return nil, 0
+        return nil, 0, true
     end
 
     local ok_equip, equip = pcall(require, "equip")
+    local can_rate = ok_equip and type(equip) == "table" and type(equip.info_of) == "function"
     local best_idx, best_rating, best_name = nil, nil, nil
+    local missing = false
 
     for i = 1, #choices do
         local c = choices[i]
-        local rating, name
-        if ok_equip and equip and type(equip.info_of) == "function" then
-            local info = equip.info_of(c.link)
-            if info then
-                rating = equip.rate(player, info)
-                name = info.name or c.link
+        local info = can_rate and equip.info_of(c.link) or nil
+        if type(info) == "table" and type(info.name) == "string" and info.name ~= "" then
+            local rating = equip.rate(player, info)
+            if rating then
+                quest_debug("  choice %d: %s - tier %d (%s) ilvl %d q%d %dc",
+                    c.index, tostring(info.name), rating.tier, tostring(rating.reason),
+                    rating.item_level, rating.quality, rating.sell_price)
+                if equip.rating_beats(rating, best_rating) then
+                    best_idx, best_rating, best_name = c.index, rating, info.name
+                end
             end
-        end
-        if rating then
-            quest_debug("  choice %d: %s - tier %d (%s) ilvl %d q%d %dc",
-                c.index, tostring(name), rating.tier, tostring(rating.reason),
-                rating.item_level, rating.quality, rating.sell_price)
-            if equip.rating_beats(rating, best_rating) then
-                best_idx, best_rating, best_name = c.index, rating, name
-            end
-        elseif best_idx == nil then
-            -- No item info on this build: take the first rather than none.
-            best_idx, best_name = c.index, c.link
+        else
+            missing = true
         end
     end
 
-    if best_idx then
-        quest_debug("taking choice %d (%s)", best_idx, tostring(best_name))
+    if missing and can_rate and waited < INFO_WAIT then
+        return nil, #choices, false
     end
-    return best_idx, #choices
+    if not best_idx then
+        best_idx, best_name = choices[1].index, choices[1].link
+        warn_once("reward_blind:" .. tostring(dlg.key),
+            "No item info for any reward of %s - taking choice 1.", tostring(dlg.label))
+    elseif missing then
+        trail("%s: some reward info never loaded - chose among the rest", tostring(dlg.label))
+    end
+    trail("%s: taking reward choice %d (%s)", tostring(dlg.label), best_idx, tostring(best_name))
+    return best_idx, #choices, true
 end
 
 -- ----------------------------------------------------------------------------
@@ -564,7 +800,7 @@ end
 function npc.accept(player, quest_id, quest_name, npc_id, unit)
     local key = "accept:" .. tostring(quest_id)
     if dlg.key ~= key then
-        dlg_reset(key)
+        dlg_reset(key, tostring(quest_name or quest_id))
     end
     if dlg.stage == "done" then
         return dlg.result
@@ -577,55 +813,92 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
     if dlg.stage == "interact" then
         -- Already in the log (accepted by hand, or the guide lagging): there
         -- is nothing to do at this NPC (2.63.0).
-        if safe(function() return core.quests.is_on_quest(quest_id) end) == true then
+        if on_quest(quest_id) == true then
+            return dlg_finish("done")
+        end
+        if flagged_done(quest_id) then
             return dlg_finish("done")
         end
         if dlg.tries >= MAX_TRIES or dlg.no_unit >= MAX_NO_UNIT then
             return dlg_finish("gave_up")
         end
-        if dlg_interact(player, npc_id, unit, now) then
-            quest_debug("accept %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
+        dlg_interact(player, npc_id, unit, now)
+        return
+    end
+
+    if dlg.stage == "await" then
+        local frame = await_frame(now)
+        if frame == nil then
+            return
         end
+        if frame == "refused" then
+            dlg.refused = true
+            return dlg_retry(now, "the NPC refused the interaction")
+        end
+        if frame == "timeout" then
+            return dlg_retry(now, "no window opened")
+        end
+        if WRONG_WINDOWS[frame] then
+            trail("accept %s: the NPC opened %s, not quests", dlg.label, frame)
+            return dlg_finish("not_offered")
+        end
+        dlg.frame = frame
+        dlg_to("select", now)
         return
     end
 
     if dlg.stage == "select" then
+        -- A single-quest NPC skips the list and shows the detail panel.
+        if dlg.frame == "QUEST_DETAIL" and not gossip_open() then
+            dlg_to("accept", now)
+            return
+        end
         if is_trivial_quest(player, quest_id, quest_name) then
             mark_skipped(quest_id, quest_name)
             return dlg_finish("skipped")
         end
-        if gossip_lacks("available") then
-            quest_debug("accept %s: this NPC's gossip lists no quests", tostring(quest_name or quest_id))
+        local r = select_quest(quest_id, quest_name, "available")
+        if r == "not_listed" then
             return dlg_finish("not_offered")
         end
-        -- The NPC lists quests and this one is not among them: wrong NPC
-        -- (2.50.0). Say so, so the engine tries another giver instead of
-        -- re-interacting with this one until the tries run out.
-        if not select_quest(quest_id, quest_name, "available") then
-            return dlg_finish("not_offered")
-        end
+        dlg.t_interact = (r == "selected") and now or dlg.t_interact
         dlg_to("accept", now)
         return
     end
 
     if dlg.stage == "accept" then
+        -- The detail panel has no "shown" query; with events live it must
+        -- have announced itself before accept_quest is worth calling.
+        if ev_live() and not ev_since("QUEST_DETAIL", dlg.t_interact) and dlg.frame ~= "QUEST_DETAIL" then
+            if (now - dlg.t) >= FRAME_TIMEOUT then
+                return dlg_retry(now, "no quest detail panel after selecting")
+            end
+            return
+        end
         pcall(function() core.quests.accept_quest() end)
         -- Escort and other auto-accept quests raise a second confirmation
         -- popup; without this they sit on screen and never start.
         pcall(function() core.quests.confirm_accept_quest() end)
-        quest_debug("accept %s: accepted", tostring(quest_name or quest_id))
         dlg_to("verify", now)
         return
     end
 
     if dlg.stage == "verify" then
-        if safe(function() return core.quests.is_on_quest(quest_id) end) == true then
-            quest_debug("accept %s: on the quest", tostring(quest_name or quest_id))
+        local on = on_quest(quest_id)
+        if on == true then
             return dlg_finish("done")
         end
-        if (now - dlg.t) >= RETRY_GAP then
-            quest_debug("accept %s: still not on the quest, retrying", tostring(quest_name or quest_id))
-            dlg_to("interact", now)
+        if on == nil and ev_since("QUEST_ACCEPTED", dlg.t_interact) then
+            return dlg_finish("done")
+        end
+        if (now - dlg.t) >= VERIFY_WAIT then
+            if ev_since("QUEST_ACCEPTED", dlg.t_interact) then
+                warn_once("accept_other:" .. tostring(quest_id),
+                    "Accepted a quest at this NPC, but %s is still not in the log - "
+                    .. "it offered a different quest.", dlg.label)
+                return dlg_finish("not_offered")
+            end
+            return dlg_retry(now, "still not on the quest")
         end
     end
 end
@@ -633,12 +906,29 @@ end
 -- ----------------------------------------------------------------------------
 -- TURN IN
 -- ----------------------------------------------------------------------------
+--- Proof a hand-in landed, or nil. Any one of: the client said so
+--- (QUEST_TURNED_IN), the quest is flagged completed, or it was in the log
+--- when this attempt began and is gone now. "Not in the log" alone is not
+--- proof: it is also true of a quest that was never picked up.
+local function turnin_landed(quest_id)
+    if ev_since("QUEST_TURNED_IN", dlg.t_interact) then
+        return "QUEST_TURNED_IN"
+    end
+    if flagged_done(quest_id) then
+        return "flagged completed"
+    end
+    if dlg.was_on == true and on_quest(quest_id) == false then
+        return "left the quest log"
+    end
+    return nil
+end
+
 --- Hand in `quest_id`. Call every tick while standing at the NPC.
 --- `unit` is optional: the NPC when the caller already has it.
 function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
     local key = "turnin:" .. tostring(quest_id)
     if dlg.key ~= key then
-        dlg_reset(key)
+        dlg_reset(key, tostring(quest_name or quest_id))
     end
     if dlg.stage == "done" then
         return dlg.result
@@ -649,9 +939,8 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
     end
 
     if dlg.stage == "interact" then
-        -- Handed in already and out of the log (2.63.0).
-        if safe(function() return core.quests.is_on_quest(quest_id) end) ~= true
-            and safe(function() return core.quests.is_quest_flagged_completed(quest_id) end) == true then
+        -- Handed in already (2.63.0), including earlier this session.
+        if turned_in[quest_id] or (on_quest(quest_id) ~= true and flagged_done(quest_id)) then
             return dlg_finish("done")
         end
         if dlg.tries >= MAX_TRIES or dlg.no_unit >= MAX_NO_UNIT then
@@ -660,104 +949,185 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
                 tostring(quest_name or quest_id), MAX_TRIES)
             return dlg_finish("gave_up")
         end
-        if dlg_interact(player, npc_id, unit, now) then
-            quest_debug("turn in %s: opened the dialog (try %d)", tostring(quest_name or quest_id), dlg.tries)
+        dlg.was_on = on_quest(quest_id)
+        dlg_interact(player, npc_id, unit, now)
+        return
+    end
+
+    if dlg.stage == "await" then
+        local frame = await_frame(now)
+        if frame == nil then
+            return
         end
+        if frame == "refused" then
+            dlg.refused = true
+            return dlg_retry(now, "the NPC refused the interaction")
+        end
+        if frame == "timeout" then
+            return dlg_retry(now, "no window opened")
+        end
+        if WRONG_WINDOWS[frame] then
+            trail("turn in %s: the NPC opened %s, not quests", dlg.label, frame)
+            return dlg_finish("not_offered")
+        end
+        dlg.frame = frame
+        dlg_to("select", now)
         return
     end
 
     if dlg.stage == "select" then
-        if gossip_lacks("active") then
-            quest_debug("turn in %s: this NPC's gossip lists no quests", tostring(quest_name or quest_id))
+        -- A single-quest NPC can open the progress or completion panel
+        -- directly; there is no list to pick from then.
+        if ev_since("QUEST_COMPLETE", dlg.t_interact) or has_choices() then
+            dlg_to("finish", now)
+            return
+        end
+        if ev_since("QUEST_PROGRESS", dlg.t_interact) and not gossip_open() then
+            dlg_to("wait", now)
+            return
+        end
+        local r = select_quest(quest_id, quest_name, "active")
+        if r == "not_listed" then
             return dlg_finish("not_offered")
         end
-        if not select_quest(quest_id, quest_name, "active") then
+        if r == "not_ready" then
+            trail("turn in %s: the NPC lists it as not complete yet", dlg.label)
+            return dlg_finish("not_ready")
+        end
+        if r == "panel" and ev_live() and dlg.frame == "QUEST_DETAIL" then
+            -- The NPC went straight to OFFERING a quest: ours is not here.
+            trail("turn in %s: the NPC offered a new quest instead", dlg.label)
             return dlg_finish("not_offered")
         end
         dlg_to("wait", now)
         return
     end
 
-    -- Wait for the reward frame. This is the step that never used to happen:
-    -- the choices were read in the same tick as the selection, before the
-    -- frame existed, so every quest looked as though it had no choice.
+    -- Wait for the progress or the completion panel the selection opens.
     if dlg.stage == "wait" then
-        local idx, count = best_choice(player)
-        if idx then
-            dlg.picked = idx
-            dlg_to("reward", now)
+        if ev_since("QUEST_COMPLETE", dlg.t_interact) or has_choices() then
+            dlg_to("finish", now)
             return
         end
-        if count > 0 then
-            return  -- choices are there but not rated yet; look again next tick
-        end
-        if (now - dlg.t) >= FRAME_WAIT then
-            -- complete_quest is the PROGRESS window's "Continue". The quest is
-            -- not handed in until the completion window is finished too
-            -- (2.50.0) - that is the finish stage. Going straight to verify
-            -- left the completion window open: the quest stayed in the log,
-            -- the bot re-interacted every 8 s and gave up after three tries.
-            quest_debug("turn in %s: no reward choice yet - Continue", tostring(quest_name or quest_id))
+        local progress = ev_since("QUEST_PROGRESS", dlg.t_interact)
+        if progress or (not ev_live() and (now - dlg.t) >= FRAME_WAIT) then
+            -- complete_quest is the PROGRESS panel's "Continue". The quest is
+            -- not handed in until the completion panel is finished too
+            -- (2.50.0) - that is the finish stage.
             pcall(function() core.quests.complete_quest() end)
+            dlg.continued = true
             dlg_to("finish", now)
+            return
+        end
+        if ev_live() and (now - dlg.t) >= FRAME_TIMEOUT then
+            return dlg_retry(now, "no quest panel after selecting")
         end
         return
     end
 
-    -- The completion window: take the best reward choice, or finish with
+    -- The completion panel: take the best reward choice, or finish with
     -- none (get_quest_reward(0) is "Complete Quest" with no choice).
     if dlg.stage == "finish" then
-        if (now - dlg.t) < 0.8 then
+        if ev_since("QUEST_TURNED_IN", dlg.t_interact) then
+            dlg_to("verify", now)
             return
         end
-        local idx = best_choice(player)
+        local up = ev_since("QUEST_COMPLETE", dlg.t_interact) or has_choices()
+        if not up then
+            if ev_live() then
+                if (now - dlg.t) >= FRAME_TIMEOUT then
+                    if dlg.continued then
+                        -- Continue did not lead to a completion panel: the
+                        -- server still wants the objectives.
+                        trail("turn in %s: Continue opened no completion panel", dlg.label)
+                        return dlg_finish("not_ready")
+                    end
+                    return dlg_retry(now, "no completion panel")
+                end
+                return
+            end
+            if (now - dlg.t) < 0.8 then
+                return
+            end
+        end
+        dlg.info_t = dlg.info_t or now
+        local idx, _, ready = best_choice(player, now - dlg.info_t)
+        if not ready then
+            return
+        end
         if idx then
             dlg.picked = idx
             dlg_to("reward", now)
             return
         end
         pcall(function() core.quests.get_quest_reward(0) end)
-        quest_debug("turn in %s: completed with no reward choice", tostring(quest_name or quest_id))
         dlg_to("verify", now)
         return
     end
 
     if dlg.stage == "reward" then
-        local idx = dlg.picked
         -- get_quest_reward SELECTS the choice and completes the quest.
         -- complete_quest is not called as well: they are alternatives.
+        local idx = dlg.picked
         pcall(function() core.quests.get_quest_reward(idx) end)
-        quest_debug("turn in %s: took reward choice %d", tostring(quest_name or quest_id), idx or -1)
         dlg_to("verify", now)
         return
     end
 
     if dlg.stage == "verify" then
-        if safe(function() return core.quests.is_on_quest(quest_id) end) ~= true then
-            quest_debug("turn in %s: complete", tostring(quest_name or quest_id))
+        local how = turnin_landed(quest_id)
+        if how then
+            turned_in[quest_id] = now
+            trail("turn in %s: confirmed (%s)", dlg.label, how)
             return dlg_finish("done")
         end
-        if (now - dlg.t) >= RETRY_GAP then
-            quest_debug("turn in %s: still in the log, retrying", tostring(quest_name or quest_id))
-            dlg_to("interact", now)
+        if (now - dlg.t) >= VERIFY_WAIT then
+            -- No proof either way. Without an event pump and without a log
+            -- flag, "gone from the log" is the only signal the build has.
+            if not ev_live() and on_quest(quest_id) == false then
+                turned_in[quest_id] = now
+                return dlg_finish("done")
+            end
+            return dlg_retry(now, "hand-in not confirmed")
         end
     end
 end
 
+--- Close the NPC's windows and forget the dialog.
 function npc.close()
     dlg.key, dlg.stage, dlg.result = nil, nil, nil
+    npc.close_frames()
+end
+
+--- Close the NPC's windows but keep the dialog's result, so a finished
+--- dialog keeps answering with it instead of starting over.
+function npc.close_frames()
     pcall(function()
         core.quests.close_quest()
     end)
     gossip_close()
 end
 
---- Is `quest_id` ready to hand in?
---- `quest_name` is only needed for the gossip fallback, where TBC exposes no
---- real quest id (see the header).
-local function forever()
-    local ok, gamever = pcall(require, "gamever")
-    return ok and type(gamever) == "table" and gamever.is_forever()
+--- A counter that moves whenever the dialog advances or finishes.
+function npc.progress_seq()
+    return dlg.seq
+end
+
+function npc.stage()
+    return dlg.stage
+end
+
+--- True once, after the NPC refused an interact (out of range, facing, a
+--- UI error): the caller should close in before the next attempt.
+function npc.take_refused()
+    local r = dlg.refused
+    dlg.refused = false
+    return r
+end
+
+--- Was `quest_id` confirmed handed in this session?
+function npc.was_turned_in(quest_id)
+    return quest_id ~= nil and turned_in[quest_id] ~= nil
 end
 
 --- WoW Forever (2.123.0): no quest-log index API. A quest is ready to hand in
@@ -778,6 +1148,9 @@ local function rxp_complete(quest_id)
     return true
 end
 
+--- Is `quest_id` ready to hand in?
+--- `quest_name` is only needed for the gossip fallback, where TBC exposes no
+--- real quest id (see the header).
 function npc.is_complete(quest_id, quest_name)
     if forever() then
         if safe(function() return core.quests.is_on_quest(quest_id) end) == false then

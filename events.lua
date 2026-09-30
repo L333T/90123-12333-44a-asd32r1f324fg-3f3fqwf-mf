@@ -3,7 +3,7 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.133.0
+-- Version: 2.134.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS FILE EXISTS
@@ -115,6 +115,85 @@ function handlers.CONFIRM_BINDER(args)
     safe(function() return core.input.confirm_binder() end)
 end
 
+-- ----------------------------------------------------------------------------
+-- NPC WINDOW EDGES
+-- ----------------------------------------------------------------------------
+-- core.input.interact_with_object only dispatches; whether the NPC answered
+-- arrives as one of these events. Each records the izi.now() time it fired,
+-- so the quest dialog can ask "has a frame opened since I interacted" and
+-- "did the turn-in land" instead of guessing from timers. Arguments are not
+-- read except UI_ERROR_MESSAGE, whose args[3] is the client's string id.
+local ok_izi, izi = pcall(require, "common/izi_sdk")
+
+local function now()
+    if ok_izi and type(izi) == "table" and type(izi.now) == "function" then
+        local t = safe(function() return izi.now() end)
+        if type(t) == "number" then return t end
+    end
+    return 0
+end
+
+local ui = { seq = 0 }
+events.ui = ui
+
+local WINDOW_EVENTS = {
+    "GOSSIP_SHOW", "GOSSIP_CLOSED",
+    "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE",
+    "QUEST_FINISHED", "QUEST_ACCEPTED", "QUEST_TURNED_IN",
+    "MERCHANT_SHOW", "MERCHANT_CLOSED", "TRAINER_SHOW", "TRAINER_CLOSED",
+    "TAXIMAP_OPENED", "TAXIMAP_CLOSED",
+    "PLAYER_INTERACTION_MANAGER_FRAME_SHOW",
+}
+
+for i = 1, #WINDOW_EVENTS do
+    local name = WINDOW_EVENTS[i]
+    handlers[name] = function()
+        ui[name] = now()
+        ui.seq = ui.seq + 1
+    end
+end
+
+function handlers.UI_ERROR_MESSAGE(args)
+    ui.UI_ERROR_MESSAGE = now()
+    ui.error_id = args and args[3]
+    ui.error_text = args and args[2]
+    ui.seq = ui.seq + 1
+end
+
+--- Did `name` fire at or after time `t`?
+function events.since(name, t)
+    local at = ui[name]
+    return type(at) == "number" and type(t) == "number" and at >= t
+end
+
+--- Did any NPC window open at or after time `t`? Returns the event name.
+local OPEN_EVENTS = {
+    "GOSSIP_SHOW", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS",
+    "QUEST_COMPLETE", "MERCHANT_SHOW", "TRAINER_SHOW", "TAXIMAP_OPENED",
+    -- Every current Blizzard client also sends this for any NPC window;
+    -- last, so the specific name wins when both arrived.
+    "PLAYER_INTERACTION_MANAGER_FRAME_SHOW",
+}
+function events.opened_since(t)
+    for i = 1, #OPEN_EVENTS do
+        if events.since(OPEN_EVENTS[i], t) then
+            return OPEN_EVENTS[i]
+        end
+    end
+    return nil
+end
+
+--- A counter that moves whenever any NPC window event fires.
+function events.seq()
+    return ui.seq
+end
+
+--- True once any window event has been delivered this session: the core
+--- pumps them. Older cores do not, and callers fall back to timers.
+function events.live()
+    return ui.seq > 0
+end
+
 events.handlers = handlers
 
 -- ----------------------------------------------------------------------------
@@ -162,7 +241,7 @@ function events.install()
     end
 
     NS.events_registered = true
-    core.log("[Master Farmer - Grindbot] Game events armed (loot and equip bind confirms).")
+    core.log("[Master Farmer - Grindbot] Game events armed (bind confirms, NPC and quest windows).")
     return true
 end
 

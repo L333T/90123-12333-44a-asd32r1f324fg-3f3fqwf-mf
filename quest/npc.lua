@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.143.0
+-- Version: 2.144.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -74,6 +74,8 @@
 ---@type izi_api
 local izi = require("common/izi_sdk")
 
+local gossip = require("gossip")
+
 local gui = require("gui")
 local movement = require("movement")
 local targeting = require("targeting")
@@ -141,12 +143,7 @@ local function warn_once(key, fmt, ...)
 end
 
 local function gossip_open()
-    if izi.gossip and type(izi.gossip.is_open) == "function" then
-        if safe(function() return izi.gossip.is_open() end) == true then
-            return true
-        end
-    end
-    return safe(function() return core.quests.is_gossip_frame_shown() end) == true
+    return gossip.is_open()
 end
 
 local function gossip_close()

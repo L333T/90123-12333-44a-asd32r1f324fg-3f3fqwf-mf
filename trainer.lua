@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.143.0
+-- Version: 2.144.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -51,6 +51,8 @@
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
+
+local gossip = require("gossip")
 
 local gui = require("gui")
 local state = require("state")
@@ -255,7 +257,7 @@ end
 -- GOSSIP
 -- ----------------------------------------------------------------------------
 local function gossip_open()
-    return safe(function() return core.quests.is_gossip_frame_shown() end) == true
+    return gossip.is_open()
 end
 
 --- The trainer option in the open gossip frame, or nil.
@@ -286,42 +288,11 @@ local function trail(fmt, ...)
     end
 end
 
-local function looks_like_training(name)
-    local text = type(name) == "string" and string.lower(name) or ""
-    for i = 1, #TRAIN_WORDS do
-        if text:find(TRAIN_WORDS[i], 1, true) then return true end
-    end
-    return false
-end
 
 --- The open gossip's trainer option as (select_function, label), or nil.
 local function trainer_option()
-    local g = izi.gossip
-    if type(g) == "table" and type(g.find_option_by_icon) == "function" then
-        local icon = (type(g.ICON) == "table" and type(g.ICON.TRAINER) == "number") and g.ICON.TRAINER or TRAINER_ICON
-        local view = safe(function() return g.find_option_by_icon(icon) end)
-        if type(view) == "table" and type(view.select) == "function" then
-            return function() view:select() end, tostring(view.name or "trainer option")
-        end
-    end
-    local options = safe(function() return core.quests.get_gossip_options() end)
-    if type(options) ~= "table" then
-        return nil
-    end
-    for i = 1, #options do
-        local opt = options[i]
-        if type(opt) == "table" then
-            local gtype = type(opt.gossip_type) == "string" and string.lower(opt.gossip_type) or ""
-            if gtype == "trainer" or opt.icon == TRAINER_ICON or looks_like_training(opt.name) then
-                local id = opt.gossip_option_id
-                if type(id) ~= "number" or id == 0 then
-                    id = i
-                end
-                return function() core.quests.select_gossip_option(id) end, tostring(opt.name)
-            end
-        end
-    end
-    return nil
+    -- gossip.lua (2.144.0): izi's TRAINER icon, then type / icon 3 / wording.
+    return gossip.find({ icon = "TRAINER", icon_num = TRAINER_ICON, type = "trainer", words = TRAIN_WORDS })
 end
 
 -- ----------------------------------------------------------------------------

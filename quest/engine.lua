@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.143.0
+-- Version: 2.144.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -25,6 +25,8 @@
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
+
+local gossip = require("gossip")
 
 local gui = require("gui")
 local state = require("state")
@@ -1034,12 +1036,10 @@ local function dialog_goal(player, goal, kind, wps, label)
     -- this frame's own options. The confirmation popup is answered by
     -- events.lua (CONFIRM_BINDER).
     if gossip and not g_bind_asked and string.lower(goal.action or "") == "home" then
-        local g = izi.gossip
-        local opt = g and g.ICON and type(g.find_option_by_icon) == "function"
-            and safe(function() return g.find_option_by_icon(g.ICON.BINDER) end) or nil
-        if opt then
+        local bind = gossip.find({ icon = "BINDER", type = "binder" })
+        if bind then
             g_bind_asked = true
-            pcall(function() opt:select() end)
+            pcall(bind)
             g_talk_opened = now
             trail("act", "asked %s to bind the hearthstone", tostring(safe(function() return unit:get_name() end)))
             state.set_note("Quest", "Guide: binding the hearthstone")
@@ -1168,46 +1168,11 @@ local function taxi_node_for(dest)
     return partial or loose, n
 end
 
-local function is_taxi_option(o)
-    if type(o) ~= "table" then return false end
-    local gt = type(o.gossip_type) == "string" and o.gossip_type:lower() or ""
-    local nm = type(o.name) == "string" and o.name:lower() or ""
-    return gt == "taxi" or nm:find("fly", 1, true) ~= nil or nm:find("flight", 1, true) ~= nil
-end
 
 --- Select the taxi option of the open gossip frame. True when one was chosen.
 local function taxi_gossip()
-    local g = izi.gossip
-    if type(g) == "table" then
-        local view = nil
-        local icon = type(g.ICON) == "table" and g.ICON.TAXI or nil
-        if icon and type(g.find_option_by_icon) == "function" then
-            view = safe(function() return g.find_option_by_icon(icon) end)
-        end
-        if type(view) ~= "table" and type(g.options) == "function" then
-            local opts = safe(g.options)
-            if type(opts) == "table" then
-                for i = 1, #opts do
-                    if is_taxi_option(opts[i]) then view = opts[i] break end
-                end
-            end
-        end
-        if type(view) == "table" and type(view.select) == "function" and pcall(view.select, view) then
-            return true
-        end
-    end
-    local opts = safe(function() return core.quests.get_gossip_options() end)
-    if type(opts) ~= "table" then return false end
-    for i = 1, #opts do
-        local o = opts[i]
-        if is_taxi_option(o) then
-            local id = o.gossip_option_id
-            if type(id) ~= "number" or id == 0 then id = i end
-            pcall(function() core.quests.select_gossip_option(id) end)
-            return true
-        end
-    end
-    return false
+    -- gossip.lua (2.144.0): izi's TAXI icon, then type "taxi" / wording.
+    return (gossip.select({ icon = "TAXI", type = "taxi", words = { "fly", "flight" } }))
 end
 
 local function pos_of(player)

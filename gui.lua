@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.158.0
+-- Version: 2.159.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -352,6 +352,7 @@ menu:checkbox("mfg_sell_green", false, {
 menu:slider_int("mfg_bag_free", 1, 10, 1, {
     label = "Vendor at Free Slots",
     tab = "vendor",
+    tooltip = "At this many free bag slots or fewer, walk to the closest vendor (any vendor NPC in sight, else the zone merchant, else the nearest inn), sell / buy / repair with the settings on this tab, then go back to the quest step or route.",
 })
 menu:checkbox("mfg_vendor_each_lap", true, {
     label = "Vendor Every Lap",

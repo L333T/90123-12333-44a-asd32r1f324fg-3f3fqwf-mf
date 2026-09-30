@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.129.0
+-- Version: 2.130.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -750,6 +750,12 @@ local function on_update()
         halt_bot_movement()
         if vendor then
             vendor.reset()
+        end
+        -- The spellbook wait is the last note written before this return.
+        -- Once the scan has finished, leave it there and the status line
+        -- stays on "Waiting for spellbook  0.0s" for the whole idle session.
+        if state and state.note_head == "Load" then
+            state.set_note("Idle", "Idle")
         end
         return
     end

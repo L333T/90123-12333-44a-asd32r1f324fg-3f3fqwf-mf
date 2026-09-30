@@ -25,7 +25,7 @@ runtime by `gamever.lua`.
 5. **Leave `plugin_loader/` alone** unless the user approves a change. When one is
    made, also copy it to the INSTALLED loader the game runs (below), back up the
    installed copy first, and keep backups OUTSIDE `scripts\` (a folder there is
-   loaded as a plugin). Current loader: 1.1.1.
+   loaded as a plugin). Current loader: 1.2.0. It follows GitHub `main` (no commit pin) and loads on TBC and Forever for every class. Edit it only when the download mechanism changes.
 
 ## Paths
 

@@ -3,7 +3,7 @@
 -- main.lua - download the bot, then hand off to its real main.lua
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Loader version: 1.1.0
+-- Loader version: 1.2.0
 -- ============================================================================
 -- FLOW
 --   frame 1      issue the manifest request
@@ -74,13 +74,10 @@ local REPO   = "L333T/90123-12333-44a-asd32r1f324fg-3f3fqwf-mf"
 -- Change this to "dev" if you would rather every push go live immediately.
 local BRANCH = "main"
 
--- Used only when the branch cannot be resolved - no network, API rate limit,
--- GitHub down. Loading a known-good older build beats loading nothing, and the
--- log says plainly that it happened.
--- Kept current deliberately. The previous value was a v1.3.38 commit, so on
--- any lookup failure the plugin quietly dropped 29 versions instead of missing
--- only the newest one.
-local FALLBACK_SHA = "a8da92ce29eeb03013374e81696193dd6f3d9772"
+-- No pinned commit. A fallback SHA in this file is a loader edit every time
+-- it goes stale, and a stale pin silently loads an old bot. If GitHub cannot
+-- name the branch tip, the lookup is retried. The bot is whatever main is.
+local RESOLVE_RETRY = 5.0
 
 local REF_URL = "https://api.github.com/repos/" .. REPO .. "/commits/" .. BRANCH
 
@@ -204,7 +201,18 @@ end
 -- Asks GitHub which commit the branch points at, once, before anything is
 -- downloaded. Asynchronous like every other request here, so the update tick
 -- waits on `resolve_state` rather than blocking.
-local resolve_state = "idle"      -- idle | asking | done | failed
+local resolve_state = "idle"      -- idle | asking | done
+local resolve_retry_at = 0
+
+local function schedule_retry(why)
+    SHA = nil
+    BASE = nil
+    resolve_state = "idle"
+    local now = 0
+    pcall(function() now = izi.now() end)
+    resolve_retry_at = now + RESOLVE_RETRY
+    core.log_warning(TAG .. " " .. why .. " Retrying in " .. tostring(RESOLVE_RETRY) .. "s.")
+end
 
 local function resolve_branch(done)
     if resolve_state ~= "idle" then
@@ -238,25 +246,17 @@ local function resolve_branch(done)
                 BASE = base_for(sha)
                 resolve_state = "done"
                 core.log(string.format("%s %s@%s resolves to %s", TAG, REPO, BRANCH, sha:sub(1, 8)))
+                done()
             else
-                SHA = FALLBACK_SHA
-                BASE = base_for(FALLBACK_SHA)
-                resolve_state = "failed"
-                core.log_warning(string.format(
-                    "%s could not resolve %s@%s (http %s); falling back to the pinned commit %s. "
-                    .. "The plugin will load, but it will be whatever that commit was.",
-                    TAG, REPO, BRANCH, tostring(http_code), FALLBACK_SHA:sub(1, 8)))
+                schedule_retry(string.format(
+                    "could not resolve %s@%s (http %s).",
+                    REPO, BRANCH, tostring(http_code)))
             end
-            done()
         end)
     end)
 
     if not ok then
-        SHA = FALLBACK_SHA
-        BASE = base_for(FALLBACK_SHA)
-        resolve_state = "failed"
-        core.log_warning(TAG .. " branch lookup could not be sent; using the pinned commit.")
-        done()
+        schedule_retry("branch lookup could not be sent.")
     end
 end
 
@@ -270,6 +270,11 @@ local function on_update()
     -- Resolve the branch before anything else. The callback re-enters this
     -- function on a later tick with BASE set.
     if resolve_state == "idle" then
+        local now = 0
+        pcall(function() now = izi.now() end)
+        if now < resolve_retry_at then
+            return
+        end
         resolve_branch(function() end)
         return
     end
@@ -324,4 +329,4 @@ end
 
 core.register_on_update_callback(on_update)
 
-core.log(TAG .. " armed")
+core.log(TAG .. " armed v" .. tostring(NS._loader and NS._loader.version or "?"))

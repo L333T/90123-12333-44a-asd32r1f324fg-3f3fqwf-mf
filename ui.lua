@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.129.0
+-- Version: 2.130.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -2117,8 +2117,18 @@ function Menu:draw_tab_scroll_area(win, tab_id, x, y, w, h)
         extra_top = 300
         pcall(self.tab_draw[tab_id], win, start_x, start_y, inner_w, extra_top, self)
     end
-    local cy = self:render_tab_controls(win, tab_id, start_x, start_y + extra_top, inner_w)
-    if tab_id ~= "path" and tab_id ~= "quest" and self.tab_draw[tab_id] then
+    -- Spells tab: the known-spell list is drawn first. Five class sliders
+    -- fill this panel, and the list used to start under them, past the clip.
+    local spell_h = 0
+    if tab_id == "class" and self.tab_draw[tab_id] then
+        local ok_d, used = pcall(self.tab_draw[tab_id], win, start_x, start_y, inner_w, h, self)
+        if ok_d and type(used) == "number" and used >= 0 then
+            self._tab_custom_h[tab_id] = used
+            spell_h = used
+        end
+    end
+    local cy = self:render_tab_controls(win, tab_id, start_x, start_y + extra_top + spell_h, inner_w)
+    if tab_id ~= "path" and tab_id ~= "quest" and tab_id ~= "class" and self.tab_draw[tab_id] then
         -- A tab draw may return the height it used (the Spells tab's list,
         -- 2.64.0), so the scroll area fits it instead of a fixed guess.
         local ok_d, used = pcall(self.tab_draw[tab_id], win, start_x, cy, inner_w, h, self)

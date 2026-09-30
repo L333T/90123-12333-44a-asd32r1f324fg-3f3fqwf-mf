@@ -3,7 +3,7 @@
 -- Shaman grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.150.0
+-- Version: 2.151.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WEAPON IMBUES - THE BUG NOT COPIED
@@ -78,15 +78,17 @@ end
 --- starts from where the bot is already standing, so the extra warning is
 --- free. This class does both, so the scan follows the same toggle its
 --- combat range does.
+-- (2.151.0) These read an "enhancement" GUI toggle removed with the old
+-- class checkboxes in 2.142.0; is_melee is the one answer now.
 function shaman.scan_range(player)
-    if gui.is_on("enhancement") then
+    if shaman.is_melee(player) then
         return 20
     end
     return 35
 end
 
 function shaman.combat_profile()
-    local melee = gui.is_on("enhancement")
+    local melee = shaman.is_melee(nil)
     return {
         name         = "shaman",
         melee_danger = melee and 0 or 8,

@@ -3,7 +3,7 @@
 -- PathTool format — { name, map_id, loop, waypoints[{x,y,z,wait,combo,actions}] }
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.150.0
+-- Version: 2.151.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -553,16 +553,30 @@ function path_format.reversed(path)
     if normalized.reversed == true then
         return normalized
     end
-    local src = normalized.waypoints
-    local wps = {}
-    for i = #src, 1, -1 do
-        wps[#wps + 1] = src[i]
+    -- Normalised paths are flat coords (the waypoint tables are dropped), so
+    -- this reversed `waypoints` - nil - and failed on every path (2.151.0).
+    local src = normalized.coords
+    local n = math.floor(#src / 3)
+    local coords = {}
+    for i = n, 1, -1 do
+        local k = (i - 1) * 3
+        coords[#coords + 1] = src[k + 1]
+        coords[#coords + 1] = src[k + 2]
+        coords[#coords + 1] = src[k + 3]
+    end
+    local holds = nil
+    if type(normalized.holds) == "table" then
+        holds = {}
+        for i, h in pairs(normalized.holds) do
+            if type(i) == "number" then holds[n - i + 1] = h end
+        end
     end
     local out = {}
     for k, v in pairs(normalized) do
         out[k] = v
     end
-    out.waypoints = wps
+    out.coords = coords
+    out.holds = holds
     out.reversed = true
     out._mfg_norm = true
     local name = out.name or "path"

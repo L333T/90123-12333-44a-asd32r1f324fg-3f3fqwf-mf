@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.150.0
+-- Version: 2.151.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -114,12 +114,25 @@ end
 --- The merchant belonging to the grind path that is running right now.
 --- Takes precedence over the zone table: a path that names its own vendor
 --- knows better than the zone default which one it walks past.
-local function path_merchant()
-    local ok, runner = pcall(require, "path_runner")
-    if not ok or type(runner) ~= "table" or type(runner.current_path) ~= "function" then
-        return nil
+-- The running grind profile (grind/engine, only when the grind pack is
+-- loaded), else path_runner's path (2.151.0).
+local function running_grind()
+    local g = package.loaded["grind/engine"]
+    if type(g) == "table" and type(g.current_profile) == "function" then
+        local p = safe(function() return g.current_profile() end)
+        if type(p) == "table" then return g, p end
     end
-    local path = safe(function() return runner.current_path() end)
+    return nil, nil
+end
+
+local function path_merchant()
+    local _, path = running_grind()
+    if not path then
+        local ok, runner = pcall(require, "path_runner")
+        if ok and type(runner) == "table" and type(runner.current_path) == "function" then
+            path = safe(function() return runner.current_path() end)
+        end
+    end
     if type(path) ~= "table" or type(path.merchant) ~= "table" then
         return nil
     end
@@ -474,6 +487,10 @@ local function lap_wants_vendor()
     end
     if #merchant_ids(info) == 0 then
         return false
+    end
+    local g = running_grind()
+    if g and type(g.take_lap) == "function" then
+        return safe(function() return g.take_lap() end) == true
     end
     local ok, runner = pcall(require, "path_runner")
     if not ok or type(runner) ~= "table" or type(runner.take_lap) ~= "function" then

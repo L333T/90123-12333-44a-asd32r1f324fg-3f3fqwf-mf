@@ -3,7 +3,7 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.150.0
+-- Version: 2.151.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -193,6 +193,10 @@ function novelist_paths.labels_for_region(key)
 end
 
 local function finish_path(raw, entry)
+    -- Read before normalize (2.151.0): normalize writes raw.loop = (raw.loop
+    -- == true) on the same table, so a file with no loop key became false and
+    -- the catalog entry's loop = true below was never reached.
+    local raw_loop = type(raw) == "table" and raw.loop or nil
     local path, err = path_format.normalize(raw)
     if not path then
         return nil, err
@@ -203,8 +207,8 @@ local function finish_path(raw, entry)
     if type(path.name) ~= "string" or path.name == "" or path.name == "default" then
         path.name = entry.label or entry.id
     end
-    if type(raw.loop) == "boolean" then
-        path.loop = raw.loop
+    if type(raw_loop) == "boolean" then
+        path.loop = raw_loop
     elseif type(entry.loop) == "boolean" then
         path.loop = entry.loop
     else

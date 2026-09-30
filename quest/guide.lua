@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.144.0
+-- Version: 2.145.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1344,7 +1344,9 @@ function guide.find_mob(player, range, goal)
     local best, best_d = nil, nil
     for i = 1, #list do
         local u = list[i]
-        if fightable(player, u) then
+        -- Cheap filters first, fightable last (2.145.0): the id / name and the
+        -- distance rule out most units without fightable's native calls.
+        if indexable(u) and call(u.is_valid, u) == true then
             local uid = call(u.get_npc_id, u)
             local want = type(uid) == "number" and ids[uid] == true
             if not want then
@@ -1352,7 +1354,8 @@ function guide.find_mob(player, range, goal)
             end
             if want then
                 local d = call(player.distance_to, player, u)
-                if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+                if type(d) == "number" and d <= range and (best_d == nil or d < best_d)
+                    and fightable(player, u) then
                     best, best_d = u, d
                 end
             end
@@ -1377,9 +1380,9 @@ function guide.find_npc_mob(player, range, npc_id)
     local best, best_d, n = nil, nil, 0
     for i = 1, #list do
         local u = list[i]
-        if fightable(player, u) and call(u.get_npc_id, u) == npc_id then
+        if indexable(u) and call(u.is_valid, u) == true and call(u.get_npc_id, u) == npc_id then
             local d = call(player.distance_to, player, u)
-            if type(d) == "number" and d <= range then
+            if type(d) == "number" and d <= range and fightable(player, u) then
                 n = n + 1
                 if best_d == nil or d < best_d then
                     best, best_d = u, d
@@ -1432,13 +1435,13 @@ function guide.find_camp_mob(player, center, radius)
     local best, best_d = nil, nil
     for i = 1, #list do
         local u = list[i]
-        if fightable(player, u) then
+        if indexable(u) and call(u.is_valid, u) == true then
             local lvl = call(u.get_level, u) or 0
             local pos = call(u.get_position, u)
-            if lvl >= my_level - LEVEL_GAP and pos and not camp_excluded(u)
-                and geometry.distance(center, pos) <= radius then
+            if lvl >= my_level - LEVEL_GAP and pos and geometry.distance(center, pos) <= radius then
                 local d = call(player.distance_to, player, u)
-                if type(d) == "number" and d <= CAMP_REACH and (best_d == nil or d < best_d) then
+                if type(d) == "number" and d <= CAMP_REACH and (best_d == nil or d < best_d)
+                    and not camp_excluded(u) and fightable(player, u) then
                     best, best_d = u, d
                 end
             end
@@ -1544,7 +1547,7 @@ function guide.find_source_mob(player, range, goal)
     local best, best_d = nil, nil
     for i = 1, #list do
         local u = list[i]
-        if fightable(player, u) and not camp_excluded(u) then
+        if indexable(u) and call(u.is_valid, u) == true then
             local name = call(u.get_name, u)
             if type(name) == "string" then
                 local hit = false
@@ -1556,7 +1559,8 @@ function guide.find_source_mob(player, range, goal)
                 end
                 if hit then
                     local d = call(player.distance_to, player, u)
-                    if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+                    if type(d) == "number" and d <= range and (best_d == nil or d < best_d)
+                        and not camp_excluded(u) and fightable(player, u) then
                         best, best_d = u, d
                     end
                 end
@@ -1640,13 +1644,15 @@ function guide.find_path_mob(player, dest, range, cone, below, above)
     local count = 0              -- 2.119.0: hostiles in range
     for i = 1, #list do
         local u = list[i]
-        if fightable(player, u) and not camp_excluded(u) then
-            local hostile = call(u.is_enemy_with, u, player) == true or call(u.is_in_combat, u) == true
-            local lvl = call(u.get_level, u) or 0
-            if hostile and lvl >= my_level - (below or 4) and lvl <= my_level + (above or 3) then
+        if indexable(u) and call(u.is_valid, u) == true then
+            local d = call(player.distance_to, player, u)
+            local hostile = type(d) == "number" and d <= (range or 20)
+                and (call(u.is_enemy_with, u, player) == true or call(u.is_in_combat, u) == true)
+            local lvl = hostile and (call(u.get_level, u) or 0) or 0
+            if hostile and lvl >= my_level - (below or 4) and lvl <= my_level + (above or 3)
+                and not camp_excluded(u) and fightable(player, u) then
                 local pos = call(u.get_position, u)
-                local d = call(player.distance_to, player, u)
-                if pos and type(d) == "number" and d <= (range or 20) then
+                if pos then
                     local ux, uy = pos.x - me.x, pos.y - me.y
                     local ul = math.sqrt(ux * ux + uy * uy)
                     -- Right beside the player counts whatever the angle.

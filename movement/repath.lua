@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.140.0
+-- Version: 2.141.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -247,8 +247,24 @@ function RP.stuck_now(t)
         g.key = nil
         return true
     end
-    if key ~= g.key then reset(key, dist2(hx, hy, x, y), t) end
-    escalate(x, y, z, kind, dist2(hx, hy, x, y), t)
+    -- ONE STUCK AUTHORITY (2.141.0). The walker's stuck check used to call
+    -- escalate here directly, on top of RP.update doing the same on its own
+    -- clock, so a walker leg climbed two rungs at a time (re-plan and jump
+    -- together, give up after ~8 s instead of ~11). The ladder now escalates
+    -- only on its own windows; the walker check just reports.
+    local d = dist2(hx, hy, x, y)
+    if key ~= g.key then
+        reset(key, d, t)
+        return true
+    end
+    if holding() then
+        g.best_t = t
+        return true
+    end
+    local window = WINDOW[g.level + 1] or WINDOW[#WINDOW]
+    if (t - g.best_t) >= window then
+        escalate(x, y, z, kind, d, t)
+    end
     return true
 end
 

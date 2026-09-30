@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.140.0
+-- Version: 2.141.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -590,7 +590,12 @@ end
 -- shows the character standing still for over two minutes that way. The
 -- leg is now dropped once the character has not moved SN_STALL_YD in
 -- SN_STALL_SEC while not casting, and the next move is issued afresh.
-local SN_STALL_SEC = 4.0
+-- SAFETY NET ONLY (2.141.0). This dropped the leg after 4 s - the same moment
+-- the re-path ladder re-planned it, so the stop won and the character halted.
+-- The ladder (movement/repath.lua) is the stuck authority: re-plan at 4 s,
+-- jump at 7 s, give up at 11 s. This now fires only past all of that, for a
+-- leg the ladder is not tracking.
+local SN_STALL_SEC = 12.0
 
 -- STILL PLANNING (2.111.0). A long path request (thousands of yards) keeps
 -- Sentinel in "awaiting_path" for 4-5 s. The stall check and the re-path

@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.168.0
+-- Version: 2.169.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -667,6 +667,12 @@ local BUY_GAP = 0.9
 local BUY_TALK_GAP = 1.5
 local BUY_FAILS = 3
 local g_buy = { key = nil }
+-- Known ids (2.169.0): the bags are counted before walking to a vendor, so a
+-- step already done is not walked to. Lower-case name -> item id.
+local BUY_IDS = {
+    ["light shot"] = 2516, ["rough arrow"] = 2512, ["sharp arrow"] = 2515, ["heavy shot"] = 2519,
+    ["small ammo pouch"] = 2102, ["light quiver"] = 2101,
+}
 
 local function strip_codes(t)
     t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cRXP_[%u_]-_", ""):gsub("|r", ""):gsub("|T.-|t", "")
@@ -759,8 +765,13 @@ local function buy_goal(player, goal, wps, label)
         local name, stacks, count = parse_buy(goal.text or label)
         if not name then return false end
         g_buy = { key = g_key, name = name, stacks = stacks, count = count, since = now,
-            item_id = nil, target = nil, unit_per_call = nil, pending = nil, fails = 0,
+            item_id = BUY_IDS[string.lower(name)], target = nil, unit_per_call = nil, pending = nil, fails = 0,
             talk_t = -1e9, bad = {} }
+        if g_buy.item_id then
+            local lname = string.lower(name)
+            local per = (lname:find("shot", 1, true) or lname:find("arrow", 1, true)) and 200 or 1
+            g_buy.target = count or ((stacks or 1) * per)
+        end
         trail("act", "buy step: %s x%s", name, stacks and (tostring(stacks) .. " stack(s)") or tostring(count or 1))
     end
     local b = g_buy
@@ -785,7 +796,7 @@ local function buy_goal(player, goal, wps, label)
             pcall(function() core.input.close_merchant() end)
             return true
         end
-        if not b.item_id then
+        if not b.target then
             b.item_id = info.item_id
             local lot = (type(info.quantity) == "number" and info.quantity > 0) and info.quantity or 1
             -- A stack of ammo is 200; anything else sold by the lot counts the lot.

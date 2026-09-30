@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.168.0
+-- Version: 2.169.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -51,6 +51,9 @@ local HEARTHSTONE = 6948
 local SELL_GAP = 0.40
 local INTERACT_GAP = 1.20
 local DONE_COOLDOWN = 90.0
+local FULL_RETRY = 60         -- 2.169.0: full bags retry a trip that freed nothing after this
+local RETURN_NEAR = 8         -- 2.169.0: yards from the paused quest spot that count as back
+local RETURN_MAX = 120        -- 2.169.0: seconds the walk back may take
 local BAG_HOLD = 300          -- 2.159.0: seconds a full-bag trip that freed nothing is not repeated
 local HERE_COOLDOWN = 60.0    -- a merchant window already worked is left alone this long
 
@@ -546,6 +549,7 @@ local function finish_trip(note)
         if free <= gui.slider("bag_free", 1) then
             state.vendor.bag_hold_free = free
             state.vendor.bag_hold_until = izi.now() + BAG_HOLD
+            state.vendor.bag_hold_set = izi.now()
             trail("bags still at %d free slot(s) after the trip - not going back until that changes", free)
         else
             state.vendor.bag_hold_free = nil
@@ -553,6 +557,10 @@ local function finish_trip(note)
     end
     trail("vendor trip done: %s - back to the %s", tostring(note),
         gui.is_on("use_quest") and "quest step" or "route")
+    if state.vendor.return_pos and gui.is_on("use_quest") then
+        state.vendor.returning = true
+        state.vendor.return_since = izi.now()
+    end
     state.vendor.reason = nil
     state.vendor.inn = nil
     state.vendor.idle_since = 0
@@ -627,6 +635,7 @@ end
 
 function vendor.reset()
     ht = nil
+    state.vendor.returning, state.vendor.return_pos = false, nil
     state.vendor.active = false
     state.vendor.repaired = false
     state.vendor.sold = 0
@@ -760,6 +769,12 @@ function vendor.needs_trip(player)
         -- the count to change (or BAG_HOLD) instead of walking back at once.
         local held = state.vendor.bag_hold_free ~= nil and free == state.vendor.bag_hold_free
             and izi.now() < (state.vendor.bag_hold_until or 0)
+        -- ALWAYS WHEN FULL (2.169.0): no free slot at all (special bags not
+        -- counted) always goes; only FULL_RETRY after a trip that freed
+        -- nothing keeps it from turning straight round.
+        if held and free == 0 and (izi.now() - (state.vendor.bag_hold_set or 0)) >= FULL_RETRY then
+            held = false
+        end
         if free <= need_slots and not held then
             state.vendor.reason = "bags"
             return true
@@ -1090,6 +1105,30 @@ function vendor.tick(player)
         return false
     end
 
+    -- BACK TO THE QUEST SPOT (2.169.0). A trip that finished while questing
+    -- walks back to where it paused the step; a fight on the way comes first
+    -- (the cascade's combat runs before this), then the walk carries on.
+    if state.vendor.returning and not state.vendor.active then
+        local rp = state.vendor.return_pos
+        local here = safe(function() return player:get_position() end)
+        local d = (rp and here) and math.sqrt((here.x - rp.x) ^ 2 + (here.y - rp.y) ^ 2) or 0
+        if not rp or d <= RETURN_NEAR or (izi.now() - (state.vendor.return_since or 0)) > RETURN_MAX
+            or not gui.is_on("use_quest") then
+            trail("back at the quest spot (%.0f yd) - resuming the quest step", d)
+            state.vendor.returning, state.vendor.return_pos = false, nil
+            movement.nav_stop()
+            return false
+        end
+        if safe(function() return player:is_in_combat() end) == true then
+            return false
+        end
+        if nav_place(player, rp) then
+            state.set_note("Vendor", string.format("Back to the quest spot  %.0fy", d))
+            return true
+        end
+        return false
+    end
+
     local in_combat = safe(function() return player:is_in_combat() end) == true
     if in_combat and not merchant_open() then
         return false
@@ -1112,6 +1151,15 @@ function vendor.tick(player)
     if not state.vendor.active then
         if not vendor.needs_trip(player) then
             return false
+        end
+        -- PAUSE THE QUEST STEP HERE (2.169.0): the trip walks back to this
+        -- spot before RestedXP gets the tick again.
+        if gui.is_on("use_quest") then
+            local here = safe(function() return player:get_position() end)
+            if here then
+                state.vendor.return_pos = { x = here.x, y = here.y, z = here.z }
+                trail("quest paused at (%.0f, %.0f) for the vendor trip", here.x, here.y)
+            end
         end
         -- FOOD / WATER RUN (2.139.0): the nearest inn, or an innkeeper in sight.
         if state.vendor.reason == "supplies" then

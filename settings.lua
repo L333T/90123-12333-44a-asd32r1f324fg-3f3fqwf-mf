@@ -3,7 +3,7 @@
 -- Per-character settings, saved to scripts_data/
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.168.0
+-- Version: 2.169.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS FOR, AND WHAT IT IS NOT FOR

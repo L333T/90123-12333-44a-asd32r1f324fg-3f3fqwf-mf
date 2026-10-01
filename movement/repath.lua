@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.189.0
+-- Version: 2.190.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -282,6 +282,91 @@ end
 
 function RP.reset()
     g.key, g.level = nil, 0
+end
+
+-- ----------------------------------------------------------------------------
+-- 4. STUCK AREAS (2.190.0)
+-- ----------------------------------------------------------------------------
+-- The ladder above works on one goal at a time and, when it gives up,
+-- blacklists the DESTINATION - not the spot the character is caught on, so a
+-- fence or rock that keeps catching it is walked into again on the next
+-- goal. This watches the character itself: while movement is trying to move
+-- (a travel leg or a combat chase) and the character has stayed within
+-- AREA_MOVE yards for AREA_STUCK seconds of trying - casting, resting,
+-- standing in reach and Sentinel still planning do not count - the area just
+-- ahead, toward the goal, is blacklisted (AREA_R yards, the character just
+-- outside it, the destination never inside it). Blacklisted areas go to
+-- Sentinel's obstacle list (movement/zones) and to find_path_avoid
+-- (movement/sentinel avoid zones), and the same destination is asked for
+-- again, so the new path goes around the obstruction.
+local AREA_STUCK  = 20.0
+local AREA_MOVE   = 3.0
+local AREA_R      = 6.0
+local AREA_AHEAD  = 7.0       -- zone centre this far ahead: AREA_R + 1, the character stays outside
+local AREA_SAMPLE = 0.5
+local aw = { x = nil, y = nil, acc = 0, last = 0, idle_since = nil }
+
+local function trying_to_move()
+    if R.cur_owner == OWNER.COMBAT and R.combat_target then
+        return not R.combat_stopped
+    end
+    return R.has_dest and (R.walker_moving or R.sn_active or R.pending) and true or false
+end
+
+function RP.area_watch(t)
+    if (t - aw.last) < AREA_SAMPLE then return end
+    local dt = t - aw.last
+    aw.last = t
+    if dt > 2 then dt = AREA_SAMPLE end
+    local hx, hy, hz = here_xyz()
+    if not hx then return end
+    if not trying_to_move() then
+        aw.idle_since = aw.idle_since or t
+        if (t - aw.idle_since) > 2.0 then aw.x, aw.acc = nil, 0 end
+        return
+    end
+    aw.idle_since = nil
+    if not aw.x or dist2(aw.x, aw.y, hx, hy) > AREA_MOVE then
+        aw.x, aw.y, aw.acc = hx, hy, 0
+        return
+    end
+    if holding() then return end            -- paused, not reset
+    aw.acc = aw.acc + dt
+    if aw.acc < AREA_STUCK then return end
+    aw.acc = 0
+    aw.x, aw.y = hx, hy
+    local gx, gy, gz, _, kind = current_goal()
+    if not gx then return end
+    local d = dist2(hx, hy, gx, gy)
+    if d < AREA_AHEAD + AREA_R + 2 then
+        -- The goal itself is inside where the zone would go: blacklisting
+        -- would wall it off. The ladder's give-up handles an unreachable goal.
+        trail("stuck %.0fs %.0f yd from the %s - too close to blacklist ahead", AREA_STUCK, d, kind)
+        return
+    end
+    local ux, uy = (gx - hx) / d, (gy - hy) / d
+    local cx, cy = hx + ux * AREA_AHEAD, hy + uy * AREA_AHEAD
+    local cz = hz + ((gz or hz) - hz) * (AREA_AHEAD / d)
+    Z.blacklist_area(pt(R.P_TMP, cx, cy, cz), AREA_R, "stuck " .. tostring(AREA_STUCK) .. " s")
+    trail("stuck %.0fs at (%.0f, %.0f) toward the %s - area (%.0f, %.0f) r%.0f blacklisted, re-pathing around it",
+        AREA_STUCK, hx, hy, kind, cx, cy, AREA_R)
+    -- The ladder starts over on the new path.
+    g.key, g.level = nil, 0
+    if kind == "combat" then
+        -- Combat movement steers clear of blacklisted ground on its next hop.
+        O.halt_all()
+        return
+    end
+    local dx, dy, dz = R.dest_x, R.dest_y, R.dest_z
+    if type(dx) ~= "number" then return end
+    O.halt_all()
+    R.force_reissue = true
+    if R.cur_owner ~= OWNER.COMBAT and type(N.move) == "function" then
+        R.sn_last_issue_t = -1e9            -- this re-path is not a flood: one per AREA_STUCK
+        -- Refused (no Sentinel, rate limit): the quest / grind engine issues
+        -- its walk again next tick, and that plan avoids the zone too.
+        N.move(pt(R.P_DEST, dx, dy, dz), "stuck_avoid")
+    end
 end
 
 return RP

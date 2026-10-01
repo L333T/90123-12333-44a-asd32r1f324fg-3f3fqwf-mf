@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.189.0
+-- Version: 2.190.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -346,6 +346,7 @@ function F.pulse()
     W.ensure()
     local t = izi.now()
     N.flush_stop(t)          -- 2.181.0: a Sentinel stop deferred while its path was planned
+    RP.area_watch(t)         -- 2.190.0: 20 s caught in one spot -> blacklist the area ahead, re-path
     -- Backpedalling (2.97.0): nothing else may steer until it ends.
     if Lk_mod.backpedal_tick(t) then
         return

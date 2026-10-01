@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.175.0
+-- Version: 2.176.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -747,18 +747,27 @@ local function item_is_wand(item_id)
     if type(info) ~= "table" then
         return nil
     end
+    -- A libram, idol or totem sits in the ranged slot. It is armour, and
+    -- some clients still report it as INVTYPE_RANGEDRIGHT, the same
+    -- location a wand uses. Only weapon subclass 19 is a wand.
+    local cls, sub = info.class_id, info.subclass_id
     local loc = info.equip_loc
-    if loc == "INVTYPE_RANGEDRIGHT" then
-        return true
-    end
-    if loc == "INVTYPE_RANGED" or loc == "INVTYPE_THROWN" then
+    if cls == 4 or loc == "INVTYPE_RELIC" then
         return false
     end
-    local sub = info.item_sub_type
-    if type(sub) == "string" then
-        if string.find(string.lower(sub), "wand", 1, true) then
+    if cls == 2 and type(sub) == "number" then
+        return sub == 19
+    end
+    if loc == "INVTYPE_RANGED" or loc == "INVTYPE_THROWN" or loc == "INVTYPE_RANGEDRIGHT" then
+        local text = info.item_sub_type
+        if type(text) == "string" and string.find(string.lower(text), "wand", 1, true) then
             return true
         end
+        return false
+    end
+    local text = info.item_sub_type
+    if type(text) == "string" and string.find(string.lower(text), "wand", 1, true) then
+        return true
     end
     return nil
 end
@@ -786,17 +795,11 @@ function targeting.has_wand_equipped(player)
         return false
     end
     local class_id = safe(function() return player:get_class() end)
-    if class_id == enums.class_id.MAGE or class_id == enums.class_id.PRIEST or class_id == enums.class_id.WARLOCK then
+    if class_id == enums.class_id.MAGE then
         wand_eq_val = true
         return true
     end
     return false
-end
-
-local function is_attacking(player)
-    return safe(function()
-        return auto_attack:is_auto_attacking(player)
-    end) == true
 end
 
 local function start_attack_type(unit, attack_type)
@@ -815,33 +818,6 @@ local function stop_attack_type(unit, attack_type)
     safe(function()
         return auto_attack:stop_attack(unit, attack_type)
     end)
-end
-
-local function in_melee(player, unit)
-    if safe(function() return unit:is_in_melee_range(5) end) == true then
-        return true
-    end
-    local d = safe(function() return player:distance_to(unit) end)
-    return type(d) == "number" and d <= 5
-end
-
-local function start_wand_or_melee(player, unit, types)
-    if is_attacking(player) then
-        return true
-    end
-    if type(types) ~= "table" then
-        return false
-    end
-    if in_melee(player, unit) then
-        if start_attack_type(unit, types.MELEE) then
-            return true
-        end
-        return start_attack_type(unit, types.WAND)
-    end
-    if start_attack_type(unit, types.WAND) then
-        return true
-    end
-    return start_attack_type(unit, types.MELEE)
 end
 
 --- Target `unit` unless it already is the player's target.
@@ -954,16 +930,17 @@ function targeting.start_auto_attack(player, unit)
     end
     if want == types.RANGED or want == types.WAND then
         stop_attack_type(unit, types.MELEE)
-    elseif want == types.MELEE and type(types.WAND) == "number" then
+    end
+    -- Stop a wand only after this character actually started one. Calling
+    -- stop_attack with the wand type on a paladin sends Shoot (5019) while
+    -- a libram is in the ranged slot.
+    if want ~= types.WAND and auto_type == types.WAND and type(types.WAND) == "number" then
         stop_attack_type(unit, types.WAND)
     end
     local started = start_attack_type(unit, want)
-    local caster = cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
-        or cid == enums.class_id.WARLOCK or cid == enums.class_id.SHAMAN
-    if not started and caster and type(types.WAND) == "number" then
-        local other = (want == types.WAND) and types.MELEE or types.WAND
-        if other ~= want and start_attack_type(unit, other) then
-            want = other
+    if not started and want == types.WAND and type(types.MELEE) == "number" then
+        if start_attack_type(unit, types.MELEE) then
+            want = types.MELEE
             started = true
         end
     end

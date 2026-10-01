@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.191.0
+-- Version: 2.192.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -83,6 +83,7 @@ function N.stop()
     R.sn_active, R.sn_reason = false, nil
     R.sn_leash_hold = false
     R.sn_watch_t = 0
+    N.end_recovery()
     return true
 end
 
@@ -207,7 +208,56 @@ local on_nav_done = N.on_nav_done
 ---
 --- The terminal case arrives separately, as a failure with the reason
 --- max_stuck_exceeded, and is handled in on_nav_done.
+-- RECOVERY THAT NEVER ENDS (2.192.0). The 13:25 Sentinel log: 9 s and more
+-- in navigating.recovering with the character frozen at the same spot to the
+-- hundredth of a yard - stuck attempt 1..5, a re-plan to the SAME 68-point
+-- path, again and again - and no "recovered" event. R.sn_recovering held the
+-- re-path ladder, the stall check and the stuck-area watch off for as long as
+-- that lasted, so nothing of ours ever re-pathed. A recovery that has not
+-- moved the character SN_RECOVER_MOVE yards in SN_RECOVER_MAX seconds stops
+-- counting as "Sentinel is handling it" (N.recovery_stalled) and the ladder
+-- takes over: the area ahead is blacklisted and a path around it is planned.
+local SN_RECOVER_MAX  = 6.0
+local SN_RECOVER_MOVE = 2.0
+local rec = { since = nil, x = nil, y = nil }
+
+--- Forget Sentinel's recovery (a new leg, a stop, or we took over).
+function N.end_recovery()
+    R.sn_recovering = false
+    rec.since, rec.x, rec.y = nil, nil, nil
+end
+
+--- Sentinel has been "recovering" SN_RECOVER_MAX s without moving the character.
+function N.recovery_stalled()
+    if not R.sn_recovering then return false end
+    if not R.sn_active then
+        N.end_recovery()
+        return false
+    end
+    local hx, hy = here_xyz()
+    if not hx then return false end
+    local t = izi.now()
+    if not rec.since or not rec.x then
+        rec.since, rec.x, rec.y = t, hx, hy
+        return false
+    end
+    if dist2(hx, hy, rec.x, rec.y) > SN_RECOVER_MOVE then
+        rec.since, rec.x, rec.y = t, hx, hy      -- it is moving: the recovery works
+        return false
+    end
+    return (t - rec.since) >= SN_RECOVER_MAX
+end
+
+--- Sentinel's own stuck handler is running AND still worth waiting on.
+function N.recovering()
+    return R.sn_recovering == true and not N.recovery_stalled()
+end
+
 local function on_sn_stuck()
+    if not R.sn_recovering or not rec.since then
+        local hx, hy = here_xyz()
+        rec.since, rec.x, rec.y = izi.now(), hx, hy
+    end
     R.sn_recovering = true
     -- Sentinel owns the recovery. All we add is which way the wall is, so the
     -- log says what it was stuck ON and not just that it was stuck. This is
@@ -224,7 +274,7 @@ end
 
 --- Recovery worked and navigation continues.
 local function on_sn_recovered()
-    R.sn_recovering = false
+    N.end_recovery()
     dlog("sentinel", "stuck recovered")
 end
 
@@ -526,6 +576,7 @@ local function begin_leg(p, why)
     R.sn_watch_t = now
     R.sn_tight = false
     R.sn_prog_idx, R.sn_prog_pct = nil, nil
+    N.end_recovery()
     W.begin_issue(p.x, p.y, p.z)
 end
 
@@ -659,6 +710,7 @@ local plan_since = nil
 --- Is Sentinel still computing the path for the leg in flight?
 function N.planning()
     if not R.sn_active then plan_since = nil return false end
+    if N.recovery_stalled() then return false end
     local c = R.sn_client
     if type(c) ~= "table" or type(c.get_full_state) ~= "function" then return false end
     local ok, st = pcall(c.get_full_state, c)
@@ -719,7 +771,7 @@ local function stall_check(t)
     pcall(function() casting = me:is_channeling_or_casting() == true end)
     local pos = nil
     pcall(function() pos = me:get_position() end)
-    if casting or not pos or R.sn_recovering or N.planning() then
+    if casting or not pos or N.recovering() or N.planning() then
         stall_x, stall_y, stall_t = nil, nil, t
         return false
     end
@@ -1061,6 +1113,7 @@ function N.follow(points, why)
     R.sn_leash_hold = true
     R.sn_watch_t = now
     stop_pending = nil
+    N.end_recovery()
     local ok = pcall(c.follow_path, c, pts, on_nav_done)
     if not ok then
         R.sn_active, R.sn_reason = false, nil
@@ -1070,6 +1123,100 @@ function N.follow(points, why)
     end
     dlog("issue", string.format("sentinel follow_path %s (%d pts)", tostring(why or ""), #pts))
     return true
+end
+
+-- ----------------------------------------------------------------------------
+-- RE-PATH AROUND A STUCK SPOT (2.192.0)
+-- ----------------------------------------------------------------------------
+--- The point the running Sentinel path walks toward next: the first path
+--- point at least `min_d` yards from the player. x, y, z or nil.
+function N.ahead_point(min_d)
+    local c = R.sn_client
+    if not R.sn_active or type(c) ~= "table" or type(c.get_current_path) ~= "function" then return nil end
+    local hx, hy = here_xyz()
+    if not hx then return nil end
+    local okp, path = pcall(c.get_current_path, c)
+    if not okp or type(path) ~= "table" or #path == 0 then return nil end
+    local idx = 1
+    if type(c.get_path_index) == "function" then
+        local oki, i = pcall(c.get_path_index, c)
+        if oki and type(i) == "number" and i >= 1 then idx = i end
+    end
+    for i = idx, #path do
+        local p = path[i]
+        if type(p) == "table" and type(p.x) == "number" and dist2(hx, hy, p.x, p.y) >= (min_d or 3) then
+            return p.x, p.y, p.z
+        end
+    end
+    return nil
+end
+
+-- The 2.190.0 "stuck_avoid" re-path went through N.move: with a leg running
+-- that is N.retarget -> plain find_path (no avoid zones, maybe even the cached
+-- old path), and with none, take_avoid_pts only ASKS on the first call and
+-- move_to ran the plain plan meanwhile - the same blocked route came back.
+-- Now the avoid plan is asked for and waited on (up to AR_WAIT s, the stuck
+-- leg keeps running meanwhile), then followed; no plan -> move_to, which still
+-- has the blacklisted area in Sentinel's obstacle list.
+local AR_WAIT = 4.0
+local ar = { dest = nil }
+
+--- Plan to `p` around the blacklisted areas and follow it. True when asked.
+function N.repath_around(p, why)
+    local px, py, pz = xyz(p)
+    if not px or R.cur_owner == OWNER.COMBAT then return false end
+    why = why or "stuck_avoid"
+    local n = nav()
+    local zones = danger_zones({ x = px, y = py, z = pz })
+    local hx, hy, hz = here_xyz()
+    if n and type(n.find_path_avoid) == "function" and zones and hx then
+        local job = { dest = { x = px, y = py, z = pz }, asked = izi.now(), pts = nil, why = why }
+        ar = job
+        local ok = pcall(n.find_path_avoid, n, vec3.new(hx, hy, hz), vec3.new(px, py, pz), zones, function(...)
+            for i = 1, select("#", ...) do
+                local pts = as_points((select(i, ...)))
+                if pts and #pts >= 2 then
+                    job.pts = pts
+                    return
+                end
+            end
+            job.failed = true
+        end)
+        if ok then
+            dlog("sentinel", string.format("re-path around %d blacklisted area(s) -> (%.0f, %.0f)", #zones, px, py))
+            return true
+        end
+        ar = { dest = nil }
+    end
+    N.stop()
+    W.clear_dest()
+    R.sn_last_issue_t = -1e9
+    return N.move({ x = px, y = py, z = pz }, why)
+end
+
+--- Per pulse: follow the avoid plan once it is back, or fall back to move_to.
+function N.repath_tick(t)
+    local job = ar
+    if not job.dest then return end
+    if R.cur_owner == OWNER.COMBAT then ar = { dest = nil } return end
+    if job.pts then
+        R.sn_last_issue_t = -1e9             -- one re-path per stuck spot, not a flood
+        if N.follow(job.pts, job.why) then
+            ar = { dest = nil }
+            local ok_e, el = pcall(require, "errorlog")
+            if ok_e and type(el) == "table" and type(el.trail) == "function" then
+                pcall(el.trail, "move", "re-path around the stuck spot: following %d points", #job.pts)
+            end
+            return
+        end
+    end
+    if job.failed or (t - job.asked) >= AR_WAIT then
+        ar = { dest = nil }
+        N.stop()
+        W.clear_dest()
+        R.sn_last_issue_t = -1e9
+        N.move(job.dest, job.why)
+    end
 end
 
 -- ----------------------------------------------------------------------------

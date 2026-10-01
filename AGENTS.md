@@ -76,6 +76,9 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   distance) - `smart.lua` in_reach and `rotation.combat_range` enforce it.
   Stuck 20 s while trying to move: `RP.area_watch` blacklists the area just ahead
   and re-paths; blacklist zones reach Sentinel (obstacle list + find_path_avoid) (2.190.0).
+  Sentinel's own stuck recovery is waited on only while it moves the character: frozen
+  6 s (`N.recovery_stalled`) -> `RP.recovery_watch` blacklists the area ahead along the
+  path and `N.repath_around` plans around it with find_path_avoid (2.192.0).
 - **Bag items**: always through `bags.list` (inventory_helper `bag_id` / `bag_slot`, the pair
   `use_container_item` takes), which keeps only real bag slots - backpack 1-16, worn bags
   1..`get_num_bag_slots(bag+1)`; the helper also returns bank-storage entries on this client

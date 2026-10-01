@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.177.0
+-- Version: 2.178.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -302,6 +302,11 @@ menu:checkbox("mfg_quest_path_pull", true, {
     tooltip = "While walking to a quest waypoint or NPC, fight hostile mobs within 20 yards ahead on the way (4 levels below to 3 above you, no critters, nothing tagged by another player), loot them, then carry on.",
 })
 -- Light, automatic crash capture (2.87.0) - see errorlog.arm_light.
+menu:checkbox("mfg_print_action", false, {
+    label = "Print action to console",
+    tab = "general",
+    tooltip = "Prints the action the bot is performing to the console whenever it changes. For debugging.",
+})
 menu:checkbox("mfg_session_detail", false, {
     label = "Detailed session log",
     tab = "general",
@@ -616,6 +621,7 @@ local aliases = {
     crash_recorder = "mfg_crash_recorder",
     crash_capture = "mfg_crash_capture",
     session_detail = "mfg_session_detail",
+    print_action = "mfg_print_action",
     buff_randoms = "mfg_buff_randoms",
     quest_path_pull = "mfg_quest_path_pull",
     skip_trivial = "mfg_skip_trivial",

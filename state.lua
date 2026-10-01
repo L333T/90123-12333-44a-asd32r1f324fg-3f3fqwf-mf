@@ -3,9 +3,12 @@
 -- Shared runtime state (no leaked globals)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.179.0
+-- Version: 2.180.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
+
+---@type izi_api
+local izi = require("common/izi_sdk")
 
 local state = {
     note = "",
@@ -78,16 +81,11 @@ local function console_on()
     return gui.is_on("print_action") == true
 end
 
-local function console_print(fmt, a, b)
-    local ok, izi = pcall(require, "common/izi_sdk")
-    if not ok or not izi or type(izi.printf) ~= "function" then
+local function console_print(text)
+    if type(izi.print) ~= "function" then
         return
     end
-    if b == nil then
-        pcall(izi.printf, fmt, a)
-    else
-        pcall(izi.printf, fmt, a, b)
-    end
+    pcall(izi.print, "[Master Farmer] ", text)
 end
 
 -- The General tab toggle. A repeat of the same line is not printed again.
@@ -103,7 +101,7 @@ function state.report_action(text)
         return
     end
     last_printed_action = text
-    console_print("[Master Farmer] %s", text)
+    console_print(text)
 end
 
 function state.set_note(head, text)
@@ -128,7 +126,7 @@ function state.set_note(head, text)
         return
     end
     last_printed_note = line
-    console_print("[Master Farmer] %s", line)
+    console_print(line)
 end
 
 -- ONE CURRENT TARGET (2.143.0). state.target is the authority. Other

@@ -31,7 +31,7 @@ runtime by `gamever.lua`.
 5. **Leave `plugin_loader/` alone** unless the user approves a change. When one is
    made, also copy it to the INSTALLED loader the game runs (below), back up the
    installed copy first, and keep backups OUTSIDE `scripts\` (a folder there is
-   loaded as a plugin). Current loader: 1.2.2. It follows GitHub `main` (no commit pin) and loads on TBC and Forever for every class. Edit it only when the download mechanism changes.
+   loaded as a plugin). Current loader: 1.2.3 (quiet console: only "[Master Farmer] loading..." / "loaded <name> v<version>"; repository, commit, URLs, HTTP codes and progress only with `VERBOSE = true` in `plugin_loader/main.lua`). It follows GitHub `main` (no commit pin) and loads on TBC and Forever for every class. Edit it only when the download mechanism changes. The game install now runs a PACKED copy (`scripts\ext_plugin_masterfarmer_beta_test`) - a loader change reaches the game only when that file is rebuilt from `plugin_loader/`.
 
 ## Paths
 

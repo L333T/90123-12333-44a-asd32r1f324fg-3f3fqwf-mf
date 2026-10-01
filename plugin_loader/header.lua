@@ -3,7 +3,7 @@
 -- header.lua - load gate
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Loader version: 1.2.2   (this is the LOADER's version, not the bot's - the
+-- Loader version: 1.2.3   (this is the LOADER's version, not the bot's - the
 --                          bot's version is whatever the manifest reports)
 -- ============================================================================
 -- DO NOT EDIT THIS FOLDER TO SHIP A BOT CHANGE.
@@ -39,17 +39,17 @@
 -- ============================================================================
 
 local LOADER_KEY     = "MFG_HTTP_LOADER"
-local LOADER_VERSION = "1.2.2"   -- version via pcall; no player gate; boot line posted
+local LOADER_VERSION = "1.2.3"   -- 1.2.3: quiet console, no HTTP / URL detail unless VERBOSE
 
 local plugin = {}
-plugin["name"]      = "Master Farmer - Grindbot (HTTP)"
-plugin["short_tag"] = "MFG-HTTP"
+plugin["name"]      = "Master Farmer - Grindbot"
+plugin["short_tag"] = "MFG"
 plugin["version"]   = LOADER_VERSION
 plugin["author"]    = "BLIZZ - Anthonyk"
 plugin["load"]      = true
 
 local function refuse(msg)
-    if msg then core.log_error("[MFG-HTTP] " .. msg) end
+    if msg then core.log_error("[Master Farmer] " .. msg) end
     plugin["load"] = false
     return plugin
 end
@@ -73,7 +73,9 @@ local load = (okv and SUPPORTED[version] == true) or (oke and exact == "wow_fore
 local line = string.format("Master Farmer %s header: load=%s game_version=%s exact=%s",
     plugin["version"], tostring(load), tostring(version), tostring(oke and exact or exact))
 call(core.http_post, BOOT_URL, line .. "\n", function() end)
-call(core.log, "[MFG-HTTP] " .. line)
+if not load then
+    call(core.log, "[Master Farmer] not loaded on this game version (" .. tostring(version) .. ")")
+end
 
 if not load then
     plugin["load"] = false
@@ -83,7 +85,7 @@ end
 -- Without HTTP this plugin can do literally nothing, so refuse here rather than
 -- loading and then sitting idle with no explanation.
 if type(core.http_get) ~= "function" then
-    return refuse("core.http_get is unavailable in this build - cannot load over HTTP.")
+    return refuse("this build cannot load the plugin (no download support).")
 end
 
 local izi_ok, izi = pcall(require, "common/izi_sdk")

@@ -4,6 +4,12 @@ One rule set for every AI tool that works on this project: **Claude Code** reads
 through `CLAUDE.md`, **Cursor** reads this file directly (plus `.cursor/rules/`).
 When a rule changes, change it HERE so both tools follow the same one.
 
+Master Farmer work lives in `C:\Users\ebene\OneDrive\Desktop\SNES_\`.
+The repo is `SNES_\Master_Farmer_Grindbot`. Every local build
+(`Master_Farmer_Grindbot_v<version>`) and the older `Master Farmer Versions`
+archive sit in that same folder. Do not put new version folders on the
+desktop beside `SNES_`.
+
 A Sylvanas (Project Sylvanas) Lua plugin: an AFK WoW levelling bot. Targets
 **TBC Classic** and **WoW Forever** (vanilla content on a modern client), chosen at
 runtime by `gamever.lua`.
@@ -16,7 +22,7 @@ runtime by `gamever.lua`.
 2. **Build the local test folder**: `python make_local.py` → regenerates
    `manifest.lua` (the loader fetches files by Adler-32 hash, so a stale manifest
    means the change never reaches the game), syntax-checks every `.lua`, and copies
-   the build to `Desktop/Master_Farmer_Grindbot_v<version>/`.
+   the build to `Desktop/SNES_/Master_Farmer_Grindbot_v<version>/`.
 3. **Always publish**: commit on `dev` (`vX.Y.Z: <summary>`), push, open the PR to
    `main` **and merge it**. The in-game loader downloads from GitHub `main`
    (`plugin_loader/main.lua`, `BRANCH = "main"`), so uncommitted or unmerged work is
@@ -31,13 +37,16 @@ runtime by `gamever.lua`.
 
 | What | Where |
 |---|---|
-| Repo (this folder) | `C:\Users\ebene\OneDrive\Desktop\Master_Farmer_Grindbot` |
+| Home folder (all Master Farmer work) | `C:\Users\ebene\OneDrive\Desktop\SNES_\` |
+| Repo (open this folder) | `C:\Users\ebene\OneDrive\Desktop\SNES_\Master_Farmer_Grindbot` |
+| Local version builds | `C:\Users\ebene\OneDrive\Desktop\SNES_\Master_Farmer_Grindbot_v<version>\` |
+| Older version archive | `C:\Users\ebene\OneDrive\Desktop\SNES_\Master Farmer Versions\` |
 | Active game install (changes between installs — ask if logs look stale) | `C:\Users\ebene\OneDrive\Documents\3cf70445e7` |
 | Installed loader | `…\3cf70445e7\scripts\plugin_loader\` |
 | Session logs (one per session, `errorlog.lua`) | `…\3cf70445e7\scripts_log\MASTER_FARMER_ERRORS\` |
 | API stubs (source of truth for every call) | `…\3cf70445e7\scripts\.api\` |
 | API docs (per game version, incl. Forever notes) | `C:\Users\ebene\Downloads\Sylvanas_coreAPI_IZI_API\` |
-| Sentinel navigation source (v0.0.6; installed client is v0.23) | `C:\Users\ebene\OneDrive\Desktop\MF_Navigation\` |
+| Sentinel navigation source (v0.0.6; installed client is v0.23) | `C:\Users\ebene\OneDrive\Desktop\SNES_\MF_Navigation\` |
 
 ## API discipline
 

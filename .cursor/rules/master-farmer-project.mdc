@@ -8,6 +8,10 @@ alwaysApply: true
 Read and follow `AGENTS.md` at the repository root before any change. It is the
 single rule set shared by Cursor and Claude Code — edit rules there, not here.
 
+The project home is `C:\Users\ebene\OneDrive\Desktop\SNES_\`. Open
+`SNES_\Master_Farmer_Grindbot` for work. Local version builds go in `SNES_`,
+not on the desktop beside it.
+
 The essentials, so they are never missed:
 
 - Every material change: bump `version.lua` + every `-- Version:` banner, add a

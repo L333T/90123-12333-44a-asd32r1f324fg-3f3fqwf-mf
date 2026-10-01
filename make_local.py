@@ -2,7 +2,7 @@
 """
 Build a local, versioned copy of the plugin to test in game BEFORE pushing.
 
-    python make_local.py                # -> ../Master_Farmer_Grindbot_v<version>/
+    python make_local.py                # -> Desktop/SNES_/Master_Farmer_Grindbot_v<version>/
     python make_local.py --force        # rebuild a version folder that exists
     python make_local.py --check        # syntax check only, copy nothing
     python make_local.py --dest D:/wow/scripts/Master_Farmer_Grindbot_test
@@ -115,7 +115,14 @@ def main():
 
     subprocess.run([sys.executable, os.path.join(ROOT, "make_manifest.py")], cwd=ROOT, check=True)
 
-    dest = args.dest or os.path.join(os.path.dirname(ROOT), "Master_Farmer_Grindbot_v" + version)
+    # Version folders live in Desktop/SNES_. Once this repo sits inside SNES_,
+    # that folder is the parent. Until then, SNES_ is the sibling of the repo.
+    parent = os.path.dirname(ROOT)
+    if os.path.basename(parent) == "SNES_":
+        home = parent
+    else:
+        home = os.path.join(parent, "SNES_")
+    dest = args.dest or os.path.join(home, "Master_Farmer_Grindbot_v" + version)
     dest = os.path.abspath(dest)
     if os.path.exists(dest):
         if not args.force:

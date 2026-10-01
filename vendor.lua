@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.185.0
+-- Version: 2.186.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -494,6 +494,7 @@ local function helper_count(player, item_id)
 end
 
 local selling_off = false
+local surprise = 0              -- 2.186.0: sales this trip that emptied another slot too
 
 --- Did the last sale land? Its stack total must have gone down (helper).
 local function check_last_sale(player)
@@ -507,13 +508,21 @@ local function check_last_sale(player)
         sell_fails[p.item_id] = nil
         return
     end
-    -- The target is all still there but a slot emptied: another item went.
+    -- The target is all still there but a slot emptied (2.186.0): an auto-sell
+    -- addon emptying grey items at the same moment does exactly this - the
+    -- 11:00 log went from 3 to 12 free slots in one second on one sale. Not
+    -- proof of a wrong item, so selling carries on; the item is skipped for
+    -- the trip, and three such surprises in one trip stop selling.
     if type(p.slots) == "number" and slots < p.slots then
-        selling_off = true
-        trail("sale at bag %s slot %s took a different item - selling stopped for this session",
-            tostring(p.bag), tostring(p.slot))
-        core.log_warning("[Master Farmer - Grindbot] A vendor sale took a different item than intended - "
-            .. "selling is off for this session.")
+        surprise = surprise + 1
+        sell_fails[p.item_id] = SELL_RETRIES
+        trail("sale at bag %s slot %s: another slot emptied too (%d this trip)%s",
+            tostring(p.bag), tostring(p.slot), surprise, surprise >= 3 and " - selling stopped" or "")
+        if surprise >= 3 then
+            selling_off = true
+            core.log_warning("[Master Farmer - Grindbot] Vendor sales keep emptying other slots - "
+                .. "selling is off for this session.")
+        end
         return
     end
     sell_fails[p.item_id] = (sell_fails[p.item_id] or 0) + 1
@@ -611,6 +620,7 @@ local function finish_trip(note)
     state.vendor.repair_tries = 0
     sell_pending = nil
     sell_fails = {}
+    surprise = 0
     state.vendor.supplier_guid = nil
     state.vendor.supplier_name = nil
     state.vendor.supplier_skip = nil

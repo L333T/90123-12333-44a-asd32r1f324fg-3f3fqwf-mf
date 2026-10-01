@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.183.0
+-- Version: 2.184.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -282,18 +282,23 @@ local function special_free()
 end
 
 local function bag_free()
-    local helper_free = safe(function()
+    -- Counted from the filtered bag list (2.184.0): the helper's total also
+    -- saw bank storage on this client. Special bags are left out.
+    local me = safe(function() return izi.me() end)
+    local own = me and bags.free_slots(me, special_bag) or nil
+    local helper_free = own or safe(function()
         return inventory_helper:get_total_free_slots()
     end)
     if type(helper_free) == "number" and helper_free >= 0 then
-        local sp = special_free()
+        local sp = own and 0 or special_free()
         helper_free = math.max(0, helper_free - sp)
         if helper_free ~= last_free_logged then
             last_free_logged = helper_free
             local ok_e, el = pcall(require, "errorlog")
             if ok_e and type(el) == "table" and type(el.trail) == "function" then
+                local sp_show = own and special_free() or sp
                 pcall(el.trail, "vendor", "bags: %d free slot(s)%s", helper_free,
-                    sp > 0 and string.format(" (%d in ammo / special bags not counted)", sp) or "")
+                    sp_show > 0 and string.format(" (%d in ammo / special bags not counted)", sp_show) or "")
             end
         end
         return helper_free

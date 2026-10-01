@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.174.0
+-- Version: 2.175.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -553,7 +553,6 @@ add_class_slider(class_ids.PRIEST, "ranged_yards", 10, 40, 30, "Ranged attack di
 add_class_slider(class_ids.PRIEST, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
 add_class_slider(class_ids.PRIEST, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
 add_class_slider(class_ids.PRIEST, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
-add_class_slider(class_ids.PRIEST, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
 
 add_class_slider(class_ids.SHAMAN, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
 add_class_slider(class_ids.SHAMAN, "melee_yards", 1, 5, 5, "Melee distance (yd)", TIP_MELEE)
@@ -570,7 +569,6 @@ add_class_slider(class_ids.WARLOCK, "ranged_yards", 10, 40, 30, "Ranged attack d
 add_class_slider(class_ids.WARLOCK, "sp_heal", 20, 90, 45, "Drain Life below %", TIP_HEAL)
 add_class_slider(class_ids.WARLOCK, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
 add_class_slider(class_ids.WARLOCK, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
-add_class_slider(class_ids.WARLOCK, "sp_wand", 0, 60, 20, "Wand below mana %", TIP_WAND)
 add_class_slider(class_ids.WARLOCK, "pet_heal_pct", 20, 90, 50, "Health Funnel below %", TIP_PET)
 
 -- Druid stands at range until Cat or Bear, so both distances are kept.

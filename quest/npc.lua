@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.187.0
+-- Version: 2.188.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -180,7 +180,8 @@ end
 -- also goes to scripts_data/mfg/debug.log, because a console line cannot be
 -- scrolled back to or sent to anybody.
 local function quest_debug(fmt, ...)
-    if gui.is_on("quest_debug") ~= true then
+    -- Part of "Detailed session log" (2.188.0).
+    if gui.is_on("session_detail") ~= true then
         return
     end
     local text = select("#", ...) > 0 and string.format(fmt, ...) or tostring(fmt)

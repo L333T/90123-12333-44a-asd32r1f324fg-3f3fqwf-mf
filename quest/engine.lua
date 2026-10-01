@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.187.0
+-- Version: 2.188.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -172,7 +172,8 @@ end
 local dbg_last, dbg_at = nil, 0
 
 local function debug(fmt, ...)
-    if not gui.is_on("quest_debug") then
+    -- Quest detail is part of "Detailed session log" (2.188.0).
+    if not gui.is_on("session_detail") then
         return
     end
     local text = string.format(fmt, ...)
@@ -419,20 +420,9 @@ local function fight_back(player, label)
     return false
 end
 
---- Walk toward a position. Returns true while there is still walking to do.
--- KILL MOBS ON THE WAY (2.51.0). Every walk the engine makes goes through
--- walk_to; before each leg it looks - at most every PATH_SCAN_GAP - for a
--- hostile mob near the path (guide.find_path_mob) and fights it through the
--- normal path: combat lock, loot, then on. Off while a rest is due (the rest
--- would come first anyway) and when the Questing tab's box is unticked.
---
--- 100 yd from the PLAYER (2.154.0). The 01:11 xp grind walked 76-213 yd
--- past wolves and boars: path_pull only looked 20-30 yd, required
--- is_enemy_with (yellow mobs skipped), and did nothing once the waypoint
--- was reached (find_path_mob needs a heading). Targeting's 360-degree
--- scan from the player's x,y,z is the pull now.
-local PATH_SCAN_GAP = 0.8
-local g_path_scan_until = 0
+-- KILL MOBS ON THE WAY was removed in 2.188.0 with its Questing-tab box.
+-- Mobs that attack are still fought (fight_back), and "Grind to XP" steps
+-- still pull the nearest XP-worthy enemy (xp_goal, nearest_xp_enemy below).
 
 local XP_GREY_GAP = 5
 local CRITTER_TYPE = nil
@@ -461,48 +451,6 @@ local function nearest_xp_enemy(player, range)
     local unit = targeting.nearest(player, keep)
     local d = unit and safe(function() return player:distance_to(unit) end) or nil
     return unit, d
-end
-
-local function path_pull(dest)
-    if not gui.is_on("quest_path_pull") then
-        return false
-    end
-    -- Do not peel off to a 100 yd fight when the walk is an NPC approach
-    -- already near the giver. (approach_kind / near are locals below this
-    -- function, so they are not visible here.)
-    local kind = g_cur_kind
-    if dest and (kind == "accept" or kind == "turnin" or kind == "talk" or kind == "fly") then
-        local me = safe(function() return izi.me():get_position() end)
-        local d = me and geometry.distance_flat(me, dest)
-        if type(d) == "number" and d <= TALK_SEARCH_FAR then
-            return false
-        end
-    end
-    local now = izi.now()
-    if now < g_path_scan_until then
-        return false
-    end
-    g_path_scan_until = now + PATH_SCAN_GAP
-    local player = safe(function() return izi.me() end)
-    if not player then
-        return false
-    end
-    -- Low health or mana: the rest comes first, not another fight.
-    local hp = safe(function() return player:get_health_percentage() end)
-    if type(hp) == "number" and hp < 50 then
-        return false
-    end
-    local range = targeting.ENEMY_SCAN or 100
-    -- Worth XP only (2.158.0): the 11:28 log fought Rabbits and walked to
-    -- their empty corpses.
-    local unit, d = nearest_xp_enemy(player, range)
-    if not unit then
-        return false
-    end
-    trail("act", "clear the path: %s at %.0f yd (within %.0f yd of the player)",
-        tostring(safe(function() return unit:get_name() end)), d or -1, range)
-    engage(player, unit, "Guide: clearing the path")
-    return true
 end
 
 local CHAIN_WP = 12
@@ -548,9 +496,6 @@ local function walk_to(pos, note, arrive)
         if type(d) == "number" and d <= TALK_ARRIVE then
             return false
         end
-    end
-    if path_pull(pos) then
-        return true
     end
     if g_force_path then
         -- A stall recovery: whatever path is running got the bot nowhere.

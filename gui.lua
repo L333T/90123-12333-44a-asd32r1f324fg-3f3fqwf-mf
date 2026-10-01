@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.187.0
+-- Version: 2.188.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -296,11 +296,6 @@ menu:checkbox("mfg_skip_trivial", true, {
     tab = "questing",
     tooltip = "Skip a quest the NPC reports as trivial (grey). The bot moves on to the step's next goal; advance the RestedXP guide yourself if the whole step was that quest.",
 })
-menu:checkbox("mfg_quest_path_pull", true, {
-    label = "Kill mobs on the way",
-    tab = "questing",
-    tooltip = "While walking to a quest waypoint or NPC, fight hostile mobs within 20 yards ahead on the way (4 levels below to 3 above you, no critters, nothing tagged by another player), loot them, then carry on.",
-})
 -- Light, automatic crash capture (2.87.0) - see errorlog.arm_light.
 menu:checkbox("mfg_print_action", false, {
     label = "Print action to console",
@@ -310,7 +305,7 @@ menu:checkbox("mfg_print_action", false, {
 menu:checkbox("mfg_session_detail", false, {
     label = "Detailed session log",
     tab = "general",
-    tooltip = "Writes a heartbeat line to scripts_log/MASTER_FARMER_ERRORS every bot tick (10 a second). Off by default: frequent disk writes into a OneDrive folder are a suspect in the game shutdowns. Errors, warnings and trail lines are always written.",
+    tooltip = "Writes a heartbeat line to scripts_log/MASTER_FARMER_ERRORS every bot tick (10 a second), and the quest detail: each RestedXP goal taken up, how the NPC was found, each step of an accept or hand-in, and every reward choice considered and taken. Off by default: frequent disk writes into a OneDrive folder are a suspect in the game shutdowns. Errors, warnings and trail lines are always written.",
 })
 -- Off by default since 2.89.0 (see the session log box above).
 menu:checkbox("mfg_crash_capture", false, {
@@ -324,11 +319,6 @@ menu:checkbox("mfg_crash_recorder", false, {
     label = "Crash recorder (slows the game)",
     tab = "general",
     tooltip = "For hunting a game crash only. After Start, and through every grinding fight, it writes a line to scripts_log/MASTER_FARMER_ERRORS for every step of every frame, so the last line names the call the game died in. Each line is a disk write: with this on the game runs at a fraction of its frame rate. Leave it off otherwise.",
-})
-menu:checkbox("mfg_quest_debug", false, {
-    label = "Log quest and guide steps",
-    tab = "questing",
-    tooltip = "Prints each RestedXP goal the bot takes up, how it found the NPC, each step of a quest accept or hand-in, every reward choice considered, how it was rated, and which one was taken.",
 })
 
 menu:checkbox("mfg_vendor_sell", true, {
@@ -605,13 +595,11 @@ local aliases = {
     eat_drink = "mfg_eat_drink",
     potions = "mfg_potions",
     rest_debug = "mfg_rest_debug",
-    quest_debug = "mfg_quest_debug",
     crash_recorder = "mfg_crash_recorder",
     crash_capture = "mfg_crash_capture",
     session_detail = "mfg_session_detail",
     print_action = "mfg_print_action",
     buff_randoms = "mfg_buff_randoms",
-    quest_path_pull = "mfg_quest_path_pull",
     skip_trivial = "mfg_skip_trivial",
     train = "mfg_train",
     vendor_each_lap = "mfg_vendor_each_lap",
@@ -2172,7 +2160,9 @@ end)
 -- QUESTING TAB
 -- ============================================================================
 -- Session-only: the detection panel is a diagnostic, not a setting.
-local show_quest_diag = false
+-- RestedXP detection is always shown while questing (2.188.0); the toggle
+-- button is gone.
+local show_quest_diag = true
 
 menu:on_tab("questing", function(win, x, y, w, h)
     local gold = C(232, 222, 196, 255)
@@ -2215,7 +2205,7 @@ menu:on_tab("questing", function(win, x, y, w, h)
     -- Buttons first, at fixed places below the text budget, so an early
     -- return in the status below never hides them.
     local gap = 10
-    local btn_w = math.floor((w - 24 - gap * 2) / 3)
+    local btn_w = math.floor((w - 24 - gap) / 2)
     local by = y + BUDGET + 8
     local skipped = 0
     if type(state.quest.skipped) == "table" then
@@ -2226,11 +2216,7 @@ menu:on_tab("questing", function(win, x, y, w, h)
     if menu:draw_launcher(win, LEFT, by, btn_w, 30, string.format("Clear Skipped (%d)", skipped)) then
         gui.clear_quest_skips()
     end
-    if menu:draw_launcher(win, LEFT + btn_w + gap, by, btn_w, 30,
-        show_quest_diag and "Hide Detection" or "RestedXP Detection") then
-        show_quest_diag = not show_quest_diag
-    end
-    if menu:draw_launcher(win, LEFT + (btn_w + gap) * 2, by, btn_w, 30, "Vendor") then
+    if menu:draw_launcher(win, LEFT + btn_w + gap, by, btn_w, 30, "Vendor") then
         menu:open_popup("vendor")
     end
 

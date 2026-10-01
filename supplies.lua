@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.181.0
+-- Version: 2.182.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -67,6 +67,7 @@ local missing = { food = false, drink = false }
 -- A buy that does not raise the bag count is not repeated for ever.
 local pending = nil            -- { reason, have } of the last buy sent
 local refused = {}             -- reason -> failed buys at this merchant
+local per_unit = {}            -- 2.182.0: reason -> items one buy_item unit gave
 
 -- Supply runs (2.139.0; moved up in 2.140.0 - supplies.tick writes poor_gold,
 -- and a later declaration turned that write into a global, so the "no run
@@ -114,6 +115,7 @@ end
 
 local ID_KEYS    = { "item_id", "id", "itemId", "item" }
 local PRICE_KEYS = { "price", "cost", "money", "buy_price", "item_price" }
+local QTY_KEYS   = { "quantity", "count", "stack" }     -- 2.182.0: units one purchase gives
 local STACK_KEYS = { "stack_count", "stack", "quantity", "count", "item_stack" }
 
 local function vendor_entry(index)
@@ -197,7 +199,7 @@ local function find_on_vendor(ids)
     end
 
     local n = vendor_count()
-    local best_index, best_rank, best_price = nil, nil, nil
+    local best_index, best_rank, best_price, best_lot = nil, nil, nil, nil
     for index = 1, n do
         local entry = vendor_entry(index)
         debug_dump(entry, index)
@@ -207,10 +209,11 @@ local function find_on_vendor(ids)
             if not best_rank or r < best_rank then
                 best_index, best_rank = index, r
                 best_price = field_of(entry, PRICE_KEYS)
+                best_lot = field_of(entry, QTY_KEYS)
             end
         end
     end
-    return best_index, best_price
+    return best_index, best_price, best_lot
 end
 
 -- ----------------------------------------------------------------------------
@@ -235,14 +238,22 @@ local function restock(ids, target, reason, player)
         if type(all) == "number" and all > have then have = all end
     end
     if pending and pending.reason == reason then
-        if have <= pending.have then
+        local gained = have - pending.have
+        if gained <= 0 then
             refused[reason] = (refused[reason] or 0) + 1
             trail("bought %s but the bag count did not rise (%d) - attempt %d", reason, have, refused[reason])
         else
             refused[reason] = 0
+            -- What one unit of buy_item's quantity gave (2.182.0): a lot of 5,
+            -- or a single item. Measured once per trip, never assumed.
+            if not per_unit[reason] then
+                per_unit[reason] = gained / math.max(1, pending.q or 1)
+                trail("%s: one buy unit gives %s", reason, tostring(per_unit[reason]))
+            end
         end
         pending = nil
     end
+    -- At or above the GUI amount: nothing to buy (2.182.0).
     if have >= target then
         return false
     end
@@ -251,7 +262,7 @@ local function restock(ids, target, reason, player)
         return false, "stock"
     end
 
-    local index, price = find_on_vendor(ids)
+    local index, price, lot = find_on_vendor(ids)
     if not index then
         state.set_note("Vendor", "No " .. reason .. " stocked here")
         trail("no %s stocked at this merchant (%d vendor items)", reason, vendor_count())
@@ -263,7 +274,22 @@ local function restock(ids, target, reason, player)
     -- wrong problem.
     -- Up to 5 per call (2.73.0): one item per 0.8 s made a 20 + 20 restock a
     -- 30-second stand at the counter. Never more than the gold covers.
-    local qty = math.min(target - have, 5)
+    -- HOW MANY (2.182.0). Food and water come 5 to a purchase; asking for
+    -- (target - have) "units" bought five times too much when a unit was a
+    -- lot. The first call buys one unit and measures it; after that only as
+    -- many units as the shortfall needs, rounded up to whole lots.
+    local need = target - have
+    lot = (type(lot) == "number" and lot >= 1) and lot or 1
+    local qty = 1
+    local unit = per_unit[reason]
+    if unit and unit > 0 then
+        qty = math.ceil(need / unit)
+        if unit < lot then
+            -- A unit is one item: buy whole lots' worth.
+            qty = math.ceil(qty / lot) * lot
+        end
+        qty = math.max(1, math.min(qty, (unit >= lot) and 5 or 20))
+    end
     if type(price) == "number" and price > 0 then
         local gold = safe(function() return core.inventory.get_gold() end)
         if type(gold) == "number" then
@@ -271,15 +297,18 @@ local function restock(ids, target, reason, player)
                 state.set_note("Vendor", "Not enough gold for " .. reason)
                 return false, "gold"
             end
-            qty = math.max(1, math.min(qty, math.floor(gold / price)))
+            -- price is per purchase (one lot): cap what the gold covers.
+            local lots_affordable = math.floor(gold / price)
+            local units_affordable = (unit and unit < lot) and lots_affordable * lot or lots_affordable
+            qty = math.max(1, math.min(qty, units_affordable))
         end
     end
 
     bought_this_trip = bought_this_trip + 1
     last_buy = izi.now()
-    pending = { reason = reason, have = have }
+    pending = { reason = reason, have = have, q = qty }
     state.set_note("Vendor", string.format("Buying %s (%d/%d)", reason, have, target))
-    trail("buy %d %s at vendor index %d", qty, reason, index)
+    trail("buy %d unit(s) of %s at vendor index %d (have %d, want %d, %d per purchase)", qty, reason, index, have, target, lot)
     pcall(function() core.input.buy_item(index, qty) end)
     return true
 end
@@ -360,6 +389,7 @@ function supplies.reset()
     missing.food, missing.drink = false, false
     pending = nil
     refused = {}
+    per_unit = {}
 end
 
 --- A new merchant window: its stock is judged afresh.

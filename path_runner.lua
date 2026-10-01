@@ -8,7 +8,7 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.177.0
+-- Version: 2.178.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -358,6 +358,9 @@ local function run_action(player, act)
         end)
         if ok then
             state.last_action = "Path spell " .. tostring(id)
+            if type(state.report_action) == "function" then
+                state.report_action(state.last_action)
+            end
             session.wait_until = izi.now() + 0.35
         end
         return true

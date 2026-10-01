@@ -3,7 +3,7 @@
 -- Shared runtime state (no leaked globals)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.177.0
+-- Version: 2.178.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -67,9 +67,68 @@ state.vendor = {
     tries = 0,
 }
 
+local last_printed_note = ""
+local last_printed_action = ""
+
+local function console_on()
+    local ok, gui = pcall(require, "gui")
+    if not ok or not gui or type(gui.is_on) ~= "function" then
+        return false
+    end
+    return gui.is_on("print_action") == true
+end
+
+local function console_print(fmt, a, b)
+    local ok, izi = pcall(require, "common/izi_sdk")
+    if not ok or not izi or type(izi.printf) ~= "function" then
+        return
+    end
+    if b == nil then
+        pcall(izi.printf, fmt, a)
+    else
+        pcall(izi.printf, fmt, a, b)
+    end
+end
+
+-- The General tab toggle. A repeat of the same line is not printed again.
+function state.report_action(text)
+    if type(text) ~= "string" or text == "" then
+        return
+    end
+    if not console_on() then
+        last_printed_action = ""
+        return
+    end
+    if text == last_printed_action then
+        return
+    end
+    last_printed_action = text
+    console_print("[Master Farmer] %s", text)
+end
+
 function state.set_note(head, text)
     state.note_head = head or ""
     state.note = text or ""
+    local line
+    if state.note_head ~= "" and state.note ~= "" then
+        line = state.note_head .. ": " .. state.note
+    elseif state.note ~= "" then
+        line = state.note
+    else
+        line = state.note_head
+    end
+    if line == "" then
+        return
+    end
+    if not console_on() then
+        last_printed_note = ""
+        return
+    end
+    if line == last_printed_note then
+        return
+    end
+    last_printed_note = line
+    console_print("[Master Farmer] %s", line)
 end
 
 -- ONE CURRENT TARGET (2.143.0). state.target is the authority. Other

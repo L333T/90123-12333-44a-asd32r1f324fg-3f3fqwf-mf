@@ -69,6 +69,11 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   travel (`K.SENTINEL_TRAVEL` in `movement/const.lua`); the local walker owns
   combat (chase, stand-off, kite, Frost Nova backpedal). Never flood Sentinel
   (≤ 1 request/s). Hand the SDK movement handler positions, never units.
+  Never stop the Sentinel client while its path request is in flight - `N.stop`
+  defers the stop until it leaves awaiting_path / repathing (2.181.0; stopping a
+  fresh leg is the common factor in the game crashes). Ranged classes engage and
+  cast at or inside the Spells-tab "Ranged attack distance" (hunter: Shooting
+  distance) - `smart.lua` in_reach and `rotation.combat_range` enforce it.
 - **Food in the bags**: `bags.food_water` classifies every bag item (curated ids,
   then item spell Food / Drink / Refreshment, then item class 0 / 5) - resting and
   supply runs count every kind, not only `data/consumables.lua`. No vendoring

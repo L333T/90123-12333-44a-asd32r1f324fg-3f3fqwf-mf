@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.184.0
+-- Version: 2.185.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -965,6 +965,7 @@ end
 -- guard picked as "nearest at the waypoint" is not retried until the
 -- watchdog steps in.
 local g_bad_givers = {}
+local g_giver_learned = nil   -- 2.185.0: { kind, qid, npc, text } when the giver came from a learned id
 
 local function bad(unit)
     local g = unit and safe(function() return unit:get_guid() end)
@@ -975,6 +976,13 @@ local function find_giver(player, goal, kind, wps)
     local known = guide.known_quest_npc(kind, goal.quest_id, goal.text)
     if known then
         local unit = targeting.find_npc(player, known, 80)
+        -- A learned NPC that is no quest giver (a vendor, 2.185.0) was learned
+        -- wrongly: forget it and find the giver the usual way.
+        if unit and guide.gives_quests(unit) == false then
+            trail("act", "learned npc %d for quest %s gives no quests - forgotten", known, tostring(goal.quest_id))
+            guide.forget_quest_npc(kind, goal.quest_id, known, goal.text)
+            unit = nil
+        end
         if unit and not bad(unit) then
             return unit, "learned id " .. tostring(known)
         end
@@ -1170,6 +1178,12 @@ end
 --- The recovery sequence for a stalled NPC goal. Returns true when the goal
 --- was given up on.
 local function recover_stall(now, goal, label)
+    -- A stall at a learned NPC (2.185.0): the pairing is suspect - forget it.
+    if g_giver_learned and g_giver_learned.npc then
+        trail("act", "%s: stalled at learned npc %d - forgotten", tostring(label), g_giver_learned.npc)
+        guide.forget_quest_npc(g_giver_learned.kind, g_giver_learned.qid, g_giver_learned.npc, g_giver_learned.text)
+        g_giver_learned = nil
+    end
     g_stall.recoveries = g_stall.recoveries + 1
     trail("act", "%s: no progress for %.0f s - recovery %d of %d", tostring(label),
         STALL_AFTER, g_stall.recoveries, STALL_MAX)
@@ -1327,6 +1341,10 @@ local function dialog_goal(player, goal, kind, wps, label)
     end
 
     local unit, how = find_giver(player, goal, kind, wps)
+    g_giver_learned = nil
+    if unit and type(how) == "string" and how:find("^learned id") then
+        g_giver_learned = { kind = kind, qid = goal.quest_id, npc = tonumber(how:match("(%d+)$")), text = goal.text }
+    end
 
     -- Distance to what the bot is working toward, for the stall check.
     -- Flat: a 3D read against an outdoor-terrain z (or an NPC on another
@@ -1520,6 +1538,10 @@ local function dialog_goal(player, goal, kind, wps, label)
             npc.close()
             g_pending = nil
             return true
+        end
+        if (result == "not_offered" or result == "gave_up") and type(how) == "string" and how:find("^learned id") then
+            guide.forget_quest_npc(kind, qid, npc_id, goal.text)
+            trail("act", "%s: learned npc %s refused quest %d - forgotten", kind, tostring(npc_id), qid)
         end
         if result == "not_offered" or result == "gave_up" then
             -- Not this NPC: rule it out and let find_giver pick the next.

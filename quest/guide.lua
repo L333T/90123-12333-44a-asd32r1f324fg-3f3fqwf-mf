@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.184.0
+-- Version: 2.185.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1742,13 +1742,38 @@ local function mark_dirty()
     end
 end
 
+-- RIGHT NPC ONLY (2.185.0). This saved every title in an open gossip frame
+-- against the player's TARGET - and the target is not always the NPC whose
+-- frame is open: a vendor trip targets the merchant, so "Investigate Echo
+-- Ridge" was learned for Dermot Johns (a vendor), and every later turn-in
+-- went to him ("via learned id 190"), stalled three times and skipped the
+-- goal. A title is learned now only for a target standing at talking range
+-- that the game flags as a quest giver (npc flag 0x2; not checked where the
+-- client reports no flags).
+local LEARN_RANGE = 6.0
+local QUESTGIVER_FLAG = 0x2
+
+--- Does this unit give quests? true / false, or nil when flags are unreadable.
+function guide.gives_quests(u)
+    local f = safe(function() return u:get_npc_flags() end)
+    if type(f) ~= "number" then return nil end
+    return math.floor(f / QUESTGIVER_FLAG) % 2 == 1
+end
+
 --- Record the targeted npc as the giver of whatever the gossip frame lists.
 function guide.learn_npc_id(player)
     if safe(function() return core.quests.is_gossip_frame_shown() end) ~= true then
         return nil
     end
-    local id = guide.target_npc_id(player)
-    if not id then
+    local id, target = guide.target_npc_id(player)
+    if not id or not target then
+        return nil
+    end
+    local d = safe(function() return player:distance_to(target) end)
+    if type(d) ~= "number" or d > LEARN_RANGE then
+        return nil
+    end
+    if guide.gives_quests(target) == false then
         return nil
     end
 
@@ -1803,6 +1828,28 @@ function guide.learn_quest_npc(kind, quest_id, npc_id)
         by_quest[key] = npc_id
         mark_dirty()
     end
+end
+
+--- Forget a learned NPC for a quest (2.185.0): it refused the quest, stalled
+--- the goal, or is not a quest giver. Clears the quest-keyed pairing and any
+--- title pairing that points at that NPC for this quest.
+function guide.forget_quest_npc(kind, quest_id, npc_id, text)
+    local changed = false
+    local key = quest_key(kind, quest_id)
+    if key and by_quest[key] and (npc_id == nil or by_quest[key] == npc_id) then
+        by_quest[key] = nil
+        changed = true
+    end
+    local title = guide.log_title(quest_id)
+    for t, id in pairs(learned) do
+        if (npc_id == nil or id == npc_id)
+            and (t == title or (type(text) == "string" and string.find(text, t, 1, true))) then
+            learned[t] = nil
+            changed = true
+        end
+    end
+    if changed then mark_dirty() end
+    return changed
 end
 
 --- The NPC learned for an accept or turnin of a quest, or nil.

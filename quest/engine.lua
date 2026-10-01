@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.190.0
+-- Version: 2.191.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -630,6 +630,11 @@ end
 local function parse_buy(text)
     if type(text) ~= "string" then return nil end
     local t = strip_codes(text)
+    -- 2.191.0: "Buy and equip a [Small Throwing Knife]" (a RestedXP vendor
+    -- step) is a buy of ONE item; equip.lua wears it once the window closes.
+    t = t:gsub("^([Bb]uy)%s+and%s+equip%s+", "%1 ")
+    local one = t:match("^[Bb]uy%s+an?%s+(.+)$")
+    if one then return one, nil, 1 end
     local n, name = t:match("^[Bb]uy%s+(%d+)%s+stacks?%s+of%s+(.+)$")
     if n then return name, tonumber(n), nil end
     n, name = t:match("^[Bb]uy%s+(%d+)x?%s+(.+)$")
@@ -697,6 +702,10 @@ local function buy_done(goal, why)
     trail("act", "buy step: %s", why)
     pcall(function() core.input.close_merchant() end)
     g_buy = { key = nil }
+    local ok_e, equip = pcall(require, "equip")
+    if ok_e and type(equip) == "table" and type(equip.invalidate) == "function" then
+        pcall(equip.invalidate)
+    end
     guide.mark_goal_done(guide.step_num(), goal.index)
     return true
 end
@@ -704,7 +713,11 @@ end
 --- Drive a ".buy" goal. True while it holds the tick.
 local function buy_goal(player, goal, wps, label)
     local a = type(goal.action) == "string" and string.lower(goal.action) or ""
-    if a ~= "buy" then return false end
+    if a ~= "buy" then
+        -- 2.191.0: a ".vendor" step reading "Buy and equip a [X]" was only
+        -- talked to - nothing bought, RestedXP never moved on.
+        if a ~= "vendor" or not parse_buy(goal.text or label) then return false end
+    end
     local now = izi.now()
     if g_buy.key ~= g_key then
         local name, stacks, count = parse_buy(goal.text or label)
@@ -832,8 +845,206 @@ local function is_train_action(goal)
     return a == "train" or a == "trainer"
 end
 
+-- PROFESSION TRAINER STEPS (2.191.0). "Train [Mining]" is a ".trainer" step
+-- too, but the class trainer does not teach it: the bot looked 20 s for a
+-- class trainer, marked the goal, RestedXP never moved on and it retried
+-- every 30 s for good ("Train [Blacksmithing]" was even "done" at the rogue
+-- trainer). Now a profession step goes to a profession trainer (the
+-- waypoint's title, else the nearest unit flagged 0x40 profession trainer),
+-- opens its window and buys that profession's service. trainer.lua is held
+-- off meanwhile so it does not spend at a profession window.
+local PROFESSIONS = {
+    mining = true, blacksmithing = true, herbalism = true, skinning = true, engineering = true,
+    alchemy = true, tailoring = true, leatherworking = true, enchanting = true, jewelcrafting = true,
+    ["first aid"] = true, cooking = true, fishing = true,
+}
+local NPC_PROF_TRAINER = 0x40
+local PROF_TIMEOUT = 60         -- seconds for the whole profession step
+local PROF_TALK_GAP = 2.5
+local PROF_VERIFY = 1.5
+local g_prof = { key = nil }
+local g_prof_failed = {}        -- profession -> true: gave up this session, no re-walk on retry
+
+--- The profession a train goal names ("Train [Mining]" -> "mining"), or nil.
+local function goal_profession(goal, label)
+    local t = type(goal.text) == "string" and goal.text or label
+    if type(t) ~= "string" then return nil end
+    t = string.lower(strip_codes(t))
+    local name = t:match("^train%s+(.+)$") or t
+    name = name:gsub("^apprentice%s+", ""):gsub("%s+$", "")
+    if PROFESSIONS[name] then return name end
+    return nil
+end
+
+local function prof_hold(on)
+    local ok_x, tx = pcall(require, "trainer")
+    if ok_x and type(tx) == "table" and type(tx.hold) == "function" then tx.hold(on) end
+end
+
+local function prof_done(goal, prof, why, failed)
+    trail("quest", "profession step (%s): %s", prof, why)
+    if failed then g_prof_failed[prof] = true end
+    pcall(function() core.quests.close_trainer() end)
+    pcall(function() core.quests.close_gossip() end)
+    prof_hold(false)
+    g_prof = { key = nil }
+    guide.mark_goal_done(guide.step_num(), goal.index)
+    return true
+end
+
+local function prof_has_flag(v)
+    return type(v) == "number" and v > 0 and math.floor(v / NPC_PROF_TRAINER) % 2 == 1
+end
+
+local function prof_trainer_unit(player, wps, bad)
+    for i = 1, #wps do
+        local title = wps[i].title
+        if type(title) == "string" and title ~= "" then
+            local u = targeting.find_named(player, title, nil, 80)
+            if u and not bad[safe(function() return u:get_guid() end) or ""] then return u end
+        end
+    end
+    local list = targeting.visible_objects and targeting.visible_objects() or nil
+    if type(list) ~= "table" then return nil end
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local u = list[i]
+        if u and safe(function() return u:is_valid() end) == true
+            and safe(function() return u:is_player() end) ~= true
+            and prof_has_flag(safe(function() return u:get_npc_flags() end))
+            and safe(function() return player:can_attack(u) end) ~= true then
+            local g = safe(function() return u:get_guid() end)
+            local d = safe(function() return player:distance_to(u) end)
+            if not bad[g or ""] and type(d) == "number" and d <= 60 and (best_d == nil or d < best_d) then
+                best, best_d = u, d
+            end
+        end
+    end
+    return best
+end
+
+--- The open trainer window's row for this profession: (index, available, cost) or nil.
+local function prof_service(prof)
+    local n = safe(function() return core.quests.get_num_trainer_services() end) or 0
+    if type(n) ~= "number" then return nil end
+    for i = 1, math.min(n, 400) do
+        local info = safe(function() return core.quests.get_trainer_service_info(i) end)
+        local sname = type(info) == "table" and type(info.spell_name) == "string" and string.lower(info.spell_name) or ""
+        if sname == prof then
+            local cat = type(info.category) == "string" and string.lower(info.category) or ""
+            local c = safe(function() return core.quests.get_trainer_service_cost(i) end)
+            local cost = type(c) == "table" and type(c.service_cost) == "number" and c.service_cost or 0
+            return i, (cat == "" or cat == "available"), cost
+        end
+    end
+    return nil
+end
+
+--- Drive a profession ".trainer" goal. True while it holds the tick.
+local function prof_goal(player, goal, wps, label)
+    if not is_train_action(goal) then
+        if g_prof.key then prof_hold(false) g_prof = { key = nil } end
+        return false
+    end
+    local prof = goal_profession(goal, label)
+    if not prof then
+        if g_prof.key then prof_hold(false) g_prof = { key = nil } end
+        return false
+    end
+    local now = izi.now()
+    if g_prof.key ~= g_key then
+        g_prof = { key = g_key, since = now, talk_t = -1e9, bad = {}, pending = nil, opened = nil }
+        if g_prof_failed[prof] then
+            return prof_done(goal, prof, "no profession trainer earlier this session - skipped")
+        end
+        prof_hold(true)
+        trail("quest", "profession step: looking for a %s trainer for %s", prof, tostring(label))
+    end
+    local p = g_prof
+    if (now - p.since) > PROF_TIMEOUT then
+        return prof_done(goal, prof, "gave up after " .. PROF_TIMEOUT .. " s", true)
+    end
+
+    local n_serv = safe(function() return core.quests.get_num_trainer_services() end) or 0
+    if type(n_serv) == "number" and n_serv > 0 then
+        movement.nav_stop()
+        p.opened = p.opened or now
+        pcall(function() core.skill.expand_trainer_skill_line(0) end)
+        local idx, avail, cost = prof_service(prof)
+        if p.pending then
+            if (now - p.pending) < PROF_VERIFY then return true end
+            p.pending = nil
+            if not idx or not avail then
+                return prof_done(goal, prof, "learned")
+            end
+            return prof_done(goal, prof, "the trainer would not teach it (gold "
+                .. tostring(safe(function() return core.inventory.get_gold() end)) .. ")", true)
+        end
+        if not idx then
+            -- The window lists other things (another profession's trainer,
+            -- or rows still loading): give it a moment, then try another NPC.
+            if (now - p.opened) < 2 then return true end
+            local u = state.target and state.target.unit
+            local g = u and safe(function() return u:get_guid() end)
+            if g then p.bad[g] = true end
+            trail("quest", "profession step: this trainer does not teach %s - trying another", prof)
+            pcall(function() core.quests.close_trainer() end)
+            p.opened = nil
+            return true
+        end
+        if not avail then
+            return prof_done(goal, prof, "already known (or not offered yet)")
+        end
+        local gold = safe(function() return core.inventory.get_gold() end) or 0
+        if cost > 0 and gold < cost then
+            return prof_done(goal, prof, string.format("not enough gold (%dc, have %dc)", cost, gold), true)
+        end
+        trail("quest", "profession step: buying %s (service %d, %dc)", prof, idx, cost)
+        pcall(function() core.quests.buy_trainer_service(idx) end)
+        p.pending = now
+        state.set_note("Quest", "Guide: learning " .. prof)
+        return true
+    end
+    p.opened = nil
+
+    local unit = prof_trainer_unit(player, wps, p.bad)
+    if not unit then
+        if #wps > 0 then
+            if g_move > #wps then g_move = 1 end
+            if walk_to(wps[g_move].pos, label, TALK_ARRIVE) then return true end
+        end
+        state.set_note("Quest", "Guide: looking for the " .. prof .. " trainer")
+        return true
+    end
+    local d = safe(function() return player:distance_to(unit) end) or 99
+    if d > 5 then
+        local up = safe(function() return unit:get_position() end)
+        if up and walk_to(up, label, 4) then return true end
+    end
+    movement.nav_stop()
+    if (now - p.talk_t) >= PROF_TALK_GAP then
+        p.talk_t = now
+        targeting.set_current(unit, "trainer")
+        if gossip.is_open() then
+            if not gossip.select({ icon = "TRAINER", icon_num = 3, type = "trainer",
+                    words = { "train", "teach", "learn" } }) then
+                local g = safe(function() return unit:get_guid() end)
+                if g then p.bad[g] = true end
+                trail("quest", "profession step: %s offers no training - trying another",
+                    tostring(safe(function() return unit:get_name() end)))
+                pcall(function() core.quests.close_gossip() end)
+            end
+        else
+            pcall(function() core.input.interact_with_object(unit) end)
+        end
+    end
+    state.set_note("Quest", "Guide: opening the " .. prof .. " trainer")
+    return true
+end
+
 --- Drive a ".train" / ".trainer" goal. True while it holds the tick.
 local function train_goal(player, goal, wps, label)
+    if goal_profession(goal, label) then return false end
     if not is_train_action(goal) then
         if g_train.key then
             g_train.key = nil
@@ -1515,11 +1726,11 @@ local function dialog_goal(player, goal, kind, wps, label)
     -- long finished. Now: once any NPC frame is open (gossip, merchant,
     -- trainer) and the vendor trip is over, the goal counts as done after
     -- TALK_DONE and the bot moves on.
-    local gossip = safe(function() return core.quests.is_gossip_frame_shown() end) == true
+    local gossip_open = safe(function() return core.quests.is_gossip_frame_shown() end) == true
     -- ".home" (2.134.0): the innkeeper's bind option, picked by its icon from
     -- this frame's own options. The confirmation popup is answered by
     -- events.lua (CONFIRM_BINDER).
-    if gossip and not g_bind_asked and string.lower(goal.action or "") == "home" then
+    if gossip_open and not g_bind_asked and string.lower(goal.action or "") == "home" then
         local bind = gossip.find({ icon = "BINDER", type = "binder" })
         if bind then
             g_bind_asked = true
@@ -1539,7 +1750,7 @@ local function dialog_goal(player, goal, kind, wps, label)
     -- what learns the flight path (".fp"), and the map is what opens.
     local taxi_n = safe(function() return core.taxi.num_nodes() end)
     local taxi = type(taxi_n) == "number" and taxi_n > 0
-    if gossip or merchant or trainer or taxi then
+    if gossip_open or merchant or trainer or taxi then
         if g_talk_opened == 0 then
             g_talk_opened = now
         end
@@ -1779,8 +1990,8 @@ local function fly_goal(player, goal, wps, label)
     end
     -- 2. A frame is open at the flight master: take its taxi option, or - a
     --    quest window, a gossip without one - close it and talk again.
-    local gossip = safe(function() return core.quests.is_gossip_frame_shown() end) == true
-    if gossip then
+    local gossip_open = safe(function() return core.quests.is_gossip_frame_shown() end) == true
+    if gossip_open then
         if now >= g_act_until then
             g_act_until = now + ACT_GAP
             if taxi_gossip() then
@@ -2524,6 +2735,9 @@ tick_inner = function(player)
     -- every-3-levels rule is only for visits the bot decides on itself),
     -- walks to the step's waypoint until the class trainer is in sight, and
     -- is done when the visit finishes - or when RestedXP ticks it off first.
+    if prof_goal(player, goal, wps, label) then
+        return
+    end
     if train_goal(player, goal, wps, label) then
         return
     end

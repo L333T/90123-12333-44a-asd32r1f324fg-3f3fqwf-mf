@@ -3,8 +3,12 @@
 -- main.lua - download the bot, then hand off to its real main.lua
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Loader version: 1.2.2
+-- Loader version: 1.2.3
 -- ============================================================================
+-- 1.2.3: a quiet console. The load prints "[Master Farmer] loading..." and
+-- "[Master Farmer] loaded <name> v<version>"; the repository, branch, commit,
+-- URLs, HTTP codes and the per-file progress are written only with VERBOSE
+-- on. Failures are still reported, in plain words, without URLs.
 -- FLOW
 --   frame 1      issue the manifest request
 --   frames 2..n  pulse() enforces the deadline and re-issues queued retries
@@ -94,7 +98,16 @@ local BASE = nil
 --   local HEADERS = { ["Authorization"] = "Bearer github_pat_..." }
 local HEADERS = nil
 
-local TAG = "[MFG-HTTP]"
+local TAG = "[Master Farmer]"
+
+-- VERBOSE (1.2.3): true writes the full download detail (repository, commit,
+-- URLs, HTTP codes, progress) to the console - for debugging a load only.
+local VERBOSE = false
+
+local function vlog(msg)
+    if VERBOSE then core.log(TAG .. " " .. msg) end
+end
+if type(net.set_verbose) == "function" then net.set_verbose(VERBOSE) end
 
 -- ============================================================================
 -- SESSION GUARD  (the loader's own)
@@ -190,7 +203,7 @@ local function hand_off()
         net.release()
     end
 
-    core.log(string.format("%s handed off to %s v%s", TAG,
+    core.log(string.format("%s loaded %s v%s", TAG,
         identity and identity.name or "the bot",
         identity and identity.version or tostring(net.status().version)))
 end
@@ -245,18 +258,17 @@ local function resolve_branch(done)
                 SHA = sha
                 BASE = base_for(sha)
                 resolve_state = "done"
-                core.log(string.format("%s %s@%s resolves to %s", TAG, REPO, BRANCH, sha:sub(1, 8)))
+                vlog(string.format("%s@%s resolves to %s", REPO, BRANCH, sha:sub(1, 8)))
                 done()
             else
-                schedule_retry(string.format(
-                    "could not resolve %s@%s (http %s).",
-                    REPO, BRANCH, tostring(http_code)))
+                vlog(string.format("could not resolve %s@%s (http %s)", REPO, BRANCH, tostring(http_code)))
+                schedule_retry("the update server did not answer.")
             end
         end)
     end)
 
     if not ok then
-        schedule_retry("branch lookup could not be sent.")
+        schedule_retry("the update request could not be sent.")
     end
 end
 
@@ -291,17 +303,18 @@ local function on_update()
             verify_hash = true,
             headers     = HEADERS,
         })
-        core.log(string.format("%s loading %s@%s from commit %s", TAG, REPO, BRANCH, SHA:sub(1, 8)))
+        core.log(TAG .. " loading...")
+        vlog(string.format("loading %s@%s from commit %s", REPO, BRANCH, SHA:sub(1, 8)))
 
         local ok = net.start(function(loaded, why)
             if is_stale() then return end
             if loaded then
                 hand_off()
             else
-                core.log_error(TAG .. " load failed: " .. tostring(why))
-                core.log_error(TAG .. " the commit resolved fine, so check that "
-                    .. "manifest.lua was regenerated and pushed with the rest of "
-                    .. "the files on " .. BRANCH)
+                core.log_error(TAG .. " load failed - the download did not complete. "
+                    .. "Reload to try again (set VERBOSE in plugin_loader/main.lua for details).")
+                vlog("load failed: " .. tostring(why) .. " - check that manifest.lua was "
+                    .. "regenerated and pushed with the rest of the files on " .. BRANCH)
                 handed_off = true        -- stop ticking; nothing more to try
             end
         end)
@@ -322,11 +335,11 @@ local function on_update()
         last_report = t
         local s = net.status()
         if s.phase == "manifest" or s.phase == "files" then
-            core.log(string.format("%s %s: %d/%d (%.0fs)", TAG, s.phase, s.got, s.want, s.elapsed))
+            vlog(string.format("%s: %d/%d (%.0fs)", s.phase, s.got, s.want, s.elapsed))
         end
     end
 end
 
 core.register_on_update_callback(on_update)
 
-core.log(TAG .. " armed v" .. tostring(NS._loader and NS._loader.version or "?"))
+vlog("armed v" .. tostring(NS._loader and NS._loader.version or "?"))

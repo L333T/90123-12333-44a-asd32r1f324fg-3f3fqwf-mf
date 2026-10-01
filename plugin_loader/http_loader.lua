@@ -3,7 +3,7 @@
 -- http_loader.lua - fetch a Lua codebase over core.http_get
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.2.0
+-- Version: 1.2.3
 -- ============================================================================
 -- API CONTRACT THIS CODES AGAINST
 --
@@ -53,7 +53,7 @@ local izi = require("common/izi_sdk")
 
 local M = {}
 
-local TAG = "[MFG/http]"
+local TAG = "[Master Farmer]"
 
 -- ============================================================================
 -- CONFIGURATION
@@ -94,9 +94,18 @@ local on_ready    = nil
 local installed   = false
 local mod_cache   = {}
 
-local function log(m)  core.log(TAG .. " " .. m) end
-local function warn(m) core.log_warning(TAG .. " " .. m) end
-local function err(m)  core.log_error(TAG .. " " .. m) end
+-- QUIET BY DEFAULT (1.2.3). URLs, HTTP codes, module names and progress go to
+-- the console only with verbose on (main.lua's VERBOSE). main.lua reports a
+-- failed load in plain words either way, so nothing is lost when quiet.
+local verbose = false
+
+function M.set_verbose(on)
+    verbose = on == true
+end
+
+local function log(m)  if verbose then core.log(TAG .. " " .. m) end end
+local function warn(m) if verbose then core.log_warning(TAG .. " " .. m) end end
+local function err(m)  if verbose then core.log_error(TAG .. " " .. m) end end
 
 -- ============================================================================
 -- INTEGRITY  (Adler-32)

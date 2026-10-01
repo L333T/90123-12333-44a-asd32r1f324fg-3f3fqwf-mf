@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.185.0
+-- Version: 2.186.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -370,6 +370,26 @@ local MAX_TRIES     = 3
 local MAX_NO_UNIT = 10     -- interact attempts with no NPC in reach before giving up
 
 local WRONG_WINDOWS = { MERCHANT_SHOW = true, TRAINER_SHOW = true, TAXIMAP_OPENED = true }
+
+-- QUEST GIVERS THAT ALSO TRAIN OR SELL (2.186.0). A class trainer who hands
+-- out class quests can answer the interact with its TRAINER window (the
+-- trainer module may just have picked "train me"), and a merchant who gives
+-- quests with its goods. That used to end the dialog as "not_offered" and
+-- rule the NPC out for good, so a class quest was never handed in to its
+-- trainer. When the unit is a quest giver (npc flag 0x2), the window is
+-- closed and the NPC asked again, up to MAX_TRIES, before giving up on it.
+local function quest_giver_unit(unit)
+    if not unit then return false end
+    local f = safe(function() return unit:get_npc_flags() end)
+    if type(f) ~= "number" then return true end      -- unreadable: give it the retries
+    return math.floor(f / 2) % 2 == 1
+end
+
+local function close_service_windows()
+    pcall(function() core.quests.close_trainer() end)
+    pcall(function() core.input.close_merchant() end)
+    pcall(function() core.taxi.close() end)
+end
 
 local dlg = {
     key = nil, stage = nil, t = -1e9, tries = 0, picked = nil, no_unit = 0, result = nil,
@@ -909,6 +929,10 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
             return dlg_retry(now, "no window opened")
         end
         if WRONG_WINDOWS[frame] then
+            if quest_giver_unit(unit) and dlg.tries < MAX_TRIES then
+                close_service_windows()
+                return dlg_retry(now, "the NPC opened " .. frame .. " - closing it and asking for its quests")
+            end
             trail("accept %s: the NPC opened %s, not quests", dlg.label, frame)
             return dlg_finish("not_offered")
         end
@@ -1053,6 +1077,10 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
             return dlg_retry(now, "no window opened")
         end
         if WRONG_WINDOWS[frame] then
+            if quest_giver_unit(unit) and dlg.tries < MAX_TRIES then
+                close_service_windows()
+                return dlg_retry(now, "the NPC opened " .. frame .. " - closing it and asking for its quests")
+            end
             trail("turn in %s: the NPC opened %s, not quests", dlg.label, frame)
             return dlg_finish("not_offered")
         end

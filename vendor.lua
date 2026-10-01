@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.176.0
+-- Version: 2.177.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -760,6 +760,21 @@ function vendor.needs_trip(player)
         end
         forced = nil
     end
+    -- No free slot at all (ammo and profession bags are not counted). A quest
+    -- cannot hand over an item, and loot has nowhere to go, so the trip
+    -- starts whether or not Sell is ticked. A trip that just freed nothing
+    -- waits FULL_RETRY, then goes again.
+    if bag_free() == 0 then
+        local since = izi.now() - (state.vendor.bag_hold_set or 0)
+        local held = state.vendor.bag_hold_free == 0
+            and izi.now() < (state.vendor.bag_hold_until or 0)
+            and since < FULL_RETRY
+        if not held then
+            state.vendor.reason = "bags"
+            state.vendor.bag_hold_free = nil
+            return true
+        end
+    end
     if not gui.is_on("sell") and not gui.is_on("repair") and not gui.is_on("buy_supplies") then
         return false
     end
@@ -853,6 +868,13 @@ local function friendly_npcs(player, tried, radius)
     end
     table.sort(out, function(a, b) return a.d < b.d end)
     return out
+end
+
+local function hearth_ready()
+    local item = safe(function() return izi.item(HEARTH_ID) end)
+    return item
+        and safe(function() return item:in_inventory() end) == true
+        and safe(function() return item:cooldown_up() end) ~= false
 end
 
 local function hearth_tick(player)
@@ -1113,7 +1135,7 @@ function vendor.tick(player)
     if not player then
         return false
     end
-    if not vendor.level_ok(player) then
+    if not vendor.level_ok(player) and bag_free() > 0 then
         if state.vendor.active then
             vendor.reset()
         end
@@ -1125,7 +1147,7 @@ function vendor.tick(player)
             return true
         end
     end
-    if not gui.is_on("sell") and not gui.is_on("repair") and not gui.is_on("buy_supplies") then
+    if bag_free() > 0 and not gui.is_on("sell") and not gui.is_on("repair") and not gui.is_on("buy_supplies") then
         if state.vendor.active then
             vendor.reset()
         end
@@ -1243,9 +1265,13 @@ function vendor.tick(player)
         end
         local info = current_merchant(player)
         if not info or not merchant_pos(info) then
-            -- No merchant data here. Full bags cannot wait for one: hearth to
-            -- the inn and find a merchant there (2.47.0).
-            if gui.is_on("sell") and bag_free() <= gui.slider("bag_free", 1) then
+            -- No merchant data here. Full bags cannot wait for one: hearth
+            -- when the stone is ready, otherwise walk to the nearest inn.
+            -- A stone on cooldown used to return here every tick and the
+            -- walk never started.
+            local free = bag_free()
+            local bags_need = free == 0 or (gui.is_on("sell") and free <= gui.slider("bag_free", 1))
+            if bags_need and hearth_ready() then
                 ht = { stage = "cast", t = izi.now(), tried = {}, tries = 0 }
                 return hearth_tick(player)
             end
@@ -1294,7 +1320,7 @@ function vendor.tick(player)
             state.set_note("Vendor", "Selling")
             return true
         end
-        if gui.is_on("sell") then
+        if gui.is_on("sell") or bag_free() == 0 then
             local sold, item_id = sell_one(player)
             if sold then
                 state.vendor.sold = (state.vendor.sold or 0) + 1

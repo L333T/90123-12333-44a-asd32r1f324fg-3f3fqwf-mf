@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.186.0
+-- Version: 2.187.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -561,14 +561,45 @@ end
 --- Blizzard client (Forever), and a row index on the private-server builds.
 local function quest_rows(kind)
     local out = {}
+    -- THE RAW ROWS FIRST (2.187.0), as the API's auto turn-in example does:
+    -- core.quests.get_gossip_active_quests() / get_gossip_available_quests()
+    -- and select_gossip_active_quest(quest.quest_id) /
+    -- select_gossip_available_quest(quest.quest_id). quest_id is a real id
+    -- on Blizzard clients and the row index on the private-server ones; it is
+    -- handed straight back to the selector in this frame, never stored.
+    local list = safe(function()
+        if kind == "available" then
+            return core.quests.get_gossip_available_quests()
+        end
+        return core.quests.get_gossip_active_quests()
+    end)
+    if type(list) == "table" and #list > 0 then
+        local real = forever()
+        for i = 1, #list do
+            local r = list[i]
+            local handle = r.quest_id
+            out[#out + 1] = {
+                title = r.title,
+                real_id = real and r.quest_id or nil,
+                is_complete = r.is_complete,
+                is_trivial = r.is_trivial,
+                pick = function()
+                    if kind == "available" then
+                        core.quests.select_gossip_available_quest(handle)
+                    else
+                        core.quests.select_gossip_active_quest(handle)
+                    end
+                end,
+            }
+        end
+        return out
+    end
+    -- izi's views when the raw lists are empty.
     local g = izi.gossip
     local getter = g and (kind == "available" and g.available_quests or g.active_quests)
     if type(getter) == "function" then
         local views = safe(function() return getter() end)
-        -- An empty view list falls through to the raw rows (2.162.0): the
-        -- 12:24 turn-in at a class trainer read no quests from izi and
-        -- called it "not offered".
-        if type(views) == "table" and #views > 0 then
+        if type(views) == "table" then
             for i = 1, #views do
                 local v = views[i]
                 out[#out + 1] = {
@@ -579,37 +610,7 @@ local function quest_rows(kind)
                     pick = function() v:select() end,
                 }
             end
-            return out
         end
-    end
-    local list = safe(function()
-        if kind == "available" then
-            return core.quests.get_gossip_available_quests()
-        end
-        return core.quests.get_gossip_active_quests()
-    end)
-    if type(list) ~= "table" then
-        return out
-    end
-    local real = forever()
-    for i = 1, #list do
-        local r = list[i]
-        -- `handle` is opaque: only valid in this frame, handed straight back
-        -- to the selector, never stored or compared (1.5.2).
-        local handle = r.quest_id
-        out[#out + 1] = {
-            title = r.title,
-            real_id = real and r.quest_id or nil,
-            is_complete = r.is_complete,
-            is_trivial = r.is_trivial,
-            pick = function()
-                if kind == "available" then
-                    core.quests.select_gossip_available_quest(handle)
-                else
-                    core.quests.select_gossip_active_quest(handle)
-                end
-            end,
-        }
     end
     return out
 end
@@ -1030,6 +1031,13 @@ local function turnin_landed(quest_id)
     if dlg.was_on == true and on_quest(quest_id) == false then
         return "left the quest log"
     end
+    -- The quest log itself (2.187.0): no longer listed, where the log can be
+    -- read and the quest was in it when this attempt began.
+    if dlg.was_on == true and type(npc.quest_log_state) == "function"
+        and npc.quest_log_scan(quest_id) == nil
+        and (safe(function() return core.quests.get_num_quest_log_entries() end) or 0) > 0 then
+        return "gone from the quest log"
+    end
     return nil
 end
 
@@ -1118,6 +1126,18 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
             trail("turn in %s: the NPC offered a new quest instead", dlg.label)
             return dlg_finish("not_offered")
         end
+        if r == "selected" then
+            -- AUTO TURN-IN (2.187.0): select_gossip_active_quest, then
+            -- complete_quest at once - the progress panel's Continue - as the
+            -- API example does, instead of waiting for a QUEST_PROGRESS event
+            -- that may come late or not at all. The completion panel (reward
+            -- choice, get_quest_reward) and the verify step follow.
+            pcall(function() core.quests.complete_quest() end)
+            dlg.continued = true
+            trail("turn in %s: selected and continued", dlg.label)
+            dlg_to("finish", now)
+            return
+        end
         dlg_to("wait", now)
         return
     end
@@ -1205,8 +1225,11 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
             -- flag, "gone from the log" is the only signal the build has.
             if not ev_live() and on_quest(quest_id) == false then
                 turned_in[quest_id] = now
+                trail("turn in %s: confirmed (no longer on the quest)", dlg.label)
                 return dlg_finish("done")
             end
+            trail("turn in %s: NOT confirmed - still on the quest, trying again (try %d of %d)",
+                dlg.label, dlg.tries, MAX_TRIES)
             return dlg_retry(now, "hand-in not confirmed")
         end
     end

@@ -3,7 +3,7 @@
 -- Bag items with the (bag, slot) pair the container calls actually take
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.182.0
+-- Version: 2.183.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.input.use_container_item documents it plainly: the slot index that
@@ -56,7 +56,7 @@ function bags.list(player)
     if not inventory_helper or type(inventory_helper.get_character_bag_slots) ~= "function" then
         return out
     end
-    local ok, slots = pcall(inventory_helper.get_character_bag_slots, inventory_helper)
+    local ok, slots = pcall(function() return inventory_helper:get_character_bag_slots() end)
     if not ok or type(slots) ~= "table" then
         return out
     end

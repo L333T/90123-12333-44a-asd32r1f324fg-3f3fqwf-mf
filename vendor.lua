@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.182.0
+-- Version: 2.183.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -384,6 +384,23 @@ local function quality_ok(quality)
     return false
 end
 
+-- 2.183.0: item ids inventory_helper reports as consumables.
+local helper_consumables = {}
+
+local function refresh_consumables()
+    helper_consumables = {}
+    pcall(function() inventory_helper:update_consumables_list() end)
+    local ok, list = pcall(function() return inventory_helper:get_current_consumables_list() end)
+    if ok and type(list) == "table" then
+        for i = 1, #list do
+            local c = list[i]
+            local it = type(c) == "table" and c.item or nil
+            local id = it and safe(function() return it:get_item_id() end)
+            if type(id) == "number" then helper_consumables[id] = true end
+        end
+    end
+end
+
 local function should_sell_item(player, item_id)
     if type(item_id) ~= "number" or item_id <= 0 then
         return false
@@ -397,6 +414,11 @@ local function should_sell_item(player, item_id)
     -- Food, drink, every consumable, ammo and quest items stay.
     local food, water = bags.food_water(player)
     if (food and food[item_id]) or (water and water[item_id]) then
+        return false
+    end
+    -- The inventory helper's consumables list (2.183.0): food, drink and
+    -- potions it recognises are kept too. Refreshed when a trip starts.
+    if helper_consumables[item_id] then
         return false
     end
     local info = safe(function() return core.quests.get_item_info(item_id) end)
@@ -428,7 +450,6 @@ end
 local SELL_RETRIES = 2
 local sell_pending = nil        -- { item_id, count } of the last sale sent
 local sell_fails = {}           -- item id -> failed attempts this trip
-local container_sell = true      -- 2.166.0: sell by (bag, slot); off after a wrong-item sale
 
 local function trail(fmt, ...)
     local ok, el = pcall(require, "errorlog")
@@ -437,28 +458,58 @@ local function trail(fmt, ...)
     end
 end
 
---- Did the last sale land? The count of that item must have gone down.
-local function check_last_sale()
+-- ============================================================================
+-- SELLING THROUGH THE INVENTORY HELPER (2.183.0)
+-- ============================================================================
+-- The inventory helper's documentation is explicit: slot_data.bag_id +
+-- slot_data.bag_slot from inventory_helper:get_character_bag_slots() are the
+-- pair core.input.use_container_item takes. Selling is exactly that, with
+-- the pair and the item id read from the helper in the same tick.
+--
+-- What went wrong before: 2.166 confirmed a sale with core.inventory counts
+-- (bags.count, the raw engine container) but compared the bag total from the
+-- helper. The two sources disagree, which raised a false "removed a
+-- different item" (10:10 log); that switched selling to core.input.use_item,
+-- which USES items - it ate the bread and drank the water. 2.182 then
+-- required the cursor name to match, which never matched, so nothing sold.
+-- Now every count comes from the helper, there is no use_item path, and a
+-- sale that really takes another item stops selling for the session.
+
+--- Stack total of `item_id` in the character bags, from the helper.
+local function helper_count(player, item_id)
+    local total = 0
+    local list = bags.list(player)
+    for i = 1, #list do
+        local e = list[i]
+        if e.item_id == item_id then
+            total = total + ((type(e.count) == "number" and e.count > 0) and e.count or 1)
+        end
+    end
+    return total, #list
+end
+
+local selling_off = false
+
+--- Did the last sale land? Its stack total must have gone down (helper).
+local function check_last_sale(player)
     local p = sell_pending
     if not p then
         return
     end
     sell_pending = nil
-    local now_count = bags.count(p.item_id)
+    local now_count, slots = helper_count(player, p.item_id)
     if now_count < p.count then
         sell_fails[p.item_id] = nil
         return
     end
-    -- Something else left the bags: the slot pair named another item.
-    if container_sell and p.how ~= "use_item" and type(p.total) == "number" then
-        local me = safe(function() return izi.me() end)
-        local total = me and #bags.list(me) or p.total
-        if total < p.total then
-            container_sell = false
-            trail("sale via %s removed a different item - selling by item id from now on", tostring(p.how))
-            core.log_warning("[Master Farmer - Grindbot] A vendor sale took a different item than intended - "
-                .. "switching to item-id selling for this session.")
-        end
+    -- The target is all still there but a slot emptied: another item went.
+    if type(p.slots) == "number" and slots < p.slots then
+        selling_off = true
+        trail("sale at bag %s slot %s took a different item - selling stopped for this session",
+            tostring(p.bag), tostring(p.slot))
+        core.log_warning("[Master Farmer - Grindbot] A vendor sale took a different item than intended - "
+            .. "selling is off for this session.")
+        return
     end
     sell_fails[p.item_id] = (sell_fails[p.item_id] or 0) + 1
     if sell_fails[p.item_id] >= SELL_RETRIES then
@@ -466,131 +517,27 @@ local function check_last_sale()
     end
 end
 
---- Sell the first sellable bag item, BY ITEM ID (2.80.0) - see bags.use_id.
--- SELLING BY BAG AND SLOT (2.166.0). bags.use_id calls core.input.use_item,
--- which the API describes as "use a self cast item" - it never sold
--- anything: every sale in the 12:53 log (4865, 1370, 2654, 2651, 7074, 7073,
--- 7098, all grey junk) came back "could not sell", the bags stayed full and
--- the trips repeated. A merchant sells what core.input.use_container_item
--- clicks; the pair comes from inventory_helper (the documented source of
--- the shift) and is checked first: the slot must lie inside the bag. If a
--- sale ever takes a DIFFERENT item out of the bags, container selling is
--- switched off for the session and use_item is used again.
-local SELL_MAX_SLOT = 36
-
-local function slot_ok(e)
-    -- inventory_helper's (bag_id, bag_slot) is documented as the pair the
-    -- container calls take (2.168.0). 2.166.0 also checked the slot against
-    -- get_num_bag_slots, whose backpack count the API docs call unreliable
-    -- on these clients - it rejected every slot and every sale fell back to
-    -- use_item ("via use_item" in the 13:11 log). Only a sanity range now.
-    return type(e.bag) == "number" and e.bag >= 0 and e.bag <= 4
-        and type(e.slot) == "number" and e.slot >= 1 and e.slot <= SELL_MAX_SLOT
-end
-
--- VERIFIED SALES (2.182.0). inventory_helper's (bag, slot) named the wrong
--- item on this client (10:10: "bag 0 slot 2 removed a different item", and
--- slots 61-72 in a 16-slot backpack), and the use_item fallback never sells:
--- it eats food, drinks water and equips gear. Now every sale is checked
--- first: the item is picked up, its name is read off the cursor
--- (core.auction_house.get_cursor_item_name) and compared, it is put back, and
--- only a slot proven to hold that item is sold from. Candidate slots: the
--- helper's pair, then the raw get_items_in_bag position under the two
--- numberings the API docs describe. The numbering that proves right is
--- remembered per bag. No proven slot, no sale - never use_item.
-local slot_shift = {}            -- bag -> "helper" | "raw" | "raw-1" that verified
-
-local function cursor_name()
-    local n = safe(function() return core.auction_house.get_cursor_item_name() end)
-    return type(n) == "string" and n ~= "" and n or nil
-end
-
-local function holds(bag, slot, name)
-    if safe(function() return core.game_ui.has_cursor_item() end) == true then
-        pcall(function() core.input.clear_cursor() end)
-    end
-    pcall(function() core.input.pickup_container_item(bag, slot) end)
-    local got = cursor_name()
-    -- Back where it came from either way.
-    pcall(function() core.input.pickup_container_item(bag, slot) end)
-    if safe(function() return core.game_ui.has_cursor_item() end) == true then
-        pcall(function() core.input.clear_cursor() end)
-    end
-    return got ~= nil and got == name, got
-end
-
---- Candidate (bag, slot, how) pairs for item `id` (entry `e` from bags.list).
-local function slot_candidates(e, id)
-    local out = {}
-    local function add(b, sl, how)
-        if type(b) == "number" and type(sl) == "number" and b >= 0 and b <= 4 and sl >= 1 and sl <= 36 then
-            out[#out + 1] = { b, sl, how }
-        end
-    end
-    local known = slot_shift[e.bag]
-    if not known or known == "helper" then add(e.bag, e.slot, "helper") end
-    -- The raw positions of this item id in the worn bags (slot_id is 1-based
-    -- within bags 1-4) and in the backpack (slot_id 24+ on these clients).
-    for b = 0, 4 do
-        local items = safe(function() return core.inventory.get_items_in_bag(b) end)
-        if type(items) == "table" then
-            for i = 1, #items do
-                local r = items[i]
-                local rid = type(r) == "table" and r.object and safe(function() return r.object:get_item_id() end)
-                if rid == id and type(r.slot_id) == "number" then
-                    local raw = r.slot_id
-                    if b == 0 then raw = raw - 23 end
-                    if not slot_shift[b] or slot_shift[b] == "raw" then add(b, raw, "raw") end
-                    if not slot_shift[b] or slot_shift[b] == "raw-1" then add(b, raw - 1, "raw-1") end
-                end
-            end
-        end
-    end
-    return out
-end
-
-local verify_warned = false
-
+--- Sell one sellable bag item: use_container_item(bag_id, bag_slot) at the
+--- helper's pair for that exact slot.
 local function sell_one(player)
-    check_last_sale()
+    check_last_sale(player)
+    if selling_off then
+        return false
+    end
     local list = bags.list(player)
     local seen = {}
     for i = 1, #list do
         local e = list[i]
         local id = e.item_id
-        if id and not seen[id] then
+        if id and not seen[id] and type(e.bag) == "number" and type(e.slot) == "number" then
             seen[id] = true
             if (sell_fails[id] or 0) < SELL_RETRIES and should_sell_item(player, id) then
-                local before = bags.count(id)
+                local before = helper_count(player, id)
                 if before > 0 then
-                    local info = safe(function() return core.quests.get_item_info(id) end)
-                    local name = type(info) == "table" and info.name or nil
-                    if type(name) ~= "string" or name == "" then
-                        sell_fails[id] = SELL_RETRIES
-                    elseif not container_sell then
-                        sell_fails[id] = SELL_RETRIES
-                    else
-                        local cands = slot_candidates(e, id)
-                        local hit = nil
-                        for k = 1, #cands do
-                            local ok_h, seen = holds(cands[k][1], cands[k][2], name)
-                            if ok_h then hit = cands[k] break end
-                            if seen == nil and not verify_warned and k == 1 then
-                                verify_warned = true
-                                trail("cannot read the cursor item - selling only proven slots")
-                            end
-                        end
-                        if hit then
-                            slot_shift[hit[1]] = hit[3]
-                            local how = string.format("bag %d slot %d (%s, verified)", hit[1], hit[2], hit[3])
-                            pcall(function() core.input.use_container_item(hit[1], hit[2]) end)
-                            sell_pending = { item_id = id, count = before, total = #list, how = how }
-                            trail("sell item %s (%d in bags) via %s", tostring(id), before, how)
-                            return true, id
-                        end
-                        sell_fails[id] = SELL_RETRIES
-                        trail("item %s: no slot proven to hold it - not sold", tostring(id))
-                    end
+                    pcall(function() core.input.use_container_item(e.bag, e.slot) end)
+                    sell_pending = { item_id = id, count = before, slots = #list, bag = e.bag, slot = e.slot }
+                    trail("sell item %s (%d in bags) at bag %d slot %d", tostring(id), before, e.bag, e.slot)
+                    return true, id
                 end
             end
         end
@@ -1400,6 +1347,7 @@ function vendor.tick(player)
         local now = izi.now()
         if not state.vendor.window_seen then
             state.vendor.window_seen = true
+            refresh_consumables()
             supplies.new_merchant()
             trail("merchant window open (%d items, repair %s)",
                 safe(function() return core.game_ui.get_vendor_item_count() end) or 0,

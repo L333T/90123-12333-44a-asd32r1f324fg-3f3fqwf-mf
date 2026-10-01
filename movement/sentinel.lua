@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.189.0
+-- Version: 2.190.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -347,24 +347,36 @@ local function nav()
 end
 
 local function danger_zones(p)
+    -- Dangerous mobs, and since 2.190.0 the blacklisted areas too (stuck
+    -- spots, unreachable ground): find_path_avoid then plans AROUND them.
     local list = R.danger
-    if type(list) ~= "table" or #list == 0 then return nil end
+    local zl = R.zones
+    local have_d = type(list) == "table" and #list > 0
+    local have_z = type(zl) == "table" and #zl > 0
+    if not have_d and not have_z then return nil end
     local me = nil
     pcall(function() me = izi.me():get_position() end)
     if not me then return nil end
     local picked = {}
-    for i = 1, #list do
-        local d = list[i]
-        if type(d) == "table" and type(d.x) == "number" and type(d.r) == "number" then
+    local function consider(d, radius)
+        if type(d) == "table" and type(d.x) == "number" and type(radius) == "number" then
             local dx, dy = d.x - me.x, d.y - me.y
             local dist = math.sqrt(dx * dx + dy * dy)
             local ex, ey = p and (d.x - p.x) or 1e9, p and (d.y - p.y) or 1e9
-            local holds_dest = ex * ex + ey * ey <= d.r * d.r
-            if dist <= AVOID_RANGE and not holds_dest then
+            local holds_dest = ex * ex + ey * ey <= radius * radius
+            -- A zone the character stands in cannot be planned out of.
+            local holds_me = dist <= radius
+            if dist <= AVOID_RANGE and not holds_dest and not holds_me then
                 picked[#picked + 1] = { dist = dist, zone = { x = d.x, y = d.y, z = d.z or me.z,
-                    radius = d.r } }
+                    radius = radius } }
             end
         end
+    end
+    if have_d then
+        for i = 1, #list do consider(list[i], list[i] and list[i].r) end
+    end
+    if have_z then
+        for i = 1, #zl do consider(zl[i], zl[i] and zl[i].r) end
     end
     if #picked == 0 then return nil end
     table.sort(picked, function(a, b) return a.dist < b.dist end)

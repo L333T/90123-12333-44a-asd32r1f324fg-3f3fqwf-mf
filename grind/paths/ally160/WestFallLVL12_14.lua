@@ -3,7 +3,7 @@
 -- Westfall 12-14
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.175.0
+-- Version: 2.176.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

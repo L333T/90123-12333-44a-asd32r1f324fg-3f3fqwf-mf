@@ -74,6 +74,10 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   fresh leg is the common factor in the game crashes). Ranged classes engage and
   cast at or inside the Spells-tab "Ranged attack distance" (hunter: Shooting
   distance) - `smart.lua` in_reach and `rotation.combat_range` enforce it.
+- **Bag items**: always through `bags.list` (inventory_helper `bag_id` / `bag_slot`, the pair
+  `use_container_item` takes), which keeps only real bag slots - backpack 1-16, worn bags
+  1..`get_num_bag_slots(bag+1)`; the helper also returns bank-storage entries on this client
+  (2.184.0). Never sell with `core.input.use_item` - it uses (eats / equips) the item.
 - **Food in the bags**: `bags.food_water` classifies every bag item (curated ids,
   then item spell Food / Drink / Refreshment, then item class 0 / 5) - resting and
   supply runs count every kind, not only `data/consumables.lua`. No vendoring

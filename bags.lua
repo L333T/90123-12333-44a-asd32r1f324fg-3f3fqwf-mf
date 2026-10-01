@@ -3,7 +3,7 @@
 -- Bag items with the (bag, slot) pair the container calls actually take
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.183.0
+-- Version: 2.184.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.input.use_container_item documents it plainly: the slot index that
@@ -51,8 +51,27 @@ end
 ---     { item = game_object, item_id = n, bag = bag_id, slot = bag_slot, count = n }
 --- with bag / slot exactly what use_container_item takes. Equipped items are
 --- left out.
+-- ONLY WHAT IS REALLY IN THE BAGS (2.184.0). get_character_bag_slots on this
+-- client also hands back entries at "bag 0 slot 61-72": the engine's player
+-- container ends with bank storage on some clients, and the 10:34 vendor
+-- tried to sell those same seven items on every trip. An entry is kept only
+-- inside a real bag: the backpack's 16 slots, or a worn bag's own size
+-- (get_num_bag_slots, one higher than the bag id; 0 = no bag there).
+local BACKPACK_SLOTS = 16
+
+local function bag_capacity(bag)
+    if bag == 0 then return BACKPACK_SLOTS end
+    if type(bag) ~= "number" or bag < 1 or bag > 4 then return 0 end
+    local ok, n = pcall(function() return core.inventory.get_num_bag_slots(bag + 1) end)
+    if ok and type(n) == "number" and n > 0 and n <= 36 then return n end
+    return 0
+end
+bags.capacity = bag_capacity
+
 function bags.list(player)
     local out = {}
+    local caps = {}
+    for b = 0, 4 do caps[b] = bag_capacity(b) end
     if not inventory_helper or type(inventory_helper.get_character_bag_slots) ~= "function" then
         return out
     end
@@ -64,7 +83,8 @@ function bags.list(player)
     for i = 1, #slots do
         local s = slots[i]
         if type(s) == "table" and s.item and not equipped[s.item]
-            and type(s.bag_id) == "number" and type(s.bag_slot) == "number" then
+            and type(s.bag_id) == "number" and type(s.bag_slot) == "number"
+            and s.bag_slot >= 1 and s.bag_slot <= (caps[s.bag_id] or 0) then
             local ok_v, valid = pcall(s.item.is_valid, s.item)
             if ok_v and valid == true then
                 local ok_id, id = pcall(s.item.get_item_id, s.item)
@@ -116,24 +136,38 @@ end
 
 --- How many of `item_id` are in the bags (stack sizes summed).
 function bags.count(item_id)
+    -- From the filtered helper list (2.184.0): the raw bag-0 container also
+    -- holds worn gear and, on some clients, bank storage.
     local total = 0
-    for bag = 0, 4 do
-        local ok, items = pcall(core.inventory.get_items_in_bag, bag)
-        if ok and type(items) == "table" then
-            for i = 1, #items do
-                local e = items[i]
-                local obj = type(e) == "table" and e.object or nil
-                if obj then
-                    local ok_id, id = pcall(obj.get_item_id, obj)
-                    if ok_id and id == item_id then
-                        local ok_n, n = pcall(obj.get_item_stack_count, obj)
-                        total = total + ((ok_n and type(n) == "number" and n > 0) and n or 1)
-                    end
-                end
-            end
+    local me = nil
+    pcall(function() me = require("common/izi_sdk").me() end)
+    local list = bags.list(me)
+    for i = 1, #list do
+        local e = list[i]
+        if e.item_id == item_id then
+            total = total + ((type(e.count) == "number" and e.count > 0) and e.count or 1)
         end
     end
     return total
+end
+
+--- Free slots in ordinary bags: capacity minus occupied entries, special
+--- bags (by `is_special(bag)`) left out.
+function bags.free_slots(player, is_special)
+    local list = bags.list(player)
+    local used = {}
+    for i = 1, #list do
+        local b = list[i].bag
+        used[b] = (used[b] or 0) + 1
+    end
+    local free = 0
+    for b = 0, 4 do
+        local cap = bag_capacity(b)
+        if cap > 0 and not (is_special and b > 0 and is_special(b)) then
+            free = free + math.max(0, cap - (used[b] or 0))
+        end
+    end
+    return free
 end
 
 -- ----------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.174.0
+-- Version: 2.175.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -304,8 +304,6 @@ W.PRIEST = t({
     { "Holy Fire",              "damage", on = false, when = not_shadowform },
     { "Mind Flay",              "damage", on = true },
     { "Smite",                  "damage", on = true, when = not_shadowform },
-
-    { "Shoot",                  "filler", on = true, tip = "Wand, once mana drops below the wand slider." },
 })
 
 -- ============================================================================
@@ -453,8 +451,6 @@ W.WARLOCK = t({
     { "Incinerate",             "damage", on = false },
     { "Searing Pain",           "damage", on = false },
     { "Soul Fire",              "damage", on = false },
-
-    { "Shoot",                  "filler", on = true, tip = "Wand, once mana drops below the wand slider." },
 })
 
 -- ============================================================================

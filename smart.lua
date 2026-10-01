@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.180.0
+-- Version: 2.181.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -674,6 +674,18 @@ local function in_reach(e, unit)
     end
     if def.melee then
         return range.melee(unit, 5) == true
+    end
+    -- THE RANGED ATTACK DISTANCE IS THE LIMIT (2.181.0). Every class with a
+    -- "Ranged attack distance" / "Shooting distance" slider casts its ranged
+    -- spells only at or inside that distance, not at the spell's own longer
+    -- reach. Classes without the slider (warrior, rogue, paladin) are not
+    -- limited; melee and self spells never are.
+    local cap = slider("ranged_yards", nil)
+    if type(cap) == "number" and cap > 0 then
+        local d = (unit == T) and c.dist() or (safe(P.distance_to, P, unit) or 99)
+        if d > cap + 0.5 then
+            return false
+        end
     end
     local sp = spell_of(e)
     xprobe("sm:range " .. e.name)

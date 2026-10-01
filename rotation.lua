@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.180.0
+-- Version: 2.181.0
 -- Folder: Master_Farmer_Grindbot
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
@@ -303,6 +303,15 @@ function rotation.combat_range(player)
         end
         local ok, yards = pcall(mod.engage_range, player, target)
         if ok and type(yards) == "number" and yards > 0 then
+            -- A ranged engage distance is capped by the Ranged attack
+            -- distance slider (2.181.0): the shaman's own answer was Lightning
+            -- Bolt reach, so the slider did nothing for it.
+            if yards > 5 then
+                local want = slider("ranged_yards", yards)
+                if type(want) == "number" and want >= 8 and want < yards then
+                    yards = want
+                end
+            end
             return yards
         end
     end

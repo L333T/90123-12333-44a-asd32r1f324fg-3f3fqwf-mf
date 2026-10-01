@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.180.0
+-- Version: 2.181.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -39,10 +39,47 @@ local function read_client(t) return t.client end
 -- ============================================================================
 -- STOP
 -- ============================================================================
+-- NO STOP WHILE A PATH IS BEING PLANNED (2.181.0). The two game crashes of
+-- 2026-10-01 (09:17:10 and the 09:19 session) both came the moment combat
+-- movement took over from a Sentinel leg that had been asked for seconds
+-- earlier - an approach to a 78 yd wolf, and a waypoint walk whose path was
+-- requested on the same tick - and the 2026-09-27 crashes (2.76.0 note in
+-- movement/combat.lua) all came within a second of a fresh Sentinel leg.
+-- Stopping the client while its path request is still in flight is the one
+-- thing those share. The stop is now deferred until the client has left
+-- "awaiting_path" / "repathing" (or STOP_WAIT_MAX passed), and sent then; a
+-- new leg issued meanwhile cancels the deferred stop.
+local STOP_WAIT_MAX = 15.0
+local stop_pending = nil       -- { client, since }
+
+local function in_flight(c)
+    if type(c) ~= "table" or type(c.get_full_state) ~= "function" then return false end
+    local ok, st = pcall(c.get_full_state, c)
+    return ok and type(st) == "string"
+        and (st:find("awaiting", 1, true) ~= nil or st:find("repathing", 1, true) ~= nil)
+end
+
+--- Send a deferred stop once the path request has come back. Per frame.
+function N.flush_stop(t)
+    local p = stop_pending
+    if not p then return end
+    if in_flight(p.client) and (t - p.since) < STOP_WAIT_MAX then return end
+    stop_pending = nil
+    pcall(p.client.stop, p.client)
+    dlog("sentinel", "deferred stop sent")
+end
+
 function N.stop()
     if not R.sn_active then return false end
     local c = R.sn_client
-    if type(c) == "table" then pcall(c.stop, c) end
+    if type(c) == "table" then
+        if in_flight(c) then
+            stop_pending = { client = c, since = izi.now() }
+            dlog("sentinel", "stop deferred - path request still in flight")
+        else
+            pcall(c.stop, c)
+        end
+    end
     R.sn_active, R.sn_reason = false, nil
     R.sn_leash_hold = false
     R.sn_watch_t = 0
@@ -535,6 +572,7 @@ function N.move(p, why)
     end
     W.halt()
     begin_leg(p, why)
+    stop_pending = nil
     local ok = pcall(c.move_to, c, to_vec3(p), on_nav_done)
     if not ok then
         R.sn_active, R.sn_reason = false, nil
@@ -571,6 +609,7 @@ function N.retarget(p, why)
     pts = skip_near_pts(pts) or pts
     if #pts < 2 then return false end
     begin_leg({ x = pts[#pts].x, y = pts[#pts].y, z = pts[#pts].z }, why or R.sn_why)
+    stop_pending = nil
     local ok = pcall(c.follow_path, c, pts, on_nav_done)
     if not ok then return false end
     R.sn_active = true
@@ -1009,6 +1048,7 @@ function N.follow(points, why)
     R.sn_why = why or "path"
     R.sn_leash_hold = true
     R.sn_watch_t = now
+    stop_pending = nil
     local ok = pcall(c.follow_path, c, pts, on_nav_done)
     if not ok then
         R.sn_active, R.sn_reason = false, nil

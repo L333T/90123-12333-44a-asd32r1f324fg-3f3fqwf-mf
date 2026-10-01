@@ -3,7 +3,7 @@
 -- Gossip options - find and select an NPC's option by icon, type or wording
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.186.0
+-- Version: 2.187.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE WAY TO PICK A GOSSIP OPTION (2.144.0). Four modules each found and

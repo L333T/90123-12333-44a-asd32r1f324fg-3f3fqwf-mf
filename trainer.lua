@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.190.0
+-- Version: 2.191.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -176,6 +176,16 @@ function trainer.quest_visit(on, title)
     else
         quest_wanted, quest_done = false, false
     end
+end
+
+-- PROFESSION STEPS (2.191.0): the quest engine buys a profession at a
+-- profession trainer itself; while it does, this module keeps its hands off
+-- the window (it would select / spend there as at a class trainer).
+local held = false
+
+--- Hold this module off (true) or let it run again (false).
+function trainer.hold(on)
+    held = on == true
 end
 
 --- Did the visit a quest step asked for finish?
@@ -545,7 +555,7 @@ end
 -- ----------------------------------------------------------------------------
 --- Returns true when it acted, so the caller holds the rest of the cascade.
 function trainer.tick(player)
-    if not player or gui.is_on("train") ~= true then
+    if not player or gui.is_on("train") ~= true or held then
         return false
     end
 

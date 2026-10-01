@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.190.0
+-- Version: 2.191.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -331,6 +331,12 @@ function RP.area_watch(t)
         return
     end
     if holding() then return end            -- paused, not reset
+    -- 2.191.0: beside the combat target is fighting, not stuck (the 12:50
+    -- log counted 20 s "stuck 4 yd from the combat" while meleeing).
+    do
+        local cx, cy, _, _, ck = current_goal()
+        if cx and in_reach(ck, dist2(hx, hy, cx, cy)) then return end
+    end
     aw.acc = aw.acc + dt
     if aw.acc < AREA_STUCK then return end
     aw.acc = 0

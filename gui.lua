@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.192.0
+-- Version: 2.193.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1444,32 +1444,49 @@ function gui.class_id()
     return CLASS_IDS[idx] or enums.class_id.MAGE
 end
 
+-- ONLY WHEN IT CHANGES (2.193.0). This ran twice a frame (on_update and
+-- on_render) and pushed class, race and the class combo into the menu every
+-- time - the largest steady cost in the 2026-10-01 PERF lines (0.069 ms a
+-- frame). Class and race are read once a second and pushed only when they
+-- differ; the combo is put back only if something moved it.
+local SYNC_GAP = 1.0
+local sync = { t = -1e9, class = nil, race = nil, idx = nil }
+
 function gui.sync_player(player)
     if not player then
         return
     end
-    local class_id = nil
-    pcall(function()
-        class_id = player:get_class()
-    end)
-    -- The race drives which racial toggles appear on the Class tab.
-    local race_id = nil
-    pcall(function()
-        race_id = player:get_race_id()
-    end)
-    if type(race_id) == "number" then
-        menu:set_player_race(race_id)
-    end
-    gui.sync_faction(player)
-    if not class_id then
-        return
-    end
-    menu:set_player_class(class_id)
-    for i = 1, #CLASS_IDS do
-        if CLASS_IDS[i] == class_id then
-            menu:set("mfg_class", i)
-            break
+    local now = izi.now()
+    if type(now) ~= "number" or (now - sync.t) >= SYNC_GAP or now < sync.t then
+        sync.t = type(now) == "number" and now or sync.t
+        local class_id = nil
+        pcall(function()
+            class_id = player:get_class()
+        end)
+        -- The race drives which racial toggles appear on the Class tab.
+        local race_id = nil
+        pcall(function()
+            race_id = player:get_race_id()
+        end)
+        if type(race_id) == "number" and race_id ~= sync.race then
+            sync.race = race_id
+            menu:set_player_race(race_id)
         end
+        gui.sync_faction(player)
+        if class_id and class_id ~= sync.class then
+            sync.class = class_id
+            sync.idx = nil
+            menu:set_player_class(class_id)
+            for i = 1, #CLASS_IDS do
+                if CLASS_IDS[i] == class_id then
+                    sync.idx = i
+                    break
+                end
+            end
+        end
+    end
+    if sync.idx and menu:get("mfg_class") ~= sync.idx then
+        menu:set("mfg_class", sync.idx)
     end
 end
 
@@ -2714,8 +2731,7 @@ local function mini_tick()
 end
 
 function gui.draw()
-    dprobe("gui:sync_player")
-    pcall(gui.sync_player, izi.me())
+    -- gui.sync_player runs from on_update (main.lua) - not again here (2.193.0).
     if mini_tick() then
         return
     end

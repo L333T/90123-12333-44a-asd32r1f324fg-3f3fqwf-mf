@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.192.0
+-- Version: 2.193.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -29,6 +29,14 @@ local gui = require("gui")
 local resting = require("resting")
 
 local healing = {}
+
+-- REST PROBE (2.193.0): marks inside u:healing for the PERF / SPIKE lines.
+local function hprobe(tag)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.probe) == "function" then
+        pcall(el.probe, tag)
+    end
+end
 
 local function safe(fn)
     local ok, result = pcall(fn)
@@ -117,6 +125,7 @@ function healing.tick(player)
 
     -- Nobody may be attacking (2.102.0): until every attacker is dead there
     -- is no rest - and one under way stops, so the character fights back.
+    hprobe("heal:attackers")
     local ok_t, targeting = pcall(require, "targeting")
     if ok_t and type(targeting) == "table" and type(targeting.attackers) == "function"
         and targeting.attackers(player) > 0 then
@@ -129,6 +138,7 @@ function healing.tick(player)
     -- Loot first, then rest (2.101.0): a rest does not START while looting
     -- is still working the corpses close by (or has just finished, or the
     -- fight has only just ended). A rest already under way is not touched.
+    hprobe("heal:loot_hold")
     if not resting.is_resting() then
         local ok_l, loot = pcall(require, "loot")
         if ok_l and type(loot) == "table" and type(loot.hold_rest) == "function" and loot.hold_rest(player) then
@@ -136,6 +146,7 @@ function healing.tick(player)
         end
     end
 
+    hprobe("heal:rotation.rest")
     local ok, rotation = pcall(require, "rotation")
     if not ok or type(rotation) ~= "table" or type(rotation.rest) ~= "function" then
         return false

@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.197.0
+-- Version: 2.198.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,

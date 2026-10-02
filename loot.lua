@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.197.0
+-- Version: 2.198.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -17,11 +17,14 @@
 --      core.object_manager.get_object_from_guid every tick. No object handle
 --      is ever kept between ticks: the API says to store the GUID and resolve
 --      it fresh, and a stale handle is a native read of freed memory.
---   3. It walks to within LOOT_REACH, stops, and calls
---      core.input.loot_object(corpse, true) - auto loot, which takes the
---      whole window in one call. At most one attempt per FIRE_GAP, MAX_FIRES
---      in all. The job is done when the corpse stops being lootable; a loot
---      window left open is closed with core.input.close_loot.
+--   3. It walks to within LOOT_REACH, stops, and hands the corpse to the
+--      BURST (2.198.0, loot.frame, every frame): loot_object(corpse, true)
+--      now, again the next frame, a third time 20 ms later, then a 400 ms
+--      pause - repeated until the corpse has nothing left (can_be_looted and
+--      has_loot both no longer true), MAX_CYCLES in all. One request a second
+--      used to be judged "looted" the moment the lootable flag dropped, with
+--      items still on the corpse. A loot window left open is emptied slot by
+--      slot and closed with core.input.close_loot.
 --   4. Anything attacking the player comes first: the tick steps aside and
 --      the engine fights. Each corpse gets ENTRY_TIMEOUT, and the queue
 --      forgets entries after ENTRY_TTL, so looting can never stall the bot.
@@ -54,9 +57,15 @@ local LOOT_REACH = 3.5        -- yards: close enough to loot
 -- attempt count and the timeout still bound it.
 local LOOT_STOPPED = 5.0
 local walk_logged = {}        -- guid -> last distance logged (a line per 5 yd, not per tick)
-local FIRE_GAP = 1.0          -- seconds between loot_object attempts
-local SETTLE = 0.6            -- seconds after an attempt before judging it
-local MAX_FIRES = 3           -- attempts per corpse
+-- THE BURST (2.198.0), per corpse: attempt 1 at once, attempt 2 the next
+-- frame, attempt 3 at least BURST_GAP3 after it, then BURST_COOLDOWN before
+-- the next cycle. MAX_CYCLES cycles per corpse.
+local BURST_GAP3 = 0.02
+local BURST_COOLDOWN = 0.4
+local MAX_CYCLES = 5
+local BURST_STALE = 0.5       -- the burst target expires unless loot.tick renews it
+local SETTLE = 0.5            -- seconds after a cycle before judging the corpse
+local MAX_FIRES = MAX_CYCLES  -- (e.fires counts burst cycles)
 local ENTRY_TIMEOUT = 15.0    -- seconds a corpse may take, walk included
 local ENTRY_TTL = 120.0       -- seconds a queued corpse is remembered
 -- 30 SECONDS AND MOVE ON (2.55.0): a corpse not looted within GIVE_UP of the
@@ -76,6 +85,15 @@ local SCAN_YARDS = 100       -- same reach as the grind enemy scan: a kite still
 local working_guid = nil     -- the corpse being walked or looted right now
 
 local queue = {}              -- { guid, x, y, z, added, started, fires, fired_t }
+-- The corpse loot.frame is bursting: { guid, entry, attempt, last, blocked_until, seen }.
+local burst = nil
+
+---@type movement_handler
+local movement_handler = nil
+do
+    local ok_m, mh = pcall(require, "common/utility/movement_handler")
+    if ok_m and type(mh) == "table" then movement_handler = mh end
+end
 local next_scan = 0
 -- (fallback-scanned corpses are not "mine": they are only looted when the
 -- game says they are lootable)
@@ -181,6 +199,16 @@ local function lootable(obj)
     return ok2 and has == true
 end
 
+--- The example's test (2.198.0): still worth a loot request while the game
+--- says both "you may loot it" and "there is loot on it".
+local function has_more(obj)
+    local ok_c, can = pcall(obj.can_be_looted, obj)
+    local ok_h, has = pcall(obj.has_loot, obj)
+    if ok_c and can == false then return false end
+    if ok_h and has == false then return false end
+    return true
+end
+
 local function find_entry(guid)
     for i = 1, #queue do
         if queue[i].guid == guid then
@@ -284,6 +312,7 @@ function loot.reset()
     ignored = {}
     close_at = nil
     working_guid = nil
+    burst = nil
 end
 
 local function under_attack(player)
@@ -510,14 +539,15 @@ tick_inner = function(player)
             elseif (now - e.added) > FLAG_GRACE and empty(obj) then
                 gone, why = true, "empty"
             -- After an attempt: un-lootable or empty means it worked.
-            elseif e.fires > 0 and (now - e.fired_t) > SETTLE and (not can or empty(obj)) then
+            elseif e.fires > 0 and (now - e.fired_t) > SETTLE and not has_more(obj) then
                 gone, why = true, "looted"
             elseif not can and not e.mine and (now - e.added) > FLAG_GRACE then
                 gone, why = true, "not lootable"
             end
         end
         if gone then
-            ltrail("done %s: %s after %d attempt(s)", e.guid, tostring(why), e.fires)
+            if burst and burst.guid == e.guid then burst = nil end
+            ltrail("done %s: %s after %d loot cycle(s)", e.guid, tostring(why), e.fires)
             -- Every finished corpse is remembered (2.56.0): the fallback scan
             -- used to find a looted corpse again - the flag lags, or items
             -- that are not ours stay on it - and queue it all over again.
@@ -583,16 +613,62 @@ tick_inner = function(player)
 
     e.started = e.started or now
     movement.nav_stop()
-    if (now - e.fired_t) >= FIRE_GAP and e.fires < MAX_FIRES then
-        e.fires = e.fires + 1
-        e.fired_t = now
-        elog_probe("loot:fire")
-        ltrail("loot attempt %d on %s at %.1f yd", e.fires, e.guid, best_d)
-        pcall(function() core.input.loot_object(best_obj, true) end)
-        close_at = now + 1.5
+    -- In reach: loot.frame bursts at it every frame (2.198.0). This tick only
+    -- names the corpse and keeps the claim fresh.
+    if not burst or burst.guid ~= e.guid then
+        burst = { guid = e.guid, entry = e, attempt = 0, last = -1e9, blocked_until = 0, seen = now }
+        ltrail("looting %s at %.1f yd", e.guid, best_d)
+    else
+        burst.seen = now
     end
     state.set_note("Loot", "Looting")
     return true
+end
+
+--- THE BURST (2.198.0), from the example auto-loot plugin. Called every frame
+--- from main.lua. Only acts on the corpse loot.tick handed it (in reach, the
+--- player stopped, nothing attacking) while loot.tick keeps renewing it.
+function loot.frame()
+    local b = burst
+    if not b then return end
+    local now = izi.now()
+    if (now - b.seen) > BURST_STALE or not enabled() then
+        burst = nil
+        return
+    end
+    local e = b.entry
+    if e.fires >= MAX_CYCLES and b.attempt == 0 then return end
+    if now < b.blocked_until then return end
+    local obj = resolve(b.guid)
+    if not obj or safe(function() return obj:is_dead() end) ~= true then
+        return
+    end
+    -- Emptied (checked before every attempt but a corpse's very first, whose
+    -- flags may still lag the kill): loot.tick finishes it.
+    if (b.calls or 0) > 0 and not has_more(obj) then
+        b.attempt = 0
+        return
+    end
+    if b.attempt == 2 and (now - b.last) < BURST_GAP3 then
+        return
+    end
+    b.attempt = b.attempt + 1
+    b.last = now
+    if b.attempt >= 3 then
+        -- Attempt 3 closes the cycle: a pause, then judge or go again.
+        b.attempt = 0
+        b.blocked_until = now + BURST_COOLDOWN
+        e.fires = e.fires + 1
+        e.fired_t = now
+    end
+    b.calls = (b.calls or 0) + 1
+    elog_probe("loot:fire")
+    -- The auto-loot flag is sticky in the core: pass it every time.
+    pcall(function() core.input.loot_object(obj, true) end)
+    if movement_handler then
+        pcall(function() movement_handler:pause_movement_light(0.5, 0.0) end)
+    end
+    close_at = now + 1.5
 end
 
 return loot

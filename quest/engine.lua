@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.198.0
+-- Version: 2.199.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2446,12 +2446,24 @@ local function npc_id_of(unit)
     return nil
 end
 
+local g_rxp_targets_logged = nil
+
 local function kill_goal(player, goal, kind, wps, label)
     local now = izi.now()
     if now < g_scan_until then
         return false
     end
     g_scan_until = now + SCAN_GAP
+    -- RestedXP's target lines for this step (2.199.0): logged once per change.
+    if type(guide.step_target_names) == "function" then
+        local names = guide.step_target_names()
+        local line = tostring(guide.step_num()) .. ":" .. table.concat(names, ", ")
+        if line ~= g_rxp_targets_logged then
+            g_rxp_targets_logged = line
+            trail("quest", "step %s RestedXP targets: %s", tostring(guide.step_num()),
+                #names > 0 and table.concat(names, ", ") or "none")
+        end
+    end
     local gkey = tostring(guide.step_num()) .. "|" .. tostring(goal.index)
     local want_id = g_goal_npc[gkey]
     -- A mob RestedXP has marked with a raid icon names the target (2.53.0).

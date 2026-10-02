@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.202.0
+-- Version: 2.203.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -328,6 +328,34 @@ local function under_attack(player)
     return type(pack) == "table" and #pack > 0
 end
 
+-- LOOTABLE NOW, CLOSE BY (2.203.0), the example auto-loot plugin's filter:
+-- dead enemies within NEAR_YARDS that the game says are lootable and carry
+-- loot are queued as ours at once, every tick - no waiting for the 1 s scan.
+local NEAR_YARDS = 10
+
+local function near_scan(player)
+    if type(izi.enemies_if) ~= "function" then return end
+    local ok, list = pcall(izi.enemies_if, NEAR_YARDS, function(enemy)
+        if not enemy then return false end
+        local okv, v = pcall(enemy.is_valid, enemy)
+        if not okv or v ~= true then return false end
+        local okd, d = pcall(enemy.is_dead, enemy)
+        if not okd or d ~= true then return false end
+        local okc, c = pcall(enemy.can_be_looted, enemy)
+        if not okc or c ~= true then return false end
+        local okh, h = pcall(enemy.has_loot, enemy)
+        return okh == true and h == true
+    end)
+    if not ok or type(list) ~= "table" then return end
+    for i = 1, #list do
+        local c = list[i]
+        local guid = safe(function() return c:get_guid() end)
+        if guid and not find_entry(guid) then
+            enqueue(guid, safe(function() return c:get_position() end), true)
+        end
+    end
+end
+
 local function fallback_scan(player, now)
     if now < next_scan then
         return
@@ -496,6 +524,7 @@ tick_inner = function(player)
         return false
     end
 
+    near_scan(player)
     fallback_scan(player, now)
     if not loot.has_work(player) then
         working_guid = nil
@@ -547,7 +576,7 @@ tick_inner = function(player)
         end
         if gone then
             if burst and burst.guid == e.guid then burst = nil end
-            ltrail("done %s: %s after %d loot cycle(s)", e.guid, tostring(why), e.fires)
+            ltrail("done %s: %s after %d loot request(s)", e.guid, tostring(why), e.calls or 0)
             -- Every finished corpse is remembered (2.56.0): the fallback scan
             -- used to find a looted corpse again - the flag lags, or items
             -- that are not ours stay on it - and queue it all over again.
@@ -662,6 +691,7 @@ function loot.frame()
         e.fired_t = now
     end
     b.calls = (b.calls or 0) + 1
+    e.calls = (e.calls or 0) + 1
     elog_probe("loot:fire")
     -- The auto-loot flag is sticky in the core: pass it every time.
     pcall(function() core.input.loot_object(obj, true) end)

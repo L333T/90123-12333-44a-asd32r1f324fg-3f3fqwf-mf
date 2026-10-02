@@ -3,7 +3,7 @@
 -- movement/probe.lua - forward collision probing and path shaping
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.202.0
+-- Version: 2.203.0
 -- ============================================================================
 -- The legacy obstacle code, ported onto the Sylvanas API:
 --

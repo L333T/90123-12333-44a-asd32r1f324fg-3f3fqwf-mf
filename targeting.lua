@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.202.0
+-- Version: 2.203.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -646,6 +646,28 @@ function targeting.find_corpses(player, range)
     if yards < 1 then
         yards = 10
     end
+    -- DEAD ENEMIES FIRST (2.203.0): unit_helper:get_enemy_list_around with
+    -- include_dead, the core-cached enemy list the API documents for this.
+    -- The object scan below still runs: a neutral mob the bot killed is not
+    -- in an enemy list once it is dead. GUIDs keep the two from doubling.
+    local seen = {}
+    local pos = call(player.get_position, player)
+    if pos and unit_helper and type(unit_helper.get_enemy_list_around) == "function" then
+        local ok_l, list = pcall(unit_helper.get_enemy_list_around, unit_helper, pos, yards, true, false, false, true)
+        if ok_l and type(list) == "table" then
+            for i = 1, #list do
+                local u = list[i]
+                if indexable(u) and call(u.is_valid, u) == true and call(u.is_dead, u) == true
+                    and call(u.is_player, u) ~= true then
+                    local g = call(u.get_guid, u)
+                    if g and not seen[g] then
+                        seen[g] = true
+                        found[#found + 1] = u
+                    end
+                end
+            end
+        end
+    end
     local objects = all_objects()
     if type(objects) == "table" then
         for i = 1, #objects do
@@ -654,12 +676,19 @@ function targeting.find_corpses(player, range)
                 and call(obj.is_unit, obj) == true
                 and call(obj.is_player, obj) ~= true
                 and call(obj.is_dead, obj) == true then
-                local d = call(player.distance_to, player, obj)
-                if type(d) == "number" and d <= yards then
-                    found[#found + 1] = obj
+                local g = call(obj.get_guid, obj)
+                if not (g and seen[g]) then
+                    local d = call(player.distance_to, player, obj)
+                    if type(d) == "number" and d <= yards then
+                        if g then seen[g] = true end
+                        found[#found + 1] = obj
+                    end
                 end
             end
         end
+        return found
+    end
+    if #found > 0 then
         return found
     end
     if type(izi.enemies_if) ~= "function" then

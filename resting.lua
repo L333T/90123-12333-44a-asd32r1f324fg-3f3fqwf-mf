@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.192.0
+-- Version: 2.193.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -717,8 +717,9 @@ function resting_mod.tick(player, opts)
     -- The Resting tab's sliders win over the rotation's built-in numbers
     -- (2.41.0): every rotation hard-coded 30%, so "Eat Below HP %" did
     -- nothing. A rotation that passes drink_pct 0 (no mana) keeps it off.
-    local ok_g, gui = pcall(require, "gui")
-    if ok_g and gui and type(gui.slider) == "function" then
+    -- `gui` is this module's own top-level require (2.193.0: no
+    -- pcall(require) on every rest tick).
+    if type(gui.slider) == "function" then
         local e = gui.slider("eat_hp", nil)
         if type(e) == "number" then
             eat_at = start_pct({ v = e }, "v", eat_at)
@@ -729,6 +730,10 @@ function resting_mod.tick(player, opts)
         end
     end
 
+    -- REST PROBE (2.193.0): u:healing was the only multi-millisecond stage
+    -- (1.4-1.7 ms) and lined up with the 31 MB heap spike. These marks split
+    -- it in the PERF line, and errorlog's SPIKE line names the slow part.
+    rprobe("rest:auras")
     local hp = health_pct(player)
     local mana = mana_pct(player)
     local maxm = safe(function() return player:mana_max() end)
@@ -743,8 +748,11 @@ function resting_mod.tick(player, opts)
     local now_u = izi.now()
     if eating ~= true and (now_u - food_state.last) < JUST_USED then eating = true end
     if drinking ~= true and (now_u - drink_state.last) < JUST_USED then drinking = true end
+    rprobe("rest:food_ids")
     local foods = food_ids(player)
+    rprobe("rest:water_ids")
     local waters = water_ids(player)
+    rprobe("rest:checks")
     latch_rest(hp, mana, has_mana, eat_at, drink_at)
 
     -- Combat ends a rest outright. Potions are handled by healing.lua, which
@@ -814,6 +822,7 @@ function resting_mod.tick(player, opts)
     -- conjuring meanwhile (conjure.tick runs first, as soon as the mana is
     -- there), and the moment something usable is in the bags the normal rest
     -- takes over.
+    rprobe("rest:supplies")
     if rest_eat ~= true and rest_drink ~= true then
         local no_food = hp < eat_at and eating ~= true and has_usable(foods) ~= true
         local no_water = has_mana and mana < drink_at and drinking ~= true and has_usable(waters) ~= true
@@ -863,6 +872,7 @@ function resting_mod.tick(player, opts)
         end
     end
 
+    rprobe("rest:decide")
     if rest_eat ~= true and rest_drink ~= true then
         rest_debug("no rest needed - HP %.0f (eat at %.0f) MP %.0f (drink at %.0f)",
             hp, eat_at, mana, has_mana and drink_at or 0)
@@ -870,8 +880,7 @@ function resting_mod.tick(player, opts)
             rtrail("done - HP %.0f MP %.0f", hp, mana)
             -- The fight resumes right after a rest: capture its first moments.
             local el = elog()
-            local ok_g, gui_m = pcall(require, "gui")
-            if el and type(el.arm_light) == "function" and ok_g and gui_m and gui_m.is_on("crash_capture") then
+            if el and type(el.arm_light) == "function" and gui.is_on("crash_capture") then
                 pcall(el.arm_light, 1.5, "rest done")
             end
             reset_use_state()
@@ -909,8 +918,7 @@ function resting_mod.tick(player, opts)
         -- The flight recorder, when its box is ticked, covers the start of
         -- every rest: the halt, the sit and the first item use.
         local el = elog()
-        local ok_g, gui_m = pcall(require, "gui")
-        if el and type(el.arm) == "function" and ok_g and gui_m and gui_m.is_on("crash_recorder") then
+        if el and type(el.arm) == "function" and gui.is_on("crash_recorder") then
             pcall(el.arm, "rest start")
         end
     end

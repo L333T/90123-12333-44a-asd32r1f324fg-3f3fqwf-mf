@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.192.0
+-- Version: 2.193.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -855,7 +855,11 @@ local function on_update()
         return
     end
     probe("u:healing")
-    if healing.tick(player) then
+    -- REST PROBE (2.193.0): time this call; a slow one writes a SPIKE line.
+    if errorlog and type(errorlog.spike_begin) == "function" then errorlog.spike_begin("u:healing") end
+    local rested = healing.tick(player)
+    if errorlog and type(errorlog.spike_end) == "function" then errorlog.spike_end() end
+    if rested then
         return
     end
     -- Self-buff upkeep. Sits with the class buffs because it answers the

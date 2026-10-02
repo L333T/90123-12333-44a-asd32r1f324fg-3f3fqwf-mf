@@ -3,7 +3,7 @@
 -- Spell categories
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.192.0
+-- Version: 2.193.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW A SPELL GETS ITS CATEGORY

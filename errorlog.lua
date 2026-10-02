@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.192.0
+-- Version: 2.193.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -417,11 +417,16 @@ function errorlog.frame()
     perf_frames = perf_frames + 1
 end
 
+-- SPIKE RECORDER (2.193.0), defined with the MEM code below.
+local spike = nil
+local spike_mark
+
 --- A probe point: a profiler mark always, and a PROBE line while the
 --- recorder is armed.
 function errorlog.probe(tag)
     if cpu then
         perf_mark(tag)
+        if spike then spike_mark(tag) end
     end
     if beat_on and beat_n < 48 and tag ~= "-" then
         beat_n = beat_n + 1
@@ -531,11 +536,69 @@ local function heap_kb()
     return nil
 end
 
+-- SPIKE LINE (2.193.0). One stage call (u:healing) timed with its probe
+-- marks inside, CPU and heap per segment. A call over SPIKE_MS or one that
+-- grew the heap by SPIKE_KB writes one line naming the segments that cost
+-- the most, e.g.
+--   SPIKE u:healing 1.52 ms, heap +2048 KB | rest:food_ids 1.20 ms +1900 KB; ...
+-- The heap is counted at each mark only while such a call is open.
+local SPIKE_MS, SPIKE_KB, SPIKE_GAP = 1.0, 512, 2.0
+local spike_last = -1e9
+
+spike_mark = function(tag)
+    local s = spike
+    if not s or s.n >= 32 then return end
+    local t, kb = cpu(), heap_kb() or s.last_kb
+    s.n = s.n + 1
+    s.seg[s.n] = { s.last_tag, t - s.last_t, kb - s.last_kb }
+    s.last_tag, s.last_t, s.last_kb = tag, t, kb
+end
+
+--- Open a timed call (main.lua, around healing.tick).
+function errorlog.spike_begin(group)
+    if not cpu then return end
+    local t, kb = cpu(), heap_kb() or 0
+    spike = { group = group, t0 = t, kb0 = kb, n = 0, seg = {}, last_tag = group, last_t = t, last_kb = kb }
+end
+
+--- Close it; write a SPIKE line when it was slow or allocated a lot.
+function errorlog.spike_end()
+    local s = spike
+    spike = nil
+    if not s or not cpu then return end
+    local t, kb = cpu(), heap_kb() or s.last_kb
+    s.n = s.n + 1
+    s.seg[s.n] = { s.last_tag, t - s.last_t, kb - s.last_kb }
+    if kb > mem_peak then mem_peak = kb end
+    local ms, dkb = (t - s.t0) / 1e6, kb - s.kb0
+    if ms < SPIKE_MS and dkb < SPIKE_KB then return end
+    local wall = now_s()
+    if (wall - spike_last) < SPIKE_GAP then return end
+    spike_last = wall
+    table.sort(s.seg, function(a, b) return a[2] > b[2] end)
+    local parts = {}
+    for i = 1, math.min(6, #s.seg) do
+        local g = s.seg[i]
+        parts[#parts + 1] = string.format("%s %.2f ms %+.0f KB", tostring(g[1]), g[2] / 1e6, g[3])
+    end
+    write("SPIKE", string.format("%s %.2f ms, heap %+.0f KB (%.0f -> %.0f) | %s",
+        tostring(s.group), ms, dkb, s.kb0, kb, table.concat(parts, "; ")))
+end
+
+-- HEAP PEAK ONCE A SECOND (2.193.0): collectgarbage("count") ran every frame
+-- only to keep the peak; a spike call (above) also updates it.
+local PEAK_GAP = 1.0
+local peak_next = 0
+
 --- Called every frame from main.lua. Cheap when it is not time to write.
 function errorlog.tick(now)
-    local kb = heap_kb()
-    if kb and kb > mem_peak then
-        mem_peak = kb
+    local kb = nil
+    if type(now) ~= "number" or now >= peak_next or now < peak_next - PEAK_GAP * 2 then
+        peak_next = (type(now) == "number" and now or 0) + PEAK_GAP
+        kb = heap_kb()
+        if kb and kb > mem_peak then
+            mem_peak = kb
+        end
     end
     if cpu and type(now) == "number" and now >= perf_next then
         if perf_next > 0 then
@@ -547,6 +610,7 @@ function errorlog.tick(now)
         return
     end
     mem_next = now + MEM_GAP
+    kb = kb or heap_kb()
     if kb then
         local extra = ""
         if type(mem_extra) == "function" then

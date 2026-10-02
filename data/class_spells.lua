@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.193.0
+-- Version: 2.194.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -524,6 +524,8 @@ local SECTIONS = {
     { key = "defensive", label = "Defensive",            roles = { defensive = true } },
     { key = "interrupt", label = "Interrupts",           roles = { interrupt = true } },
     { key = "racial",    label = "Racial",               roles = { racial = true } },
+    -- 2.194.0: every other spell the book has (not in this catalog).
+    { key = "other",     label = "Other known spells",   roles = { other = true } },
 }
 
 local M = {}

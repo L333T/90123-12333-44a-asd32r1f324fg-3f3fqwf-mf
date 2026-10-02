@@ -3,7 +3,7 @@
 -- Racial abilities (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.193.0
+-- Version: 2.194.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Only ACTIVE racials are listed. Passives (Diplomacy, Hardiness, The Human
@@ -87,6 +87,15 @@ racials.list = {
         ids = { 20549 },
         tooltip = "Tauren: stuns everything in melee range. Used when more than one thing is on you.",
     },
+    -- ANY RACE THAT OWNS IT (2.194.0): race = nil - listed and used when the
+    -- spell book has it, whatever the race id says. WoW Forever racials
+    -- whose effect is not catalogued start unticked (default = false).
+    {
+        key = "eureka", label = "Eureka!", race = nil, kind = "offensive", default = false,
+        ids = { 1259817 },
+        tooltip = "WoW Forever racial (spell 1259817). Its effect is not catalogued yet, so it starts "
+            .. "unticked; ticked, it is used on cooldown once a fight is under way.",
+    },
 }
 
 --- The racials this race can use.
@@ -94,6 +103,12 @@ function racials.for_race(race_id)
     local out = {}
     if type(race_id) ~= "number" then
         return out
+    end
+    -- race = nil: any race; the spell book decides (2.194.0).
+    for i = 1, #racials.list do
+        if racials.list[i].race == nil then
+            out[#out + 1] = racials.list[i]
+        end
     end
     -- Blood Elf / Draenei racials only on TBC (2.121.0). The Skyborne
     -- traits (Walk on Air, Read Ley Line / Skysight, Elemental Insight, Wind

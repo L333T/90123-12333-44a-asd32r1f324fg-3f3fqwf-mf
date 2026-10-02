@@ -3,7 +3,7 @@
 -- movement/rt.lua - shared mutable runtime state
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.193.0
+-- Version: 2.194.0
 -- ============================================================================
 -- Upvalues cannot cross a chunk boundary, so every piece of state that more
 -- than one movement module touches lives here as a field of R. Values that only

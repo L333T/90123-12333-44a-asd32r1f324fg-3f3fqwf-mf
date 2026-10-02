@@ -3,7 +3,7 @@
 -- movement/util.lua - logging, position input, distance, ground and traces
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.200.0
+-- Version: 2.201.0
 -- ============================================================================
 -- The bottom layer. Depends only on const + rt, so every other movement module
 -- may require it without creating a cycle.
@@ -67,6 +67,11 @@ function U.xyz(p)
     end
     if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return nil end
     if x ~= x or y ~= y or z ~= z then return nil end   -- NaN
+    -- Infinity (2.201.0): get_corpse_position answered inf right after a
+    -- release, and Sentinel was sent "(inf, inf, inf)" for a minute -
+    -- "HTTP 400: Coordinates must be finite numbers", disconnects, and an
+    -- inf blacklist zone. No world coordinate is anywhere near 1e7.
+    if x > 1e7 or x < -1e7 or y > 1e7 or y < -1e7 or z > 1e7 or z < -1e7 then return nil end
     return x, y, z
 end
 

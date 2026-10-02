@@ -3,7 +3,7 @@
 -- Death run — release, path graveyard to corpse, retrieve
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.200.0
+-- Version: 2.201.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -96,6 +96,12 @@ local function as_vec3(pos)
     if x == 0 and y == 0 and z == 0 then
         return nil
     end
+    -- NaN or infinity (2.201.0): the corpse position read "inf" right after
+    -- the release on WoW Forever, and the run asked Sentinel for it.
+    if x ~= x or y ~= y or z ~= z
+        or math.abs(x) > 1e7 or math.abs(y) > 1e7 or math.abs(z) > 1e7 then
+        return nil
+    end
     return vec3.new(x, y, z)
 end
 
@@ -108,7 +114,9 @@ local function corpse_position()
         state.dead.corpse = vec
         return vec
     end
-    return as_vec3(state.dead.corpse)
+    -- The client gave nothing usable (inf, 0,0,0): the last known corpse,
+    -- else where the character died (2.201.0) - the body stays where it fell.
+    return as_vec3(state.dead.corpse) or as_vec3(state.dead.died_pos)
 end
 
 local function dist_to(pos)
@@ -259,6 +267,17 @@ local function begin_death()
     blacklist_killer()
     state.dead.waiting = true
     state.dead.corpse = nil
+    -- Where the body fell (2.201.0), recorded before the release: the corpse
+    -- position fallback when get_corpse_position answers inf. Not as a ghost
+    -- (a reload mid corpse run): the ghost stands at the graveyard.
+    state.dead.died_pos = nil
+    local me = safe(function() return izi.me() end)
+    if me and safe(function() return me:is_ghost() end) ~= true then
+        local p = safe(function() return me:get_position() end)
+        if as_vec3(p) then
+            state.dead.died_pos = { x = p.x, y = p.y, z = p.z }
+        end
+    end
     state.dead.retrieve_at = 0
     state.grind.step = 1
     state.reset_target()
@@ -275,6 +294,7 @@ local function end_death()
     end
     state.dead.waiting = false
     state.dead.corpse = nil
+    state.dead.died_pos = nil
     resume_path()
 end
 

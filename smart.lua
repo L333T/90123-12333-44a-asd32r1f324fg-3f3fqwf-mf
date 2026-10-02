@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.195.0
+-- Version: 2.196.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -159,6 +159,26 @@ local function is_passive(id)
     return safe(function() return core.spell_book.spell_has_attribute(id, 0, 0x40) end) == true
 end
 
+-- CASTABLE ONLY (2.196.0). WoW Forever does not answer the passive attribute,
+-- and the list showed Armor Proficiency, Dodge, Engineering Specialization,
+-- Expansive Mind and Languages - passives. An "other" spell is listed only
+-- once core.spell_book.is_usable_spell has said true for one of its ranks
+-- (a passive never is; an active one is whenever it could be cast). Sticky
+-- for the session, so a spell short of mana at one scan does not drop out.
+local seen_usable = {}
+
+local function castable(fam, ranks)
+    if seen_usable[fam.name] then return true end
+    for k = #ranks, 1, -1 do
+        local id = ranks[k]
+        if safe(function() return core.spell_book.is_usable_spell(id) end) == true then
+            seen_usable[fam.name] = true
+            return true
+        end
+    end
+    return false
+end
+
 -- One line per change of what the scan found (2.194.0), so a log says which
 -- spells the Spells tab has - there was no way to tell a missing spell from a
 -- spell the scan never saw.
@@ -273,7 +293,8 @@ local function build(player)
     -- catalog and the listed racials, so a spell the scan found but nobody
     -- catalogued (a WoW Forever racial, say) never appeared. Every remaining
     -- family in the book is listed here, unticked; ticked, racials.lua uses
-    -- it on cooldown in a fight. Passive spells and auto attacks are left out.
+    -- it on cooldown in a fight. Passive spells, spells the game never
+    -- reported usable (2.196.0) and auto attacks are left out.
     local racial_ids = {}
     for i = 1, #(racial_data.list or {}) do
         local ids = racial_data.list[i].ids or {}
@@ -288,7 +309,8 @@ local function build(player)
         for k = 1, #ranks do
             if racial_ids[ranks[k]] then is_racial = true break end
         end
-        if not is_racial and not row_of[fam.name] and not OTHER_SKIP[fam.name] and not is_passive(fam.id) then
+        if not is_racial and not row_of[fam.name] and not OTHER_SKIP[fam.name] and not is_passive(fam.id)
+            and castable(fam, ranks) then
             local desc = safe(function() return core.spell_book.get_spell_description(fam.id) end)
             local tip = (type(desc) == "string" and desc ~= "") and desc
                 or "Found in your spell book; not in the class catalog."

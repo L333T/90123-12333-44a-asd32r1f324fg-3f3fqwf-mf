@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.193.0
+-- Version: 2.194.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -150,6 +150,40 @@ local STANCE_OF = { ["Battle Stance"] = "battle", ["Defensive Stance"] = "defens
 local built = { scan = -1, class = nil, race = nil, list = {}, by_role = {}, rows = {}, groups = {} }
 local spell_cache = {}         -- best-rank id -> izi spell
 
+-- "Other known spells" (2.194.0): never listed, they are not abilities to tick.
+local OTHER_SKIP = { ["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true }
+
+--- A passive spell (SPELL_ATTR0_PASSIVE, attribute 0 flag 0x40). A client
+--- that does not answer leaves it listed.
+local function is_passive(id)
+    return safe(function() return core.spell_book.spell_has_attribute(id, 0, 0x40) end) == true
+end
+
+-- One line per change of what the scan found (2.194.0), so a log says which
+-- spells the Spells tab has - there was no way to tell a missing spell from a
+-- spell the scan never saw.
+local book_report = nil
+
+local function report_book(cls, n_class, rows, other_names)
+    local racial_names = {}
+    for i = 1, #rows do
+        if rows[i].role == "racial" then racial_names[#racial_names + 1] = rows[i].name end
+    end
+    local book_n, fam_n = 0, 0
+    if type(spellbook.counts) == "function" then book_n, fam_n = spellbook.counts() end
+    local text = string.format("Spells tab: %d class spell(s); racials: %s; other known spells (%d): %s",
+        n_class, #racial_names > 0 and table.concat(racial_names, ", ") or "none",
+        #other_names, #other_names > 0 and table.concat(other_names, ", ") or "none")
+    if text == book_report then return end
+    book_report = text
+    core.log(string.format("[Master Farmer - Grindbot] %s (book: %d ids, %d spells, class %s).",
+        text, book_n or 0, fam_n or 0, tostring(cls)))
+    local el = mod("errorlog")
+    if el and type(el.trail) == "function" then
+        pcall(el.trail, "spells", "%s (book %d ids, %d spells)", text, book_n or 0, fam_n or 0)
+    end
+end
+
 local function player_class(player)
     return safe(player.get_class, player)
 end
@@ -229,11 +263,49 @@ local function build(player)
         end
         if known and not row_of[d.label] then
             local row = { name = d.label, role = "racial", ranks = 1, group = nil,
-                default = true, tip = d.tooltip, section = "racial" }
+                default = d.default ~= false, tip = d.tooltip, section = "racial" }
             row_of[d.label] = row
             rows[#rows + 1] = row
         end
     end
+
+    -- EVERY OTHER KNOWN SPELL (2.194.0). The tab showed only this class's
+    -- catalog and the listed racials, so a spell the scan found but nobody
+    -- catalogued (a WoW Forever racial, say) never appeared. Every remaining
+    -- family in the book is listed here, unticked; ticked, racials.lua uses
+    -- it on cooldown in a fight. Passive spells and auto attacks are left out.
+    local racial_ids = {}
+    for i = 1, #(racial_data.list or {}) do
+        local ids = racial_data.list[i].ids or {}
+        for k = 1, #ids do racial_ids[ids[k]] = true end
+    end
+    local extra, other_names = {}, {}
+    local fams = (type(spellbook.all_families) == "function" and spellbook.all_families()) or {}
+    for i = 1, #fams do
+        local fam = fams[i]
+        local ranks = (type(fam.ranks) == "table" and #fam.ranks > 0) and fam.ranks or { fam.id }
+        local is_racial = false
+        for k = 1, #ranks do
+            if racial_ids[ranks[k]] then is_racial = true break end
+        end
+        if not is_racial and not row_of[fam.name] and not OTHER_SKIP[fam.name] and not is_passive(fam.id) then
+            local desc = safe(function() return core.spell_book.get_spell_description(fam.id) end)
+            local tip = (type(desc) == "string" and desc ~= "") and desc
+                or "Found in your spell book; not in the class catalog."
+            local row = { name = fam.name, role = "other", ranks = #ranks, id = fam.id, group = nil,
+                default = false, tip = tip, section = "other" }
+            row_of[fam.name] = row
+            rows[#rows + 1] = row
+            extra[#extra + 1] = { key = "other:" .. fam.name, label = fam.name, kind = "offensive",
+                default = false, extra = true, ids = ranks, tooltip = tip }
+            other_names[#other_names + 1] = fam.name
+        end
+    end
+    local rmod = mod("racials")
+    if rmod and type(rmod.set_extra) == "function" then
+        rmod.set_extra(extra)
+    end
+    report_book(cls, #list, rows, other_names)
 
     built = { scan = scan, class = cls, race = race, list = list, by_role = by_role,
         rows = rows, groups = groups }

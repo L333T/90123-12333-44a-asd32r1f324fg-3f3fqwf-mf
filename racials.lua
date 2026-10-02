@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.193.0
+-- Version: 2.194.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -45,6 +45,15 @@ local HEAL_PCT = 50
 local last_act = -1e9
 local resolved = nil         -- race_id -> { {def, spell}, ... }
 local resolved_race = nil
+-- 2.194.0: the Spells tab's "Other known spells" (smart.lua), used like an
+-- offensive racial when ticked.
+local extra_defs = {}
+
+--- The other known spells smart.lua listed; replaces the previous list.
+function racials.set_extra(list)
+    extra_defs = type(list) == "table" and list or {}
+    resolved, resolved_race = nil, nil
+end
 
 local function safe(fn)
     local ok, result = pcall(fn)
@@ -112,7 +121,10 @@ local function for_player(player)
         return resolved
     end
     local out = {}
-    local defs = data.for_race(race)
+    local defs = {}
+    local base = data.for_race(race)
+    for i = 1, #base do defs[#defs + 1] = base[i] end
+    for i = 1, #extra_defs do defs[#defs + 1] = extra_defs[i] end
     for i = 1, #defs do
         local def = defs[i]
         local spell = safe(function() return izi.spell(def.ids) end)
@@ -132,9 +144,9 @@ end
 local function wanted(def)
     local ok, picks = pcall(require, "picks")
     if ok and type(picks) == "table" and type(picks.wants) == "function" then
-        return picks.wants(def.label, true)
+        return picks.wants(def.label, def.default ~= false)
     end
-    return true
+    return def.default ~= false
 end
 
 local function learned(spell)
@@ -274,6 +286,11 @@ function racials.tick(player, target, ctx)
         if wanted(def) and learned(entry.spell) and ready(entry.spell) then
             if wants(entry, player, target, ctx) then
                 local unit = target_for(entry, player, target)
+                -- An uncatalogued spell (2.194.0): whether it takes the enemy
+                -- or the player is not known - the enemy first, then self.
+                if def.extra and target and cast(entry.spell, target, def.label) then
+                    return true
+                end
                 if unit and cast(entry.spell, unit, def.label) then
                     return true
                 end

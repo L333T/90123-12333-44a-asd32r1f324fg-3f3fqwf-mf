@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.193.0
+-- Version: 2.194.0
 -- Folder: Master_Farmer_Grindbot
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan on a level-up or a trainer visit (60 s safety net). DEFS are rank-1 IDs; highest matching ID wins.
@@ -156,10 +156,52 @@ end
 
 local name_fallback_warned = false
 
+-- IDS ASKED FOR DIRECTLY (2.194.0). get_spells() is the client's spell book
+-- walk, and it can leave spells out - on WoW Forever a Mage's racial
+-- (Eureka!, 1259817) never reached the Spells tab. Every racial id in
+-- data/racials, plus anything handed to spellbook.probe_ids, is put to the
+-- ownership calls on each scan whether or not the walk listed it.
+local probe_set = {}
+
+--- Ask the next scans about these ids directly (owned ones join the book).
+function spellbook.probe_ids(ids)
+    if type(ids) ~= "table" then return end
+    for i = 1, #ids do
+        local id = ids[i]
+        if type(id) == "number" and id > 0 and id == math.floor(id) and not probe_set[id] then
+            probe_set[id] = true
+            rescan_wanted = true
+        end
+    end
+end
+
+local function probe_candidates(set)
+    local only = {}
+    local ok_r, rdata = pcall(require, "data/racials")
+    if ok_r and type(rdata) == "table" and type(rdata.list) == "table" then
+        for i = 1, #rdata.list do
+            local ids = rdata.list[i].ids
+            if type(ids) == "table" then
+                for k = 1, #ids do
+                    local id = ids[k]
+                    if type(id) == "number" and id > 0 and not set[id] then
+                        set[id], only[id] = true, true
+                    end
+                end
+            end
+        end
+    end
+    for id in pairs(probe_set) do
+        if not set[id] then set[id], only[id] = true, true end
+    end
+    return only
+end
+
 --- Every id in the book this character owns, sorted.
 local function extract_ids(raw)
     local set = {}
     collect_ids(raw, set, nil)
+    local probe_only = probe_candidates(set)
 
     local ids = {}
     for id in pairs(set) do
@@ -174,7 +216,8 @@ local function extract_ids(raw)
     -- once, because that is when a wrong-class spell can still appear.
     if #ids == 0 then
         for id in pairs(set) do
-            if spell_name(id) then
+            -- Not the probed ids: the game names every race's racials.
+            if not probe_only[id] and spell_name(id) then
                 ids[#ids + 1] = id
             end
         end

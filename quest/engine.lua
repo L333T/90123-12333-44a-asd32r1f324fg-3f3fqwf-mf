@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.199.0
+-- Version: 2.200.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2457,6 +2457,10 @@ local function kill_goal(player, goal, kind, wps, label)
     -- RestedXP's target lines for this step (2.199.0): logged once per change.
     if type(guide.step_target_names) == "function" then
         local names = guide.step_target_names()
+        -- 2.200.0: plus the guide files' target mobs for this goal's quest.
+        if #names == 0 and type(guide.rxp_quest_mobs) == "function" then
+            names = guide.rxp_quest_mobs(goal.quest_id)
+        end
         local line = tostring(guide.step_num()) .. ":" .. table.concat(names, ", ")
         if line ~= g_rxp_targets_logged then
             g_rxp_targets_logged = line

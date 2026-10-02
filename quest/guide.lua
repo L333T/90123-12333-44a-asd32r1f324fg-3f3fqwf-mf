@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.199.0
+-- Version: 2.200.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1139,6 +1139,23 @@ function guide.targets(goal)
     return pair[1], pair[2]
 end
 
+local rxp_cache = nil
+--- data/rxp_targets (quest -> RestedXP target mobs), loaded once; false when absent.
+local function rxp_data()
+    if rxp_cache == nil then
+        local ok, m = pcall(require, "data/rxp_targets")
+        rxp_cache = (ok and type(m) == "table") and m or false
+    end
+    return rxp_cache or nil
+end
+
+--- The RestedXP target mobs the guide files name for a quest (2.200.0).
+function guide.rxp_quest_mobs(quest_id)
+    local d = rxp_data()
+    local list = d and d.by_quest and d.by_quest[tonumber(quest_id) or -1]
+    return type(list) == "table" and list or {}
+end
+
 -- RESTEDXP TARGET LINES (2.199.0). A step's .target / .mob / .unitscan /
 -- .rare lines are what RestedXP's target frame (RXPTargetFrame, Targeting.lua)
 -- lists - and a "0/8 Tough Wolf Meat" collect step usually names its mobs
@@ -1224,6 +1241,23 @@ compute_targets = function(goal)
             local from = guide.objective_names(g.quest_id)
             for k = 1, #from do
                 names[from[k]] = true
+            end
+            -- The guide's own target mobs for this quest (2.200.0,
+            -- data/rxp_targets.lua, generated from the RestedXP guide files):
+            -- what RXPTargetFrame lists, which the API does not expose.
+            local rxp = rxp_data()
+            if rxp then
+                local qids = guide.goal_quest_ids(g)
+                for k = 1, #qids do
+                    local list = rxp.by_quest and rxp.by_quest[qids[k]]
+                    if type(list) == "table" then
+                        for m = 1, #list do names[list[m]] = true end
+                    end
+                    local nids = rxp.ids_by_quest and rxp.ids_by_quest[qids[k]]
+                    if type(nids) == "table" then
+                        for m = 1, #nids do ids[nids[m]] = true end
+                    end
+                end
             end
         end
     end

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.197.0
+-- Version: 2.198.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -720,6 +720,11 @@ local function on_update()
         -- so every consumer this frame sees one consistent owner and state.
         probe("u:movement.pulse")
         pcall(movement.pulse)
+    end
+    -- 2.198.0: the loot burst runs every frame (attempts one frame apart).
+    if loot and type(loot.frame) == "function" then
+        probe("u:loot.frame")
+        pcall(loot.frame)
     end
 
     -- Everything below is a decision, and decisions run at BOT_TICK.

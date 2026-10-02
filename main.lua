@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.201.0
+-- Version: 2.202.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -1027,15 +1027,9 @@ if errorlog then
         local hp = me and safe(function() return me:get_health_percentage() end)
         -- Mana too (2.67.0): a rest that never starts is invisible without it.
         local mp = nil
-        local mmax = me and safe(function() return me:mana_max() end)
-        if type(mmax) == "number" and mmax > 0 then
-            mp = safe(function() return me:mana_pct() end)
-            if type(mp) ~= "number" then
-                local cur = safe(function() return me:mana_current() end)
-                mp = type(cur) == "number" and cur / mmax * 100 or nil
-            elseif mp <= 1.5 then
-                mp = mp * 100
-            end
+        local ok_pw, pw = pcall(require, "power")
+        if me and ok_pw and type(pw) == "table" and pw.has_mana(me) then
+            mp = pw.mana_pct(me)
         end
         local cbt = me and safe(function() return me:is_in_combat() end)
         local tgt = "-"

@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.201.0
+-- Version: 2.202.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -66,14 +66,12 @@ local function health_pct(player)
     return as_percent(pct, cur, maxh)
 end
 
+local power = require("power")
+
 local function mana_pct(player)
-    local maxm = safe(function() return player:mana_max() end)
-    if type(maxm) == "number" and maxm <= 0 then
-        return 100
-    end
-    local pct = safe(function() return player:mana_pct() end)
-    local cur = safe(function() return player:mana_current() end)
-    return as_percent(pct, cur, maxm)
+    -- power.lua (2.202.0): izi mana_* first, native get_power / get_max_power (mana 0) when
+    -- they read nothing - on WoW Forever a Mage read as having no mana and never drank.
+    return power.mana_pct(player)
 end
 
 -- ----------------------------------------------------------------------------
@@ -105,7 +103,7 @@ function healing.tick(player)
         if gui.is_on("potions") then
             local hp = health_pct(player)
             local mana = mana_pct(player)
-            local has_mana = (safe(function() return player:mana_max() end) or 0) > 0
+            local has_mana = power.has_mana(player)
             if hp <= gui.slider("hp_pot", 35) then
                 izi.use_best_health_potion_safe()
             end

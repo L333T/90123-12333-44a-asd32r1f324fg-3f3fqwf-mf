@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.201.0
+-- Version: 2.202.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -253,14 +253,12 @@ local function health_pct(player)
     return as_percent(pct, cur, maxh)
 end
 
+local power = require("power")
+
 local function mana_pct(player)
-    local maxm = safe(function() return player:mana_max() end)
-    if type(maxm) == "number" and maxm <= 0 then
-        return 100
-    end
-    local pct = safe(function() return player:mana_pct() end)
-    local cur = safe(function() return player:mana_current() end)
-    return as_percent(pct, cur, maxm)
+    -- power.lua (2.202.0): izi mana_* first, native get_power / get_max_power (mana 0) when
+    -- they read nothing - on WoW Forever a Mage read as having no mana and never drank.
+    return power.mana_pct(player)
 end
 
 local function has_any_aura(player, ids)
@@ -736,8 +734,7 @@ function resting_mod.tick(player, opts)
     rprobe("rest:auras")
     local hp = health_pct(player)
     local mana = mana_pct(player)
-    local maxm = safe(function() return player:mana_max() end)
-    local has_mana = type(maxm) == "number" and maxm > 0
+    local has_mana = power.has_mana(player)
     local eating = has_any_aura(player, FOOD_AURAS)
     local drinking = has_any_aura(player, DRINK_AURAS)
     -- JUST USED (2.110.0): the aura lands a moment after the item is used.

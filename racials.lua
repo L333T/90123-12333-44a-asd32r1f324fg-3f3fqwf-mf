@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.201.0
+-- Version: 2.202.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -90,20 +90,12 @@ local function health_pct(unit)
     return 100
 end
 
+local power = require("power")
+
 local function mana_pct(unit)
-    local mx = safe(function() return unit:mana_max() end)
-    if type(mx) ~= "number" or mx <= 0 then
-        return 100
-    end
-    local p = as_pct(safe(function() return unit:mana_pct() end))
-    if p then
-        return p
-    end
-    local cur = safe(function() return unit:mana_current() end)
-    if type(cur) == "number" then
-        return (cur / mx) * 100
-    end
-    return 100
+    -- power.lua (2.202.0): izi mana_* first, native get_power / get_max_power (mana 0) when
+    -- they read nothing - on WoW Forever a Mage read as having no mana and never drank.
+    return power.mana_pct(unit)
 end
 
 -- ----------------------------------------------------------------------------

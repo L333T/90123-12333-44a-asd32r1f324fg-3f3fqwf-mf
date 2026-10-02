@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.201.0
+-- Version: 2.202.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -718,6 +718,9 @@ local wand_eq_until = 0
 local wand_eq_val = false
 
 local function mana_percent(player)
+    -- power.lua (2.202.0): izi first, native get_power (mana 0) as fallback.
+    local ok_pw, pw = pcall(require, "power")
+    if ok_pw and type(pw) == "table" then return pw.mana_pct(player) end
     local pct = safe(function() return player:mana_pct() end)
     local cur = safe(function() return player:mana_current() end)
     local mx = safe(function() return player:mana_max() end)

@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.201.0
+-- Version: 2.202.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -506,7 +506,8 @@ local function has_mana(player)
     if class_id == 1 or class_id == 4 then
         return false
     end
-    local mx = safe(function() return player:mana_max() end)
+    local ok_pw, pw = pcall(require, "power")
+    local mx = ok_pw and type(pw) == "table" and pw.mana_max(player) or nil
     if type(mx) == "number" then
         return mx > 0
     end

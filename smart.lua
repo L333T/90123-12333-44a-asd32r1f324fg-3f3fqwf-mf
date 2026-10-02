@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.201.0
+-- Version: 2.202.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -421,11 +421,9 @@ end
 
 function c.mana()
     if memo.mana == nil then
-        local v = pct(safe(P.mana_pct, P))
-        if not v then
-            local cur, mx = safe(P.mana_current, P), safe(P.mana_max, P)
-            v = (type(cur) == "number" and type(mx) == "number" and mx > 0) and cur / mx * 100 or 100
-        end
+        -- power.lua (2.202.0): izi first, native get_power (mana 0) as fallback.
+        local pw = mod("power")
+        local v = pw and pw.mana_pct(P) or pct(safe(P.mana_pct, P)) or 100
         memo.mana = v
     end
     return memo.mana

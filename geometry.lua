@@ -3,7 +3,7 @@
 -- geometry.lua - object and position helpers, on the vec3 API
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.195.0
+-- Version: 2.196.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- The handful of helpers every bot ends up writing - what is this object, how

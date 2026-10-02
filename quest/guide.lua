@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.198.0
+-- Version: 2.199.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1139,6 +1139,65 @@ function guide.targets(goal)
     return pair[1], pair[2]
 end
 
+-- RESTEDXP TARGET LINES (2.199.0). A step's .target / .mob / .unitscan /
+-- .rare lines are what RestedXP's target frame (RXPTargetFrame, Targeting.lua)
+-- lists - and a "0/8 Tough Wolf Meat" collect step usually names its mobs
+-- only there, as text-only goals of the SAME step. Only the goal being worked
+-- and the sticky steps were read, so those names never reached the kill scan.
+local RXP_TARGET_ACTIONS = { target = true, unitscan = true, mob = true, rare = true }
+local TARGET_VERBS = { "target", "kill", "slay", "find", "unitscan", "mob", "rare" }
+
+--- The mob names in one target line: the whole line (progress and a leading
+--- verb dropped) plus each comma / "or" / "and" separated name.
+local function target_line_names(text, out)
+    local t = strip_progress(text)
+    if not t then return end
+    t = t:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|cRXP_[%u_]-_", ""):gsub("|r", ""):gsub("[%[%]]", "")
+    t = t:gsub("^%s+", ""):gsub("%s+$", "")
+    local low = string.lower(t)
+    for i = 1, #TARGET_VERBS do
+        local v = TARGET_VERBS[i]
+        if low:sub(1, #v + 1) == v .. " " or low:sub(1, #v + 1) == v .. ":" then
+            t = t:sub(#v + 2):gsub("^[:%s]+", "")
+            break
+        end
+    end
+    t = t:gsub("^%d+%s*/%s*%d+%s+", ""):gsub("%s+slain$", "")
+    if t == "" then return end
+    out[t] = true
+    local norm = t:gsub("%s+or%s+", ","):gsub("%s+and%s+", ",")
+    for raw in norm:gmatch("[^,]+") do
+        local part = raw:gsub("^%s+", ""):gsub("%s+$", "")
+        if #part >= 3 then out[part] = true end
+    end
+end
+
+--- The current step's RestedXP target names, sorted (for the kill scan and the log).
+function guide.step_target_names()
+    return memo("step_targets", function()
+        local set = {}
+        local step = guide.step()
+        if step and type(step.goals) == "table" then
+            for i = 1, #step.goals do
+                local g = step.goals[i]
+                local a = type(g) == "table" and type(g.action) == "string" and string.lower(g.action) or ""
+                if RXP_TARGET_ACTIONS[a] and not ((a == "mob" or a == "rare") and g.is_complete == true) then
+                    target_line_names(g.text, set)
+                    if type(g.ids) == "table" then
+                        for k = 1, #g.ids do
+                            if type(g.ids[k]) == "string" and g.ids[k] ~= "" then set[g.ids[k]] = true end
+                        end
+                    end
+                end
+            end
+        end
+        local out = {}
+        for n in pairs(set) do out[#out + 1] = n end
+        table.sort(out)
+        return out
+    end)
+end
+
 compute_targets = function(goal)
     local ids, names = {}, {}
 
@@ -1170,6 +1229,25 @@ compute_targets = function(goal)
     end
 
     take(goal, true)
+
+    -- The step's own RestedXP target lines (2.199.0), for a fight goal.
+    if goal and TARGET_KINDS[guide.classify(goal)] then
+        local rxp = guide.step_target_names()
+        for i = 1, #rxp do names[rxp[i]] = true end
+        local step = guide.step()
+        if step and type(step.goals) == "table" then
+            for i = 1, #step.goals do
+                local g = step.goals[i]
+                local a = type(g) == "table" and type(g.action) == "string" and string.lower(g.action) or ""
+                if RXP_TARGET_ACTIONS[a] and type(g.ids) == "table" then
+                    for k = 1, #g.ids do
+                        local n = tonumber(g.ids[k])
+                        if n then ids[n] = true end
+                    end
+                end
+            end
+        end
+    end
 
     local stickies = guide.stickies()
     for i = 1, #stickies do

@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.194.0
+-- Version: 2.195.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -183,6 +183,30 @@ end
 -- ----------------------------------------------------------------------------
 -- WHETHER EACH KIND WANTS TO FIRE
 -- ----------------------------------------------------------------------------
+-- ONCE PER FIGHT (2.195.0). A "fight_start" racial goes out when a fight
+-- begins - at the pull, before the first damage spell - and not again until
+-- that fight is over: the player was in combat after the cast and has then
+-- been out of it FIGHT_GAP seconds. A pull that never became a fight frees it
+-- after FIGHT_STALE seconds out of combat.
+local FIGHT_GAP = 2.0
+local FIGHT_STALE = 30.0
+local fight = { used = false, used_at = -1e9, seen_combat = false, ooc_since = nil }
+
+local function note_fight(player)
+    local now = izi.now()
+    local in_combat = safe(function() return player:is_in_combat() end) == true
+    if in_combat then
+        fight.ooc_since = nil
+        if fight.used then fight.seen_combat = true end
+        return
+    end
+    fight.ooc_since = fight.ooc_since or now
+    if fight.used and (now - fight.ooc_since) >= FIGHT_GAP
+        and (fight.seen_combat or (now - fight.used_at) >= FIGHT_STALE) then
+        fight.used, fight.seen_combat = false, false
+    end
+end
+
 local function cc_on_us(player, which)
     if which == "root" then
         return safe(function() return player:is_rooted() end) == true
@@ -212,6 +236,13 @@ local function wants(entry, player, target, ctx)
             return false
         end
         return health_pct(target) >= OFFENSIVE_MIN_HP
+    end
+
+    if kind == "fight_start" then
+        if not target or fight.used then
+            return false
+        end
+        return safe(function() return target:is_dead() end) ~= true
     end
 
     if kind == "mana" then
@@ -272,6 +303,7 @@ function racials.tick(player, target, ctx)
     if not player then
         return false
     end
+    note_fight(player)
     local now = izi.now()
     if (now - last_act) < ACT_GAP then
         return false
@@ -292,6 +324,9 @@ function racials.tick(player, target, ctx)
                     return true
                 end
                 if unit and cast(entry.spell, unit, def.label) then
+                    if def.kind == "fight_start" then
+                        fight.used, fight.used_at, fight.seen_combat = true, izi.now(), false
+                    end
                     return true
                 end
             end
@@ -306,6 +341,7 @@ function racials.ooc(player)
     if not player then
         return false
     end
+    note_fight(player)
     local now = izi.now()
     if (now - last_act) < ACT_GAP then
         return false

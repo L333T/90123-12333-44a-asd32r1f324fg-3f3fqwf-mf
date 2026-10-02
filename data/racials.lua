@@ -3,7 +3,7 @@
 -- Racial abilities (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.194.0
+-- Version: 2.195.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Only ACTIVE racials are listed. Passives (Diplomacy, Hardiness, The Human
@@ -36,6 +36,8 @@ racials.race_id = {
 --   "heal"       fire when health is low
 --   "free_cc"    fire when the matching crowd control is on us
 --   "aoe_stun"   fire when enough things are in melee range
+--   "fight_start" fire once at the start of every fight, before the first
+--                damage spell (2.195.0)
 racials.list = {
     {
         key = "blood_fury", label = "Blood Fury", race = 2, kind = "offensive",
@@ -91,10 +93,12 @@ racials.list = {
     -- spell book has it, whatever the race id says. WoW Forever racials
     -- whose effect is not catalogued start unticked (default = false).
     {
-        key = "eureka", label = "Eureka!", race = nil, kind = "offensive", default = false,
+        -- WoW Forever: the next 3 damage abilities cost 10% less mana and deal
+        -- 10% more damage - so it goes out as the fight starts (2.195.0).
+        key = "eureka", label = "Eureka!", race = nil, kind = "fight_start",
         ids = { 1259817 },
-        tooltip = "WoW Forever racial (spell 1259817). Its effect is not catalogued yet, so it starts "
-            .. "unticked; ticked, it is used on cooldown once a fight is under way.",
+        tooltip = "WoW Forever racial: your next 3 damage abilities cost 10% less mana and deal 10% "
+            .. "more damage. Cast once at the start of every fight, before the first damage spell.",
     },
 }
 

@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.196.0
+-- Version: 2.197.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -900,11 +900,14 @@ function targeting.start_auto_attack(player, unit)
         end
     elseif (cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
         or cid == enums.class_id.WARLOCK or cid == enums.class_id.SHAMAN) then
-        -- Casters auto-attack on engage, the same as a melee class. Only the
-        -- mage shoots a wand from spell range. In melee, and for every other
+        -- Casters auto-attack on engage, the same as a melee class. A wand class
+        -- (mage, priest, warlock) shoots its wand from spell range. In melee, and for every other
         -- caster, the swing is armed so it connects as the mob closes.
         local close = type(d) == "number" and d <= 5
-        if not close and cid == enums.class_id.MAGE and type(types.WAND) == "number"
+        -- 2.197.0: priest and warlock wands too, not only the mage's.
+        local wand_class = cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
+            or cid == enums.class_id.WARLOCK
+        if not close and wand_class and type(types.WAND) == "number"
             and targeting.has_wand_equipped(player) then
             want = types.WAND
             reach = 30

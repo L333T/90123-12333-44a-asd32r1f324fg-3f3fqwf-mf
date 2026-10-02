@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.196.0
+-- Version: 2.197.0
 -- Folder: Master_Farmer_Grindbot
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan on a level-up or a trainer visit (60 s safety net). DEFS are rank-1 IDs; highest matching ID wins.
@@ -175,8 +175,16 @@ function spellbook.probe_ids(ids)
     end
 end
 
+-- General-tab spells the walk may leave out, asked about directly (2.197.0):
+-- 5019 Shoot (wand).
+local ALWAYS_PROBE = { 5019 }
+
 local function probe_candidates(set)
     local only = {}
+    for i = 1, #ALWAYS_PROBE do
+        local id = ALWAYS_PROBE[i]
+        if not set[id] then set[id], only[id] = true, true end
+    end
     local ok_r, rdata = pcall(require, "data/racials")
     if ok_r and type(rdata) == "table" and type(rdata.list) == "table" then
         for i = 1, #rdata.list do

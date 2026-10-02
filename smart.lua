@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.196.0
+-- Version: 2.197.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -877,7 +877,11 @@ local function wand_time()
     if memo.wand ~= nil then return memo.wand end
     local on = false
     local list = built.by_role.filler
-    if list and c.mana() < c.wand_pct() then
+    -- 2.197.0: only with a wand in the ranged slot (targeting caches it 2 s).
+    local tg = mod("targeting")
+    local has_wand = tg ~= nil and type(tg.has_wand_equipped) == "function"
+        and tg.has_wand_equipped(P) == true
+    if list and has_wand and c.mana() < c.wand_pct() then
         for i = 1, #list do
             if list[i].name == "Shoot" and usable(list[i]) then
                 on = true

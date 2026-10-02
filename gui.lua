@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.196.0
+-- Version: 2.197.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -503,7 +503,7 @@ local TIP_SHOOT = "The Hunter closes to this distance, then uses the ranged weap
 local TIP_HEAL = "Ticked healing spells are cast on yourself below this health."
 local TIP_DEF = "Ticked defensive spells are used below this health."
 local TIP_AOE = "Ticked area spells are used when at least this many enemies are in reach."
-local TIP_WAND = "Shoot the wand once mana drops below this. 0 never wands."
+local TIP_WAND = "With a wand equipped, Shoot once mana drops below this. 0 never wands; 100 wands whenever no heal, DoT or other spell is due."
 local TIP_PET = "Mend Pet is cast when the pet's health drops below this."
 
 -- Not named C: that upvalue is the colour helper, and a second local C here
@@ -536,6 +536,7 @@ add_class_slider(class_ids.PRIEST, "ranged_yards", 10, 40, 30, "Ranged attack di
 add_class_slider(class_ids.PRIEST, "sp_heal", 20, 90, 50, "Self-heal below %", TIP_HEAL)
 add_class_slider(class_ids.PRIEST, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
 add_class_slider(class_ids.PRIEST, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
+add_class_slider(class_ids.PRIEST, "sp_wand", 0, 100, 20, "Wand below mana %", TIP_WAND)
 
 add_class_slider(class_ids.SHAMAN, "ranged_yards", 10, 40, 30, "Ranged attack distance (yd)", TIP_RANGED)
 add_class_slider(class_ids.SHAMAN, "melee_yards", 1, 5, 5, "Melee distance (yd)", TIP_MELEE)
@@ -553,6 +554,7 @@ add_class_slider(class_ids.WARLOCK, "sp_heal", 20, 90, 45, "Drain Life below %",
 add_class_slider(class_ids.WARLOCK, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
 add_class_slider(class_ids.WARLOCK, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
 add_class_slider(class_ids.WARLOCK, "pet_heal_pct", 20, 90, 50, "Health Funnel below %", TIP_PET)
+add_class_slider(class_ids.WARLOCK, "sp_wand", 0, 100, 20, "Wand below mana %", TIP_WAND)
 
 -- Druid stands at range until Cat or Bear, so both distances are kept.
 add_class_slider(class_ids.DRUID, "melee_yards", 1, 5, 5, "Melee attack distance (yd)", TIP_MELEE)

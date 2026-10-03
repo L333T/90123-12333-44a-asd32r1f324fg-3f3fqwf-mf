@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.204.0
+-- Version: 2.205.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1812,6 +1812,12 @@ local function dialog_goal(player, goal, kind, wps, label)
             trail("act", "talk goal done at %s", tostring(safe(function() return unit:get_name() end)))
             guide.mark_goal_done(guide.step_num(), goal.index)
             pcall(function() core.quests.close_gossip() end)
+            -- RestedXP completes a ".vendor" step on MERCHANT_CLOSED after a
+            -- MERCHANT_SHOW (RXPGuides functions.lua, addon.functions.vendor),
+            -- ".trainer" on TRAINER_CLOSED: the window has to be CLOSED, not
+            -- just opened (2.205.0). close_gossip left the merchant up.
+            if merchant then pcall(function() core.input.close_merchant() end) end
+            if trainer then pcall(function() core.quests.close_trainer() end) end
             g_talk_opened = 0
             return true
         end

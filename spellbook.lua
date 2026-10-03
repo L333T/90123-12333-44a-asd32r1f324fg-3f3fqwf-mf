@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.206.0
+-- Version: 2.207.0
 -- Folder: Master_Farmer_Grindbot
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan on a level-up or a trainer visit (60 s safety net). DEFS are rank-1 IDs; highest matching ID wins.
@@ -179,8 +179,40 @@ end
 -- 5019 Shoot (wand).
 local ALWAYS_PROBE = { 5019 }
 
+-- WoW FOREVER TRAINER IDS (2.207.0): data/forever_spells.lua, RestedXP's
+-- Forever trainer list - this class's and race's ids are asked about too.
+local RXP_CLASS = { [1] = "WARRIOR", [2] = "PALADIN", [3] = "HUNTER", [4] = "ROGUE", [5] = "PRIEST",
+    [7] = "SHAMAN", [8] = "MAGE", [9] = "WARLOCK", [11] = "DRUID" }
+local RXP_RACE = { [1] = "Human", [2] = "Orc", [3] = "Dwarf", [4] = "NightElf", [5] = "Scourge",
+    [6] = "Tauren", [7] = "Gnome", [8] = "Troll" }
+
+local function forever_ids()
+    local ok_g, gamever = pcall(require, "gamever")
+    if not ok_g or type(gamever) ~= "table" or not gamever.is_forever() then return nil end
+    local ok_d, d = pcall(require, "data/forever_spells")
+    if not ok_d or type(d) ~= "table" or type(d.ids) ~= "table" then return nil end
+    local me = safe(function() return izi.me() end)
+    if not me then return nil end
+    local out = {}
+    local ck = RXP_CLASS[safe(function() return me:get_class() end) or -1]
+    local rk = RXP_RACE[safe(function() return me:get_race_id() end) or -1]
+    if ck and type(d.ids[ck]) == "table" then out[#out + 1] = d.ids[ck] end
+    if rk and type(d.ids[rk]) == "table" then out[#out + 1] = d.ids[rk] end
+    return out
+end
+
 local function probe_candidates(set)
     local only = {}
+    local fids = forever_ids()
+    if fids then
+        for k = 1, #fids do
+            local list = fids[k]
+            for i = 1, #list do
+                local id = list[i]
+                if type(id) == "number" and not set[id] then set[id], only[id] = true, true end
+            end
+        end
+    end
     for i = 1, #ALWAYS_PROBE do
         local id = ALWAYS_PROBE[i]
         if not set[id] then set[id], only[id] = true, true end

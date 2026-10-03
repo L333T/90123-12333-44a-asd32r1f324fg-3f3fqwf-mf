@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.206.0
+-- Version: 2.207.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -304,6 +304,9 @@ W.PRIEST = t({
     { "Holy Fire",              "damage", on = false, when = not_shadowform },
     { "Mind Flay",              "damage", on = true },
     { "Smite",                  "damage", on = true, when = not_shadowform },
+    -- Racial priest spells (2.207.0): Night Elf Starshards (channelled), Dwarf Chastise.
+    { "Starshards",             "damage", on = true },
+    { "Chastise",               "damage", on = false },
 
     -- 2.197.0: the wand, as for the mage - only with a wand equipped.
     { "Shoot",                  "filler", on = true, tip = "Wand (needs one equipped), once mana drops below the wand slider." },
@@ -433,6 +436,11 @@ W.WARLOCK = t({
     { "Drain Soul",             "execute", on = false, thp = 25 },
 
     { "Curse of Agony",         "debuff", on = true,  g = "curse", thp = 40 },
+    -- WoW Forever names (2.207.0, RXPGuides DB/forever/spells.lua): Curse of
+    -- Agony / Doom became Bane of Agony / Doom - a group of their own, so a
+    -- bane and a curse can both be up.
+    { "Bane of Agony",          "debuff", on = true,  g = "bane", thp = 40 },
+    { "Bane of Doom",           "debuff", on = false, g = "bane", thp = 60 },
     { "Curse of the Elements",  "debuff", on = false, g = "curse" },
     { "Curse of Recklessness",  "debuff", on = false, g = "curse" },
     { "Curse of Weakness",      "debuff", on = false, g = "curse" },
@@ -507,6 +515,8 @@ W.DRUID = t({
     { "Ferocious Bite",         "finisher", on = true, melee = true, form = "cat", cp = 4 },
 
     { "Mangle (Cat)",           "damage", on = true, melee = true, form = "cat" },
+    -- WoW Forever lists a plain "Mangle" (33982) for druids (2.207.0).
+    { "Mangle",                 "damage", on = true, melee = true, form = "cat" },
     { "Shred",                  "damage", on = false, melee = true, form = "cat", tip = "Needs to be behind the target." },
     { "Claw",                   "damage", on = true, melee = true, form = "cat" },
     { "Mangle (Bear)",          "damage", on = true, melee = true, form = "bear" },

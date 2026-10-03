@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.209.0
+-- Version: 2.210.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -87,12 +87,11 @@ local g_label = "fighting"
 -- Talk goals: when the NPC's frame first showed open. 0 while it is not.
 local g_talk_opened = 0
 -- 2.204.0: a ".vendor" step's gossip -> vendor option tries on the current NPC.
-local g_vend = { guid = nil, tries = 0, next_t = 0 }
-local VEND_TRIES = 3
-local NPC_VENDOR = 0x80
--- 2.206.0: the guide file's gossip choice, made once per opened frame.
-local g_gsel = { key = nil }
-local GOSSIP_BACKUP_AFTER = 1.0     -- RestedXP's own gossip automation acts on GOSSIP_SHOW first
+-- 2.206.0 gsel: the guide file's gossip choice, made once per opened frame;
+-- GOSSIP_AFTER: RestedXP's own gossip automation acts on GOSSIP_SHOW first.
+-- (One table, 2.210.0: the chunk's 200-local limit.)
+local TK = { vend = { guid = nil, tries = 0, next_t = 0 }, VEND_TRIES = 3, NPC_VENDOR = 0x80,
+    gsel = { key = nil }, GOSSIP_AFTER = 1.0 }
 local g_in_dialog = false      -- the last tick was spent on an NPC dialog goal
 local g_in_travel = false      -- the last tick was spent walking to a waypoint
 local TALK_DONE = 2.0         -- seconds a frame is left open before the goal counts
@@ -724,17 +723,17 @@ end
 -- [name] through data/rxp_targets M.items; the API's container calls do the
 -- work (destroy_container_item, equip_container_item). The Hearthstone is
 -- never destroyed - vendor trips hearth home.
-local g_itemstep = { key = nil, t = 0, tries = 0 }
-local ITEM_GAP, ITEM_TRIES = 1.0, 5
-local NEVER_DESTROY = { [6948] = true }
+-- One file-level table (2.210.0): quest/engine.lua sits at Lua's limit of
+-- 200 locals in a chunk - 2.209.0 crossed it and the file stopped compiling.
+local IS = { step = { key = nil, t = 0, tries = 0 }, GAP = 1.0, TRIES = 5, NEVER_DESTROY = { [6948] = true } }
 
-local function equipped_id(player, slot)
+function IS.equipped_id(player, slot)
     local info = safe(function() return player:get_item_at_inventory_slot(slot) end)
     local obj = type(info) == "table" and info.object or nil
     return obj and safe(function() return obj:get_item_id() end) or nil
 end
 
-local function item_step_goal(player, goal, label)
+function IS.goal(player, goal, label)
     local a = type(goal.action) == "string" and string.lower(goal.action) or ""
     if a ~= "destroy" and a ~= "equip" then return false end
     if type(guide.rxp_item_for) ~= "function" then return false end
@@ -742,26 +741,26 @@ local function item_step_goal(player, goal, label)
     if not rec then return false end
     if safe(function() return player:is_in_combat() end) == true then return false end
     local now = izi.now()
-    if g_itemstep.key ~= g_key then g_itemstep = { key = g_key, t = 0, tries = 0 } end
-    local s = g_itemstep
+    if IS.step.key ~= g_key then IS.step = { key = g_key, t = 0, tries = 0 } end
+    local s = IS.step
     local ok_b, bags = pcall(require, "bags")
     local list = ok_b and type(bags) == "table" and bags.list(player) or {}
     local entry = nil
     for i = 1, #list do
         if list[i].item_id == rec.id then entry = list[i] break end
     end
-    if a == "equip" and rec.slot and equipped_id(player, rec.slot) == rec.id then
+    if a == "equip" and rec.slot and IS.equipped_id(player, rec.slot) == rec.id then
         trail("act", "equip step: item %d already in slot %d", rec.id, rec.slot)
         guide.mark_goal_done(guide.step_num(), goal.index)
         return true
     end
-    if not entry or (a == "destroy" and NEVER_DESTROY[rec.id]) or s.tries >= ITEM_TRIES then
+    if not entry or (a == "destroy" and IS.NEVER_DESTROY[rec.id]) or s.tries >= IS.TRIES then
         trail("act", "%s step: item %d %s - next goal", a, rec.id,
-            not entry and "not in the bags" or (NEVER_DESTROY[rec.id] and "is kept (Hearthstone)" or "would not move"))
+            not entry and "not in the bags" or (IS.NEVER_DESTROY[rec.id] and "is kept (Hearthstone)" or "would not move"))
         guide.mark_goal_done(guide.step_num(), goal.index)
         return true
     end
-    if (now - s.t) < ITEM_GAP then return true end
+    if (now - s.t) < IS.GAP then return true end
     s.t, s.tries = now, s.tries + 1
     movement.nav_stop()
     if a == "destroy" then
@@ -1863,30 +1862,30 @@ local function dialog_goal(player, goal, kind, wps, label)
     -- done, and the step retried every 30 s for two hours (17:46-19:53 log).
     -- Now: an NPC the game does not flag as a vendor (0x80) is skipped; a
     -- gossip gets its vendor option selected; an NPC that will not open a
-    -- merchant after VEND_TRIES tries is ruled out and the next one is tried.
+    -- merchant after TK.VEND_TRIES tries is ruled out and the next one is tried.
     if string.lower(goal.action or "") == "vendor" and not merchant then
         local g = safe(function() return unit:get_guid() end)
-        if g ~= g_vend.guid then g_vend = { guid = g, tries = 0, next_t = 0 } end
+        if g ~= TK.vend.guid then TK.vend = { guid = g, tries = 0, next_t = 0 } end
         local flags = safe(function() return unit:get_npc_flags() end)
-        local not_vendor = type(flags) == "number" and flags > 0 and math.floor(flags / NPC_VENDOR) % 2 == 0
-        if not_vendor or g_vend.tries >= VEND_TRIES then
+        local not_vendor = type(flags) == "number" and flags > 0 and math.floor(flags / TK.NPC_VENDOR) % 2 == 0
+        if not_vendor or TK.vend.tries >= TK.VEND_TRIES then
             if g then g_bad_givers[g] = true end
             trail("act", "vendor step: npc %s %s - trying another NPC", tostring(npc_id_of_unit(unit)),
                 not_vendor and "is not a vendor" or "opened no merchant window")
             pcall(function() core.quests.close_gossip() end)
             g_talk_opened = 0
-            g_vend = { guid = nil, tries = 0, next_t = 0 }
+            TK.vend = { guid = nil, tries = 0, next_t = 0 }
             return true
         end
         if gossip_open then
-            if now >= g_vend.next_t then
-                g_vend.next_t = now + 1.5
-                g_vend.tries = g_vend.tries + 1
+            if now >= TK.vend.next_t then
+                TK.vend.next_t = now + 1.5
+                TK.vend.tries = TK.vend.tries + 1
                 local picked = gossip.select({ icon = "VENDOR", icon_num = 1, type = "vendor",
                     words = { "browse your goods", "let me browse", "your wares", "buy from you", "buy something" } })
                 trail("act", "vendor step: gossip - %s (try %d)", picked and "vendor option selected"
-                    or "no vendor option", g_vend.tries)
-                if not picked then g_vend.tries = VEND_TRIES end
+                    or "no vendor option", TK.vend.tries)
+                if not picked then TK.vend.tries = TK.VEND_TRIES end
             end
             state.set_note("Quest", "Guide: opening the merchant - " .. label)
             return true
@@ -1895,14 +1894,14 @@ local function dialog_goal(player, goal, kind, wps, label)
     -- GUIDE GOSSIP CHOICE (2.206.0). RestedXP picks a step's gossip option
     -- itself (.gossipoption / .skipgossipid by gossip option id, .skipgossip
     -- by npc id + option number) when its gossip automation is on. When the
-    -- frame is still open GOSSIP_BACKUP_AFTER later, the bot makes the same
+    -- frame is still open TK.GOSSIP_AFTER later, the bot makes the same
     -- choice from the guide files (data/rxp_targets M.steps), once per frame.
     if gossip_open and kind == "talk" and type(guide.rxp_step_for) == "function" then
         if g_talk_opened == 0 then g_talk_opened = now end
         local st = guide.rxp_step_for(wps)
         local key = tostring(safe(function() return unit:get_guid() end)) .. ":" .. tostring(g_talk_opened)
-        if st and (st.g or st.s) and g_gsel.key ~= key and (now - g_talk_opened) >= GOSSIP_BACKUP_AFTER then
-            g_gsel.key = key
+        if st and (st.g or st.s) and TK.gsel.key ~= key and (now - g_talk_opened) >= TK.GOSSIP_AFTER then
+            TK.gsel.key = key
             local rows = safe(function() return core.quests.get_gossip_options() end)
             local picked = nil
             if type(rows) == "table" and st.g then
@@ -2952,7 +2951,7 @@ tick_inner = function(player)
     -- every-3-levels rule is only for visits the bot decides on itself),
     -- walks to the step's waypoint until the class trainer is in sight, and
     -- is done when the visit finishes - or when RestedXP ticks it off first.
-    if item_step_goal(player, goal, label) then
+    if IS.goal(player, goal, label) then
         return
     end
     if prof_goal(player, goal, wps, label) then

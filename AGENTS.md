@@ -102,6 +102,10 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 - **Loader**: the in-game loader is `plugin_loader/` (http_loader.lua reads
   manifest.lua). The old `bootstrap/` and root `net_loader.lua` were removed in 2.147.0.
 
+## Lua limits
+
+`quest/engine.lua` is near Lua's hard limit of 200 locals per chunk (2.209.0 crossed it and the engine stopped compiling). Add new file-level state as fields of an existing table (`TK`, `IS`), not new `local`s. A release must stop when `make_local.py` reports anything but `0 failed`.
+
 ## Testing
 
 After any removal or large refactor, run an AST scan for undeclared reads and

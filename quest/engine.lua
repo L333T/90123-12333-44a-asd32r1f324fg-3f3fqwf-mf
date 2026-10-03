@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.215.0
+-- Version: 2.216.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -395,10 +395,34 @@ end
 ---
 --- Attackers are looked for out to THREAT_RANGE (40 yd), not combat range
 --- + 10, so a caster hitting a melee character from range counts.
+-- ON THE WAY TO AN NPC (2.216.0). In combat or being attacked while a
+-- turn-in / accept / talk goal is being walked, the walk always waits and the
+-- fight comes first:
+--   * "being attacked" counts as combat - a mob targeting the player or the
+--     pet (targeting.attackers) is fought even while the player's own combat
+--     flag has dropped for a moment (a fled or evading mob coming back); the
+--     flag alone used to hand the tick back to the walk then.
+--   * in combat with nothing in view, the hold before walking on is
+--     NPC_GOAL_HOLD s instead of targeting's 8 s.
+-- (A field of the existing TK table: the chunk's 200-local limit.)
+TK.NPC_GOAL = { turnin = true, accept = true, talk = true }
+TK.NPC_GOAL_HOLD = 30.0
+
 local function fight_back(player, label)
     local range = targeting.THREAT_RANGE or 40
     local cur_guid = (state.target.kind == "kill") and state.target.guid or nil
+    local in_combat = safe(function() return player:is_in_combat() end) == true
+    local attacked = type(targeting.attackers) == "function" and targeting.attackers(player) > 0
     local attacker = targeting.attacker_to_switch(player, cur_guid, range)
+    if not attacker and attacked and not in_combat then
+        -- attacker_to_switch reads the combat flag; the attack itself is the
+        -- evidence here.
+        attacker = targeting.nearest(player, targeting.threats(player, range))
+        if attacker and cur_guid ~= nil
+            and safe(function() return attacker:get_guid() end) == cur_guid then
+            attacker = nil                   -- already on it: step 2 keeps fighting it
+        end
+    end
     if attacker then
         targeting.combat_active()
         trail("act", "switch to attacker %s", tostring(safe(function() return attacker:get_name() end)))
@@ -412,7 +436,7 @@ local function fight_back(player, label)
             return true
         end
     end
-    if safe(function() return player:is_in_combat() end) ~= true then
+    if not in_combat and not attacked then
         targeting.combat_hold(player)        -- resets the hold window
         return false
     end
@@ -422,9 +446,11 @@ local function fight_back(player, label)
         engage(player, nearest, "Guide: defending")
         return true
     end
-    if targeting.combat_hold(player) then
+    local npc_goal = TK.NPC_GOAL[g_cur_kind or ""] == true
+    if targeting.combat_hold(player, npc_goal and TK.NPC_GOAL_HOLD or nil) then
         movement.nav_stop()
-        state.set_note("Quest", "Guide: holding - combat not over")
+        state.set_note("Quest", npc_goal and ("Guide: in combat - " .. tostring(g_cur_kind) .. " waits")
+            or "Guide: holding - combat not over")
         return true
     end
     return false

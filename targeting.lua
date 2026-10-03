@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.215.0
+-- Version: 2.216.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -534,8 +534,9 @@ end
 --- COMBAT_HOLD seconds: a DoT still ticking, a mob that fled and is coming
 --- back, a caster that has dropped its target for a moment. Walking off to
 --- the next waypoint there drags the fight along or leaves a mob behind.
---- Call only when there is nothing to fight right now.
-function targeting.combat_hold(player)
+--- Call only when there is nothing to fight right now. `max` (2.216.0)
+--- overrides COMBAT_HOLD - the quest engine holds longer on its way to an NPC.
+function targeting.combat_hold(player, max)
     if not player or call(player.is_in_combat, player) ~= true then
         hold_since = 0
         return false
@@ -544,7 +545,7 @@ function targeting.combat_hold(player)
     if hold_since == 0 then
         hold_since = now
     end
-    return (now - hold_since) < COMBAT_HOLD
+    return (now - hold_since) < (tonumber(max) or COMBAT_HOLD)
 end
 
 --- A fight is on: restart the hold window next time nothing is in view.

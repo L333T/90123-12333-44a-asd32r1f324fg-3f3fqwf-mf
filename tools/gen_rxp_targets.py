@@ -272,34 +272,48 @@ def main():
         "",
         "local M = {}",
         "",
-        "-- quest id -> { mob names }",
-        "M.by_quest = {",
     ]
+    # SHARED NAME LISTS (2.220.0). 6883 name lists, 2377 distinct: every distinct
+    # list is written once into L and the quest tables point at it - same
+    # lookups, a third of the tables. Lists are read-only for every consumer.
+    # M.by_objective (quest|objective -> names) is no longer written: nothing
+    # reads it.
+    pool, pool_idx = [], {}
+
+    def ref(names):
+        key = tuple(names)
+        i = pool_idx.get(key)
+        if i is None:
+            pool.append(key)
+            i = pool_idx[key] = len(pool)
+        return f"L[{i}]"
+
+    body = ["-- quest id -> { mob names }", "M.by_quest = {"]
     for q in sorted(by_quest):
         names = dedupe(by_quest[q])
         if names:
-            lines.append(f"    [{q}] = {{ {', '.join(lua_str(x) for x in names)} }},")
-    lines += ["}", "", "-- \"quest|objective\" -> { mob names }", "M.by_objective = {"]
-    for (q, o) in sorted(by_obj):
-        names = dedupe(by_obj[(q, o)])
-        if names:
-            lines.append(f"    [\"{q}|{o}\"] = {{ {', '.join(lua_str(x) for x in names)} }},")
-    lines += ["}", "", "-- quest id -> { npc ids } (numeric ids on target lines)", "M.ids_by_quest = {"]
+            body.append(f"    [{q}] = {ref(names)},")
+    body += ["}", "", "-- quest id -> { npc ids } (numeric ids on target lines)", "M.ids_by_quest = {"]
     for q in sorted(ids_by_quest):
         ids = sorted(ids_by_quest[q])
         if ids:
-            lines.append(f"    [{q}] = {{ {', '.join(str(x) for x in ids)} }},")
+            body.append(f"    [{q}] = {{ {', '.join(str(x) for x in ids)} }},")
     for role, label, title in (("accept", "M.givers", "gives (accept)"),
                                ("turnin", "M.takers", "takes (turn-in)")):
         table = givers.get(role, {})
-        lines += ["}" if role == "accept" else "}", "",
-                  f"-- quest id -> {{ friendly NPC names }} the guide's .target pairs with the quest:",
-                  f"-- who {title} it (2.215.0, by role)",
-                  f"{label} = {{"]
+        body += ["}", "",
+                 f"-- quest id -> {{ friendly NPC names }} the guide's .target pairs with the quest:",
+                 f"-- who {title} it (2.215.0, by role)",
+                 f"{label} = {{"]
         for q in sorted(table):
             names = dedupe(table[q])
             if names:
-                lines.append(f"    [{q}] = {{ {', '.join(lua_str(x) for x in names)} }},")
+                body.append(f"    [{q}] = {ref(names)},")
+    lines += ["-- shared name lists, referenced as L[n] below (2.220.0)", "local L = {"]
+    for key in pool:
+        lines.append("    { " + ", ".join(lua_str(x) for x in key) + " },")
+    lines += ["}", ""]
+    lines += body
     lines += ["}", "",
               "-- NPC steps: p = { map, x, y, ... } anchors (UiMapID, 0-1), w = { x, y, ... } world",
               "-- anchors (\".goto zone/0,y,x\" lines), v / t = vendor /",

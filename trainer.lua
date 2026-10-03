@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.205.0
+-- Version: 2.206.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -164,8 +164,11 @@ local quest_title = nil      -- the quest step's waypoint title, while a quest v
 local quest_done = false
 
 --- A quest step wants a trainer visit now (true), or no longer (false).
-function trainer.quest_visit(on, title)
+local quest_npc = nil        -- 2.206.0: the guide file's trainer npc id for the quest visit
+
+function trainer.quest_visit(on, title, npc_id)
     quest_title = (on and type(title) == "string" and title ~= "") and title or nil
+    quest_npc = (on and type(npc_id) == "number" and npc_id > 0) and npc_id or nil
     if on then
         if not quest_wanted then
             quest_wanted, quest_done = true, false
@@ -407,7 +410,10 @@ local function trainer_in_sight(player)
             local name = safe(function() return u:get_name() end)
             local guid = safe(function() return u:get_guid() end)
             local rank = nil
-            if type(name) == "string" and quest_title and name == quest_title then
+            local nid = quest_npc and safe(function() return u:get_npc_id() end) or nil
+            if quest_npc and nid == quest_npc then
+                rank = 1                              -- 2.206.0: the guide's own trainer id
+            elseif type(name) == "string" and quest_title and name == quest_title then
                 rank = 1
             elseif type(name) == "string" and names[name] then
                 rank = 2

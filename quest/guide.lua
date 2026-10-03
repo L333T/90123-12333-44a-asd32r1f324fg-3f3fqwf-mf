@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.205.0
+-- Version: 2.206.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1147,6 +1147,47 @@ local function rxp_data()
         rxp_cache = (ok and type(m) == "table") and m or false
     end
     return rxp_cache or nil
+end
+
+-- NPC STEPS (2.206.0). data/rxp_targets.lua M.steps: the guide files'
+-- vendor / trainer npc ids and gossip choices, anchored by each step's .goto
+-- points. A live step is matched by its waypoints (same UiMapID, within
+-- STEP_NEAR of an anchor, 0-1 map units): the API gives no guide or step id.
+local STEP_NEAR = 0.012
+
+--- The guide-file NPC step for these goal waypoints, or nil.
+--- { v = vendor npc id, t = trainer npc id, g = { gossip option ids }, s = { npc, option... } }
+function guide.rxp_step_for(wps)
+    local d = rxp_data()
+    if not d or type(d.steps) ~= "table" or type(wps) ~= "table" then return nil end
+    local best, best_d = nil, nil
+    for i = 1, #wps do
+        local w = wps[i]
+        local m, x, y = w and w.map_id, w and w.mx, w and w.my
+        if type(m) == "number" and m > 0 and type(x) == "number" and type(y) == "number" then
+            for k = 1, #d.steps do
+                local st = d.steps[k]
+                local p = st.p
+                for j = 1, #p - 2, 3 do
+                    if p[j] == m then
+                        local dx, dy = p[j + 1] - x, p[j + 2] - y
+                        local dd = dx * dx + dy * dy
+                        if dd <= STEP_NEAR * STEP_NEAR and (best_d == nil or dd < best_d) then
+                            best, best_d = st, dd
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+--- Friendly NPC names on the guide steps that accept / turn in this quest.
+function guide.rxp_quest_givers(quest_id)
+    local d = rxp_data()
+    local list = d and d.givers and d.givers[tonumber(quest_id) or -1]
+    return type(list) == "table" and list or {}
 end
 
 --- The RestedXP target mobs the guide files name for a quest (2.200.0).
@@ -2541,6 +2582,8 @@ compute_goal_waypoints = function(goal)
                     out[#out + 1] = {
                         pos = pos,
                         title = (type(wp.title) == "string" and wp.title ~= "") and wp.title or nil,
+                        -- 2.206.0: the map point too, to match the guide file's step
+                        map_id = tonumber(wp.map_id), mx = tonumber(wp.x), my = tonumber(wp.y),
                     }
                 end
             end

@@ -31,7 +31,7 @@ runtime by `gamever.lua`.
 5. **Leave `plugin_loader/` alone** unless the user approves a change. When one is
    made, also copy it to the INSTALLED loader the game runs (below), back up the
    installed copy first, and keep backups OUTSIDE `scripts\` (a folder there is
-   loaded as a plugin). Current loader: 1.3.0 (2026-10-03: when raw.githubusercontent.com fails for a network reason - the game's requests there were refused with curl 7 - the same commit loads from the jsDelivr mirror `cdn.jsdelivr.net/gh/<repo>@<sha>/`, hash-checked against the manifest, with one warning line; a hash mismatch / bad manifest / 404 still fails). 1.2.3: quiet console ( only "[Master Farmer] loading..." / "loaded <name> v<version>"; repository, commit, URLs, HTTP codes and progress only with `VERBOSE = true` in `plugin_loader/main.lua`). It follows GitHub `main` (no commit pin) and loads on TBC and Forever for every class. Edit it only when the download mechanism changes. The game install now runs a PACKED copy (`scripts\ext_plugin_masterfarmer_beta_test`) - a loader change reaches the game only when that file is rebuilt from `plugin_loader/`.
+   loaded as a plugin). Current loader: 1.2.3 (quiet console: only "[Master Farmer] loading..." / "loaded <name> v<version>"; repository, commit, URLs, HTTP codes and progress only with `VERBOSE = true` in `plugin_loader/main.lua`). It follows GitHub `main` (no commit pin) and loads on TBC and Forever for every class. Edit it only when the download mechanism changes. The game install now runs a PACKED copy (`scripts\ext_plugin_masterfarmer_beta_test`) - a loader change reaches the game only when that file is rebuilt from `plugin_loader/`.
 
 ## Paths
 
@@ -104,7 +104,7 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 
 ## Lua limits
 
-`quest/engine.lua` is near Lua's hard limit of 200 locals per chunk (2.209.0 crossed it and the engine stopped compiling). Add new file-level state as fields of an existing table (`TK`, `IS`), not new `local`s. A release must stop when `make_local.py` reports anything but `0 failed`.
+`quest/engine.lua` is near Lua's hard limit of 200 locals per chunk (2.209.0 crossed it and the engine stopped compiling). Add new file-level state as fields of an existing table (`TK`, `IS`), not new `local`s. A release must stop when `make_local.py` reports anything but `0 failed`. The client's Lua is 5.1-shaped: at most **60 upvalues per function** (Lua 5.4 allows 255). `quest/engine.lua` tick_inner sits at exactly 60 - 2.215.0 added one and nothing loaded in game (2.218.0). Do not reference a new outer local from tick_inner; put the work in a function it already calls. `make_local.py` compiles every file with Lua 5.4, Lua 5.1 and LuaJIT 2.1. A `[CURL] ... result: 7` line at load is the loader's local boot-log POST (127.0.0.1:47110), not a download failure.
 
 ## Testing
 

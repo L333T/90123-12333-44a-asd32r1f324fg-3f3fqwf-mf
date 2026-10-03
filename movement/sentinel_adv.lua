@@ -3,7 +3,7 @@
 -- movement/sentinel_adv.lua - Sentinel ADVANCED (lower-level) services
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.221.0
+-- Version: 2.222.0
 -- ============================================================================
 -- IF PATHING BREAKS, START HERE.
 --

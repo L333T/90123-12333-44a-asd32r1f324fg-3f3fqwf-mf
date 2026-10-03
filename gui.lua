@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.221.0
+-- Version: 2.222.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -521,7 +521,7 @@ end
 
 local TIP_MELEE = "How close this class walks before it starts swinging."
 local TIP_RANGED = "How close this class walks before it starts casting. Never farther than the longest ticked damage spell."
-local TIP_SHOOT = "The Hunter closes to this distance, then uses the ranged weapon. Default 25. Melee spells start only once a mob has closed inside the dead zone."
+local TIP_SHOOT = "The Hunter closes to this distance, then uses the ranged weapon (13-40 yd, never past the weapon's real reach). Default 25. A mob at 11 yd or closer is fought in melee at 3 yd."
 local TIP_HEAL = "Ticked healing spells are cast on yourself below this health."
 local TIP_DEF = "Ticked defensive spells are used below this health."
 local TIP_AOE = "Ticked area spells are used when at least this many enemies are in reach."
@@ -547,8 +547,8 @@ add_class_slider(class_ids.ROGUE, "sp_def", 10, 70, 35, "Defensives below %", TI
 add_class_slider(class_ids.ROGUE, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)
 
 -- Hunter: shooting distance, then melee only after the mob closes. No wand.
-add_class_slider(class_ids.HUNTER, "ranged_yards", 10, 35, 25, "Shooting distance (yd)", TIP_SHOOT)
-add_class_slider(class_ids.HUNTER, "melee_yards", 1, 5, 5, "Melee distance (yd)", TIP_MELEE)
+add_class_slider(class_ids.HUNTER, "ranged_yards", 13, 40, 25, "Shooting distance (yd)", TIP_SHOOT)
+add_class_slider(class_ids.HUNTER, "melee_yards", 1, 3, 3, "Melee distance (yd)", TIP_MELEE)
 add_class_slider(class_ids.HUNTER, "pet_heal_pct", 20, 90, 50, "Mend Pet below %", TIP_PET)
 add_class_slider(class_ids.HUNTER, "sp_def", 10, 70, 35, "Defensives below %", TIP_DEF)
 add_class_slider(class_ids.HUNTER, "sp_aoe", 2, 6, 3, "Area of effect at enemies", TIP_AOE)

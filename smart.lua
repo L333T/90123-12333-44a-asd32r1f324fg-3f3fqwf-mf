@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.221.0
+-- Version: 2.222.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -753,12 +753,13 @@ local function in_reach(e, unit)
     local def = e.def
     if type(def.min) == "number" and def.min > 0 then
         -- The spell's own minimum range when the spellbook reports one
-        -- (2.120.0): the Hunter's dead zone is the game's, not a guess.
+        -- (2.120.0), but never inside the catalog's: the Hunter's 11-yard
+        -- melee band (2.222.0) is wider than the game's 8-yard dead zone.
         local mn = def.min
         local sp0 = spell_of(e)
         local real = sp0 and tonumber(safe(function() return sp0.minimum_range end)) or nil
-        if real and real > 0 and real < 20 then mn = real end
-        if c.dist() < mn then
+        if real and real > mn and real < 20 then mn = real end
+        if c.dist() <= mn then
             return false
         end
     end
@@ -979,9 +980,26 @@ end
 
 local pet_fail_until = 0
 
+-- HUNTER PET (2.222.0): Call Pet 883 / Revive Pet 982, hard-coded, so a
+-- dismissed pet is called and a dead one revived whether or not the spell
+-- scan found them (pets.hunter_pet). The Spells-tab "Call Pet" tick still
+-- switches pet handling off.
+local HUNTER_PET = {
+    call = { name = "Call Pet", role = "pet", id = 883, ids = { 883 }, self = true,
+        key = "Call Pet|hunter", def = {} },
+    revive = { name = "Revive Pet", role = "pet", id = 982, ids = { 982 }, self = true,
+        key = "Revive Pet|hunter", def = {} },
+    cast = function(x) return cast(x, P) == true end,
+}
+
 local function pet_upkeep()
     local pets = mod("pets")
     if not pets then return false end
+    if built.class == enums.class_id.HUNTER and type(pets.hunter_pet) == "function"
+        and smart.is_enabled("Call Pet", true) then
+        local r = pets.hunter_pet(P, HUNTER_PET)
+        if r ~= nil then return r == true end
+    end
     local summon = nil
     local members = built.by_role.pet
     if members then

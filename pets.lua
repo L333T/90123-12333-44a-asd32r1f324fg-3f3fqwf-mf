@@ -3,7 +3,7 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.221.0
+-- Version: 2.222.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /
@@ -338,6 +338,99 @@ function pets.maintain(player, spec)
     end
 
     return false
+end
+
+-- ----------------------------------------------------------------------------
+-- HUNTER: CALL PET / REVIVE PET (2.222.0)
+-- ----------------------------------------------------------------------------
+-- Hard-coded ids: Call Pet 883, Revive Pet 982. A dismissed pet and a dead
+-- one can look the same from here - player:get_pet() answers nil for both
+-- once the corpse is gone - and Call Pet on a dead pet fails ("Your pet is
+-- dead"), which used to set the 15 s fail gap and never revived it. So:
+--   * a pet object that is dead           -> Revive Pet
+--   * no pet, and it was last seen dying  -> Revive Pet first
+--   * no pet otherwise (dismissed)        -> Call Pet first
+-- When the first spell has not brought a pet up within its wait, the other
+-- one is cast. Both tried and still no pet (none tamed, stabled) -> wait
+-- NO_PET_HOLD s before trying again.
+pets.CALL_PET_ID = 883
+pets.REVIVE_PET_ID = 982
+
+local CALL_WAIT = 3.0        -- Call Pet is instant: a pet within this, or it failed
+local REVIVE_WAIT = 13.0     -- Revive Pet casts 10 s
+local NO_PET_HOLD = 60.0
+local DYING_PCT = 25         -- a pet last seen this low that vanishes is taken as dead
+
+local hp = { order = nil, step = 0, t = 0, hold = 0, last_pct = nil, last_t = -1e9, died = false }
+
+local function hunter_knows(id)
+    if safe(function() return core.spell_book.is_spell_learned(id) end) == true then return true end
+    return safe(function() return core.spell_book.has_spell(id) end) == true
+end
+
+--- Hunter pet presence. `spec`:
+---   call, revive  spell entries for the caller's cast (ids 883 / 982)
+---   cast          fun(entry):boolean
+--- Returns true when it cast or is waiting on its own cast (hold the
+--- cascade), false when there is nothing to do or it cannot act, and nil when
+--- the pet is up and alive (the caller goes on to the heal).
+function pets.hunter_pet(player, spec)
+    if not player or type(spec) ~= "table" or type(spec.cast) ~= "function" then return false end
+    local now = izi.now()
+    local pet = pets.get(player)
+    if pet and pets.alive(player) then
+        hp.order, hp.step, hp.died, hp.hold = nil, 0, false, 0
+        hp.last_pct, hp.last_t = pets.health_pct(player), now
+        return nil
+    end
+    if pet then hp.died = true end                      -- a dead pet object
+    if not pet and hp.order == nil and hp.last_pct and (now - hp.last_t) < 30
+        and hp.last_pct <= DYING_PCT then
+        hp.died = true                                  -- vanished while dying
+    end
+    if now < hp.hold then return false end
+    if safe(function() return player:is_channeling_or_casting() end) == true then
+        return hp.order ~= nil                           -- Revive Pet still casting
+    end
+    local knows_call = hunter_knows(pets.CALL_PET_ID)
+    local knows_revive = hunter_knows(pets.REVIVE_PET_ID)
+    if not knows_call and not knows_revive then return false end
+
+    if hp.order == nil then
+        if hp.died or pet then
+            hp.order = { "revive", "call" }
+        else
+            hp.order = { "call", "revive" }
+        end
+        hp.step, hp.t = 0, -1e9
+    end
+    -- The current step gets its wait before the next one is tried.
+    if hp.step > 0 then
+        local wait = (hp.order[hp.step] == "revive") and REVIVE_WAIT or CALL_WAIT
+        if (now - hp.t) < wait then return true end
+    end
+    -- Skip what cannot work: an unknown spell, or Call Pet with a dead pet object.
+    local nxt = hp.step + 1
+    while hp.order[nxt] do
+        local k = hp.order[nxt]
+        if (k == "call" and knows_call and not pet) or (k == "revive" and knows_revive) then break end
+        nxt = nxt + 1
+    end
+    local which = hp.order[nxt]
+    if not which then
+        hp.order, hp.step, hp.hold = nil, 0, now + NO_PET_HOLD
+        state.set_note("Pet", "No pet answered Call Pet / Revive Pet")
+        return false
+    end
+    hp.step, hp.t = nxt, now
+    state.set_note("Pet", which == "revive" and "Reviving pet" or "Calling pet")
+    if not spec.cast(which == "revive" and spec.revive or spec.call) then
+        -- Refused here (not usable: Call Pet with the pet dead, say): the
+        -- next spell after 1 s rather than the full wait.
+        local wait = (which == "revive") and REVIVE_WAIT or CALL_WAIT
+        hp.t = now - wait + 1.0
+    end
+    return true
 end
 
 return pets

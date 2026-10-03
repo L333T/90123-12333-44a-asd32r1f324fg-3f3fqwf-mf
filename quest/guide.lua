@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.214.0
+-- Version: 2.216.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1222,9 +1222,12 @@ function guide.rxp_item_for(text)
 end
 
 --- Friendly NPC names on the guide steps that accept / turn in this quest.
-function guide.rxp_quest_givers(quest_id)
+--- 2.215.0: by role - who gives it (accept) or who takes it (turn-in, M.takers).
+--- Never the other role's list: the taker of a quest is not its giver.
+function guide.rxp_quest_givers(quest_id, kind)
     local d = rxp_data()
-    local list = d and d.givers and d.givers[tonumber(quest_id) or -1]
+    local by_role = d and ((kind == "turnin") and d.takers or d.givers)
+    local list = by_role and by_role[tonumber(quest_id) or -1]
     return type(list) == "table" and list or {}
 end
 

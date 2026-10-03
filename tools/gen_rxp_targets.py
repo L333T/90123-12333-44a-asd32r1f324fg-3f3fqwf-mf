@@ -106,9 +106,29 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
                 step["vendor"] or step["trainer"] or step["gossip"] or step["skip"] is not None):
             steps_out.append({"p": step["anchors"][:4], "w": step["wanchors"][:4], "v": step["vendor"],
                               "t": step["trainer"], "g": sorted(step["gossip"]), "s": step["skip"]})
-        if givers is not None and step["dialog"] and step["friendly"]:
-            for q in step["dialog"]:
-                givers.setdefault(q, set()).update(step["friendly"])
+        # 2.215.0: each .accept / .turnin goes to ITS .target line, by role -
+        # givers for accept, takers for turnin. A step that talks to two NPCs
+        # no longer lists both for every quest in it (Grelin Whitebeard was a
+        # "giver" of Scalding Mornbrew Delivery that way). Guides use two
+        # layouts: quest lines, .goto, .target (target AFTER its quests) and
+        # .goto, .target, quest lines (target BEFORE). A .target ahead of the
+        # step's first quest line means the second; each quest then takes the
+        # nearest target on that side, and the other side only when there is
+        # none. No .target at all: the step text's friendly names.
+        if givers is not None:
+            ev = step["events"]
+            first_d = next((i for i, e in enumerate(ev) if e[0] == "d"), None)
+            first_t = next((i for i, e in enumerate(ev) if e[0] == "t"), None)
+            before = first_t is not None and first_d is not None and first_t < first_d
+            for i, e in enumerate(ev):
+                if e[0] != "d":
+                    continue
+                prev = next((ev[j][1] for j in range(i - 1, -1, -1) if ev[j][0] == "t"), None)
+                nxt = next((ev[j][1] for j in range(i + 1, len(ev)) if ev[j][0] == "t"), None)
+                names = (prev or nxt) if before else (nxt or prev)
+                names = names or step["text_friendly"]
+                if names:
+                    givers.setdefault(e[2], {}).setdefault(e[1], set()).update(names)
         if not step["quests"] or not (step["names"] or step["ids"]):
             return
         for q, obj in step["quests"]:
@@ -124,7 +144,8 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
             if step:
                 flush(step)
             step = {"quests": [], "names": set(), "ids": set(), "anchors": [], "wanchors": [], "vendor": None,
-                    "trainer": None, "gossip": set(), "skip": None, "dialog": set(), "friendly": set()}
+                    "trainer": None, "gossip": set(), "skip": None, "dialog": set(), "friendly": set(),
+                    "events": [], "text_friendly": set()}
             continue
         if step is None:
             continue
@@ -174,11 +195,16 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
                 step["skip"] = nums                    # [] = pick the first option
             elif tag in ("accept", "turnin") and parts and parts[0].isdigit():
                 step["dialog"].add(int(parts[0]))
+                step["events"].append(("d", int(parts[0]), tag))
             if tag == "target":
+                tnames = set()
                 for p_ in parts:
-                    p_ = p_.lstrip("+*").strip()
+                    p_ = re.sub(r"::\d+$", "", p_.lstrip("+*").strip())   # "Name::npcid"
                     if len(p_) >= 3 and not p_.isdigit():
                         step["friendly"].add(p_)
+                        tnames.add(p_)
+                if tnames:
+                    step["events"].append(("t", tnames))
             if tag in TARGET_TAGS:
                 for p in parts:
                     p = p.lstrip("+*").strip()          # + parent, * low priority (Targeting.lua)
@@ -190,6 +216,7 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
             name = name.strip()
             if len(name) >= 3:
                 step["friendly"].add(name)
+                step["text_friendly"].add(name)
         for name in ENEMY_RE.findall(raw):
             name = name.strip()
             if len(name) >= 3:
@@ -262,12 +289,17 @@ def main():
         ids = sorted(ids_by_quest[q])
         if ids:
             lines.append(f"    [{q}] = {{ {', '.join(str(x) for x in ids)} }},")
-    lines += ["}", "", "-- quest id -> { friendly NPC names } on the steps that accept / turn it in",
-              "M.givers = {"]
-    for q in sorted(givers):
-        names = dedupe(givers[q])
-        if names:
-            lines.append(f"    [{q}] = {{ {', '.join(lua_str(x) for x in names)} }},")
+    for role, label, title in (("accept", "M.givers", "gives (accept)"),
+                               ("turnin", "M.takers", "takes (turn-in)")):
+        table = givers.get(role, {})
+        lines += ["}" if role == "accept" else "}", "",
+                  f"-- quest id -> {{ friendly NPC names }} the guide's .target pairs with the quest:",
+                  f"-- who {title} it (2.215.0, by role)",
+                  f"{label} = {{"]
+        for q in sorted(table):
+            names = dedupe(table[q])
+            if names:
+                lines.append(f"    [{q}] = {{ {', '.join(lua_str(x) for x in names)} }},")
     lines += ["}", "",
               "-- NPC steps: p = { map, x, y, ... } anchors (UiMapID, 0-1), w = { x, y, ... } world",
               "-- anchors (\".goto zone/0,y,x\" lines), v / t = vendor /",
@@ -300,7 +332,7 @@ def main():
     with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines))
     print(f"{n} guide files -> {OUT}: {len(by_quest)} quests, {len(by_obj)} objectives, "
-          f"{len(givers)} giver quests, {len(steps)} NPC steps, {len(MAP_IDS)} zone names, "
+          f"{len(givers.get('accept', {}))} giver / {len(givers.get('turnin', {}))} taker quests, {len(steps)} NPC steps, {len(MAP_IDS)} zone names, "
           f"{os.path.getsize(OUT):,} bytes")
 
 

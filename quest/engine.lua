@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.225.0
+-- Version: 2.226.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -414,9 +414,11 @@ local function fight_back(player, label)
     local in_combat = safe(function() return player:is_in_combat() end) == true
     local attacked = type(targeting.attackers) == "function" and targeting.attackers(player) > 0
     local attacker = targeting.attacker_to_switch(player, cur_guid, range)
-    if not attacker and attacked and not in_combat then
+    if not attacker and attacked and not in_combat
+        and not (state.target.kind == "kill" and type(targeting.engaged) == "function"
+            and targeting.engaged(state.target.unit)) then
         -- attacker_to_switch reads the combat flag; the attack itself is the
-        -- evidence here.
+        -- evidence here. Never while the current kill is being fought (2.226.0).
         attacker = targeting.nearest(player, targeting.threats(player, range))
         if attacker and cur_guid ~= nil
             and safe(function() return attacker:get_guid() end) == cur_guid then

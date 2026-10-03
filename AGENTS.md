@@ -57,6 +57,8 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 
 ## Architecture in one page
 
+- **Targets** (2.226.0): a target being fought (`targeting.engaged`: alive, in combat or wounded) is kept until it dies -
+  `combat.acquire`, `targeting.attacker_to_switch` and the quest fight-back never swap it for an add or a closer mob.
 - **Cascade** (`main.lua`): death → flight check → enemy scan → loot → conjure →
   healing/rest → buffs → trainer → vendor → equip → mode (grind / quest / path).
 - **Rotation**: the Spells tab ticks (`picks.lua`) + `data/class_spells.lua` (per-class

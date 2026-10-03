@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.225.0
+-- Version: 2.226.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -570,6 +570,18 @@ end
 local SWITCH_GAP = 1.5
 local last_switch_t = -1e9
 
+--- ONE TARGET UNTIL IT DIES (2.226.0). Is `unit` a target being fought -
+--- alive, and in combat or already wounded? The combat flag alone drops for
+--- a moment (a fleeing, evading or crowd-controlled mob), and a wounded mob
+--- has been hit by us. Such a target is never swapped for a new attacker.
+function targeting.engaged(unit)
+    if not indexable(unit) or call(unit.is_valid, unit) ~= true then return false end
+    if call(unit.is_dead_or_ghost, unit) == true then return false end
+    if call(unit.is_in_combat, unit) == true then return true end
+    local hp, mx = call(unit.get_health, unit), call(unit.get_max_health, unit)
+    return type(hp) == "number" and type(mx) == "number" and mx > 0 and hp < mx
+end
+
 function targeting.attacker_to_switch(player, current_guid, range)
     if not player or call(player.is_in_combat, player) ~= true then
         return nil
@@ -587,8 +599,8 @@ function targeting.attacker_to_switch(player, current_guid, range)
         end
         local cur = state.target and state.target.unit
         if indexable(cur) and call(cur.is_valid, cur) == true and call(cur.get_guid, cur) == current_guid
-            and call(cur.is_dead_or_ghost, cur) ~= true and call(cur.is_in_combat, cur) == true then
-            return nil              -- still fighting (the pet, say): stay on it
+            and targeting.engaged(cur) then
+            return nil              -- still being fought: stay on it until it dies (2.226.0)
         end
     end
     local now = izi.now()

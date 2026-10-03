@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.203.0
+-- Version: 2.204.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -86,6 +86,10 @@ local g_loot_wait = false
 local g_label = "fighting"
 -- Talk goals: when the NPC's frame first showed open. 0 while it is not.
 local g_talk_opened = 0
+-- 2.204.0: a ".vendor" step's gossip -> vendor option tries on the current NPC.
+local g_vend = { guid = nil, tries = 0, next_t = 0 }
+local VEND_TRIES = 3
+local NPC_VENDOR = 0x80
 local g_in_dialog = false      -- the last tick was spent on an NPC dialog goal
 local g_in_travel = false      -- the last tick was spent walking to a waypoint
 local TALK_DONE = 2.0         -- seconds a frame is left open before the goal counts
@@ -1121,6 +1125,12 @@ end
 -- guard picked as "nearest at the waypoint" is not retried until the
 -- watchdog steps in.
 local g_bad_givers = {}
+
+local function npc_id_of_unit(u)
+    local id = u and safe(function() return u:get_npc_id() end) or nil
+    if type(id) == "number" and id > 0 then return id end
+    return nil
+end
 local g_giver_learned = nil   -- 2.185.0: { kind, qid, npc, text } when the giver came from a learned id
 
 local function bad(unit)
@@ -1744,6 +1754,42 @@ local function dialog_goal(player, goal, kind, wps, label)
     local ok_v, vendor = pcall(require, "vendor")
     local merchant = ok_v and type(vendor) == "table" and type(vendor.merchant_open) == "function"
         and vendor.merchant_open() == true
+
+    -- VENDOR STEPS NEED THE MERCHANT WINDOW (2.204.0). RestedXP ticks a
+    -- ".vendor" step off on MERCHANT_SHOW. The bot talked to the nearest NPC
+    -- at the waypoint (npc 1694, a quest giver), counted the open GOSSIP as
+    -- done, and the step retried every 30 s for two hours (17:46-19:53 log).
+    -- Now: an NPC the game does not flag as a vendor (0x80) is skipped; a
+    -- gossip gets its vendor option selected; an NPC that will not open a
+    -- merchant after VEND_TRIES tries is ruled out and the next one is tried.
+    if string.lower(goal.action or "") == "vendor" and not merchant then
+        local g = safe(function() return unit:get_guid() end)
+        if g ~= g_vend.guid then g_vend = { guid = g, tries = 0, next_t = 0 } end
+        local flags = safe(function() return unit:get_npc_flags() end)
+        local not_vendor = type(flags) == "number" and flags > 0 and math.floor(flags / NPC_VENDOR) % 2 == 0
+        if not_vendor or g_vend.tries >= VEND_TRIES then
+            if g then g_bad_givers[g] = true end
+            trail("act", "vendor step: npc %s %s - trying another NPC", tostring(npc_id_of_unit(unit)),
+                not_vendor and "is not a vendor" or "opened no merchant window")
+            pcall(function() core.quests.close_gossip() end)
+            g_talk_opened = 0
+            g_vend = { guid = nil, tries = 0, next_t = 0 }
+            return true
+        end
+        if gossip_open then
+            if now >= g_vend.next_t then
+                g_vend.next_t = now + 1.5
+                g_vend.tries = g_vend.tries + 1
+                local picked = gossip.select({ icon = "VENDOR", icon_num = 1, type = "vendor",
+                    words = { "browse your goods", "let me browse", "your wares", "buy from you", "buy something" } })
+                trail("act", "vendor step: gossip - %s (try %d)", picked and "vendor option selected"
+                    or "no vendor option", g_vend.tries)
+                if not picked then g_vend.tries = VEND_TRIES end
+            end
+            state.set_note("Quest", "Guide: opening the merchant - " .. label)
+            return true
+        end
+    end
     local trainer_n = safe(function() return core.quests.get_num_trainer_services() end)
     local trainer = type(trainer_n) == "number" and trainer_n > 0
     -- A flight master's map counts as its frame (2.95.0): talking to it is

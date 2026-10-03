@@ -3,7 +3,7 @@
 -- Game version: TBC Classic or WoW Forever
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.203.0
+-- Version: 2.204.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.get_game_version() answers "Tbc" on TBC Classic (and the TBC 2.5.3
@@ -80,11 +80,38 @@ end
 -- core.get_map_id() when it is one of those ids (it is only documented as
 -- "the current map"), else the continent of the nearest flight point that
 -- exists on this game version (data/taxi_nodes).
+-- UiMapID -> continent (2.204.0). core.get_map_id() answers the zone's UiMapID
+-- (1426 Dun Morogh - the ids RestedXP's waypoints use; RXPGuides DB/*/db.lua
+-- addon.mapId). The nearest-flight-point fallback compared raw x / y, and
+-- Eastern Kingdoms and Kalimdor coordinates overlap: Dun Morogh came out as
+-- Kalimdor ("nearest Marshal's Refuge, Un'Goro Crater"), so every flight plan
+-- there searched the wrong continent.
+local UIMAP_CONTINENT = {}
+do
+    local EK = { 1415, 1416, 1417, 1418, 1419, 1420, 1421, 1422, 1423, 1424, 1425, 1426, 1427, 1428,
+        1429, 1430, 1431, 1432, 1433, 1434, 1435, 1436, 1437, 1453, 1455, 1458, 1941, 1942, 1954, 1957 }
+    local KAL = { 1411, 1412, 1413, 1414, 1438, 1439, 1440, 1441, 1442, 1443, 1444, 1445, 1446, 1447,
+        1448, 1449, 1450, 1451, 1452, 1454, 1456, 1457, 1943, 1947, 1950 }
+    local OUT = { 1944, 1945, 1946, 1948, 1949, 1951, 1952, 1953, 1955 }
+    for i = 1, #EK do UIMAP_CONTINENT[EK[i]] = 0 end
+    for i = 1, #KAL do UIMAP_CONTINENT[KAL[i]] = 1 end
+    for i = 1, #OUT do UIMAP_CONTINENT[OUT[i]] = 530 end
+end
+
+--- The continent of a UiMapID, or nil when it is not a known zone.
+function gamever.continent_of_uimap(map_id)
+    return UIMAP_CONTINENT[tonumber(map_id) or -1]
+end
+
 function gamever.continent_of(pos)
     local raw = nil
     pcall(function() raw = core.get_map_id() end)
     if raw == 0 or raw == 1 or raw == 530 then
         return raw, raw
+    end
+    local by_map = UIMAP_CONTINENT[tonumber(raw) or -1]
+    if by_map then
+        return by_map, raw
     end
     if type(pos) ~= "table" or type(pos.x) ~= "number" or type(pos.y) ~= "number" then
         return nil, raw

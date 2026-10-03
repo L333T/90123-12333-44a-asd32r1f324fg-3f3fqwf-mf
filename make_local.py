@@ -72,12 +72,21 @@ def syntax_check(paths):
         raise SystemExit("luaparser is not installed: pip install luaparser")
     # A real Lua compiler as well, when lupa is installed (2.65.0): luaparser
     # accepted a newline inside a quoted string, which the game rejects.
-    try:
-        import lupa
-        lua_rt = lupa.LuaRuntime()
-        compile_fn = lua_rt.eval("function(src, name) local f, err = load(src, '@' .. name) return err end")
-    except Exception:
-        compile_fn = None
+    # THE CLIENT'S LUA IS 5.1-SHAPED (2.218.0): 2.215.0 gave quest/engine.lua's
+    # tick_inner a 61st upvalue - fine in Lua 5.4 (limit 255), "function at line
+    # 2888 has more than 60 upvalues" in Lua 5.1 and LuaJIT - and nothing loaded
+    # in game. Every file is now compiled by Lua 5.1 and LuaJIT 2.1 too.
+    compilers = []
+    for mod_name, label in (("lupa", "lua"), ("lupa.lua51", "lua5.1"), ("lupa.luajit21", "luajit2.1")):
+        try:
+            mod = __import__(mod_name, fromlist=["LuaRuntime"])
+            rt = mod.LuaRuntime()
+            compilers.append((label, rt.eval(
+                "function(src, name) local f, err = (loadstring or load)(src, '@' .. name) return err end")))
+        except Exception:
+            if label != "lua":
+                print("  NOTE    %s compiler unavailable (pip install -U lupa) - not checked" % label)
+    compile_fn = compilers[0][1] if compilers else None
     bad = 0
     lua = [p for p in paths if p.endswith(".lua")]
     for rel in lua:
@@ -89,11 +98,12 @@ def syntax_check(paths):
             bad += 1
             print("  SYNTAX  %s: %s" % (rel, str(exc).splitlines()[0][:200]))
             continue
-        if compile_fn is not None:
-            err = compile_fn(src, rel)
+        for label, fn in compilers:
+            err = fn(src, rel)
             if err:
                 bad += 1
-                print("  COMPILE %s: %s" % (rel, str(err)[:200]))
+                print("  COMPILE [%s] %s: %s" % (label, rel, str(err)[:200]))
+                break
     print("syntax: %d .lua file(s), %d failed" % (len(lua), bad))
     return bad == 0
 

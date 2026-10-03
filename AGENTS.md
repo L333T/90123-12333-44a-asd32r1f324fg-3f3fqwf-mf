@@ -104,7 +104,7 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 
 ## Lua limits
 
-`quest/engine.lua` is near Lua's hard limit of 200 locals per chunk (2.209.0 crossed it and the engine stopped compiling). Add new file-level state as fields of an existing table (`TK`, `IS`), not new `local`s. A release must stop when `make_local.py` reports anything but `0 failed`.
+`quest/engine.lua` is near Lua's hard limit of 200 locals per chunk (2.209.0 crossed it and the engine stopped compiling). Add new file-level state as fields of an existing table (`TK`, `IS`), not new `local`s. A release must stop when `make_local.py` reports anything but `0 failed`. The client's Lua is 5.1-shaped: at most **60 upvalues per function** (Lua 5.4 allows 255). `quest/engine.lua` tick_inner sits at exactly 60 - 2.215.0 added one and nothing loaded in game (2.218.0). Do not reference a new outer local from tick_inner; put the work in a function it already calls. `make_local.py` compiles every file with Lua 5.4, Lua 5.1 and LuaJIT 2.1. A `[CURL] ... result: 7` line at load is the loader's local boot-log POST (127.0.0.1:47110), not a download failure.
 
 ## Testing
 

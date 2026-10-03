@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.217.0
+-- Version: 2.218.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1366,6 +1366,11 @@ end
 --- A goal changed: if the previous one was a dialog the bot drove and it
 --- landed, record the NPC as that quest's giver or taker.
 local function commit_pending()
+    -- The goal's identified-NPC state goes with the goal (2.215.0). Reset here,
+    -- not in tick_inner's goal-change block that calls this (2.218.0): one more
+    -- upvalue there (TK) made tick_inner 61 upvalues, past the client Lua's
+    -- limit of 60, and quest/engine.lua stopped compiling in game.
+    TK.gid.tried, TK.gid.refused = nil, nil
     local p = g_pending
     g_pending = nil
     if not p or not p.npc_id or not p.quest_id then
@@ -3005,7 +3010,6 @@ tick_inner = function(player)
         g_talk_opened = 0
         g_bad_givers = {}
         g_bad_since = 0
-        TK.gid.tried, TK.gid.refused = nil, nil
         g_obj.guid, g_obj.uses = nil, 0
         g_fly_taken, g_fly_warned, g_fly_noopt = 0, false, 0
         g_giver_walk = nil

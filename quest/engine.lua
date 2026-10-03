@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.205.0
+-- Version: 2.206.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -90,6 +90,9 @@ local g_talk_opened = 0
 local g_vend = { guid = nil, tries = 0, next_t = 0 }
 local VEND_TRIES = 3
 local NPC_VENDOR = 0x80
+-- 2.206.0: the guide file's gossip choice, made once per opened frame.
+local g_gsel = { key = nil }
+local GOSSIP_BACKUP_AFTER = 1.0     -- RestedXP's own gossip automation acts on GOSSIP_SHOW first
 local g_in_dialog = false      -- the last tick was spent on an NPC dialog goal
 local g_in_travel = false      -- the last tick was spent walking to a waypoint
 local TALK_DONE = 2.0         -- seconds a frame is left open before the goal counts
@@ -1074,10 +1077,13 @@ local function train_goal(player, goal, wps, label)
         for i = 1, #wps do
             if type(wps[i].title) == "string" and wps[i].title ~= "" then title = wps[i].title break end
         end
+        -- 2.206.0: the guide file's ".trainer <npc>" id, when it names one.
+        local st = type(guide.rxp_step_for) == "function" and guide.rxp_step_for(wps) or nil
+        local tid = st and st.t or nil
         tr.quest_visit(false)
-        tr.quest_visit(true, title)
-        trail("quest", "trainer step: visiting the class trainer for %s%s", tostring(label),
-            title and (" (" .. title .. ")") or "")
+        tr.quest_visit(true, title, tid)
+        trail("quest", "trainer step: visiting the class trainer for %s%s%s", tostring(label),
+            title and (" (" .. title .. ")") or "", tid and (" npc " .. tostring(tid)) or "")
     end
     if tr.quest_visit_done() then
         trail("quest", "trainer step done - %s", tostring(label))
@@ -1139,6 +1145,20 @@ local function bad(unit)
 end
 
 local function find_giver(player, goal, kind, wps)
+    -- THE GUIDE FILE'S NPC (2.206.0): a ".vendor <npc>" / ".trainer <npc>"
+    -- step names its NPC by id (data/rxp_targets M.steps, matched by the
+    -- step's waypoint). Ids work where names do not (blank on WoW Forever).
+    local a = string.lower(goal.action or "")
+    if (a == "vendor" or a == "trainer") and type(guide.rxp_step_for) == "function" then
+        local st = guide.rxp_step_for(wps)
+        local id = st and ((a == "vendor" and st.v) or (a == "trainer" and st.t)) or nil
+        if id then
+            local unit = targeting.find_npc(player, id, 80)
+            if unit and not bad(unit) then
+                return unit, "guide npc id " .. tostring(id)
+            end
+        end
+    end
     local known = guide.known_quest_npc(kind, goal.quest_id, goal.text)
     if known then
         local unit = targeting.find_npc(player, known, 80)
@@ -1166,6 +1186,18 @@ local function find_giver(player, goal, kind, wps)
             local unit = targeting.find_named(player, title, nil, 80)
             if unit and not bad(unit) then
                 return unit, "waypoint title '" .. title .. "'"
+            end
+        end
+    end
+    -- The friendly NPCs the guide files name on this quest's accept / turn-in
+    -- steps (2.206.0, data/rxp_targets M.givers). The dialog still checks the
+    -- quest is offered; a wrong one is ruled out like any other.
+    if (kind == "accept" or kind == "turnin") and type(guide.rxp_quest_givers) == "function" then
+        local names = guide.rxp_quest_givers(goal.quest_id)
+        for i = 1, #names do
+            local unit = targeting.find_named(player, names[i], nil, 80)
+            if unit and not bad(unit) then
+                return unit, "guide giver '" .. names[i] .. "'"
             end
         end
     end
@@ -1788,6 +1820,53 @@ local function dialog_goal(player, goal, kind, wps, label)
             end
             state.set_note("Quest", "Guide: opening the merchant - " .. label)
             return true
+        end
+    end
+    -- GUIDE GOSSIP CHOICE (2.206.0). RestedXP picks a step's gossip option
+    -- itself (.gossipoption / .skipgossipid by gossip option id, .skipgossip
+    -- by npc id + option number) when its gossip automation is on. When the
+    -- frame is still open GOSSIP_BACKUP_AFTER later, the bot makes the same
+    -- choice from the guide files (data/rxp_targets M.steps), once per frame.
+    if gossip_open and kind == "talk" and type(guide.rxp_step_for) == "function" then
+        if g_talk_opened == 0 then g_talk_opened = now end
+        local st = guide.rxp_step_for(wps)
+        local key = tostring(safe(function() return unit:get_guid() end)) .. ":" .. tostring(g_talk_opened)
+        if st and (st.g or st.s) and g_gsel.key ~= key and (now - g_talk_opened) >= GOSSIP_BACKUP_AFTER then
+            g_gsel.key = key
+            local rows = safe(function() return core.quests.get_gossip_options() end)
+            local picked = nil
+            if type(rows) == "table" and st.g then
+                for i = 1, #rows do
+                    local id = type(rows[i]) == "table" and rows[i].gossip_option_id or nil
+                    for k = 1, #st.g do
+                        if id == st.g[k] then picked = id break end
+                    end
+                    if picked then break end
+                end
+            end
+            if not picked and type(rows) == "table" and st.s then
+                local quests_n = #(safe(function() return core.quests.get_gossip_available_quests() end) or {})
+                    + #(safe(function() return core.quests.get_gossip_active_quests() end) or {})
+                local want = nil
+                if #st.s == 0 then
+                    want = 1
+                elseif st.s[1] == npc_id_of_unit(unit) then
+                    want = st.s[2] or 1
+                elseif #st.s == 1 and st.s[1] <= 9 then
+                    want = st.s[1]
+                end
+                local row = want and rows[want] or nil
+                if quests_n == 0 and type(row) == "table" then
+                    picked = (type(row.gossip_option_id) == "number" and row.gossip_option_id ~= 0)
+                        and row.gossip_option_id or want
+                end
+            end
+            if picked then
+                trail("act", "guide gossip choice: option %s", tostring(picked))
+                pcall(function() core.quests.select_gossip_option(picked) end)
+                g_talk_opened = now
+                return true
+            end
         end
     end
     local trainer_n = safe(function() return core.quests.get_num_trainer_services() end)

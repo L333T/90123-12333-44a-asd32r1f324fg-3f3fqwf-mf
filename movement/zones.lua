@@ -3,7 +3,7 @@
 -- movement/zones.lua - blacklist zones
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.218.0
+-- Version: 2.219.0
 -- ============================================================================
 -- Areas movement refuses to path into, pruned in place on a TTL. Nothing here
 -- issues a command, so every other module may require it freely.
@@ -151,6 +151,25 @@ function Z.dangerous_xy(x, y)
         if dx * dx + dy * dy <= d.r * d.r then return true end
     end
     return false
+end
+
+-- ADVANCED-API HOOKS (2.219.0, movement/sentinel_adv.lua) -------------------
+--- How many zones this plugin has pushed to Sentinel's obstacle list.
+function Z.sentinel_count()
+    return sn_count
+end
+
+--- Push every zone to Sentinel again (its list was lost - a server restart).
+function Z.resync_sentinel()
+    sn_resync(R.zones)
+end
+
+--- Forget every blacklist zone, ours and the mirror (a continent change: the
+--- zones are x / y only and would block the same coordinates elsewhere).
+function Z.clear_all()
+    local zones = R.zones
+    for i = #zones, 1, -1 do zones[i] = nil end
+    sn_resync(zones)
 end
 
 function Z.count()

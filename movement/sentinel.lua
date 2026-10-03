@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.218.0
+-- Version: 2.219.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -1413,5 +1413,23 @@ function N.flee_point(player_pos, threats)
     return escape_point("flee", vec3.new(px, py, pz), list)
 end
 
+
+-- ----------------------------------------------------------------------------
+-- CACHE RESET (2.219.0) - a continent change (movement/sentinel_adv.lua)
+-- ----------------------------------------------------------------------------
+-- Every answer cached here is keyed by x / y only, and WoW coordinates repeat
+-- on every continent: a reach verdict, a planned path or a failed destination
+-- from the last continent would be applied to a different place.
+function N.reset_caches()
+    reach, reach_n, reach_next = {}, 0, 0
+    ray.clear, ray.t, ray.asked = nil, -1e9, -1e9
+    av.pts, av.pending, av.asked = nil, false, -1e9
+    chk.key, chk.ok, chk.pending = nil, nil, false
+    pre.pts, pre.pending, pre.asked = nil, false, -1e9
+    chase.key, chase.pts, chase.pending = nil, nil, false
+    ar = { dest = nil }
+    corr_key = nil
+    R.sn_fail = nil
+end
 
 return N

@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.207.0
+-- Version: 2.208.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -501,6 +501,15 @@ tick_inner = function(player)
         close_at = nil
         local n = safe(function() return core.game_ui.get_loot_item_count() end)
         if type(n) == "number" and n > 0 then
+            -- Items left in the window with the bags full (2.208.0, RestedXP
+            -- InventoryManager): delete the cheapest junk first so they fit.
+            local vend = package.loaded["vendor"]
+            local bg = package.loaded["bags"]
+            local free = type(bg) == "table" and type(bg.free_slots) == "function"
+                and safe(function() return bg.free_slots(player) end) or nil
+            if free == 0 and type(vend) == "table" and type(vend.destroy_cheapest_junk) == "function" then
+                vend.destroy_cheapest_junk(player, "bags full, loot left on the corpse")
+            end
             -- Auto loot left items behind: take each slot (0 based), then
             -- close the window.
             for i = 0, n - 1 do

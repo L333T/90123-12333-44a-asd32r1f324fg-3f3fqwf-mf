@@ -77,7 +77,10 @@ def guide_files(root):
                 yield os.path.join(dirpath, f)
 
 
-def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None):
+ITEM_NAME_RE = re.compile(r"\[([^\]|]+)\]")
+
+
+def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, items=None):
     try:
         text = open(path, encoding="utf-8", errors="ignore").read()
     except OSError:
@@ -115,6 +118,21 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None):
         line = re.sub(r"\s*<<.*$", "", line)          # class / faction tags
         line = re.sub(r"\s*--.*$", "", line)          # comments
         m = re.match(r"^\.(\w+)\s*(.*)$", line)
+        if m and items is not None and m.group(1) in ("destroy", "equip"):
+            # 2.209.0: ".destroy <item>" / ".equip <slot>,<item>" - item name (the
+            # [bracket] in the >> text, which the API's goal text carries) -> id.
+            tag_i, rest = m.group(1), m.group(2)
+            head = re.sub(r"\s*>>.*$", "", rest)
+            nums = [x.strip() for x in head.split(",") if x.strip()]
+            names = ITEM_NAME_RE.findall(rest)
+            if names:
+                rec = None
+                if tag_i == "destroy" and nums and nums[0].isdigit():
+                    rec = {"id": int(nums[0])}
+                elif tag_i == "equip" and len(nums) >= 2 and nums[0].lstrip("-").isdigit() and nums[1].isdigit():
+                    rec = {"id": int(nums[1]), "slot": abs(int(nums[0]))}
+                if rec:
+                    items.setdefault(names[0].strip(), rec)
         if m:
             tag, args = m.group(1), m.group(2)
             args = re.sub(r"\s*>>.*$", "", args)
@@ -188,11 +206,11 @@ def lua_str(s):
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else DEFAULT
     by_quest, by_obj, ids_by_quest = {}, {}, {}
-    steps, givers = [], {}
+    steps, givers, items = [], {}, {}
     load_map_ids(root)
     n = 0
     for f in guide_files(root):
-        parse(f, by_quest, by_obj, ids_by_quest, steps, givers)
+        parse(f, by_quest, by_obj, ids_by_quest, steps, givers, items)
         n += 1
     lines = [
         "-- ============================================================================",
@@ -251,6 +269,11 @@ def main():
         if st["s"] is not None:
             parts.append("s = { " + ", ".join(str(x) for x in st["s"]) + " }")
         lines.append("    { " + ", ".join(parts) + " },")
+    lines += ["}", "", "-- .destroy / .equip item name -> { id = item id, slot = equip slot }", "M.items = {"]
+    for name in sorted(items):
+        rec = items[name]
+        extra = f", slot = {rec['slot']}" if "slot" in rec else ""
+        lines.append(f"    [{lua_str(name)}] = {{ id = {rec['id']}{extra} }},")
     lines += ["}", "", "return M", ""]
     with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines))

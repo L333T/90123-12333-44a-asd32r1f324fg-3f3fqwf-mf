@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.208.0
+-- Version: 2.209.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1181,6 +1181,24 @@ function guide.rxp_step_for(wps)
         end
     end
     return best
+end
+
+--- The item a ".destroy" / ".equip" goal names (2.209.0): { id, slot } from the
+--- [bracketed] item name in the goal text (data/rxp_targets M.items), or nil.
+function guide.rxp_item_for(text)
+    local d = rxp_data()
+    if not d or type(d.items) ~= "table" or type(text) ~= "string" then return nil end
+    for name in text:gmatch("%[([^%]|]+)%]") do
+        local rec = d.items[name]
+        if type(rec) == "table" and type(rec.id) == "number" then return rec end
+    end
+    -- RestedXP's own wording when the line has no >> text:
+    -- "Throw away <icon>Name from your bags".
+    local plain = text:gsub("|T.-|t", ""):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+    local name = plain:match("[Tt]hrow away%s+(.-)%s+from your bags")
+    local rec = name and d.items[name] or nil
+    if type(rec) == "table" and type(rec.id) == "number" then return rec end
+    return nil
 end
 
 --- Friendly NPC names on the guide steps that accept / turn in this quest.

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.216.0
+-- Version: 2.217.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -40,7 +40,9 @@ local plugin_helper = require("common/utility/plugin_helper")
 
 local identity = require("version")
 local ui = require("ui")
-local modes = require("modes")
+-- The two bot modes (were modes.lua, removed in 2.217.0 with the unused Path
+-- mode). gui.mode() returns one of these; main.lua reads them as gui.modes.
+local modes = { GRIND = "grind", QUEST = "quest" }
 local state = require("state")
 local spellbook = require("spellbook")
 local loader = require("loader")
@@ -1084,6 +1086,8 @@ end
 function gui.get_menu()
     return menu
 end
+
+gui.modes = modes
 
 function gui.mode()
     if is_on("use_quest") then

@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.216.0
+-- Version: 2.217.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -927,10 +927,13 @@ function resting_mod.tick(player, opts)
     state.set_note("Rest", string.format("Eating / drinking  HP %.0f  MP %.0f", hp, mana))
 
     if safe(function() return player:is_mounted() end) == true then
-        rest_debug("mounted - dismounting first")
-        pcall(function()
-            core.input.dismount()
-        end)
+        -- One dismount per second (2.217.0), not one per tick.
+        local now = izi.now()
+        if (now - (state.rest_dismount_t or -1e9)) >= 1.0 then
+            state.rest_dismount_t = now
+            rest_debug("mounted - dismounting first")
+            pcall(core.input.dismount)
+        end
         return true
     end
     if is_moving_now(player) then

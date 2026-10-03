@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.216.0
+-- Version: 2.217.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -1606,7 +1606,10 @@ function vendor.tick(player)
         return true
     end
 
-    movement.nav_stop()
+    -- No stop here (2.217.0): with the merchant standing more than 5 yd from
+    -- its recorded spot, this stopped the walk every tick and the walk below
+    -- re-issued it - a stop/start stutter at the counter. The walk stops where
+    -- the merchant is in reach, or where it is missing and the trip waits.
     local now = izi.now()
     local unit = nil
     local ids = merchant_ids(info)
@@ -1620,6 +1623,7 @@ function vendor.tick(player)
         unit = targeting.find_named(player, info.name, info.name_cn, FIND_RANGE)
     end
     if not unit then
+        movement.nav_stop()
         local started = state.vendor.wait_npc
         if type(started) ~= "number" or started <= 0 then
             started = now
@@ -1640,6 +1644,7 @@ function vendor.tick(player)
         state.vendor.idle_since = 0
         return nav_place(player, p) == true
     end
+    movement.nav_stop()
 
     if idle_check(now) then
         return false

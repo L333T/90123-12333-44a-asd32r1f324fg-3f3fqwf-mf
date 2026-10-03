@@ -3,18 +3,36 @@
 -- Grind zone lookup by race + level
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.216.0
+-- Version: 2.217.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
-local modes = require("modes")
+-- RACE -> zone file stem (moved here from modes.lua, removed in 2.217.0: this
+-- is its only user). Classic / TBC race ids from the client (enums has no race
+-- table); Blood Elf and Draenei exist only on TBC, the two Skyborne races only
+-- on WoW Forever (gamever.race_playable, 2.121.0). Goblin (9) has no playable
+-- character before Cataclysm. A race without a grind/zones/<key>.lua simply
+-- has no zone (required under pcall below).
+local gamever = require("gamever")
+
+local RACE_KEY = {
+    [1] = "human", [2] = "orc", [3] = "dwarf", [4] = "nightelf", [5] = "undead",
+    [6] = "tauren", [7] = "gnome", [8] = "troll", [10] = "bloodelf", [11] = "draenei",
+    [95] = "skyborne_highorder",    -- High Order Skyborne (Forever, Alliance)
+    [96] = "skyborne_windshaper",   -- Windshaper Skyborne (Forever, Horde)
+}
+
+local function race_key(race_id)
+    if not gamever.race_playable(race_id) then return nil end
+    return RACE_KEY[race_id]
+end
 
 local grind_zones = {}
 local loaded_key = nil
 local loaded_list = nil
 
 local function list_for(race_id)
-    local key = modes.race_key(race_id)
+    local key = race_key(race_id)
     if not key then
         return nil
     end

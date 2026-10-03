@@ -3,9 +3,7 @@
 -- main.lua - download the bot, then hand off to its real main.lua
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Loader version: 1.3.0
--- 1.3.0: the same commit from the jsDelivr mirror when raw.githubusercontent.com
---        fails for a network reason (one warning line says so).
+-- Loader version: 1.2.3
 -- ============================================================================
 -- 1.2.3: a quiet console. The load prints "[Master Farmer] loading..." and
 -- "[Master Farmer] loaded <name> v<version>"; the repository, branch, commit,
@@ -89,15 +87,6 @@ local REF_URL = "https://api.github.com/repos/" .. REPO .. "/commits/" .. BRANCH
 
 local function base_for(sha)
     return "https://raw.githubusercontent.com/" .. REPO .. "/" .. sha .. "/"
-end
-
--- MIRROR (loader 1.3.0). jsDelivr serves a public GitHub repo at an exact
--- commit. Used only when raw.githubusercontent.com fails for a network reason
--- (2026-10-03: the game's requests to it were refused - curl 7 - while
--- api.github.com and the same files from a shell worked). The manifest's
--- hashes still decide every file, so the mirror can only deliver this commit.
-local function mirror_for(sha)
-    return "https://cdn.jsdelivr.net/gh/" .. REPO .. "@" .. sha .. "/"
 end
 
 -- Resolved at load time by resolve_branch below.
@@ -313,13 +302,6 @@ local function on_update()
             retries     = 2,
             verify_hash = true,
             headers     = HEADERS,
-            fallbacks   = { mirror_for(SHA) },
-            -- One line even with VERBOSE off: which host the bot came from is
-            -- worth knowing when GitHub's file host is blocked.
-            on_fallback = function(_, why)
-                core.log_warning(TAG .. " GitHub file download failed (" .. tostring(why)
-                    .. ") - loading from the jsDelivr mirror.")
-            end,
         })
         core.log(TAG .. " loading...")
         vlog(string.format("loading %s@%s from commit %s", REPO, BRANCH, SHA:sub(1, 8)))

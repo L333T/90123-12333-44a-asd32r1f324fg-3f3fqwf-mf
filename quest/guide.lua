@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.210.0
+-- Version: 2.211.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1154,6 +1154,7 @@ end
 -- points. A live step is matched by its waypoints (same UiMapID, within
 -- STEP_NEAR of an anchor, 0-1 map units): the API gives no guide or step id.
 local STEP_NEAR = 0.012
+local STEP_NEAR_YD = 35           -- 2.211.0: world anchors (".goto zone/0,y,x")
 
 --- The guide-file NPC step for these goal waypoints, or nil.
 --- { v = vendor npc id, t = trainer npc id, g = { gossip option ids }, s = { npc, option... } }
@@ -1164,10 +1165,29 @@ function guide.rxp_step_for(wps)
     for i = 1, #wps do
         local w = wps[i]
         local m, x, y = w and w.map_id, w and w.mx, w and w.my
+        -- World anchors against the waypoint's world position, in map units
+        -- (so both kinds compare on one scale: STEP_NEAR_YD maps to STEP_NEAR).
+        local wp = w and w.pos
+        if type(wp) == "table" and type(wp.x) == "number" and type(wp.y) == "number" then
+            for k = 1, #d.steps do
+                local st = d.steps[k]
+                local a = st.w
+                if type(a) == "table" then
+                    for j = 1, #a - 1, 2 do
+                        local dx, dy = a[j] - wp.x, a[j + 1] - wp.y
+                        local dd = dx * dx + dy * dy
+                        if dd <= STEP_NEAR_YD * STEP_NEAR_YD then
+                            local scaled = dd * (STEP_NEAR / STEP_NEAR_YD) ^ 2
+                            if best_d == nil or scaled < best_d then best, best_d = st, scaled end
+                        end
+                    end
+                end
+            end
+        end
         if type(m) == "number" and m > 0 and type(x) == "number" and type(y) == "number" then
             for k = 1, #d.steps do
                 local st = d.steps[k]
-                local p = st.p
+                local p = st.p or {}
                 for j = 1, #p - 2, 3 do
                     if p[j] == m then
                         local dx, dy = p[j + 1] - x, p[j + 2] - y

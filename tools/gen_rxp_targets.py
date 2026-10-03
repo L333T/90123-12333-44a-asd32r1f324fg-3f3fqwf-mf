@@ -43,9 +43,22 @@ def load_map_ids(root):
                 MAP_IDS.setdefault(name, mid)
 
 
+def world_anchor(parts):
+    """2.211.0: ".goto <zone>/<continent>,a,b" - RestedXP hands a, b to
+    HereBeDragons' GetZoneCoordinatesFromWorld: WORLD coordinates in
+    (world y, world x) order. Returns (world x, world y) or None."""
+    if len(parts) < 3 or "/" not in parts[0]:
+        return None
+    try:
+        a, b = float(parts[1]), float(parts[2])
+    except ValueError:
+        return None
+    return (round(b, 1), round(a, 1))
+
+
 def goto_anchor(parts):
     """(map, x 0-1, y 0-1) from a .goto line's arguments, or None."""
-    if len(parts) < 3:
+    if len(parts) < 3 or "/" in parts[0]:
         return None
     zone = parts[0]
     mid = int(zone) if zone.isdigit() else MAP_IDS.get(zone)
@@ -89,10 +102,10 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
     def flush(step):
         # 2.206.0: NPC steps - vendor / trainer npc ids, gossip choices, anchored
         # by the step's .goto points so the engine can match its live step.
-        if steps_out is not None and step["anchors"] and (
+        if steps_out is not None and (step["anchors"] or step["wanchors"]) and (
                 step["vendor"] or step["trainer"] or step["gossip"] or step["skip"] is not None):
-            steps_out.append({"p": step["anchors"][:4], "v": step["vendor"], "t": step["trainer"],
-                              "g": sorted(step["gossip"]), "s": step["skip"]})
+            steps_out.append({"p": step["anchors"][:4], "w": step["wanchors"][:4], "v": step["vendor"],
+                              "t": step["trainer"], "g": sorted(step["gossip"]), "s": step["skip"]})
         if givers is not None and step["dialog"] and step["friendly"]:
             for q in step["dialog"]:
                 givers.setdefault(q, set()).update(step["friendly"])
@@ -110,7 +123,7 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
         if line == "step" or line.startswith("step "):
             if step:
                 flush(step)
-            step = {"quests": [], "names": set(), "ids": set(), "anchors": [], "vendor": None,
+            step = {"quests": [], "names": set(), "ids": set(), "anchors": [], "wanchors": [], "vendor": None,
                     "trainer": None, "gossip": set(), "skip": None, "dialog": set(), "friendly": set()}
             continue
         if step is None:
@@ -145,6 +158,9 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
                 a = goto_anchor(parts)
                 if a and a not in step["anchors"]:
                     step["anchors"].append(a)
+                w = world_anchor(parts)
+                if w and w not in step["wanchors"]:
+                    step["wanchors"].append(w)
             elif tag == "vendor" and parts and parts[0].isdigit():
                 step["vendor"] = int(parts[0])
             elif tag == "trainer" and parts and parts[0].isdigit():
@@ -253,13 +269,19 @@ def main():
         if names:
             lines.append(f"    [{q}] = {{ {', '.join(lua_str(x) for x in names)} }},")
     lines += ["}", "",
-              "-- NPC steps: p = { map, x, y, ... } anchors (UiMapID, 0-1), v / t = vendor /",
+              "-- NPC steps: p = { map, x, y, ... } anchors (UiMapID, 0-1), w = { x, y, ... } world",
+              "-- anchors (\".goto zone/0,y,x\" lines), v / t = vendor /",
               "-- trainer npc id, g = gossip option ids, s = .skipgossip { npc, option, ... }",
               "-- ({} = first option).",
               "M.steps = {"]
     for st in steps:
-        flat = ", ".join(f"{m}, {x}, {y}" for (m, x, y) in st["p"])
-        parts = [f"p = {{ {flat} }}"]
+        parts = []
+        if st["p"]:
+            flat = ", ".join(f"{m}, {x}, {y}" for (m, x, y) in st["p"])
+            parts.append(f"p = {{ {flat} }}")
+        if st["w"]:
+            wflat = ", ".join(f"{x}, {y}" for (x, y) in st["w"])
+            parts.append(f"w = {{ {wflat} }}")
         if st["v"]:
             parts.append(f"v = {st['v']}")
         if st["t"]:

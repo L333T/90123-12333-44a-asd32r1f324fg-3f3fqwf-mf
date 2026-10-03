@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.221.0
 -- ============================================================================
 -- Out-of-combat travel.
 --
@@ -32,6 +32,7 @@ local W  = require("movement/walker")
 local N  = require("movement/sentinel")
 local O  = require("movement/own")
 local Lk = require("movement/locks")
+local Tr = require("movement/terrain")     -- 2.221.0: waypoint height retry
 
 local STATE         = K.STATE
 local OWNER         = K.OWNER
@@ -76,6 +77,8 @@ end
 --- slot (never a walker leg); false = Sentinel failed this destination.
 local function sentinel_go(goal, why)
     if recently_failed(goal.x, goal.y) then return false end
+    -- A floor height found after Sentinel called this spot unreachable (2.221.0).
+    goal.z = Tr.goal_z(goal.x, goal.y, goal.z)
     if N.move(goal, why) then return true end
     -- Refused by the rate limit: wait for the next slot, do not walk it.
     R.goal_x, R.goal_y, R.goal_z = nil, nil, nil

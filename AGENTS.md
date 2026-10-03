@@ -79,6 +79,10 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   Sentinel's own stuck recovery is waited on only while it moves the character: frozen
   6 s (`N.recovery_stalled`) -> `RP.recovery_watch` blacklists the area ahead along the
   path and `N.repath_around` plans around it with find_path_avoid (2.192.0).
+  Terrain (2.221.0, `movement/terrain.lua`, coords_helper): an "unreachable" destination is retried at
+  the floor heights read at its x, y before it is failed; a Sentinel leg stalled 4 s against ground steeper
+  than 1.4 yd/yd is blacklisted at the wall's measured width and re-pathed; move_direct only over walkable terrain.
+  coords_helper heights are a raycast from about player z + 4 - ground far above the character cannot be read.
 - **Sentinel advanced APIs - IF PATHING ERRORS OCCUR, START HERE** (2.219.0): `movement/sentinel_adv.lua` holds the uses of the lower-level services (`client.nav_client` / `client.obstacle`), which Sentinel documents by name only and says are likely to change: continent change reset (`get_continent_id`), running-path validation (`check_path` -> replan), obstacle look-ahead (`probe_path_ahead`, acts only on an explicit `blocked` field), zone-mirror repair (`get_zone_count`). Each call is feature-detected, pcall-guarded, switched off after 5 errors, and logs its first result shape (`adv api <name> first result: ...`) - read those lines first after a Sentinel update. Replans from here: at most one per 8 s and two per destination. Other advanced calls live in `movement/sentinel.lua` (find_path, find_path_avoid, find_path_corridor, check_path, raycast, random_point, kite, flee, add_zone, clear) - suspect them next. `client.movement` is never driven by this plugin.
 - **Bag items**: always through `bags.list` (inventory_helper `bag_id` / `bag_slot`, the pair
   `use_container_item` takes), which keeps only real bag slots - backpack 1-16, worn bags

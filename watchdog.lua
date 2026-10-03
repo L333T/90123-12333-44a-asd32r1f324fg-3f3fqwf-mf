@@ -3,7 +3,7 @@
 -- NPC-stuck watchdog
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.216.0
+-- Version: 2.217.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY NOT A GAME RELOAD
@@ -223,6 +223,17 @@ end
 local function travel_tick(player, now)
     -- A hearth cast in progress: stand still until it has had time to land.
     if now < hearth_until then
+        -- A fight ends the hold (2.217.0): it claimed the tick for 12 s ahead
+        -- of everything, so the bot stood still while something hit it. Combat
+        -- breaks the cast anyway; the stuck timer below starts over.
+        local targeting = req("targeting")
+        local attacked = targeting and type(targeting.attackers) == "function"
+            and targeting.attackers(player) > 0
+        if attacked or safe(function() return player:is_in_combat() end) == true then
+            hearth_until = 0
+            travel_since, travel_anchor = 0, nil
+            return false
+        end
         local movement = req("movement")
         if movement and type(movement.nav_stop) == "function" then
             movement.nav_stop()

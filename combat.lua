@@ -3,7 +3,7 @@
 -- Combat engine - pack scan, target latch, kill-first priority, class hooks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.216.0
+-- Version: 2.217.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared by every class rotation. Class modules opt in by exposing interrupt,
@@ -412,6 +412,11 @@ function combat.acquire(player, range, candidate, pack)
     return picked, pack
 end
 
+-- One dismount per DISMOUNT_GAP (2.217.0): it was sent every tick, 10 a second,
+-- for as long as the mount lasted. The tick is still claimed while mounted.
+local DISMOUNT_GAP = 1.0
+local dismount_t = -1e9
+
 function combat.dismount(player, target)
     if not player or safe(function() return player:is_mounted() end) ~= true then
         return false
@@ -422,9 +427,11 @@ function combat.dismount(player, target)
             return false
         end
     end
-    pcall(function()
-        core.input.dismount()
-    end)
+    local now = izi.now()
+    if (now - dismount_t) >= DISMOUNT_GAP then
+        dismount_t = now
+        pcall(core.input.dismount)
+    end
     return true
 end
 

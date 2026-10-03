@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.216.0
+-- Version: 2.217.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -30,7 +30,6 @@ local PLUGIN_MODULES = {
     "ui",
     "version",
     "state",
-    "modes",
     "path_format",
     "data/consumables",
     "loader",
@@ -239,7 +238,7 @@ end
 local supplies = load_mod("supplies")
 local loader = load_mod("loader")
 local path_runner = load_mod("path_runner")
-local modes = load_mod("modes")
+local modes = gui and gui.modes or { GRIND = "grind", QUEST = "quest" }
 
 if gui and supplies and type(supplies.register_gui) == "function" then
     pcall(supplies.register_gui, gui.get_menu())
@@ -280,23 +279,6 @@ local function allow_bot_movement()
     nav_halted = false
 end
 
-local function pause_path_for_combat()
-    if type(path_runner.is_paused) ~= "function" or path_runner.is_paused() ~= true then
-        path_runner.pause()
-    end
-end
-
-local function rotation_yards(player)
-    local yards = 30
-    if rotation and type(rotation.combat_range) == "function" then
-        yards = rotation.combat_range(player)
-    end
-    if type(yards) ~= "number" or yards < 1 then
-        yards = 30
-    end
-    return yards
-end
-
 --- How far out to look for something to fight.
 ---
 --- The class decides: melee scans tighter than a caster, because melee has to
@@ -322,206 +304,6 @@ local function scan_yards(player)
         yards = 80
     end
     return yards
-end
-
-local function unit_has_los(player, unit)
-    local los = safe(function() return player:los_to(unit) end)
-    if los == true then
-        return true
-    end
-    return los ~= false
-end
-
-local function in_rotation_range(player, unit, yards)
-    if not player or not unit then
-        return false
-    end
-    yards = yards or rotation_yards(player)
-    local in_range = safe(function() return unit:is_in_range(yards) end)
-    if in_range ~= true then
-        local d = safe(function() return player:distance_to(unit) end)
-        if type(d) ~= "number" or d > yards then
-            return false
-        end
-    end
-    return unit_has_los(player, unit)
-end
-
-local function closest_in_range(player, lists, yards)
-    local found = {}
-    if type(lists) ~= "table" then
-        return nil
-    end
-    for i = 1, #lists do
-        local list = lists[i]
-        if type(list) == "table" then
-            for j = 1, #list do
-                local u = list[j]
-                if u and in_rotation_range(player, u, yards) then
-                    found[#found + 1] = u
-                end
-            end
-        end
-    end
-    return targeting.nearest(player, found)
-end
-
---- `pack` is optional. When the caller has already scanned with this same
---- range in this same frame it passes its list in, and this does not scan a
---- second time. Omitting it keeps the old behaviour exactly, so the function
---- still stands on its own.
-local function path_fight(player, unit, scan_range, pack)
-    if movement.needs_rejoin() == true then
-        -- Getting back on the recorded line outranks fighting from off it, so
-        -- hand movement back to navigation before asking for the rejoin hop -
-        -- otherwise combat ownership would refuse it until the fight ended.
-        movement.combat_release()
-        if movement.is_moving() then
-            movement.nav_stop()
-        else
-            movement.rejoin_path()
-        end
-        targeting.set_current(unit, "kill")
-        targeting.start_auto_attack(player, unit)
-        state.set_note("Path", "Rejoin path")
-        return true
-    end
-    pause_path_for_combat()
-    targeting.set_current(unit, "kill")
-    targeting.start_auto_attack(player, unit)
-
-    -- Combat movement owns the player from here: it faces the target, holds the
-    -- rotation's range band and kites when the class profile asks for it. The
-    -- path leash keeps every combat hop within PATH_LEASH of the recorded line,
-    -- so the bot fights from the path instead of wandering off it.
-    local yards = rotation_yards(player)
-    movement.combat_engage(player, unit, yards)
-
-    -- Reuse the caller's scan when there is one. Two combat_scan calls in one
-    -- frame with the same player and range cannot disagree: the world does not
-    -- change between them, and unit_helper:get_enemy_list_around is cached by
-    -- the core anyway, so the second call was re-filtering an identical list
-    -- into a second identical table.
-    if type(pack) ~= "table" then
-        pack = targeting.combat_scan(player, scan_range)
-    end
-    state.set_note("Path", "Combat")
-    rotation.tick(player, unit, { enemies = pack, no_move = true })
-    return true
-end
-
-local function path_handle_combat(player)
-    if not player or not targeting or not rotation or not path_runner then
-        return false
-    end
-    if healing and type(healing.is_resting) == "function" and healing.is_resting() then
-        pause_path_for_combat()
-        if movement and type(movement.is_moving) == "function" and movement.is_moving() then
-            movement.nav_stop()
-        end
-        pcall(function()
-            core.input.stop_attack()
-        end)
-        return true
-    end
-    local want_pull = gui.is_on("path_combat")
-    local want_back = gui.is_on("fight_back")
-    if want_pull ~= true and want_back ~= true then
-        if path_runner.is_paused() then
-            path_runner.resume()
-        end
-        return false
-    end
-
-    -- The class sets the scan; combat_range is a floor, because a scan
-    -- narrower than the range the rotation actually fights at would mean
-    -- walking past things it could already hit.
-    local range = scan_yards(player)
-    local yards = rotation_yards(player)
-    if range < yards then
-        range = yards
-    end
-    local now = izi.now()
-    local unit = state.target.unit
-    if unit and safe(function() return unit:is_valid() end) == true then
-        if now > (state.grind.black_until or 0) and state.target.kind == "kill" then
-            state.mark_killed(state.target.guid)
-            state.reset_target()
-            unit = nil
-        end
-    else
-        unit = nil
-        if state.target.unit then
-            state.reset_target()
-        end
-    end
-
-    if unit then
-        if safe(function() return unit:is_dead_or_ghost() end) == true or safe(function() return unit:is_dead() end) == true then
-            state.mark_killed(state.target.guid or safe(function() return unit:get_guid() end))
-            if loot and type(loot.note_kill) == "function" then
-                loot.note_kill(unit)
-            end
-            movement.nav_stop()
-            if type(movement.combat_release) == "function" then
-                movement.combat_release()
-            end
-            state.reset_target()
-            unit = nil
-        else
-            if not in_rotation_range(player, unit, yards) then
-                state.reset_target()
-                unit = nil
-            end
-        end
-    end
-
-    local pack = targeting.combat_scan(player, range)
-    local pull = {}
-    if want_pull == true then
-        local current = path_runner.current_path and path_runner.current_path() or nil
-        local mobs = current and current.mobs or nil
-        pull = targeting.find_mobs(player, mobs, range, true, { skip_reach = true })
-    elseif want_back == true then
-        local in_combat = safe(function() return player:is_in_combat() end) == true
-        if in_combat ~= true then
-            if path_runner.is_paused() then
-                if not movement.in_combat_movement() then
-                    if type(movement.combat_release) == "function" then
-                        movement.combat_release()
-                    end
-                    if movement.can_navigate() then
-                        path_runner.resume()
-                    end
-                end
-            end
-            return false
-        end
-    end
-
-    local target = closest_in_range(player, { pack, pull }, yards)
-    if not target and unit and in_rotation_range(player, unit, yards) then
-        target = unit
-    end
-    if target then
-        state.grind.black_until = now + gui.slider("max_kill", 60)
-        if movement.sentinel_active and movement.sentinel_active() then
-            movement.nav_stop()
-        end
-        return path_fight(player, target, range, pack)
-    end
-
-    if path_runner.is_paused() then
-        if movement.can_navigate() then
-            if type(movement.combat_release) == "function" then
-                movement.combat_release()
-            end
-            path_runner.resume()
-        elseif not movement.in_combat_movement() then
-            path_runner.resume()
-        end
-    end
-    return false
 end
 
 local function player_is_busy(player)

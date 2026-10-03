@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.216.0
+-- Version: 2.217.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -70,6 +70,11 @@ function N.flush_stop(t)
 end
 
 function N.stop()
+    -- A pending re-path around a stuck spot belongs to the walk being stopped
+    -- (2.217.0): it used to survive nav_stop / halt / the rest lock and issue a
+    -- Sentinel move up to AR_WAIT s later - while eating, say. Every stop path
+    -- (O.halt_all) comes through here.
+    if N.cancel_repath then N.cancel_repath() end
     if not R.sn_active then return false end
     local c = R.sn_client
     if type(c) == "table" then
@@ -590,6 +595,10 @@ end
 
 local function begin_leg(p, why)
     local now = izi.now()
+    -- A new leg cancels a stop still deferred for the previous one (2.217.0).
+    -- move_direct (short clear legs) did not clear it, so the old stop landed
+    -- on the new leg once its path request was in.
+    stop_pending = nil
     R.sn_last_issue_t = now
     R.sn_issued = R.sn_issued + 1
     R.sn_active, R.sn_reason = true, nil
@@ -893,6 +902,7 @@ local function skip_near_wp(c)
     local now = izi.now()
     if (now - R.sn_last_issue_t) < SN_MIN_GAP then return end
     R.sn_last_issue_t = now
+    stop_pending = nil                        -- 2.217.0: see begin_leg
     local last = rest[#rest]
     W.begin_issue(last.x, last.y, last.z)
     pcall(c.follow_path, c, rest, on_nav_done)
@@ -1191,6 +1201,11 @@ end
 -- has the blacklisted area in Sentinel's obstacle list.
 local AR_WAIT = 4.0
 local ar = { dest = nil }
+
+--- Drop a pending re-path job (2.217.0). Called by N.stop.
+function N.cancel_repath()
+    if ar.dest then ar = { dest = nil } end
+end
 
 --- Plan to `p` around the blacklisted areas and follow it. True when asked.
 function N.repath_around(p, why)

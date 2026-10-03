@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.219.0
+-- Version: 2.220.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -836,11 +836,42 @@ if errorlog then
     end)
 end
 
+-- COMPILED DATA CHUNKS (2.220.0). The HTTP loader leaves every module's
+-- compiled main chunk in package.preload for the session. For a data file
+-- that chunk is the whole table constructor - 800 KB for data/rxp_targets - and
+-- once the module is in package.loaded it is never run again. These are
+-- released once loaded; nothing unloads them at run time (only grind zone and
+-- grind route files are unloaded and re-required, and they are not listed).
+-- A host without package.preload (or a local folder load) is unaffected.
+local DATA_CHUNKS = {
+    "data/rxp_targets", "data/ek_alliance_routes", "data/class_spells", "data/taxi_nodes",
+    "data/forever_spells", "data/spell_categories", "data/consumables", "data/racials",
+    "data/factions",
+}
+local data_chunks_t = -1e9
+
+local function release_data_chunks()
+    local pre, loaded = package.preload, package.loaded
+    if type(pre) ~= "table" or type(loaded) ~= "table" then return end
+    for i = 1, #DATA_CHUNKS do
+        local name = DATA_CHUNKS[i]
+        if pre[name] ~= nil and type(loaded[name]) == "table" then
+            pre[name] = nil
+        end
+    end
+end
+
 core.register_on_update_callback(function()
     if quest_guide then
         quest_guide.allow_reads(true)
     end
     guarded("on_update", on_update)
+    local ok_rel, t_rel = pcall(core.time)
+    t_rel = ok_rel and tonumber(t_rel) or 0
+    if (t_rel - data_chunks_t) >= 5 then
+        data_chunks_t = t_rel
+        pcall(release_data_chunks)
+    end
     -- After the cascade on purpose: a combat_engage that just left its band
     -- and issued the chase has its strafe key let go on this same frame. A
     -- superseded instance only ever lets go.

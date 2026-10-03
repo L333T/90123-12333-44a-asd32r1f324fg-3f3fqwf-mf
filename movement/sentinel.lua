@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.212.0
+-- Version: 2.214.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -346,6 +346,22 @@ end
 -- ============================================================================
 -- CLIENT
 -- ============================================================================
+-- SERVER BACK UP (2.213.0). is_server_available() is Sentinel's connection
+-- flag, set true by a successful response and dropped after repeated
+-- failures. Every request we make is gated on that flag, so once it dropped
+-- nothing of ours ever asked the server again and Sentinel stayed off for
+-- the session. While the flag is down, the documented health_check pings the
+-- server every HEALTH_GAP s; a good answer re-probes the client at once.
+local HEALTH_GAP = 30
+local health_asked = -1e9
+
+local function on_health(ok)
+    if ok == true then
+        R.sn_checked_t = -1e9
+        dlog("sentinel", "server reachable again")
+    end
+end
+
 --- Resolve the Sentinel client, re-probed at most every 5s. nil = unavailable,
 --- in which case every caller silently falls back to walker steering.
 function N.client()
@@ -361,7 +377,13 @@ function N.client()
         if type(c[SN_NEED[i]]) ~= "function" then return nil end
     end
     local okA, avail = pcall(c.is_server_available, c)
-    if not okA or avail ~= true then return nil end
+    if not okA or avail ~= true then
+        if okA and type(c.health_check) == "function" and (t - health_asked) >= HEALTH_GAP then
+            health_asked = t
+            pcall(c.health_check, c, on_health)
+        end
+        return nil
+    end
     bind_sn_events(c)
     R.sn_ok, R.sn_client = true, c
     return c
@@ -388,7 +410,7 @@ local client = N.client
 -- update_config, or pass z_extent / avoid_zones / soft_update on move_to.
 local AVOID_MAX = 8
 local AVOID_RANGE = 200
-local BODY_WIDTH = 1.0
+local BODY_WIDTH = 2 * K.BODY_HALF   -- the body width the obstacle traces use (1.0)
 
 local function nav()
     local c = client()
@@ -788,6 +810,12 @@ local function stall_check(t)
 end
 
 local corr_asked = -1e9
+-- ONCE PER DESTINATION (2.213.0). find_path_corridor is documented as "path
+-- with corridor widths" - not as a wider path - so its answer may run through
+-- the same doorway. Re-asking every 2 s then restarted the walk on an equal
+-- path for as long as the character stood in the narrow section. One corridor
+-- re-plan per destination; the stuck ladder owns anything after that.
+local corr_key = nil
 
 local function maybe_corridor(c)
     local indoors = false
@@ -810,6 +838,9 @@ local function maybe_corridor(c)
     end
     local hx, hy, hz = here_xyz()
     if not hx or type(dest) ~= "table" or type(dest.x) ~= "number" then return end
+    local key = string.format("%d|%d", math.floor(dest.x / 4), math.floor(dest.y / 4))
+    if key == corr_key then return end
+    corr_key = key
     corr_asked = now
     pcall(n.find_path_corridor, n, vec3.new(hx, hy, hz), vec3.new(dest.x, dest.y, dest.z), function(...)
         for i = 1, select("#", ...) do

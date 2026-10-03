@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.212.0
+-- Version: 2.214.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2392,8 +2392,15 @@ local function convert(map_id, x, y)
         local ok, w = pcall(helper.map_to_world, helper, map_id, mp, 0)
         if ok and w ~= nil then
             local wx, wy, wz = tonumber(get(w, "x")), tonumber(get(w, "y")), tonumber(get(w, "z"))
-            if finite(wx) and finite(wy) and finite(wz) then
-                return { x = wx, y = wy, z = wz, final = true }
+            -- The world origin is a failed conversion here too (2.213.0), as
+            -- it is for get_world_pos_from_map_pos above.
+            -- NOT FINAL (2.214.0): its z is a raycast started at the PLAYER's
+            -- height + extra_height (coords_helper stub), so a waypoint on
+            -- higher or lower ground far away gets the wrong floor - and a
+            -- final z was cached for good. x, y are kept; z goes through the
+            -- same terrain / navmesh height path as the pure conversion.
+            if finite(wx) and finite(wy) and finite(wz) and not (wx == 0 and wy == 0) then
+                return { x = wx, y = wy, z = nil, final = false }
             end
         end
     end
@@ -2506,6 +2513,10 @@ local function to_world(wp)
     local x = tonumber(wp.x)
     local y = tonumber(wp.y)
     if not x or not y or x ~= x or y ~= y or x < 0 or x > 1 or y < 0 or y > 1 then
+        return nil
+    end
+    -- An unset waypoint reads 0, 0 (2.213.0): not a place to walk to.
+    if x == 0 and y == 0 then
         return nil
     end
 

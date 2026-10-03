@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.207.0
+-- Version: 2.208.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -344,6 +344,16 @@ menu:checkbox("mfg_sell_green", false, {
     tab = "vendor",
     tooltip = "Off by default. Greens can be upgrades.",
 })
+menu:checkbox("mfg_delete_junk", true, {
+    label = "Delete Junk When Full",
+    tab = "vendor",
+    tooltip = "When the bags are full and loot is left on a corpse, delete the cheapest grey item so the loot fits (RestedXP's rule: a nearly full cheap stack goes first). Greys only - never food, drink, consumables, ammo or quest items. Deleting cannot be undone.",
+})
+menu:slider_int("mfg_max_shards", 0, 40, 0, {
+    label = "Max Soul Shards",
+    tab = "vendor",
+    tooltip = "Warlock: keep at most this many Soul Shards and delete the rest (out of combat). 0 = no cap.",
+})
 menu:slider_int("mfg_bag_free", 1, 10, 1, {
     label = "Vendor at Free Slots",
     tab = "vendor",
@@ -614,6 +624,7 @@ local aliases = {
     sell_grey = "mfg_sell_grey",
     sell_white = "mfg_sell_white",
     sell_green = "mfg_sell_green",
+    delete_junk = "mfg_delete_junk",
     path_loop = "mfg_path_loop",
     path_reverse = "mfg_path_reverse",
     path_combat = "mfg_path_combat",
@@ -766,6 +777,7 @@ local slider_aliases = {
     fight_back_hp = "mfg_fight_back_hp",
     fight_back_yards = "mfg_fight_back_yards",
     bag_free = "mfg_bag_free",
+    max_shards = "mfg_max_shards",
     repair_pct = "mfg_repair_pct",
     -- class self-heal thresholds (rotations/*.lua read these via gui.slider)
     pet_heal_pct = "mfg_pet_heal_pct",

@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.207.0
+-- Version: 2.208.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -352,8 +352,13 @@ local function merchant_open()
     return safe(function() return core.inventory.can_merchant_repair() end) == true
 end
 
+-- RestedXP InventoryManager (2.208.0): grey items that are not junk.
+local JUNK_EXCEPTIONS = { [6196] = true }
+local SOUL_SHARD = 6265
+
 local function keep_ids(player)
     local ids = { [HEARTHSTONE] = true }
+    for id in pairs(JUNK_EXCEPTIONS) do ids[id] = true end
     local foods = rotation.preferred_food_ids(player)
     if type(foods) == "table" then
         for i = 1, #foods do
@@ -439,6 +444,96 @@ local function should_sell_item(player, item_id)
         return false
     end
     return quality_ok(info.quality)
+end
+
+-- ----------------------------------------------------------------------------
+-- FULL BAGS, NO VENDOR: DELETE THE CHEAPEST JUNK (2.208.0)
+-- ----------------------------------------------------------------------------
+-- From RestedXP's InventoryManager (FindJunk / DeleteItems): with the bags
+-- full, the cheapest grey item is deleted so loot still fits - RestedXP rates
+-- a stack (max stack + count) * sell price / 2, so a nearly full stack of a
+-- cheap item goes before a single valuable one. core.input.destroy_container_item
+-- clears the cursor, picks the slot up and deletes it as one guarded call.
+-- Greys only (quality 0), never a kept item, food / drink, consumable, ammo or
+-- quest item. "Delete Junk When Full" on the Vendor tab.
+local destroy_t = -1e9
+local DESTROY_GAP = 1.0
+
+local function dtrail(fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, "vendor", fmt, ...)
+    end
+end
+
+local function destroy_slot(e, why)
+    local now = izi.now()
+    if (now - destroy_t) < DESTROY_GAP then return false end
+    destroy_t = now
+    local ok = safe(function() return core.input.destroy_container_item(e.bag, e.slot) end) == true
+    local name = safe(function() return core.quests.get_item_info(e.item_id).name end) or tostring(e.item_id)
+    dtrail("deleted %s x%s (bag %d slot %d) - %s%s", tostring(name), tostring(e.count or 1), e.bag, e.slot,
+        tostring(why), ok and "" or " (refused)")
+    if ok then
+        core.log(string.format("[Master Farmer - Grindbot] Deleted %s x%s - %s.", tostring(name), tostring(e.count or 1), tostring(why)))
+        pcall(function() bags.food_water_invalidate() end)
+    end
+    return ok
+end
+
+--- Delete the cheapest grey item. True when one was deleted.
+function vendor.destroy_cheapest_junk(player, why)
+    if not player or gui.is_on("delete_junk") ~= true then return false end
+    if safe(function() return player:is_dead() end) == true then return false end
+    local keep = keep_ids(player)
+    local food, water = bags.food_water(player)
+    local list = bags.list(player)
+    local best, best_v = nil, nil
+    for i = 1, #list do
+        local e = list[i]
+        local id = e.item_id
+        if id and not keep[id] and not (food and food[id]) and not (water and water[id])
+            and not helper_consumables[id] then
+            local info = safe(function() return core.quests.get_item_info(id) end)
+            if type(info) == "table" and info.quality == 0 and info.class_id ~= 12 and info.class_id ~= 6
+                and info.class_id ~= 0 then
+                local price = type(info.sell_price) == "number" and info.sell_price or 0
+                local stack_max = type(info.stack_count) == "number" and info.stack_count or 1
+                local count = type(e.count) == "number" and e.count or 1
+                local v = (stack_max + count) * price / 2
+                if best_v == nil or v < best_v then best, best_v = e, v end
+            end
+        end
+    end
+    if not best then return false end
+    return destroy_slot(best, why or "bags full")
+end
+
+-- SOUL SHARD CAP (2.208.0, RestedXP maxSoulShards): a warlock keeps at most
+-- "Max Soul Shards" (Vendor tab, 0 = no cap); extra shards are deleted, the
+-- smallest stack first. Never in combat.
+local SHARD_GAP = 3.0
+local shard_t = -1e9
+
+function vendor.cap_soul_shards(player)
+    local cap = gui.slider("max_shards", 0) or 0
+    if cap <= 0 or not player then return false end
+    if safe(function() return player:get_class() end) ~= 9 then return false end
+    if safe(function() return player:is_in_combat() end) == true then return false end
+    local now = izi.now()
+    if (now - shard_t) < SHARD_GAP then return false end
+    shard_t = now
+    local list = bags.list(player)
+    local total, pick = 0, nil
+    for i = 1, #list do
+        local e = list[i]
+        if e.item_id == SOUL_SHARD then
+            total = total + (type(e.count) == "number" and e.count or 1)
+            if not pick then pick = e end
+        end
+    end
+    if total <= cap or not pick then return false end
+    return destroy_slot(pick, string.format("%d soul shards, cap %d", total, cap))
 end
 
 --- Sell the first sellable bag item.
@@ -1189,6 +1284,7 @@ function vendor.tick(player)
     if not player then
         return false
     end
+    vendor.cap_soul_shards(player)      -- 2.208.0
     if not vendor.level_ok(player) and bag_free() > 0 then
         if state.vendor.active then
             vendor.reset()

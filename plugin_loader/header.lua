@@ -3,7 +3,7 @@
 -- header.lua - load gate
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Loader version: 1.2.3   (this is the LOADER's version, not the bot's - the
+-- Loader version: 1.3.0   (this is the LOADER's version, not the bot's - the
 --                          bot's version is whatever the manifest reports)
 -- ============================================================================
 -- DO NOT EDIT THIS FOLDER TO SHIP A BOT CHANGE.
@@ -39,7 +39,7 @@
 -- ============================================================================
 
 local LOADER_KEY     = "MFG_HTTP_LOADER"
-local LOADER_VERSION = "1.2.3"   -- 1.2.3: quiet console, no HTTP / URL detail unless VERBOSE
+local LOADER_VERSION = "1.3.0"   -- 1.3.0: jsDelivr mirror when raw.githubusercontent.com fails; 1.2.3: quiet console
 
 local plugin = {}
 plugin["name"]      = "Master Farmer - Grindbot"

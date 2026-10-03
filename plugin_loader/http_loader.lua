@@ -3,7 +3,7 @@
 -- http_loader.lua - fetch a Lua codebase over core.http_get
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 1.2.3
+-- Version: 1.3.0
 -- ============================================================================
 -- API CONTRACT THIS CODES AGAINST
 --
@@ -67,6 +67,10 @@ local cfg = {
     max_bytes     = 4 * 1024 * 1024,
     verify_hash   = true,
     headers       = nil,
+    -- 1.3.0: mirror base URLs for the SAME files (same manifest, same hashes),
+    -- tried in order when a load fails for a network reason. See finish_fail.
+    fallbacks     = nil,
+    on_fallback   = nil,    -- function(new_base, why), told once per switch
 }
 
 -- Explicit whitelist. `cfg.base_url` and `cfg.headers` are nil at rest, so a
@@ -74,6 +78,7 @@ local cfg = {
 local CFG_KEYS = {
     base_url = true, manifest = true, timeout = true, retries = true,
     retry_backoff = true, max_bytes = true, verify_hash = true, headers = true,
+    fallbacks = true, on_fallback = true,
 }
 
 -- ============================================================================
@@ -229,8 +234,29 @@ local function finish_ok()
     end
 end
 
-local function finish_fail(why)
+-- MIRRORS (1.3.0). A load that failed for a network reason - a refused
+-- connection (curl 7 arrives as a code-0 transport failure), 408 / 429 / 5xx,
+-- retries exhausted, the overall timeout - starts over from the manifest on
+-- the next mirror in cfg.fallbacks. A hash mismatch, a bad manifest or a
+-- 404 is not a network problem and still fails: the hashes come from the
+-- manifest, so a mirror can only ever deliver the exact same code.
+local mirror_i = 0
+local load_gen = 0          -- answers from an abandoned load (an older gen) are dropped
+local begin_load            -- defined with the public API below
+
+local function finish_fail(why, network)
     if phase == PHASE.FAILED then return end
+    local mirrors = cfg.fallbacks
+    if network and type(mirrors) == "table" and mirror_i < #mirrors then
+        mirror_i = mirror_i + 1
+        local nxt = tostring(mirrors[mirror_i])
+        warn("load failed (" .. tostring(why) .. ") - trying mirror " .. nxt)
+        if type(cfg.on_fallback) == "function" then pcall(cfg.on_fallback, nxt, why) end
+        cfg.base_url = nxt
+        if cfg.timeout < 60 then cfg.timeout = 60 end   -- a cold CDN is slower
+        begin_load()
+        return
+    end
     phase, fail_why = PHASE.FAILED, why
     retry_queue = {}
     err("load failed: " .. tostring(why))
@@ -314,7 +340,7 @@ local function on_file(name, entry, http_code, content_type, body)
             }
             return
         end
-        return finish_fail(name .. ": " .. why .. " (retries exhausted)")
+        return finish_fail(name .. ": " .. why .. " (retries exhausted)", true)
     end
     if verdict == "fatal" then
         return finish_fail(name .. ": " .. why)
@@ -344,7 +370,9 @@ local function on_file(name, entry, http_code, content_type, body)
 end
 
 fetch_one = function(name, entry)
+    local gen = load_gen
     request(url_for(entry.path), function(http_code, content_type, response_data, response_headers)
+        if gen ~= load_gen then return end      -- 1.3.0: from before a mirror switch
         on_file(name, entry, http_code, content_type, response_data)
     end)
 end
@@ -369,8 +397,9 @@ local function on_manifest(http_code, content_type, body)
 
     local verdict, why = classify(http_code, content_type, body)
     if verdict ~= "ok" then
-        -- A manifest retry is not worth a queue; the whole load is cheap to redo.
-        return finish_fail("manifest: " .. tostring(why))
+        -- A manifest retry is not worth a queue; the whole load is cheap to redo
+        -- - on the next mirror when the failure was a network one (1.3.0).
+        return finish_fail("manifest: " .. tostring(why), verdict == "retry")
     end
 
     local chunk, cerr = compile(body, "@manifest.lua")
@@ -443,16 +472,29 @@ function M.start(callback)
     end
     if cfg.base_url:sub(-1) ~= "/" then cfg.base_url = cfg.base_url .. "/" end
 
+    on_ready = callback
+    mirror_i = 0
+    begin_load()
+    return true
+end
+
+--- (Re)start from the manifest on cfg.base_url. Shared by M.start and the
+--- mirror switch in finish_fail (1.3.0).
+begin_load = function()
+    if cfg.base_url:sub(-1) ~= "/" then cfg.base_url = cfg.base_url .. "/" end
     sources, attempts, mod_cache, retry_queue = {}, {}, {}, {}
     entries, fail_why, installed = {}, nil, false
     want, got = 0, 0
-    on_ready = callback
     started_t = izi.now()
     phase = PHASE.MANIFEST
+    load_gen = load_gen + 1
+    local gen = load_gen
 
     log("fetching " .. url_for(cfg.manifest))
-    request(url_for(cfg.manifest), on_manifest)
-    return true
+    request(url_for(cfg.manifest), function(http_code, content_type, body)
+        if gen ~= load_gen then return end
+        on_manifest(http_code, content_type, body)
+    end)
 end
 
 --- Call once per frame while loading. Two jobs the HTTP API cannot do itself:
@@ -478,7 +520,7 @@ function M.pulse()
     end
 
     if (t - started_t) >= cfg.timeout then
-        finish_fail(string.format("timeout after %.0fs (%d/%d modules)", cfg.timeout, got, want))
+        finish_fail(string.format("timeout after %.0fs (%d/%d modules)", cfg.timeout, got, want), true)
     end
 end
 

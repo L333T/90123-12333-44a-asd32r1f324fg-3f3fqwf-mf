@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.208.0
+-- Version: 2.209.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -714,6 +714,76 @@ local function buy_done(goal, why)
         pcall(equip.invalidate)
     end
     guide.mark_goal_done(guide.step_num(), goal.index)
+    return true
+end
+
+-- ITEM STEPS (2.209.0) - RestedXP ".destroy <item>" and ".equip <slot>,<item>".
+-- Both gate their step (RXPGuides functions.lua): .destroy until the item is
+-- gone from the bags, .equip (with text) until that item is in that slot. The
+-- bot walked to the waypoint and waited. The item comes from the goal text's
+-- [name] through data/rxp_targets M.items; the API's container calls do the
+-- work (destroy_container_item, equip_container_item). The Hearthstone is
+-- never destroyed - vendor trips hearth home.
+local g_itemstep = { key = nil, t = 0, tries = 0 }
+local ITEM_GAP, ITEM_TRIES = 1.0, 5
+local NEVER_DESTROY = { [6948] = true }
+
+local function equipped_id(player, slot)
+    local info = safe(function() return player:get_item_at_inventory_slot(slot) end)
+    local obj = type(info) == "table" and info.object or nil
+    return obj and safe(function() return obj:get_item_id() end) or nil
+end
+
+local function item_step_goal(player, goal, label)
+    local a = type(goal.action) == "string" and string.lower(goal.action) or ""
+    if a ~= "destroy" and a ~= "equip" then return false end
+    if type(guide.rxp_item_for) ~= "function" then return false end
+    local rec = guide.rxp_item_for(goal.text or label)
+    if not rec then return false end
+    if safe(function() return player:is_in_combat() end) == true then return false end
+    local now = izi.now()
+    if g_itemstep.key ~= g_key then g_itemstep = { key = g_key, t = 0, tries = 0 } end
+    local s = g_itemstep
+    local ok_b, bags = pcall(require, "bags")
+    local list = ok_b and type(bags) == "table" and bags.list(player) or {}
+    local entry = nil
+    for i = 1, #list do
+        if list[i].item_id == rec.id then entry = list[i] break end
+    end
+    if a == "equip" and rec.slot and equipped_id(player, rec.slot) == rec.id then
+        trail("act", "equip step: item %d already in slot %d", rec.id, rec.slot)
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
+    end
+    if not entry or (a == "destroy" and NEVER_DESTROY[rec.id]) or s.tries >= ITEM_TRIES then
+        trail("act", "%s step: item %d %s - next goal", a, rec.id,
+            not entry and "not in the bags" or (NEVER_DESTROY[rec.id] and "is kept (Hearthstone)" or "would not move"))
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
+    end
+    if (now - s.t) < ITEM_GAP then return true end
+    s.t, s.tries = now, s.tries + 1
+    movement.nav_stop()
+    if a == "destroy" then
+        local done = safe(function() return core.input.destroy_container_item(entry.bag, entry.slot) end) == true
+        trail("act", "destroy step: item %d (bag %d slot %d) %s", rec.id, entry.bag, entry.slot,
+            done and "deleted" or "refused")
+        state.set_note("Quest", "Guide: deleting " .. tostring(label))
+    else
+        local slot = rec.slot or 16
+        local done = safe(function() return core.input.equip_container_item(entry.bag, entry.slot, slot) end) == true
+        if not done then
+            -- A bind-on-equip prompt holds the item; answer it (equip.lua does the same).
+            local pending = safe(function() return core.game_ui.get_pending_equip_slot() end)
+            if type(pending) == "number" and pending > 0 then
+                pcall(function() core.input.equip_pending_item(pending) end)
+            end
+        end
+        trail("act", "equip step: item %d into slot %d %s", rec.id, slot, done and "sent" or "pending / refused")
+        local ok_e, eq = pcall(require, "equip")
+        if ok_e and type(eq) == "table" and type(eq.invalidate) == "function" then pcall(eq.invalidate) end
+        state.set_note("Quest", "Guide: equipping " .. tostring(label))
+    end
     return true
 end
 
@@ -2882,6 +2952,9 @@ tick_inner = function(player)
     -- every-3-levels rule is only for visits the bot decides on itself),
     -- walks to the step's waypoint until the class trainer is in sight, and
     -- is done when the visit finishes - or when RestedXP ticks it off first.
+    if item_step_goal(player, goal, label) then
+        return
+    end
     if prof_goal(player, goal, wps, label) then
         return
     end

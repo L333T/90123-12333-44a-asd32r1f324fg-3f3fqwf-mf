@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.211.0
+-- Version: 2.212.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -59,6 +59,7 @@ local PLUGIN_MODULES = {
     "data/class_spells",
     "settings",
     "data/spell_categories",
+    "strafe",
     -- The path INDEXES. These were missing, and the effect was invisible and
     -- very confusing: a reload reused the previous session's grind/catalog
     -- table, so a newly added route list never appeared in the menu however
@@ -255,6 +256,9 @@ end
 -- the known class spells and racials itself, and smart.lua builds the
 -- rotation from the ones ticked there.
 local racials = load_mod("racials")
+-- Rogue "Strafe Combat" (2.212.0): micro-strafes while combat movement is in
+-- position. Updated once per frame, after the cascade - see the callback.
+local strafe = load_mod("strafe")
 
 local nav_halted = false
 local move_debug_on = false
@@ -1055,6 +1059,16 @@ core.register_on_update_callback(function()
         quest_guide.allow_reads(true)
     end
     guarded("on_update", on_update)
+    -- After the cascade on purpose: a combat_engage that just left its band
+    -- and issued the chase has its strafe key let go on this same frame. A
+    -- superseded instance only ever lets go.
+    if strafe then
+        if is_stale() then
+            pcall(strafe.stop)
+        else
+            guarded("strafe", strafe.update)
+        end
+    end
     if quest_guide then
         quest_guide.allow_reads(false)
     end

@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.211.0
+-- Version: 2.212.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -597,6 +597,21 @@ end
 
 function C.in_combat_movement()
     return O.owns(OWNER.COMBAT)
+end
+
+--- In position against a live combat target (2.212.0). Read-only: the
+--- latch step 2 of combat_engage sets (with its hysteresis band), and only
+--- while a caller is still asking for combat movement. strafe.lua micro-
+--- strafes while this holds, so it lets go of its key on the same frame the
+--- band is left and the chase in combat_engage takes over.
+function C.in_position()
+    if not R.combat_stopped or not R.combat_req or R.rest_lock or R.backpedal_until then
+        return false
+    end
+    if R.retreat_until > 0 or R.cur_state == STATE.RESTRICTED then return false end
+    if not O.owns(OWNER.COMBAT) then return false end
+    local u = R.combat_target
+    return unit_valid(u) and unit_alive(u)
 end
 
 function C.combat_unit()

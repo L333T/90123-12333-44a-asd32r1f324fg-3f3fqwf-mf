@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.206.0
+-- Version: 2.207.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -135,6 +135,7 @@ local CHANNEL = {
     ["Mind Flay"] = true, ["Drain Life"] = true, ["Drain Soul"] = true,
     ["Arcane Missiles"] = true, ["Evocation"] = true, ["Health Funnel"] = true,
     ["Blizzard"] = true, ["Rain of Fire"] = true, ["Hurricane"] = true,
+    ["Starshards"] = true,
 }
 
 -- Forms and stances, for "which one am I in" and for the spells that need one.

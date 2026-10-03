@@ -64,7 +64,7 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   `rotations/*.lua` only supply range, melee shape, the movement combat profile
   and rest (their old `tick` / `buffs_ooc` / `register_gui` / `interrupt` code was
   removed in 2.142.0 - do not reintroduce class-module casting). The spellbook
-  (`spellbook.lua`) admits only spells this character owns. Racial ids in `data/racials` (and `spellbook.probe_ids`) are asked about directly on every scan, since `get_spells()` can omit them (Forever's Eureka!); book spells outside the class catalog appear unticked under "Other known spells" (2.194.0).
+  (`spellbook.lua`) admits only spells this character owns. Racial ids in `data/racials` (and `spellbook.probe_ids`) are asked about directly on every scan, since `get_spells()` can omit them (Forever's Eureka!); book spells outside the class catalog appear unticked under "Other known spells" (2.194.0). On Forever the scan also probes RestedXP's Forever trainer ids (`data/forever_spells.lua`, `tools/gen_forever_spells.py`, 2.207.0).
 - **Movement** (`movement/*`): Sentinel (`SentinelNavClient`) owns out-of-combat
   travel (`K.SENTINEL_TRAVEL` in `movement/const.lua`); the local walker owns
   combat (chase, stand-off, kite, Frost Nova backpedal). Never flood Sentinel

@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.223.0
+-- Version: 2.224.0
 -- Folder: Master_Farmer_Grindbot
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan on a level-up or a trainer visit (60 s safety net). DEFS are rank-1 IDs; highest matching ID wins.
@@ -176,8 +176,8 @@ function spellbook.probe_ids(ids)
 end
 
 -- General-tab spells the walk may leave out, asked about directly (2.197.0):
--- 5019 Shoot (wand).
-local ALWAYS_PROBE = { 5019 }
+-- 5019 Shoot (wand); 2764 Throw (2.224.0, the rogue's pull).
+local ALWAYS_PROBE = { 5019, 2764 }
 
 -- WoW FOREVER TRAINER IDS (2.207.0): data/forever_spells.lua, RestedXP's
 -- Forever trainer list - this class's and race's ids are asked about too.

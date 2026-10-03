@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.223.0
+-- Version: 2.224.0
 -- ============================================================================
 -- Out-of-combat travel.
 --

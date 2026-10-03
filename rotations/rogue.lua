@@ -3,7 +3,7 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.223.0
+-- Version: 2.224.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
@@ -57,7 +57,31 @@ function rogue.is_melee(player) return true end
 --- Melee has to walk into contact and then stand still, so a wide
 --- scan only drags extra mobs into a fight it cannot kite out of.
 function rogue.scan_range(player)
+    -- Throw pull (2.224.0): look as far as Throw reaches.
+    local ok, sm = pcall(require, "smart")
+    if ok and type(sm) == "table" and type(sm.rogue_can_throw) == "function"
+        and sm.rogue_can_throw(player) == true then
+        return 30
+    end
     return 20
+end
+
+--- Engage distance (2.224.0): the throw distance while a Throw pull is under
+--- way (stop, throw, wait for the mob), else the Melee attack distance.
+function rogue.engage_range(player, target)
+    local ok, sm = pcall(require, "smart")
+    if ok and type(sm) == "table" and type(sm.rogue_throw_range) == "function" then
+        local yd = sm.rogue_throw_range(player, target)
+        if type(yd) == "number" then return yd, false end
+    end
+    local m = 5
+    local okg, gui = pcall(require, "gui")
+    if okg and type(gui) == "table" and type(gui.slider) == "function" then
+        local v = gui.slider("melee_yards", 5)
+        if type(v) == "number" then m = v end
+    end
+    if m < 1 then m = 1 elseif m > 5 then m = 5 end
+    return m, true
 end
 
 function rogue.combat_profile()

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.223.0
+-- Version: 2.224.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1209,6 +1209,114 @@ local function pack_interrupt()
     return false
 end
 
+-- ============================================================================
+-- ROGUE THROW (2.224.0)
+-- ============================================================================
+-- With "Throw" ticked (Spells tab), Throw (2764) known and a throwing weapon
+-- in the ranged slot, a rogue pulls each new target from THROW_STAND yards
+-- (inside Throw's 30), once, then holds position until the mob reaches melee
+-- and only then starts the ticked melee rotation. rotations/rogue.lua asks
+-- smart.rogue_throw_range for its engage distance, which is what makes
+-- combat movement stop at the throw distance and stay there.
+--   * not thrown within THROW_PLAN s of getting ready (line of sight, a
+--     failing cast) -> given up for that target, the rogue closes in;
+--   * the mob not in melee THROW_WAIT s after the throw (a caster, a runner,
+--     an evading mob) -> the rogue closes in.
+local THROW_ID = 2764
+local THROW_RANGE = 30
+local THROW_STAND = 28
+local THROW_PLAN = 6.0
+local THROW_WAIT = 8.0
+local THROW_MELEE = 5
+local RT = { guid = nil, plan_t = nil, thrown_t = nil, done = false,
+    e = { name = "Throw", role = "pull", id = THROW_ID, ids = { THROW_ID },
+        key = "Throw|pull", def = { on = true } } }
+
+local function throw_ready(player)
+    if built.class ~= enums.class_id.ROGUE then return false end
+    if not smart.is_enabled("Throw", true) then return false end
+    local known = spellbook.family("Throw") ~= nil
+        or safe(function() return core.spell_book.is_spell_learned(THROW_ID) end) == true
+    if not known then return false end
+    local tg = mod("targeting")
+    return tg ~= nil and type(tg.has_thrown_equipped) == "function"
+        and tg.has_thrown_equipped(player) == true
+end
+
+--- Follow the target: a new GUID starts a new pull - only to open a fight.
+--- A target picked up while already in combat (an add) is fought in melee;
+--- the rogue never walks back out to throw.
+local function throw_track(player, target)
+    local g = target and safe(target.get_guid, target) or nil
+    if g == nil then return nil end
+    if g ~= RT.guid then
+        RT.guid, RT.plan_t, RT.thrown_t = g, nil, nil
+        RT.done = safe(player.is_in_combat, player) == true
+    end
+    return g
+end
+
+--- Can this rogue throw-pull at all right now (ticked, known, equipped)?
+function smart.rogue_can_throw(player)
+    if not player or not spellbook.ready() then return false end
+    build(player)
+    return throw_ready(player)
+end
+
+--- The rogue's engage distance while a throw pull is under way, else nil.
+function smart.rogue_throw_range(player, target)
+    if not player or not target or not spellbook.ready() then return nil end
+    build(player)
+    if built.class ~= enums.class_id.ROGUE then return nil end
+    if throw_track(player, target) == nil or RT.done then return nil end
+    local now = izi.now()
+    local d = safe(player.distance_to, player, target)
+    if type(d) == "number" and d <= THROW_MELEE then
+        RT.done = true                         -- it came to us: melee now
+        return nil
+    end
+    if RT.thrown_t then
+        if (now - RT.thrown_t) >= THROW_WAIT then
+            RT.done = true
+            state.set_note("Throw", "mob did not come - closing in")
+            return nil
+        end
+        return THROW_STAND                     -- hold: let it come
+    end
+    if not throw_ready(player) then return nil end
+    if RT.plan_t and (now - RT.plan_t) >= THROW_PLAN then
+        RT.done = true
+        state.set_note("Throw", "no throw landed - closing in")
+        return nil
+    end
+    return THROW_STAND
+end
+
+--- Throw at T when the pull calls for it. True when it cast. While waiting
+--- for the mob it returns false: the rotation still runs (Evasion on an add),
+--- and its melee spells cannot reach from here anyway.
+local function rogue_throw()
+    if built.class ~= enums.class_id.ROGUE or not T then return false end
+    if throw_track(P, T) == nil or RT.done then return false end
+    if RT.thrown_t then
+        if c.dist() > THROW_MELEE and (izi.now() - RT.thrown_t) < THROW_WAIT then
+            state.set_note("Throw", "waiting for the mob to reach melee")
+        end
+        return false
+    end
+    if not throw_ready(P) then return false end
+    local d = c.dist()
+    if d > THROW_RANGE or d <= THROW_MELEE then return false end
+    RT.plan_t = RT.plan_t or izi.now()
+    if not sees(T) then return false end
+    if (fail_until[RT.e.key] or 0) > izi.now() then return false end
+    if cast(RT.e, T) then
+        RT.thrown_t = izi.now()
+        return true
+    end
+    return false
+end
+
 --- One combat decision. `ctx.enemies` is the pack the caller scanned.
 function smart.combat(player, target, ctx)
     if not player or not spellbook.ready() then return false end
@@ -1224,6 +1332,9 @@ function smart.combat(player, target, ctx)
         xprobe("sm:pet attack")
         pcall(pets.attack, player, target)
     end
+
+    -- Rogue throw pull (2.224.0): throw, then hold until the mob is in melee.
+    if rogue_throw() then return true end
 
     -- Spells cast at their own range (in_reach). They are not held back until
     -- the walk finishes: the moment the focused target is in range, the

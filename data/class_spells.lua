@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.223.0
+-- Version: 2.224.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -235,6 +235,10 @@ W.HUNTER = t({
 -- ROGUE
 -- ============================================================================
 W.ROGUE = t({
+    -- 2.224.0: pull with a thrown weapon (smart.lua ROGUE THROW), then wait
+    -- for the mob to come into melee. Not part of the combat order.
+    { "Throw",                  "pull", on = true,
+      tip = "With a throwing weapon equipped: throw at the target from up to 30 yd, then wait for it to reach melee." },
     { "Evasion",                "defensive", on = true, when = function(c) return c.near(8) >= 2 or c.hp() < c.def_pct() end, hp = 101 },
     { "Cloak of Shadows",       "defensive", on = true },
     { "Kick",                   "interrupt", on = true, melee = true },

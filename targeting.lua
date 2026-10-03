@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.223.0
+-- Version: 2.224.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -833,6 +833,42 @@ function targeting.has_wand_equipped(player)
         return true
     end
     return false
+end
+
+-- THROWN WEAPON (2.224.0): a throwing knife / axe in the ranged slot - weapon
+-- subclass 16, or INVTYPE_THROWN, or "Thrown" as the localised subclass.
+local thrown_eq_until = 0
+local thrown_eq_val = false
+
+function targeting.has_thrown_equipped(player)
+    if not player then
+        return false
+    end
+    local now = izi.now()
+    if now < thrown_eq_until then
+        return thrown_eq_val
+    end
+    thrown_eq_until = now + 2
+    thrown_eq_val = false
+    local id = ranged_item_id(player)
+    if not id then
+        return false
+    end
+    local info = safe(function()
+        return core.quests.get_item_info(id)
+    end)
+    if type(info) ~= "table" then
+        return false
+    end
+    if info.class_id == 2 and info.subclass_id == 16 then
+        thrown_eq_val = true
+    elseif info.equip_loc == "INVTYPE_THROWN" then
+        thrown_eq_val = true
+    elseif type(info.item_sub_type) == "string"
+        and string.find(string.lower(info.item_sub_type), "thrown", 1, true) then
+        thrown_eq_val = true
+    end
+    return thrown_eq_val
 end
 
 local function start_attack_type(unit, attack_type)

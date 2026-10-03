@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.214.0
+-- Version: 2.215.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -90,8 +90,12 @@ local g_talk_opened = 0
 -- 2.206.0 gsel: the guide file's gossip choice, made once per opened frame;
 -- GOSSIP_AFTER: RestedXP's own gossip automation acts on GOSSIP_SHOW first.
 -- (One table, 2.210.0: the chunk's 200-local limit.)
+-- 2.215.0 gid: the goal's IDENTIFIED NPC (guide id / learned id / raid marker /
+-- waypoint title / guide giver name, standing at the goal's waypoint) - tried =
+-- its name once a dialog with one began, refused = { name, npc } once one of
+-- them said the quest is not on offer. Cleared with the goal (reset_gid).
 local TK = { vend = { guid = nil, tries = 0, next_t = 0 }, VEND_TRIES = 3, NPC_VENDOR = 0x80,
-    gsel = { key = nil }, GOSSIP_AFTER = 1.0 }
+    gsel = { key = nil }, GOSSIP_AFTER = 1.0, gid = { tried = nil, refused = nil } }
 local g_in_dialog = false      -- the last tick was spent on an NPC dialog goal
 local g_in_travel = false      -- the last tick was spent walking to a waypoint
 local TALK_DONE = 2.0         -- seconds a frame is left open before the goal counts
@@ -1213,7 +1217,25 @@ local function bad(unit)
     return g ~= nil and g_bad_givers[g] == true
 end
 
-local function find_giver(player, goal, kind, wps)
+-- AT THE GOAL (2.215.0). A name, a learned id or the player's target only
+-- identifies the NPC when it stands at the goal's waypoint - RestedXP's
+-- .goto for a dialog step is the NPC's own spot. Searched around the PLAYER,
+-- a turn-in picked Grelin Whitebeard 6 yd away while the guide pointed
+-- 200 yd off. No waypoint: anywhere in range, as before.
+local function at_goal(unit, wps)
+    if #wps == 0 then return true end
+    local up = safe(function() return unit:get_position() end)
+    if not up then return false end
+    for i = 1, #wps do
+        local p = wps[i].pos
+        local d = p and geometry.distance_flat(up, p)
+        if type(d) == "number" and d <= TALK_SEARCH_FAR then return true end
+    end
+    return false
+end
+
+local function find_giver(player, goal, kind, wps, qid)
+    qid = qid or goal.quest_id
     -- THE GUIDE FILE'S NPC (2.206.0): a ".vendor <npc>" / ".trainer <npc>"
     -- step names its NPC by id (data/rxp_targets M.steps, matched by the
     -- step's waypoint). Ids work where names do not (blank on WoW Forever).
@@ -1223,12 +1245,12 @@ local function find_giver(player, goal, kind, wps)
         local id = st and ((a == "vendor" and st.v) or (a == "trainer" and st.t)) or nil
         if id then
             local unit = targeting.find_npc(player, id, 80)
-            if unit and not bad(unit) then
+            if unit and not bad(unit) and at_goal(unit, wps) then
                 return unit, "guide npc id " .. tostring(id)
             end
         end
     end
-    local known = guide.known_quest_npc(kind, goal.quest_id, goal.text)
+    local known = guide.known_quest_npc(kind, qid, goal.text)
     if known then
         local unit = targeting.find_npc(player, known, 80)
         -- A learned NPC that is no quest giver (a vendor, 2.185.0) was learned
@@ -1238,7 +1260,7 @@ local function find_giver(player, goal, kind, wps)
             guide.forget_quest_npc(kind, goal.quest_id, known, goal.text)
             unit = nil
         end
-        if unit and not bad(unit) then
+        if unit and not bad(unit) and at_goal(unit, wps) then
             return unit, "learned id " .. tostring(known)
         end
     end
@@ -1253,22 +1275,31 @@ local function find_giver(player, goal, kind, wps)
         local title = wps[i].title
         if title then
             local unit = targeting.find_named(player, title, nil, 80)
-            if unit and not bad(unit) then
+            if unit and not bad(unit) and at_goal(unit, wps) then
                 return unit, "waypoint title '" .. title .. "'"
             end
         end
     end
-    -- The friendly NPCs the guide files name on this quest's accept / turn-in
-    -- steps (2.206.0, data/rxp_targets M.givers). The dialog still checks the
-    -- quest is offered; a wrong one is ruled out like any other.
+    -- The friendly NPCs the guide files pair with this quest (2.206.0,
+    -- data/rxp_targets): since 2.215.0 by role - M.givers for an accept,
+    -- M.takers for a turn-in - and only the one at the goal's waypoint.
     if (kind == "accept" or kind == "turnin") and type(guide.rxp_quest_givers) == "function" then
-        local names = guide.rxp_quest_givers(goal.quest_id)
+        local names = guide.rxp_quest_givers(qid, kind)
         for i = 1, #names do
             local unit = targeting.find_named(player, names[i], nil, 80)
-            if unit and not bad(unit) then
+            if unit and not bad(unit) and at_goal(unit, wps) then
                 return unit, "guide giver '" .. names[i] .. "'"
             end
         end
+    end
+    -- NO GUESSING AFTER THE RIGHT NPC (2.215.0). Once the goal's identified
+    -- NPC has been talked to, the nearest-unit fallbacks below have no
+    -- evidence behind them: the 12:14 log walked from Durnan Furcutter (the
+    -- guide's giver, "not offered") through eight Anvilmar NPCs - trainers,
+    -- vendors, a guard - three tries each. dialog_goal decides what a refusal
+    -- by the identified NPC means.
+    if TK.gid.tried then
+        return nil, nil
     end
     -- The player's target only counts when it stands at the goal's waypoint
     -- (2.71.0): a vendor trip leaves the merchant targeted, and the next accept
@@ -1315,7 +1346,12 @@ local function commit_pending()
         return
     end
     local on = safe(function() return core.quests.is_on_quest(p.quest_id) end) == true
-    local landed = (p.kind == "accept" and on) or (p.kind == "turnin" and not on)
+    -- A turn-in is proven by the hand-in, not by the quest being gone
+    -- (2.215.0): a timed quest that expired is gone too, and Grelin
+    -- Whitebeard was learned as the taker of Scalding Mornbrew that way.
+    local turned = npc.was_turned_in(p.quest_id)
+        or safe(function() return core.quests.is_quest_flagged_completed(p.quest_id) end) == true
+    local landed = (p.kind == "accept" and on) or (p.kind == "turnin" and not on and turned)
     if landed then
         guide.learn_quest_npc(p.kind, p.quest_id, p.npc_id)
         debug("learned %s npc %d for quest %d", p.kind, p.npc_id, p.quest_id)
@@ -1465,6 +1501,7 @@ local function recover_stall(now, goal, label)
     g_bind_asked = false
     g_bad_givers = {}
     g_bad_since = 0
+    TK.gid.tried, TK.gid.refused = nil, nil
     g_force_path = true
     g_stall.t, g_stall.best, g_stall.reach = now, nil, false
     if g_stall.recoveries >= STALL_MAX then
@@ -1607,7 +1644,7 @@ local function dialog_goal(player, goal, kind, wps, label)
         return true
     end
 
-    local unit, how = find_giver(player, goal, kind, wps)
+    local unit, how = find_giver(player, goal, kind, wps, qid)
     g_giver_learned = nil
     if unit and type(how) == "string" and how:find("^learned id") then
         g_giver_learned = { kind = kind, qid = goal.quest_id, npc = tonumber(how:match("(%d+)$")), text = goal.text }
@@ -1638,6 +1675,38 @@ local function dialog_goal(player, goal, kind, wps, label)
         return true
     end
 
+    if not unit and TK.gid.refused and qid then
+        -- The goal's own NPC listed no such quest (2.215.0). Nothing else in
+        -- reach is evidence of a better one, so the goal is set aside here and
+        -- RestedXP's own state decides what comes next - the guide steps back
+        -- for a failed timed quest (Scalding Mornbrew Delivery, 5 min), the
+        -- set-aside goal is asked again on "step complete" (30 s).
+        local r = TK.gid.refused
+        trail("act", "%s %d: %s (npc %s), the guide's NPC for it at the waypoint, does not offer it - "
+            .. "on quest %s, completed %s - setting the goal aside, no other NPC tried",
+            kind, qid, tostring(r.name), tostring(r.npc),
+            tostring(safe(function() return core.quests.is_on_quest(qid) end)),
+            tostring(safe(function() return core.quests.is_quest_flagged_completed(qid) end)))
+        -- TK.gid stays until the goal changes (its reset), so a tick that
+        -- still lands on this goal cannot fall through to the nearest NPC.
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        return true
+    end
+    if not unit and TK.gid.tried then
+        -- The identified NPC timed out (gave_up): it gets the BAD_GIVER_RETRY
+        -- second chance below, not a walk through every other NPC here.
+        if next(g_bad_givers) ~= nil then
+            if g_bad_since == 0 then
+                g_bad_since = now
+            elseif (now - g_bad_since) >= BAD_GIVER_RETRY then
+                trail("act", "%s: asking %s again", kind, tostring(TK.gid.tried))
+                g_bad_givers = {}
+                g_bad_since = 0
+            end
+        end
+        state.set_note("Quest", "Guide: waiting to ask " .. tostring(TK.gid.tried) .. " again")
+        return true
+    end
     if not unit then
         -- Every NPC here was ruled out. Give them another chance after a
         -- while (2.63.0): a giver that timed out once - lag, a frame that
@@ -1730,8 +1799,14 @@ local function dialog_goal(player, goal, kind, wps, label)
     movement.nav_stop()
 
     local npc_id = geometry.object_id(unit)
-    trail("act", "%s with %s npc %s via %s", kind,
-        tostring(safe(function() return unit:get_name() end)), tostring(npc_id), tostring(how))
+    local uname = safe(function() return unit:get_name() end)
+    trail("act", "%s with %s npc %s via %s", kind, tostring(uname), tostring(npc_id), tostring(how))
+    -- Identified, not guessed (2.215.0): see TK.gid and find_giver.
+    local identified = type(how) == "string" and (how:find("^guide") or how:find("^learned id")
+        or how == "raid marker" or how:find("^waypoint title")) ~= nil
+    if identified and qid then
+        TK.gid.tried = tostring(uname or npc_id)
+    end
     if qid then
         g_pending = { kind = kind, quest_id = qid, npc_id = npc_id }
         state.quest.id = qid
@@ -1809,6 +1884,9 @@ local function dialog_goal(player, goal, kind, wps, label)
         if (result == "not_offered" or result == "gave_up") and type(how) == "string" and how:find("^learned id") then
             guide.forget_quest_npc(kind, qid, npc_id, goal.text)
             trail("act", "%s: learned npc %s refused quest %d - forgotten", kind, tostring(npc_id), qid)
+        end
+        if result == "not_offered" and identified then
+            TK.gid.refused = { name = tostring(uname), npc = npc_id }
         end
         if result == "not_offered" or result == "gave_up" then
             -- Not this NPC: rule it out and let find_giver pick the next.
@@ -2901,6 +2979,7 @@ tick_inner = function(player)
         g_talk_opened = 0
         g_bad_givers = {}
         g_bad_since = 0
+        TK.gid.tried, TK.gid.refused = nil, nil
         g_obj.guid, g_obj.uses = nil, 0
         g_fly_taken, g_fly_warned, g_fly_noopt = 0, false, 0
         g_giver_walk = nil

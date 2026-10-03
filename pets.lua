@@ -3,7 +3,7 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.222.0
+-- Version: 2.223.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /
@@ -86,24 +86,111 @@ local function pet_state(name)
     return nil
 end
 
---- Ask the handler for a state. Returns false when it could not, so the
---- caller falls through to core.input rather than assuming it worked.
-local function set_state(name)
-    local h = pet_handler()
+-- HUNTER GATE (2.223.0)
+--   A Hunter uses the pet handler only at level 10 or higher and only with a
+--   live pet out; at level 9 or lower (no pet yet) the handler is ignored -
+--   not resolved, not pumped. Other classes (the Warlock) use it as before.
+--   The answer is cached GATE_TTL s, since on_render asks every frame.
+local GATE_TTL = 1.0
+local HUNTER_PET_LEVEL = 10
+local gate = { t = -1e9, ok = false }
+
+local function hunter_class_id()
+    local ok, enums = pcall(require, "common/enums")
+    if ok and type(enums) == "table" and type(enums.class_id) == "table" then
+        return enums.class_id.HUNTER
+    end
+    return nil
+end
+
+--- May `player` (default: the local player) drive the pet handler now?
+function pets.handler_allowed(player)
+    local now = izi.now()
+    if (now - gate.t) < GATE_TTL then return gate.ok end
+    gate.t = now
+    if not player then
+        local okm, me = pcall(izi.me)
+        player = okm and me or nil
+    end
+    local allowed = false
+    if player then
+        local okc, cid = pcall(function() return player:get_class() end)
+        local hunter = hunter_class_id()
+        if okc and hunter ~= nil and cid == hunter then
+            local okl, lvl = pcall(function() return player:get_level() end)
+            allowed = okl and type(lvl) == "number" and lvl >= HUNTER_PET_LEVEL
+                and pets.alive(player) == true
+        else
+            allowed = true
+        end
+        -- Resolved only once allowed: a level 1-9 Hunter never loads it.
+        if allowed then allowed = pet_handler() ~= nil end
+    end
+    gate.ok = allowed
+    return allowed
+end
+
+--- The handler when this player may use it, else nil.
+local function handler_for(player)
+    if not pets.handler_allowed(player) then return nil end
+    return pet_handler()
+end
+
+--- Set the pet state through the handler: "PASSIVE", "DEFENSIVE" or
+--- "ASSIST", optionally after `delay` s (needs pets.on_render pumped).
+--- Returns false when the handler is absent or not allowed, so the caller
+--- falls through to core.input rather than assuming it worked.
+function pets.set_state(player, name, delay)
+    local h = handler_for(player)
     local v = pet_state(name)
     if not h or v == nil then
         return false
     end
     local ok = pcall(function()
-        h:set_pet_state(v)
+        if type(delay) == "number" and delay > 0 then
+            h:set_pet_state(v, delay)
+        else
+            h:set_pet_state(v)
+        end
     end)
     return ok
 end
 
+--- Send the pet to a world position (optionally after `delay` s, staying
+--- `duration` s). Position is copied into a fresh vec3. False when the
+--- handler is absent, not allowed, or the position is bad.
+function pets.move_to(player, pos, delay, duration)
+    local h = handler_for(player)
+    if not h or type(h.move_pet_to_position) ~= "function" or type(pos) ~= "table" and type(pos) ~= "userdata" then
+        return false
+    end
+    local okp, x, y, z = pcall(function() return pos.x, pos.y, pos.z end)
+    if not okp or type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
+        return false
+    end
+    local okv, vec3 = pcall(require, "common/geometry/vector_3")
+    if not okv or type(vec3) ~= "table" then return false end
+    local v = vec3.new(x, y, z)
+    local d = (type(delay) == "number" and delay > 0) and delay or 0
+    local ok = pcall(function()
+        if type(duration) == "number" and duration > 0 then
+            h:move_pet_to_position(v, d, duration)
+        else
+            h:move_pet_to_position(v, d)
+        end
+    end)
+    return ok
+end
+
+local function set_state(player, name)
+    return pets.set_state(player, name)
+end
+
 --- Pump the handler's delayed-command queue. Called once per frame from
---- main.lua's render callback; a no-op when there is no handler.
+--- main.lua's render callback; a no-op when there is no handler, or for a
+--- Hunter below level 10 / without a live pet.
 function pets.on_render()
-    local h = pet_handler()
+    local h = handler_for(nil)
     if h and type(h.on_render) == "function" then
         pcall(function()
             h:on_render()
@@ -211,7 +298,7 @@ function pets.passive(player)
         return false
     end
     last_stance = now
-    if not set_state("PASSIVE") then
+    if not set_state(player, "PASSIVE") then
         pcall(function() core.input.set_pet_passive() end)
     end
     -- Follow is not part of the handler's state enum, and parking the pet
@@ -247,7 +334,7 @@ function pets.attack(player, target)
     -- ASSIST means the pet tracks the player's target by itself, which is
     -- what a grinding bot wants: the target changes constantly and every
     -- re-issued attack command resets the pet's swing timer.
-    if not set_state("ASSIST") then
+    if not set_state(player, "ASSIST") then
         pcall(function() core.input.set_pet_assist() end)
         pcall(function() core.input.set_pet_defensive() end)
     end

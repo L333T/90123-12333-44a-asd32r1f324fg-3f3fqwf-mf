@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.224.0
+-- Version: 2.225.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -152,7 +152,13 @@ local built = { scan = -1, class = nil, race = nil, list = {}, by_role = {}, row
 local spell_cache = {}         -- best-rank id -> izi spell
 
 -- "Other known spells" (2.194.0): never listed, they are not abilities to tick.
-local OTHER_SKIP = { ["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true }
+-- PET UTILITY (2.225.0): a ticked "other" spell is cast on cooldown in every
+-- fight (racials.lua), so Feed Pet went off every second at the hunter's
+-- target. Pet care is pets.lua's job; these are never fight spells.
+local OTHER_SKIP = { ["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true,
+    ["Feed Pet"] = true, ["Dismiss Pet"] = true, ["Tame Beast"] = true, ["Beast Training"] = true,
+    ["Call Pet"] = true, ["Revive Pet"] = true, ["Mend Pet"] = true }
+smart.NEVER_CAST_OTHER = OTHER_SKIP
 
 --- A passive spell (SPELL_ATTR0_PASSIVE, attribute 0 flag 0x40). A client
 --- that does not answer leaves it listed.
@@ -1322,16 +1328,17 @@ function smart.combat(player, target, ctx)
     if not player or not spellbook.ready() then return false end
     build(player)
     if #built.list == 0 then return false end
-    if safe(player.is_channeling_or_casting, player) == true then
-        return true
-    end
-    begin(player, target, ctx and ctx.enemies or nil)
-
+    -- The pet goes in first (2.225.0): before the "already casting" return,
+    -- so a hunter opening with a cast still sends the pet at the mob.
     local pets = mod("pets")
     if pets and target and (built.class == enums.class_id.HUNTER or built.class == enums.class_id.WARLOCK) then
         xprobe("sm:pet attack")
         pcall(pets.attack, player, target)
     end
+    if safe(player.is_channeling_or_casting, player) == true then
+        return true
+    end
+    begin(player, target, ctx and ctx.enemies or nil)
 
     -- Rogue throw pull (2.224.0): throw, then hold until the mob is in melee.
     if rogue_throw() then return true end

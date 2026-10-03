@@ -87,6 +87,8 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   the other one when the first brings no pet). At or inside 11 yd the Hunter melees at 3 yd (no backing out); beyond it,
   Auto Shot + shots up to 40 yd (never past the weapon's real reach). Hunter shots carry min = 11 in `data/class_spells`.
   The pet handler (`common/utility/pet_handler`) is used by a Hunter only at level 10+ with a live pet (`pets.handler_allowed`, 2.223.0).
+  Never cast pet care spells from the fight list: Feed Pet etc. are kept out of "Other known spells" (2.225.0). `pets.attack` re-sends
+  unless the pet is in combat on the target; `pets.passive` never recalls within 6 s of an attack or while the pet fights.
 - **Rogue Throw pull** (2.224.0): Spells-tab "Throw" + Throw 2764 known + thrown weapon equipped -> the rogue stops at 28 yd,
   throws once per new target (never at an add once in combat), waits for the mob to reach 5 yd, then runs the melee rotation
   (`smart.lua` ROGUE THROW, `rogue.engage_range`). Fallbacks: 6 s without a throw or 8 s without the mob arriving -> close in.

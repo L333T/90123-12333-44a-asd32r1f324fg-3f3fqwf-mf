@@ -3,7 +3,7 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.224.0
+-- Version: 2.225.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /
@@ -285,10 +285,19 @@ end
 -- CONTROL
 -- ----------------------------------------------------------------------------
 local last_stance = 0
-local last_attack = 0
+local last_attack = -1e9
 
 --- Park the pet. Out of combat an aggressive pet pulls packs the bot never
 --- chose to fight, which is the single biggest source of unattended deaths.
+-- PET MODE (2.225.0): what the pet was last told - "passive" or "assist".
+local pet_mode = nil
+local ATTACK_HOLD = 6.0      -- no recall this soon after sending the pet in
+
+local function pet_fighting(player)
+    local pet = pets.get(player)
+    return pet ~= nil and safe(function() return pet:is_in_combat() end) == true
+end
+
 function pets.passive(player)
     if not pets.alive(player) then
         return false
@@ -297,7 +306,14 @@ function pets.passive(player)
     if (now - last_stance) < ACT_GAP then
         return false
     end
+    -- Not during a pull (2.225.0): the hunter sends the pet in before its own
+    -- first shot puts it in combat, and the out-of-combat upkeep then called
+    -- the pet straight back. Nor while the pet is still fighting.
+    if (now - last_attack) < ATTACK_HOLD or pet_fighting(player) then
+        return false
+    end
     last_stance = now
+    pet_mode = "passive"
     if not set_state(player, "PASSIVE") then
         pcall(function() core.input.set_pet_passive() end)
     end
@@ -317,11 +333,15 @@ function pets.attack(player, target)
         return false
     end
 
-    -- Only re-issue when the pet is not already on this target: pet_attack
-    -- resets its swing timer, so spamming it every tick lowers pet damage.
+    -- Only re-issue when the pet is not already attacking this target:
+    -- pet_attack resets its swing timer, so spamming it lowers pet damage.
+    -- ATTACKING, NOT TARGETING (2.225.0): a pet parked passive keeps its old
+    -- target, so "same target" alone skipped the command and the pet stood
+    -- by while the hunter fought. Skip only when it was sent in (assist) and
+    -- is in combat on this target.
     local pet = pets.get(player)
     local pet_target = safe(function() return pet:get_target() end)
-    if pet_target then
+    if pet_target and pet_mode == "assist" and pet_fighting(player) then
         local a = safe(function() return pet_target:get_guid() end)
         local b = safe(function() return target:get_guid() end)
         if a ~= nil and a == b then
@@ -330,6 +350,7 @@ function pets.attack(player, target)
     end
 
     last_attack = now
+    pet_mode = "assist"
 
     -- ASSIST means the pet tracks the player's target by itself, which is
     -- what a grinding bot wants: the target changes constantly and every

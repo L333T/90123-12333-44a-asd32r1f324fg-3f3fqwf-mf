@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.211.0
+-- Version: 2.212.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -454,6 +454,16 @@ menu:checkbox("mfg_buff_randoms", false, {
     visible_if = is_mage,
     tooltip = "Out of combat, cast Arcane Intellect (Rank 1, spell 1459) on friendly players within 30 yards who do not have it (or Arcane Brilliance). Not in a fight, while resting or under 50% mana; one player every 4 s, each player at most once per 10 minutes.",
 })
+-- STRAFE COMBAT (2.212.0): rogues only. class_id is the same per-class gate
+-- the Spells-tab sliders use, so no other class ever sees the row. strafe.lua
+-- checks the class again at run time, because a menu element is saved per
+-- account and a tick made on a rogue is still set when a mage logs in.
+menu:checkbox("mfg_strafe_combat", false, {
+    label = "Strafe Combat",
+    tab = "class",
+    class_id = enums.class_id.ROGUE,
+    tooltip = "In combat, once in melee range of the target, tap strafe right and left for a fraction of a second each so the rogue does not stand still. Stops the moment the target leaves melee range, so the bot can chase it.",
+})
 -- MELEE OR RANGED (2.93.0): only the slider that applies is shown. The same
 -- test that picks the engage distance decides it (rotation.is_melee - the
 -- ticked spells first, so a Cat / Bear druid or a Stormstrike shaman flips to
@@ -612,6 +622,7 @@ local aliases = {
     session_detail = "mfg_session_detail",
     print_action = "mfg_print_action",
     buff_randoms = "mfg_buff_randoms",
+    strafe_combat = "mfg_strafe_combat",
     skip_trivial = "mfg_skip_trivial",
     train = "mfg_train",
     vendor_each_lap = "mfg_vendor_each_lap",

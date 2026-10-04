@@ -3,7 +3,7 @@
 -- strafe.lua - Rogue "Strafe Combat": short left / right micro-strafes
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.231.0
+-- Version: 2.232.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT IT DOES (2.212.0)
@@ -14,9 +14,16 @@
 --   RIGHT -> pause -> LEFT -> pause -> RIGHT ... for a fraction of a second
 --   each. The two directions cancel out, so the rogue stays in swing range.
 --
+-- FORWARD + STRAFE TOGETHER (2.232.0)
+--   Each tap holds two keys at once, pressed and let go in this order:
+--     right: strafe_right_start, move_forward_start ... move_forward_stop, strafe_right_stop
+--     left:  move_forward_start, strafe_left_start ... move_forward_stop, strafe_left_stop
+--   The forward key keeps the rogue pressed into the target while it side-
+--   steps. Taps are 0.10 s longer than before (0.22-0.32 s).
+--
 -- IT NEVER MOVES THE PLAYER ANYWHERE
 --   No positions, no walker, no Sentinel: only core.input.strafe_*_start /
---   _stop. The moment the target leaves the band, combat_engage clears its
+--   _stop and move_forward_start / _stop. The moment the target leaves the band, combat_engage clears its
 --   in-position latch and issues the chase; strafe.update runs after the
 --   cascade on that same frame, sees the latch gone and lets go of the key.
 --   Combat movement then has the player to itself until it is back in
@@ -39,9 +46,9 @@ local strafe = {}
 
 local ROGUE = enums.class_id.ROGUE
 
--- Short taps: micro-positioning, not travel.
-local STRAFE_MIN = 0.12
-local STRAFE_MAX = 0.22
+-- Short taps: micro-positioning, not travel. 2.232.0: +0.10 s (was 0.12-0.22).
+local STRAFE_MIN = 0.22
+local STRAFE_MAX = 0.32
 
 local PAUSE_MIN = 0.06
 local PAUSE_MAX = 0.12
@@ -90,8 +97,10 @@ local function start_strafe(now)
 
     if strafe_direction <= 0 then
         pcall(core.input.strafe_right_start)
+        pcall(core.input.move_forward_start)
         strafe_direction = 1
     else
+        pcall(core.input.move_forward_start)
         pcall(core.input.strafe_left_start)
         strafe_direction = -1
     end
@@ -108,6 +117,7 @@ local function stop_strafe(now)
         return
     end
 
+    pcall(core.input.move_forward_stop)
     if strafe_direction > 0 then
         pcall(core.input.strafe_right_stop)
     else
@@ -190,6 +200,7 @@ end
 
 -- A reload mid-strafe would leave a key held down: let go of both once
 -- whenever this module loads.
+pcall(core.input.move_forward_stop)
 pcall(core.input.strafe_right_stop)
 pcall(core.input.strafe_left_stop)
 

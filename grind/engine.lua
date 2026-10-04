@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.233.0
+-- Version: 2.234.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -303,7 +303,12 @@ end
 local PATH_KEEP = 5.0
 local DRIFT_MAX = 8.0     -- PATH_KEEP plus slack for the Sentinel line between nodes
 local GRIND_PULL = 50.0
-local gp = { prev_step = 1, rejoin = true, rx = nil, ry = nil }
+local gp = { prev_step = 1, rejoin = true, rx = nil, ry = nil, last_tick = -1e9 }
+-- START ANYWHERE (2.234.0): a gap of RESTART_GAP s between grind ticks is a
+-- Start, a resume or a return from a vendor / rest / death run - the walk-in
+-- to the nearest point of the path runs then, and the route continues from
+-- the node after it, wherever on the path the character stands.
+local RESTART_GAP = 2.0
 
 --- x, y, z of node i, without node_row's wrap-around side effect.
 local function node_xyz(zone, i)
@@ -416,7 +421,7 @@ function grind.kill_mobs(player)
         return
     end
     local coords = zone.coords
-    if type(movement.plan_grind_route) == "function" then
+    if not zone.path and type(movement.plan_grind_route) == "function" then
         movement.plan_grind_route(coords)
     end
 
@@ -424,6 +429,10 @@ function grind.kill_mobs(player)
     if type(movement.grind_visit_order) == "function" then
         order = movement.grind_visit_order()
     end
+    -- A recorded path is walked in its own order from wherever the character
+    -- joins it (2.234.0): Sentinel's plan_route re-ordering is for the built-in
+    -- zones only.
+    if zone.path then order = nil end
     -- Back onto the path first: after a fight, or drifted off it (2.230.0).
     if rejoin_path(zone, order) then return end
     local using_order = type(order) == "table" and #order > 0
@@ -448,7 +457,11 @@ function grind.kill_mobs(player)
             state.set_note("Grind", "No grind path for this race/level")
             return
         end
-        snap_grind_node(zone, n, state.cached_pos)
+        -- A recorded path resumes where rejoin_path put it (2.234.0); the
+        -- nearest-node snap would step it back a node.
+        if not zone.path then
+            snap_grind_node(zone, n, state.cached_pos)
+        end
         pos, n = node_row(zone, state.grind.move)
     end
     if not pos then
@@ -518,6 +531,13 @@ function grind.tick(player)
     -- A fight just ended: walk back to the path before the patrol goes on.
     if gp.prev_step == 2 and state.grind.step == 1 then gp.rejoin = true end
     gp.prev_step = state.grind.step
+    -- Started, resumed, or back from a run elsewhere: join the path where the
+    -- character is (2.234.0).
+    do
+        local t = izi.now()
+        if (t - gp.last_tick) > RESTART_GAP then gp.rejoin = true end
+        gp.last_tick = t
+    end
     -- The whole fight, not only the unit in the target frame (2.174.0).
     -- Adds that die while another mob is focused are still queued, and the
     -- next pull waits until those corpses are looted.

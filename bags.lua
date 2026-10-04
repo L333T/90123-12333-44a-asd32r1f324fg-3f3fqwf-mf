@@ -3,7 +3,7 @@
 -- Bag items with the (bag, slot) pair the container calls actually take
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.230.0
+-- Version: 2.231.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.input.use_container_item documents it plainly: the slot index that
@@ -100,6 +100,11 @@ function bags.list(player)
         end
     end
     return out
+end
+
+--- Can the bags be read at all (inventory_helper present)? 2.231.0.
+function bags.readable()
+    return inventory_helper ~= nil and type(inventory_helper.get_character_bag_slots) == "function"
 end
 
 --- The item id at (bag, slot) now, or nil when the slot is empty.

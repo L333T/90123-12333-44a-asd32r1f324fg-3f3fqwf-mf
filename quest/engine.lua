@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.229.0
+-- Version: 2.230.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -279,6 +279,12 @@ local function fight_unit(player, unit, note)
     targeting.ensure_target(player, unit)
     probe("f:combat_range")
     local yards = combat_yards(player)
+    -- No way closer (behind a mountain): blacklisted, the guide goes on (2.230.0).
+    if type(targeting.approach_stuck) == "function" and targeting.approach_stuck(player, unit, yards) then
+        release_combat()
+        state.set_note("Quest", "Skip unreachable")
+        return false
+    end
     -- FAR TARGET: WALK IN ON A PATH (2.139.0). Combat hops stall from 35 yd
     -- (00:52 log: no progress at 32 yd). Stay on the Sentinel walk until
     -- inside the GUI engage distance + APPROACH_BAND, then combat movement

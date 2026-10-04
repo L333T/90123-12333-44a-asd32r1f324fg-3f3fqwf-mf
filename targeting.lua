@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.229.0
+-- Version: 2.230.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -580,6 +580,62 @@ function targeting.engaged(unit)
     if call(unit.is_in_combat, unit) == true then return true end
     local hp, mx = call(unit.get_health, unit), call(unit.get_max_health, unit)
     return type(hp) == "number" and type(mx) == "number" and mx > 0 and hp < mx
+end
+
+-- APPROACH WATCH (2.230.0). A target the character cannot get closer to -
+-- behind a mountain, up a cliff - used to be chased for as long as the kill
+-- timeout allowed: the 19:13 log swung 50 -> 60 -> 50 yd from a Crag Boar
+-- for 20 s and never gave it up, because the stuck ladder (movement/repath)
+-- watches a destination on a 5-yard grid, and a moving mob keeps changing
+-- it. This watches the TARGET by GUID: the distance must shrink by
+-- APPROACH_GAIN yards within APPROACH_STALL s while outside attack reach;
+-- if not, and the player has no line of sight to it, it is marked
+-- unreachable (scans skip it) and the caller drops it - the waypoint / grind
+-- path then carries on. With line of sight it gets APPROACH_STALL_LOS s.
+local APPROACH_GAIN = 3.0
+local APPROACH_STALL = 8.0
+local APPROACH_STALL_LOS = 15.0
+local aw = { guid = nil, best = nil, best_t = 0 }
+
+local function trail_act(fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, "act", fmt, ...)
+    end
+end
+
+--- True when `unit` should be given up: marked unreachable, the caller
+--- releases it. `reach` is the class attack distance (engage yards).
+function targeting.approach_stuck(player, unit, reach)
+    if not player or not indexable(unit) or call(unit.is_valid, unit) ~= true then return false end
+    local g = call(unit.get_guid, unit)
+    local d = call(player.distance_to, player, unit)
+    if g == nil or type(d) ~= "number" then return false end
+    local now = izi.now()
+    if g ~= aw.guid then
+        aw.guid, aw.best, aw.best_t = g, d, now
+        return false
+    end
+    -- In reach, or the player is busy (casting): nothing to judge.
+    if d <= (tonumber(reach) or 5) + 1.5
+        or call(player.is_channeling_or_casting, player) == true then
+        aw.best, aw.best_t = d, now
+        return false
+    end
+    if d < aw.best - APPROACH_GAIN then
+        aw.best, aw.best_t = d, now
+        return false
+    end
+    local stalled = now - aw.best_t
+    if stalled < APPROACH_STALL then return false end
+    local ok_l, los = pcall(player.los_to, player, unit)
+    local seen = ok_l and los == true
+    if seen and stalled < APPROACH_STALL_LOS then return false end
+    if type(state.mark_unreachable) == "function" then state.mark_unreachable(g) end
+    trail_act("no way closer to %s for %.0fs (%.0f yd, %s) - blacklisted, back to the path",
+        tostring(call(unit.get_name, unit)), stalled, d, seen and "in line of sight" or "no line of sight")
+    aw.guid = nil
+    return true
 end
 
 function targeting.attacker_to_switch(player, current_guid, range)

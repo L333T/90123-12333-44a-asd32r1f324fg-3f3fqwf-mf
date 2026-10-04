@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.229.0
+-- Version: 2.230.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -287,6 +287,111 @@ local function snap_grind_node(zone, n, here)
     end
 end
 
+-- ============================================================================
+-- STAY ON THE GRIND PATH (2.230.0)
+-- ============================================================================
+-- The patrol used to pull the nearest mob within 100 yd and wander off the
+-- route after it. Now:
+--   * a mob is pulled only once it is within the class's attack distance
+--     (rotation.combat_range - the Shooting / Ranged attack distance, or the
+--     melee distance; never under PULL_MIN), so the character keeps walking
+--     the path until something is in reach;
+--   * after a fight (and whenever it has drifted DRIFT_MAX off the line),
+--     with nothing attacking, it walks back to the nearest point of the path
+--     - PATH_KEEP yards counts as on it - and resumes from the node after it.
+local PATH_KEEP = 5.0
+local DRIFT_MAX = 8.0     -- PATH_KEEP plus slack for the Sentinel line between nodes
+local PULL_MIN = 8.0
+local gp = { prev_step = 1, rejoin = true, rx = nil, ry = nil }
+
+--- x, y, z of node i, without node_row's wrap-around side effect.
+local function node_xyz(zone, i)
+    if zone.flat then
+        local k = (i - 1) * 3
+        local c = zone.coords
+        local x, y, z = c[k + 1], c[k + 2], c[k + 3]
+        if type(x) == "number" and type(y) == "number" and type(z) == "number" then return x, y, z end
+        return nil
+    end
+    return row_xyz(zone.coords[i])
+end
+
+--- The nearest point of the recorded path to (hx, hy): x, y, z, distance,
+--- and the index of the node the segment leads to.
+local function path_nearest(zone, hx, hy)
+    local n = node_count(zone)
+    if n < 1 then return nil end
+    local loop = not (zone.path and zone.path.loop == false)
+    local bx, by, bz, bd, bnext = nil, nil, nil, nil, nil
+    local last = loop and n or (n - 1)
+    if n == 1 then last = 1 end
+    for i = 1, last do
+        local j = (i % n) + 1
+        local ax, ay, az = node_xyz(zone, i)
+        local cx, cy, cz = node_xyz(zone, j)
+        if ax and cx then
+            local vx, vy = cx - ax, cy - ay
+            local len2 = vx * vx + vy * vy
+            local k = 0
+            if len2 > 0.0001 then
+                k = ((hx - ax) * vx + (hy - ay) * vy) / len2
+                if k < 0 then k = 0 elseif k > 1 then k = 1 end
+            end
+            local px, py, pz = ax + vx * k, ay + vy * k, az + (cz - az) * k
+            local dx, dy = hx - px, hy - py
+            local d = math.sqrt(dx * dx + dy * dy)
+            if not bd or d < bd then
+                bx, by, bz, bd, bnext = px, py, pz, d, (k >= 1) and ((j % n) + 1) or j
+            end
+        end
+    end
+    return bx, by, bz, bd, bnext
+end
+
+--- The class's attack distance, which a mob must be inside to be pulled.
+local function pull_yards(player)
+    local yards = 30
+    if type(rotation.combat_range) == "function" then
+        local ok, y = pcall(rotation.combat_range, player)
+        if ok and type(y) == "number" and y > 0 then yards = y end
+    end
+    if yards < PULL_MIN then yards = PULL_MIN end
+    return yards
+end
+
+--- Walk back onto the path when asked to (after a fight) or drifted far.
+--- True while walking back (the caller does nothing else this tick).
+local function rejoin_path(zone, order)
+    local here = state.cached_pos
+    if not zone or not here or type(here.x) ~= "number" then return false end
+    local px, py, pz, d, nxt = path_nearest(zone, here.x, here.y)
+    if not px then return false end
+    if d > DRIFT_MAX then gp.rejoin = true end
+    if not gp.rejoin then return false end
+    if d <= PATH_KEEP then
+        gp.rejoin = false
+        -- Resume from the node the nearest segment leads to.
+        if type(order) == "table" and #order > 0 then
+            for p = 1, #order do
+                if order[p] == nxt then state.grind.move = p break end
+            end
+        else
+            state.grind.move = nxt
+        end
+        return false
+    end
+    if movement.is_quiet() or movement.in_combat_movement() then return true end
+    local same = gp.rx and math.abs(gp.rx - px) < 2 and math.abs(gp.ry - py) < 2
+    if movement.is_moving() and same then
+        state.set_note("Grind", string.format("Back to the path  %.0f yd", d))
+        return true
+    end
+    gp.rx, gp.ry = px, py
+    state.set_note("Grind", string.format("Back to the path  %.0f yd", d))
+    movement.nav_to({ x = px, y = py, z = pz }, true)
+    return true
+end
+
 function grind.kill_mobs(player)
     if not player then
         return
@@ -299,8 +404,9 @@ function grind.kill_mobs(player)
     end
     local zone = current_zone(player)
     local mobs = zone and zone.mobs or nil
-    -- 100 yd for every class and zone (2.94.0); the nearest valid mob wins.
-    local pull = targeting.ENEMY_SCAN or 100
+    -- Only what is within the class's attack distance (2.230.0); the nearest
+    -- valid mob wins. Until then the path is walked.
+    local pull = pull_yards(player)
     local enemies = targeting.find_mobs(player, mobs, pull, true)
     local unit = targeting.nearest(player, enemies)
     if unit then
@@ -323,6 +429,8 @@ function grind.kill_mobs(player)
     if type(movement.grind_visit_order) == "function" then
         order = movement.grind_visit_order()
     end
+    -- Back onto the path first: after a fight, or drifted off it (2.230.0).
+    if rejoin_path(zone, order) then return end
     local using_order = type(order) == "table" and #order > 0
     local n
     local pos
@@ -414,6 +522,9 @@ function grind.tick(player)
     if not player then
         return
     end
+    -- A fight just ended: walk back to the path before the patrol goes on.
+    if gp.prev_step == 2 and state.grind.step == 1 then gp.rejoin = true end
+    gp.prev_step = state.grind.step
     -- The whole fight, not only the unit in the target frame (2.174.0).
     -- Adds that die while another mob is focused are still queued, and the
     -- next pull waits until those corpses are looted.
@@ -576,6 +687,15 @@ function grind.tick(player)
     end
     if type(yards) ~= "number" or yards < 1 then
         yards = 30
+    end
+    -- No way closer (behind a mountain): blacklisted, back to the path (2.230.0).
+    if type(targeting.approach_stuck) == "function" and targeting.approach_stuck(player, unit, yards) then
+        movement.nav_stop()
+        movement.combat_release()
+        state.reset_target()
+        state.grind.step = 1
+        state.set_note("Grind", "Skip unreachable")
+        return
     end
     xprobe("g:auto_attack")
     targeting.start_auto_attack(player, unit)

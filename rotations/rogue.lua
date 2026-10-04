@@ -3,7 +3,7 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.227.0
+-- Version: 2.228.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON
@@ -88,6 +88,12 @@ function rogue.combat_profile()
     return {
         name = "rogue", melee_danger = 0, melee_safe = 0,
         should_retreat = function() return false end,
+        -- Stealth opener (2.228.0): step into the target's rear arc for Backstab.
+        want_behind = function(player, unit)
+            local ok, sm = pcall(require, "smart")
+            return ok and type(sm) == "table" and type(sm.rogue_wants_behind) == "function"
+                and sm.rogue_wants_behind(player, unit) == true
+        end,
     }
 end
 

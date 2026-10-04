@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.227.0
+-- Version: 2.228.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -237,6 +237,10 @@ W.HUNTER = t({
 W.ROGUE = t({
     -- 2.224.0: pull with a thrown weapon (smart.lua ROGUE THROW), then wait
     -- for the mob to come into melee. Not part of the combat order.
+    -- 2.228.0: Stealth opener (smart.lua ROGUE STEALTH OPENER): stealth near
+    -- the target, sneak behind it, open with Backstab. Comes before Throw.
+    { "Stealth",                "stealth", on = true,
+      tip = "Stealth before a pull, sneak behind the target and open with Backstab (Sinister Strike if it cannot get behind)." },
     { "Throw",                  "pull", on = true,
       tip = "With a throwing weapon equipped: throw at the target from up to 30 yd, then wait for it to reach melee." },
     { "Evasion",                "defensive", on = true, when = function(c) return c.near(8) >= 2 or c.hp() < c.def_pct() end, hp = 101 },
@@ -260,7 +264,7 @@ W.ROGUE = t({
     { "Mutilate",               "damage", on = true, melee = true },
     { "Hemorrhage",             "damage", on = true, melee = true },
     -- 2.227.0: only from Stealth and from behind the target.
-    { "Backstab",               "damage", on = false, melee = true,
+    { "Backstab",               "damage", on = true, melee = true,
       when = function(c) return c.stealthed() and c.behind() end,
       tip = "Used only while stealthed and behind the target (needs a dagger)." },
     { "Sinister Strike",        "damage", on = true, melee = true },
@@ -538,7 +542,7 @@ W.DRUID = t({
 -- ============================================================================
 -- The Spells tab groups rows by these headings, in this order.
 local SECTIONS = {
-    { key = "buffs",     label = "Buffs, Auras & Forms", roles = { buff = true, cbuff = true, form = true, seal = true, imbue = true } },
+    { key = "buffs",     label = "Buffs, Auras & Forms", roles = { buff = true, cbuff = true, form = true, seal = true, imbue = true, stealth = true } },
     { key = "pet",       label = "Pet",                  roles = { pet = true, petheal = true } },
     { key = "damage",    label = "Damage",               roles = { damage = true, execute = true, opener = true, finisher = true, filler = true } },
     { key = "debuff",    label = "Damage over Time & Debuffs", roles = { debuff = true, totem = true } },

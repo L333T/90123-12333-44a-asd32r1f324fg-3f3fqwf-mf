@@ -94,6 +94,9 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 - **Rogue Throw pull** (2.224.0): Spells-tab "Throw" + Throw 2764 known + thrown weapon equipped -> the rogue stops at 28 yd,
   throws once per new target (never at an add once in combat), waits for the mob to reach 5 yd, then runs the melee rotation
   (`smart.lua` ROGUE THROW, `rogue.engage_range`). Fallbacks: 6 s without a throw or 8 s without the mob arriving -> close in.
+- **Rogue Stealth opener** (2.228.0, before Throw): Stealth at 25 yd, no auto attack while stealthed out of combat
+  (`targeting.start_auto_attack`), step behind the target (`movement/combat.lua` behind_step via profile `want_behind`), Backstab;
+  4 s without getting behind -> open from the front. Backstab is only ever cast stealthed and behind.
 - **Sentinel advanced APIs - IF PATHING ERRORS OCCUR, START HERE** (2.219.0): `movement/sentinel_adv.lua` holds the uses of the lower-level services (`client.nav_client` / `client.obstacle`), which Sentinel documents by name only and says are likely to change: continent change reset (`get_continent_id`), running-path validation (`check_path` -> replan), obstacle look-ahead (`probe_path_ahead`, acts only on an explicit `blocked` field), zone-mirror repair (`get_zone_count`). Each call is feature-detected, pcall-guarded, switched off after 5 errors, and logs its first result shape (`adv api <name> first result: ...`) - read those lines first after a Sentinel update. Replans from here: at most one per 8 s and two per destination. Other advanced calls live in `movement/sentinel.lua` (find_path, find_path_avoid, find_path_corridor, check_path, raycast, random_point, kite, flee, add_zone, clear) - suspect them next. `client.movement` is never driven by this plugin.
 - **Bag items**: always through `bags.list` (inventory_helper `bag_id` / `bag_slot`, the pair
   `use_container_item` takes), which keeps only real bag slots - backpack 1-16, worn bags

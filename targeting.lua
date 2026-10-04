@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.227.0
+-- Version: 2.228.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -927,6 +927,7 @@ end
 -- is inside that attack's own range (gun, wand, or melee), not after the
 -- walk reaches the GUI stand distance.
 local AUTO_GAP = 1.0
+local STEALTH_IDS = { 1784, 1785, 1786, 1787, 5215, 6783, 9913 }   -- Stealth 1-4, Prowl 1-3
 local auto_guid, auto_t, auto_type = nil, -1e9, nil
 
 function targeting.start_auto_attack(player, unit)
@@ -936,6 +937,18 @@ function targeting.start_auto_attack(player, unit)
     -- A freed unit here is a native crash (2.32.0 / 01:11 session).
     if call(unit.is_valid, unit) ~= true then
         return false
+    end
+    -- STEALTH OPENER (2.228.0): no swing while stealthed out of combat - the
+    -- first auto attack would break Stealth before the opener. The opener
+    -- (smart.lua) starts the fight; auto attack follows once in combat.
+    if call(player.is_in_combat, player) ~= true then
+        local hidden = call(player.stealth_up, player)
+        if type(hidden) ~= "boolean" then
+            local ok_a, auras = pcall(require, "auras")
+            hidden = ok_a and type(auras) == "table" and type(auras.buff_up) == "function"
+                and auras.buff_up(player, STEALTH_IDS) == true
+        end
+        if hidden == true then return false end
     end
     local types = auto_attack.ATTACK_TYPE
     if type(types) ~= "table" or type(types.MELEE) ~= "number" then

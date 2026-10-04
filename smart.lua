@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.227.0
+-- Version: 2.228.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1261,6 +1261,11 @@ local RT = { guid = nil, plan_t = nil, thrown_t = nil, done = false,
 local function throw_ready(player)
     if built.class ~= enums.class_id.ROGUE then return false end
     if not smart.is_enabled("Throw", true) then return false end
+    -- A Stealth opener comes first (2.228.0).
+    if smart.is_enabled("Stealth", true) and spellbook.family("Stealth") ~= nil
+        and safe(player.is_in_combat, player) ~= true then
+        return false
+    end
     local known = spellbook.family("Throw") ~= nil
         or safe(function() return core.spell_book.is_spell_learned(THROW_ID) end) == true
     if not known then return false end
@@ -1343,6 +1348,128 @@ local function rogue_throw()
     return false
 end
 
+-- ============================================================================
+-- ROGUE STEALTH OPENER (2.228.0)
+-- ============================================================================
+-- With "Stealth" ticked and known, a rogue opening a fight (not in combat)
+-- casts Stealth once the target is within STEALTH_AT yards, walks in with
+-- no auto attack (targeting.start_auto_attack holds it while stealthed and
+-- out of combat), steps into the target's rear arc (movement/combat
+-- behind_step, asked through rogue.combat_profile want_behind) and opens
+-- with Backstab. Nothing else is cast while it sneaks in, so Stealth holds.
+--   * Backstab unticked / unknown           -> no positioning; the first
+--     ticked melee spell opens from Stealth;
+--   * not behind BEHIND_MAX s after reaching melee -> open with the rotation
+--     (Sinister Strike);
+--   * Stealth refused / not yet castable    -> no opener for this target;
+--   * the fight has begun some other way    -> normal rotation.
+-- The Throw pull (above) is skipped while a Stealth opener is wanted.
+local STEALTH_AT = 25
+local STEALTH_MELEE = 5
+local BEHIND_MAX = 4.0
+local SO = { guid = nil, reached_t = nil, done = false }
+
+local function entry_named(name)
+    local list = built.list
+    for i = 1, #list do
+        if list[i].name == name then return list[i] end
+    end
+    return nil
+end
+
+local function stealth_entry()
+    local e = entry_named("Stealth")
+    if e and usable(e) then return e end
+    return nil
+end
+
+local function backstab_entry()
+    local e = entry_named("Backstab")
+    if e and usable(e) then return e end
+    return nil
+end
+
+local function is_stealthed(player)
+    local v = safe(player.stealth_up, player)
+    if type(v) == "boolean" then return v end
+    local ids = ranks_of("Stealth")
+    return ids ~= nil and auras.buff_up(player, ids) == true
+end
+
+--- Is a Stealth opener wanted on `target` (rogue, Stealth ticked + known,
+--- not yet in combat, not given up on this target)?
+local function stealth_wanted(player, target)
+    if built.class ~= enums.class_id.ROGUE or not player or not target then return false end
+    local g = safe(target.get_guid, target)
+    if g == nil then return false end
+    if g ~= SO.guid then
+        SO.guid, SO.reached_t = g, nil
+        SO.done = safe(player.is_in_combat, player) == true
+    end
+    if SO.done then return false end
+    if safe(player.is_in_combat, player) == true then
+        SO.done = true
+        return false
+    end
+    return stealth_entry() ~= nil or is_stealthed(player)
+end
+
+--- movement: should the rogue step behind `target` now? (combat profile)
+function smart.rogue_wants_behind(player, target)
+    if not player or not target or not spellbook.ready() then return false end
+    build(player)
+    if not stealth_wanted(player, target) or not is_stealthed(player) then return false end
+    if not backstab_entry() then return false end
+    return not SO.reached_t or (izi.now() - SO.reached_t) < BEHIND_MAX
+end
+
+--- Is a Stealth opener under way or wanted (the Throw pull stands aside)?
+function smart.rogue_stealth_wanted(player, target)
+    if not player or not target or not spellbook.ready() then return false end
+    build(player)
+    return stealth_wanted(player, target)
+end
+
+--- Per combat decision. True = handled (cast, or holding Stealth).
+local function rogue_stealth()
+    if not stealth_wanted(P, T) then return false end
+    local now = izi.now()
+    local d = c.dist()
+    if not is_stealthed(P) then
+        if d > STEALTH_AT then return false end
+        local e = stealth_entry()
+        if e and (fail_until[e.key] or 0) <= now and cast(e, P) then
+            state.set_note("Stealth", "sneaking in")
+            return true
+        end
+        SO.done = true                     -- cannot stealth now: open normally
+        return false
+    end
+    if d <= STEALTH_MELEE then SO.reached_t = SO.reached_t or now end
+    local bs = backstab_entry()
+    if bs then
+        if d <= STEALTH_MELEE and c.behind() then
+            if try(bs, nil) then
+                SO.done = true
+                return true
+            end
+        end
+        if SO.reached_t and (now - SO.reached_t) >= BEHIND_MAX then
+            SO.done = true                 -- could not get behind: open from the front
+            state.set_note("Stealth", "not behind - opening from the front")
+            return false
+        end
+        state.set_note("Stealth", d <= STEALTH_MELEE and "getting behind" or "sneaking in")
+        return true                        -- hold: nothing that breaks Stealth
+    end
+    -- No Backstab: the first ticked melee spell opens once in reach.
+    if d <= STEALTH_MELEE then
+        SO.done = true
+        return false
+    end
+    return true
+end
+
 --- One combat decision. `ctx.enemies` is the pack the caller scanned.
 function smart.combat(player, target, ctx)
     if not player or not spellbook.ready() then return false end
@@ -1360,7 +1487,8 @@ function smart.combat(player, target, ctx)
     end
     begin(player, target, ctx and ctx.enemies or nil)
 
-    -- Rogue throw pull (2.224.0): throw, then hold until the mob is in melee.
+    -- Rogue Stealth opener (2.228.0), else the throw pull (2.224.0).
+    if rogue_stealth() then return true end
     if rogue_throw() then return true end
 
     -- Spells cast at their own range (in_reach). They are not held back until

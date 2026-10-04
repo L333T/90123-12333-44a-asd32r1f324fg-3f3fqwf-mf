@@ -3,7 +3,7 @@
 -- movement/zones.lua - blacklist zones
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.234.0
+-- Version: 2.235.0
 -- ============================================================================
 -- Areas movement refuses to path into, pruned in place on a TTL. Nothing here
 -- issues a command, so every other module may require it freely.
@@ -69,7 +69,8 @@ function Z.prune(t, force)
     local n, w = #zones, 0
     for i = 1, n do
         local z = zones[i]
-        if (t - z.t) < ZONE_TTL then
+        -- A learned hazard (movement/hazards, 2.235.0) never expires here.
+        if z.keep or (t - z.t) < ZONE_TTL then
             w = w + 1
             zones[w] = z
         end
@@ -91,7 +92,7 @@ function Z.blocked_xy(x, y)
     return false
 end
 
-function Z.blacklist_area(pos, radius, why)
+function Z.blacklist_area(pos, radius, why, keep)
     local x, y, z = xyz(pos)
     if not x then return false end
     radius = tonumber(radius) or ZONE_RADIUS
@@ -105,15 +106,22 @@ function Z.blacklist_area(pos, radius, why)
             zn.x, zn.y, zn.z, zn.t = x, y, z, t
             if radius > zn.r then zn.r = radius end
             zn.hits = zn.hits + 1
+            if keep then zn.keep = true end
             return true
         end
     end
     local evicted = false
     if #zones >= MAX_ZONES then
-        table.remove(zones, 1)
+        -- The oldest TEMPORARY zone goes first; a learned hazard only when
+        -- every zone is one (2.235.0).
+        local victim = 1
+        for i = 1, #zones do
+            if not zones[i].keep then victim = i break end
+        end
+        table.remove(zones, victim)
         evicted = true
     end
-    zones[#zones + 1] = { x = x, y = y, z = z, r = radius, t = t, hits = 1, why = why }
+    zones[#zones + 1] = { x = x, y = y, z = z, r = radius, t = t, hits = 1, why = why, keep = keep == true }
     if evicted then
         sn_resync(zones)
     else
@@ -169,6 +177,17 @@ end
 function Z.clear_all()
     local zones = R.zones
     for i = #zones, 1, -1 do zones[i] = nil end
+    sn_resync(zones)
+end
+
+--- Drop every learned-hazard zone (movement/hazards "forget", 2.235.0).
+function Z.clear_kept()
+    local zones = R.zones
+    local w = 0
+    for i = 1, #zones do
+        if not zones[i].keep then w = w + 1 zones[w] = zones[i] end
+    end
+    for i = #zones, w + 1, -1 do zones[i] = nil end
     sn_resync(zones)
 end
 

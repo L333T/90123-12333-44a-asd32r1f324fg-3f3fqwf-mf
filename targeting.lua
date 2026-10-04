@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.234.0
+-- Version: 2.235.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -595,7 +595,11 @@ end
 local APPROACH_GAIN = 3.0
 local APPROACH_STALL = 8.0
 local APPROACH_STALL_LOS = 15.0
-local aw = { guid = nil, best = nil, best_t = 0 }
+local aw = { guid = nil, best = nil, best_t = 0, seen_t = -1e9 }
+-- 2.235.0: not asked about this target for APPROACH_FRESH s (it was left for
+-- another, the path, a rest) -> the watch starts over. The 23:04 log blamed
+-- "162s" on a mob the bot had only just come back to.
+local APPROACH_FRESH = 3.0
 
 local function trail_act(fmt, ...)
     local ok, el = pcall(require, "errorlog")
@@ -612,7 +616,9 @@ function targeting.approach_stuck(player, unit, reach)
     local d = call(player.distance_to, player, unit)
     if g == nil or type(d) ~= "number" then return false end
     local now = izi.now()
-    if g ~= aw.guid then
+    local fresh = (now - aw.seen_t) > APPROACH_FRESH
+    aw.seen_t = now
+    if g ~= aw.guid or fresh then
         aw.guid, aw.best, aw.best_t = g, d, now
         return false
     end

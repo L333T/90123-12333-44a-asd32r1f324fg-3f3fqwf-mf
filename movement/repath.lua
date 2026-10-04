@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.234.0
+-- Version: 2.235.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -42,6 +42,7 @@ local Z = require("movement/zones")
 local W = require("movement/walker")
 local N = require("movement/sentinel")
 local O = require("movement/own")
+local Hz = require("movement/hazards")   -- 2.235.0: stuck spots are learned
 
 local OWNER = K.OWNER
 local pt = R.pt
@@ -335,7 +336,9 @@ local function avoid_ahead(hx, hy, hz, gx, gy, gz, kind, why)
         trail("%s %.0f yd from the %s - too close to blacklist ahead", why, d, kind)
         return false
     end
-    Z.blacklist_area(pt(R.P_TMP, cx, cy, cz), AREA_R, why)
+    -- A learned hazard (2.235.0): kept all session, saved once hit twice, so
+    -- the next lap of a grind loop routes around it instead of sticking.
+    Hz.add(cx, cy, cz, AREA_R, why)
     trail("%s at (%.0f, %.0f) toward the %s - area (%.0f, %.0f) r%.0f blacklisted, re-pathing around it",
         why, hx, hy, kind, cx, cy, AREA_R)
     -- The ladder starts over on the new path.

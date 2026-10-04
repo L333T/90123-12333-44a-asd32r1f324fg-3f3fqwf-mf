@@ -88,7 +88,10 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   Terrain (2.221.0, `movement/terrain.lua`, coords_helper): an "unreachable" destination is retried at
   the floor heights read at its x, y before it is failed; a Sentinel leg stalled 4 s against ground steeper
   than 1.4 yd/yd is blacklisted at the wall's measured width and re-pathed; move_direct only over walkable terrain.
-  coords_helper heights are a raycast from about player z + 4 - ground far above the character cannot be read.
+  coords_helper answers 0 on this client: after 5 zeros terrain.lua uses core.get_height_for_position (2.235.0).
+  Each new Sentinel path is checked 40 yd ahead for climbs > 1.4 yd/yd and drops > 10 yd; such spots, and every stuck
+  spot, are learned hazards (`movement/hazards.lua`: session-long keep zones, saved per map once hit twice,
+  `scripts_data/mfg/hazards_<map>.txt`; Path tab Learn / Forget). N.move waits up to 2.5 s for the avoid plan near zones.
 - **Hunter** (2.222.0): Call Pet 883 / Revive Pet 982 are hard-coded in `pets.hunter_pet` (dismissed -> Call, dead -> Revive,
   the other one when the first brings no pet). At or inside 11 yd the Hunter melees at 3 yd (no backing out); beyond it,
   Auto Shot + shots up to 40 yd (never past the weapon's real reach). Hunter shots carry min = 11 in `data/class_spells`.

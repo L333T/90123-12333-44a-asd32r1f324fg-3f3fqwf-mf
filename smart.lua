@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.228.0
+-- Version: 2.229.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -243,6 +243,14 @@ local function build(player)
         local def = defs[i]
         local name, role = def[1], def[2]
         local fam = spellbook.family(name)
+        -- HARD-CODED ID (2.229.0): a catalog `id = <spell id>` is used when the
+        -- scan has no family by that name but the character knows the id
+        -- (Eviscerate 2098 for the rogue).
+        if not fam and type(def.id) == "number" then
+            local known = safe(function() return core.spell_book.is_spell_learned(def.id) end) == true
+                or safe(function() return core.spell_book.has_spell(def.id) end) == true
+            if known then fam = { id = def.id, ranks = { def.id }, name = name } end
+        end
         if fam then
             local ids = (type(fam.ranks) == "table" and #fam.ranks > 0) and fam.ranks or { fam.id }
             local e = {
@@ -510,7 +518,14 @@ end
 
 local function ranks_of(name)
     local fam = spellbook.family(name)
-    if not fam then return nil end
+    if not fam then
+        -- A hard-coded catalog id (2.229.0) stands in for a missing family.
+        local list = built.list
+        for i = 1, #list do
+            if list[i].name == name then return list[i].ids end
+        end
+        return nil
+    end
     return (type(fam.ranks) == "table" and #fam.ranks > 0) and fam.ranks or { fam.id }
 end
 

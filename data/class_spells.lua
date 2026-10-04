@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.228.0
+-- Version: 2.229.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -257,7 +257,7 @@ W.ROGUE = t({
     { "Rupture",                "finisher", on = false, melee = true, cp = 4, thp = 50,
       when = function(c) return not c.debuff("Rupture") end },
     { "Envenom",                "finisher", on = false, melee = true, cp = 4 },
-    { "Eviscerate",             "finisher", on = true, melee = true, cp = 4 },
+    { "Eviscerate",             "finisher", on = true, melee = true, cp = 4, id = 2098 },   -- 2.229.0: id 2098 hard-coded
 
     { "Riposte",                "damage", on = true, melee = true },
     { "Ghostly Strike",         "damage", on = true, melee = true },

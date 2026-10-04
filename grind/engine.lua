@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.232.0
+-- Version: 2.233.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -94,6 +94,7 @@ function grind.set_profile(path)
     profile = path
     hunt = nil
     state.grind.finished = false
+    state.grind.dir = 1
     lap_pending = 0
 end
 
@@ -292,16 +293,16 @@ end
 -- ============================================================================
 -- The patrol used to pull the nearest mob within 100 yd and wander off the
 -- route after it. Now:
---   * a mob is pulled only once it is within the class's attack distance
---     (rotation.combat_range - the Shooting / Ranged attack distance, or the
---     melee distance; never under PULL_MIN), so the character keeps walking
---     the path until something is in reach;
+--   * PULL RADIUS (2.233.0): any mob within GRIND_PULL (50) yards of the
+--     character, every class, is pulled - the nearest first - and walked to;
+--     2.230.0 waited for the class attack distance, which left melee
+--     classes walking past everything;
 --   * after a fight (and whenever it has drifted DRIFT_MAX off the line),
 --     with nothing attacking, it walks back to the nearest point of the path
 --     - PATH_KEEP yards counts as on it - and resumes from the node after it.
 local PATH_KEEP = 5.0
 local DRIFT_MAX = 8.0     -- PATH_KEEP plus slack for the Sentinel line between nodes
-local PULL_MIN = 8.0
+local GRIND_PULL = 50.0
 local gp = { prev_step = 1, rejoin = true, rx = nil, ry = nil }
 
 --- x, y, z of node i, without node_row's wrap-around side effect.
@@ -348,17 +349,6 @@ local function path_nearest(zone, hx, hy)
     return bx, by, bz, bd, bnext
 end
 
---- The class's attack distance, which a mob must be inside to be pulled.
-local function pull_yards(player)
-    local yards = 30
-    if type(rotation.combat_range) == "function" then
-        local ok, y = pcall(rotation.combat_range, player)
-        if ok and type(y) == "number" and y > 0 then yards = y end
-    end
-    if yards < PULL_MIN then yards = PULL_MIN end
-    return yards
-end
-
 --- Walk back onto the path when asked to (after a fight) or drifted far.
 --- True while walking back (the caller does nothing else this tick).
 local function rejoin_path(zone, order)
@@ -371,6 +361,11 @@ local function rejoin_path(zone, order)
     if d <= PATH_KEEP then
         gp.rejoin = false
         -- Resume from the node the nearest segment leads to.
+        -- Walking an open path backwards (2.233.0): the segment's other end.
+        if (state.grind.dir or 1) < 0 then
+            local n = node_count(zone)
+            nxt = ((nxt - 2) % n) + 1        -- the segment's start
+        end
         if type(order) == "table" and #order > 0 then
             for p = 1, #order do
                 if order[p] == nxt then state.grind.move = p break end
@@ -404,9 +399,9 @@ function grind.kill_mobs(player)
     end
     local zone = current_zone(player)
     local mobs = zone and zone.mobs or nil
-    -- Only what is within the class's attack distance (2.230.0); the nearest
+    -- Anything within GRIND_PULL yards, every class (2.233.0); the nearest
     -- valid mob wins. Until then the path is walked.
-    local pull = pull_yards(player)
+    local pull = GRIND_PULL
     local enemies = targeting.find_mobs(player, mobs, pull, true)
     local unit = targeting.nearest(player, enemies)
     if unit then
@@ -468,34 +463,32 @@ function grind.kill_mobs(player)
         movement.clear_fail()
     end
     if movement.arrived(pos, 2) then
-        if gui.is_on("random_path") and n > 2 then
-            if math.random(1, 10) > 5 then
-                state.grind.move = state.grind.move + 1
-            else
-                state.grind.move = state.grind.move + 2
-            end
-        else
-            state.grind.move = state.grind.move + 1
+        local step = 1
+        if gui.is_on("random_path") and n > 2 and math.random(1, 10) <= 5 then
+            step = 2
         end
-        if state.grind.move > n then
-            -- LOOP PATH (2.151.0): a profile that is not a loop stops at its
-            -- last node unless "Loop Path" forces a replay. Fights still run.
-            if zone.path and zone.path.loop == false and not gui.is_on("path_loop") then
-                state.grind.move = n
-                state.grind.finished = true
+        -- ALWAYS LOOPING (2.233.0): a grind path is walked until the bot is
+        -- paused or stopped. A closed loop wraps to node 1; an open path (loop
+        -- = false) turns round at each end and walks back along itself,
+        -- instead of cutting across country from its last node to its first.
+        local open = zone.path and zone.path.loop == false
+        local dir = state.grind.dir or 1
+        if not open then dir = 1 end
+        local nxt = state.grind.move + dir * step
+        if nxt > n then
+            if open then
+                dir = -1
+                nxt = math.max(1, n - (nxt - n))
             else
-                state.grind.move = 1
+                nxt = 1
             end
             if zone.path then lap_pending = math.min(lap_pending + 1, 1) end
+        elseif nxt < 1 then
+            dir = 1
+            nxt = math.min(n, 1 + (1 - nxt))
         end
-        return
-    end
-    if state.grind.finished and gui.is_on("path_loop") then
+        state.grind.move, state.grind.dir = nxt, dir
         state.grind.finished = false
-        state.grind.move = 1
-    end
-    if state.grind.finished then
-        state.set_note("Grind", tostring(zone.name or "Path") .. " finished - tick Loop Path to replay")
         return
     end
     if type(movement.node_reachable) == "function" and movement.node_reachable(pos, state.grind.move) == false then

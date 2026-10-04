@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.232.0
+-- Version: 2.233.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -186,7 +186,7 @@ menu:combobox("mfg_path", 1, PATH_LABELS, {
 menu:checkbox("mfg_path_loop", false, {
     label = "Loop Path",
     tab = "path",
-    tooltip = "Force a replay when the path finishes. Paths that already have loop=true in the file still loop.",
+    tooltip = "Grind paths always loop until the bot is paused or stopped (2.233.0): a closed loop starts over, an open path turns round at its ends.",
 })
 menu:checkbox("mfg_path_reverse", false, {
     label = "Reverse Path",

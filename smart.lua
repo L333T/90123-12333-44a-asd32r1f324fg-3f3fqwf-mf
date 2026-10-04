@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -152,7 +152,13 @@ local built = { scan = -1, class = nil, race = nil, list = {}, by_role = {}, row
 local spell_cache = {}         -- best-rank id -> izi spell
 
 -- "Other known spells" (2.194.0): never listed, they are not abilities to tick.
-local OTHER_SKIP = { ["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true }
+-- PET UTILITY (2.225.0): a ticked "other" spell is cast on cooldown in every
+-- fight (racials.lua), so Feed Pet went off every second at the hunter's
+-- target. Pet care is pets.lua's job; these are never fight spells.
+local OTHER_SKIP = { ["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true,
+    ["Feed Pet"] = true, ["Dismiss Pet"] = true, ["Tame Beast"] = true, ["Beast Training"] = true,
+    ["Call Pet"] = true, ["Revive Pet"] = true, ["Mend Pet"] = true }
+smart.NEVER_CAST_OTHER = OTHER_SKIP
 
 --- A passive spell (SPELL_ATTR0_PASSIVE, attribute 0 flag 0x40). A client
 --- that does not answer leaves it listed.
@@ -237,6 +243,14 @@ local function build(player)
         local def = defs[i]
         local name, role = def[1], def[2]
         local fam = spellbook.family(name)
+        -- HARD-CODED ID (2.229.0): a catalog `id = <spell id>` is used when the
+        -- scan has no family by that name but the character knows the id
+        -- (Eviscerate 2098 for the rogue).
+        if not fam and type(def.id) == "number" then
+            local known = safe(function() return core.spell_book.is_spell_learned(def.id) end) == true
+                or safe(function() return core.spell_book.has_spell(def.id) end) == true
+            if known then fam = { id = def.id, ranks = { def.id }, name = name } end
+        end
         if fam then
             local ids = (type(fam.ranks) == "table" and #fam.ranks > 0) and fam.ranks or { fam.id }
             local e = {
@@ -504,7 +518,14 @@ end
 
 local function ranks_of(name)
     local fam = spellbook.family(name)
-    if not fam then return nil end
+    if not fam then
+        -- A hard-coded catalog id (2.229.0) stands in for a missing family.
+        local list = built.list
+        for i = 1, #list do
+            if list[i].name == name then return list[i].ids end
+        end
+        return nil
+    end
     return (type(fam.ranks) == "table" and #fam.ranks > 0) and fam.ranks or { fam.id }
 end
 
@@ -512,6 +533,26 @@ end
 function c.buff(name)
     local ids = ranks_of(name)
     return ids ~= nil and auras.buff_up(P, ids) == true
+end
+
+--- Stealthed (2.227.0)? izi stealth_up first, then the Stealth / Prowl buff.
+function c.stealthed()
+    if memo.stealth == nil then
+        local v = safe(P.stealth_up, P)
+        if type(v) ~= "boolean" then v = c.buff("Stealth") or c.buff("Prowl") end
+        memo.stealth = v == true
+    end
+    return memo.stealth
+end
+
+--- In the target's rear arc (2.227.0)? izi is_behind_unit; unreadable = no.
+function c.behind()
+    if memo.behind == nil then
+        local v = T and safe(P.is_behind_unit, P, T) or nil
+        if type(v) ~= "boolean" and T then v = safe(P.is_behind, P, T) end
+        memo.behind = v == true
+    end
+    return memo.behind
 end
 
 --- Is the named debuff (any rank) on the target?
@@ -753,12 +794,13 @@ local function in_reach(e, unit)
     local def = e.def
     if type(def.min) == "number" and def.min > 0 then
         -- The spell's own minimum range when the spellbook reports one
-        -- (2.120.0): the Hunter's dead zone is the game's, not a guess.
+        -- (2.120.0), but never inside the catalog's: the Hunter's 11-yard
+        -- melee band (2.222.0) is wider than the game's 8-yard dead zone.
         local mn = def.min
         local sp0 = spell_of(e)
         local real = sp0 and tonumber(safe(function() return sp0.minimum_range end)) or nil
-        if real and real > 0 and real < 20 then mn = real end
-        if c.dist() < mn then
+        if real and real > mn and real < 20 then mn = real end
+        if c.dist() <= mn then
             return false
         end
     end
@@ -979,9 +1021,26 @@ end
 
 local pet_fail_until = 0
 
+-- HUNTER PET (2.222.0): Call Pet 883 / Revive Pet 982, hard-coded, so a
+-- dismissed pet is called and a dead one revived whether or not the spell
+-- scan found them (pets.hunter_pet). The Spells-tab "Call Pet" tick still
+-- switches pet handling off.
+local HUNTER_PET = {
+    call = { name = "Call Pet", role = "pet", id = 883, ids = { 883 }, self = true,
+        key = "Call Pet|hunter", def = {} },
+    revive = { name = "Revive Pet", role = "pet", id = 982, ids = { 982 }, self = true,
+        key = "Revive Pet|hunter", def = {} },
+    cast = function(x) return cast(x, P) == true end,
+}
+
 local function pet_upkeep()
     local pets = mod("pets")
     if not pets then return false end
+    if built.class == enums.class_id.HUNTER and type(pets.hunter_pet) == "function"
+        and smart.is_enabled("Call Pet", true) then
+        local r = pets.hunter_pet(P, HUNTER_PET)
+        if r ~= nil then return r == true end
+    end
     local summon = nil
     local members = built.by_role.pet
     if members then
@@ -1191,21 +1250,261 @@ local function pack_interrupt()
     return false
 end
 
+-- ============================================================================
+-- ROGUE THROW (2.224.0)
+-- ============================================================================
+-- With "Throw" ticked (Spells tab), Throw (2764) known and a throwing weapon
+-- in the ranged slot, a rogue pulls each new target from THROW_STAND yards
+-- (inside Throw's 30), once, then holds position until the mob reaches melee
+-- and only then starts the ticked melee rotation. rotations/rogue.lua asks
+-- smart.rogue_throw_range for its engage distance, which is what makes
+-- combat movement stop at the throw distance and stay there.
+--   * not thrown within THROW_PLAN s of getting ready (line of sight, a
+--     failing cast) -> given up for that target, the rogue closes in;
+--   * the mob not in melee THROW_WAIT s after the throw (a caster, a runner,
+--     an evading mob) -> the rogue closes in.
+local THROW_ID = 2764
+local THROW_RANGE = 30
+local THROW_STAND = 28
+local THROW_PLAN = 6.0
+local THROW_WAIT = 8.0
+local THROW_MELEE = 5
+local RT = { guid = nil, plan_t = nil, thrown_t = nil, done = false,
+    e = { name = "Throw", role = "pull", id = THROW_ID, ids = { THROW_ID },
+        key = "Throw|pull", def = { on = true } } }
+
+local function throw_ready(player)
+    if built.class ~= enums.class_id.ROGUE then return false end
+    if not smart.is_enabled("Throw", true) then return false end
+    -- A Stealth opener comes first (2.228.0).
+    if smart.is_enabled("Stealth", true) and spellbook.family("Stealth") ~= nil
+        and safe(player.is_in_combat, player) ~= true then
+        return false
+    end
+    local known = spellbook.family("Throw") ~= nil
+        or safe(function() return core.spell_book.is_spell_learned(THROW_ID) end) == true
+    if not known then return false end
+    local tg = mod("targeting")
+    return tg ~= nil and type(tg.has_thrown_equipped) == "function"
+        and tg.has_thrown_equipped(player) == true
+end
+
+--- Follow the target: a new GUID starts a new pull - only to open a fight.
+--- A target picked up while already in combat (an add) is fought in melee;
+--- the rogue never walks back out to throw.
+local function throw_track(player, target)
+    local g = target and safe(target.get_guid, target) or nil
+    if g == nil then return nil end
+    if g ~= RT.guid then
+        RT.guid, RT.plan_t, RT.thrown_t = g, nil, nil
+        RT.done = safe(player.is_in_combat, player) == true
+    end
+    return g
+end
+
+--- Can this rogue throw-pull at all right now (ticked, known, equipped)?
+function smart.rogue_can_throw(player)
+    if not player or not spellbook.ready() then return false end
+    build(player)
+    return throw_ready(player)
+end
+
+--- The rogue's engage distance while a throw pull is under way, else nil.
+function smart.rogue_throw_range(player, target)
+    if not player or not target or not spellbook.ready() then return nil end
+    build(player)
+    if built.class ~= enums.class_id.ROGUE then return nil end
+    if throw_track(player, target) == nil or RT.done then return nil end
+    local now = izi.now()
+    local d = safe(player.distance_to, player, target)
+    if type(d) == "number" and d <= THROW_MELEE then
+        RT.done = true                         -- it came to us: melee now
+        return nil
+    end
+    if RT.thrown_t then
+        if (now - RT.thrown_t) >= THROW_WAIT then
+            RT.done = true
+            state.set_note("Throw", "mob did not come - closing in")
+            return nil
+        end
+        return THROW_STAND                     -- hold: let it come
+    end
+    if not throw_ready(player) then return nil end
+    if RT.plan_t and (now - RT.plan_t) >= THROW_PLAN then
+        RT.done = true
+        state.set_note("Throw", "no throw landed - closing in")
+        return nil
+    end
+    return THROW_STAND
+end
+
+--- Throw at T when the pull calls for it. True when it cast. While waiting
+--- for the mob it returns false: the rotation still runs (Evasion on an add),
+--- and its melee spells cannot reach from here anyway.
+local function rogue_throw()
+    if built.class ~= enums.class_id.ROGUE or not T then return false end
+    if throw_track(P, T) == nil or RT.done then return false end
+    if RT.thrown_t then
+        if c.dist() > THROW_MELEE and (izi.now() - RT.thrown_t) < THROW_WAIT then
+            state.set_note("Throw", "waiting for the mob to reach melee")
+        end
+        return false
+    end
+    if not throw_ready(P) then return false end
+    local d = c.dist()
+    if d > THROW_RANGE or d <= THROW_MELEE then return false end
+    RT.plan_t = RT.plan_t or izi.now()
+    if not sees(T) then return false end
+    if (fail_until[RT.e.key] or 0) > izi.now() then return false end
+    if cast(RT.e, T) then
+        RT.thrown_t = izi.now()
+        return true
+    end
+    return false
+end
+
+-- ============================================================================
+-- ROGUE STEALTH OPENER (2.228.0)
+-- ============================================================================
+-- With "Stealth" ticked and known, a rogue opening a fight (not in combat)
+-- casts Stealth once the target is within STEALTH_AT yards, walks in with
+-- no auto attack (targeting.start_auto_attack holds it while stealthed and
+-- out of combat), steps into the target's rear arc (movement/combat
+-- behind_step, asked through rogue.combat_profile want_behind) and opens
+-- with Backstab. Nothing else is cast while it sneaks in, so Stealth holds.
+--   * Backstab unticked / unknown           -> no positioning; the first
+--     ticked melee spell opens from Stealth;
+--   * not behind BEHIND_MAX s after reaching melee -> open with the rotation
+--     (Sinister Strike);
+--   * Stealth refused / not yet castable    -> no opener for this target;
+--   * the fight has begun some other way    -> normal rotation.
+-- The Throw pull (above) is skipped while a Stealth opener is wanted.
+local STEALTH_AT = 25
+local STEALTH_MELEE = 5
+local BEHIND_MAX = 4.0
+local SO = { guid = nil, reached_t = nil, done = false }
+
+local function entry_named(name)
+    local list = built.list
+    for i = 1, #list do
+        if list[i].name == name then return list[i] end
+    end
+    return nil
+end
+
+local function stealth_entry()
+    local e = entry_named("Stealth")
+    if e and usable(e) then return e end
+    return nil
+end
+
+local function backstab_entry()
+    local e = entry_named("Backstab")
+    if e and usable(e) then return e end
+    return nil
+end
+
+local function is_stealthed(player)
+    local v = safe(player.stealth_up, player)
+    if type(v) == "boolean" then return v end
+    local ids = ranks_of("Stealth")
+    return ids ~= nil and auras.buff_up(player, ids) == true
+end
+
+--- Is a Stealth opener wanted on `target` (rogue, Stealth ticked + known,
+--- not yet in combat, not given up on this target)?
+local function stealth_wanted(player, target)
+    if built.class ~= enums.class_id.ROGUE or not player or not target then return false end
+    local g = safe(target.get_guid, target)
+    if g == nil then return false end
+    if g ~= SO.guid then
+        SO.guid, SO.reached_t = g, nil
+        SO.done = safe(player.is_in_combat, player) == true
+    end
+    if SO.done then return false end
+    if safe(player.is_in_combat, player) == true then
+        SO.done = true
+        return false
+    end
+    return stealth_entry() ~= nil or is_stealthed(player)
+end
+
+--- movement: should the rogue step behind `target` now? (combat profile)
+function smart.rogue_wants_behind(player, target)
+    if not player or not target or not spellbook.ready() then return false end
+    build(player)
+    if not stealth_wanted(player, target) or not is_stealthed(player) then return false end
+    if not backstab_entry() then return false end
+    return not SO.reached_t or (izi.now() - SO.reached_t) < BEHIND_MAX
+end
+
+--- Is a Stealth opener under way or wanted (the Throw pull stands aside)?
+function smart.rogue_stealth_wanted(player, target)
+    if not player or not target or not spellbook.ready() then return false end
+    build(player)
+    return stealth_wanted(player, target)
+end
+
+--- Per combat decision. True = handled (cast, or holding Stealth).
+local function rogue_stealth()
+    if not stealth_wanted(P, T) then return false end
+    local now = izi.now()
+    local d = c.dist()
+    if not is_stealthed(P) then
+        if d > STEALTH_AT then return false end
+        local e = stealth_entry()
+        if e and (fail_until[e.key] or 0) <= now and cast(e, P) then
+            state.set_note("Stealth", "sneaking in")
+            return true
+        end
+        SO.done = true                     -- cannot stealth now: open normally
+        return false
+    end
+    if d <= STEALTH_MELEE then SO.reached_t = SO.reached_t or now end
+    local bs = backstab_entry()
+    if bs then
+        if d <= STEALTH_MELEE and c.behind() then
+            if try(bs, nil) then
+                SO.done = true
+                return true
+            end
+        end
+        if SO.reached_t and (now - SO.reached_t) >= BEHIND_MAX then
+            SO.done = true                 -- could not get behind: open from the front
+            state.set_note("Stealth", "not behind - opening from the front")
+            return false
+        end
+        state.set_note("Stealth", d <= STEALTH_MELEE and "getting behind" or "sneaking in")
+        return true                        -- hold: nothing that breaks Stealth
+    end
+    -- No Backstab: the first ticked melee spell opens once in reach.
+    if d <= STEALTH_MELEE then
+        SO.done = true
+        return false
+    end
+    return true
+end
+
 --- One combat decision. `ctx.enemies` is the pack the caller scanned.
 function smart.combat(player, target, ctx)
     if not player or not spellbook.ready() then return false end
     build(player)
     if #built.list == 0 then return false end
-    if safe(player.is_channeling_or_casting, player) == true then
-        return true
-    end
-    begin(player, target, ctx and ctx.enemies or nil)
-
+    -- The pet goes in first (2.225.0): before the "already casting" return,
+    -- so a hunter opening with a cast still sends the pet at the mob.
     local pets = mod("pets")
     if pets and target and (built.class == enums.class_id.HUNTER or built.class == enums.class_id.WARLOCK) then
         xprobe("sm:pet attack")
         pcall(pets.attack, player, target)
     end
+    if safe(player.is_channeling_or_casting, player) == true then
+        return true
+    end
+    begin(player, target, ctx and ctx.enemies or nil)
+
+    -- Rogue Stealth opener (2.228.0), else the throw pull (2.224.0).
+    if rogue_stealth() then return true end
+    if rogue_throw() then return true end
 
     -- Spells cast at their own range (in_reach). They are not held back until
     -- the walk finishes: the moment the focused target is in range, the

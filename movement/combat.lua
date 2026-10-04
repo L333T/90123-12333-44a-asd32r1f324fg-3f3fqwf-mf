@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -283,6 +283,75 @@ end
 --- This is the only entry point that takes combat ownership. Callers invoke it
 --- every tick while they want to fight `unit`; when they stop calling it, the
 --- state machine notices and releases combat movement on its own terms.
+-- ============================================================================
+-- GET BEHIND THE TARGET (2.228.0)
+-- ============================================================================
+-- A profile may ask for the rear arc: want_behind(player, unit) -> true (the
+-- rogue's Stealth opener, for Backstab). Melee only. The spot is BEHIND_YD
+-- behind the target along its facing (get_direction); when the straight
+-- line there passes within FRONT_CLEAR yards of the target's centre, the
+-- walk goes by its flank first, so the character does not cut across the
+-- front. Returns false while walking there, nil when there is nothing to do
+-- (no request, already behind, no facing, path blocked) - the normal
+-- approach then runs.
+local BEHIND_YD = 2.0
+local FLANK_YD = 3.5
+local FRONT_CLEAR = 2.5
+local BEHIND_REISSUE = 1.5
+
+local function behind_step(player, unit)
+    local prof = R.profile
+    if not prof or type(prof.want_behind) ~= "function" then return nil end
+    local okw, want = pcall(prof.want_behind, player, unit)
+    if not okw or want ~= true then return nil end
+    local okb, behind = pcall(player.is_behind_unit, player, unit)
+    if okb and behind == true then return nil end
+    local okd, dir = pcall(unit.get_direction, unit)
+    if not okd or dir == nil then return nil end
+    local okx, fx, fy = pcall(function() return dir.x, dir.y end)
+    if not okx or type(fx) ~= "number" or type(fy) ~= "number" then return nil end
+    local flen = sqrt(fx * fx + fy * fy)
+    if flen < 0.01 then return nil end
+    fx, fy = fx / flen, fy / flen
+    local ux, uy, uz = unit_xyz(unit)
+    local hx, hy, hz = here_xyz()
+    if not ux or not hx then return nil end
+    local bx, by = ux - fx * BEHIND_YD, uy - fy * BEHIND_YD
+    -- Does the straight line from here to the spot pass the target's front?
+    local tx, ty = bx, by
+    local lx, ly = bx - hx, by - hy
+    local llen2 = lx * lx + ly * ly
+    if llen2 > 0.01 then
+        local k = ((ux - hx) * lx + (uy - hy) * ly) / llen2
+        if k > 0 and k < 1 then
+            local cx, cy = hx + lx * k, hy + ly * k
+            -- Only a pass through the FRONT half needs the flank detour.
+            if dist2(cx, cy, ux, uy) < FRONT_CLEAR and ((cx - ux) * fx + (cy - uy) * fy) > -0.5 then
+                -- Flank on our side of the target first.
+                local nx, ny = -fy, fx
+                if (hx - ux) * nx + (hy - uy) * ny < 0 then nx, ny = -nx, -ny end
+                tx, ty = ux + nx * FLANK_YD, uy + ny * FLANK_YD
+            end
+        end
+    end
+    if dist2(hx, hy, tx, ty) < 0.75 then return nil end
+    if R.has_dest and (R.walker_moving or R.pending)
+        and dist2(R.dest_x, R.dest_y, tx, ty) <= BEHIND_REISSUE then
+        Rg.face(unit)
+        return false                         -- already walking there
+    end
+    if not O.nav_gap_ok() then return false end
+    local here = pt(P_HERE, hx, hy, hz)
+    local dest = pt(P_ALT, tx, ty, ground_z(tx, ty, uz or hz))
+    if not walk_open(here, dest) or not W.ensure() then return nil end
+    if W.move(dest, "behind") then
+        R.combat_stopped = false
+        dlog("combat", string.format("stepping behind the target (%.1f, %.1f)", tx, ty))
+        return false
+    end
+    return nil
+end
+
 function C.combat_engage(player, unit, yards)
     if not player or not unit or R.rest_lock then return false end
     -- Backpedalling after Frost Nova owns movement (2.97.0): no chase, no hop.
@@ -379,6 +448,12 @@ function C.combat_engage(player, unit, yards)
         R.retreat_until = 0
         if O.is_moving() then O.halt_all() end
         dlog("retreat", string.format("clear at %.1f yd", range))
+    end
+
+    -- 1b. the rear arc, when the profile asks for it (2.228.0)
+    if melee and type(range) == "number" and range <= 10 then
+        local bh = behind_step(player, unit)
+        if bh ~= nil then return bh end
     end
 
     -- 2. in position, with hysteresis: we must close to CHASE_BAND inside max

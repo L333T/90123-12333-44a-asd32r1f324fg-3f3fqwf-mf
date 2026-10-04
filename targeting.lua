@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -570,6 +570,74 @@ end
 local SWITCH_GAP = 1.5
 local last_switch_t = -1e9
 
+--- ONE TARGET UNTIL IT DIES (2.226.0). Is `unit` a target being fought -
+--- alive, and in combat or already wounded? The combat flag alone drops for
+--- a moment (a fleeing, evading or crowd-controlled mob), and a wounded mob
+--- has been hit by us. Such a target is never swapped for a new attacker.
+function targeting.engaged(unit)
+    if not indexable(unit) or call(unit.is_valid, unit) ~= true then return false end
+    if call(unit.is_dead_or_ghost, unit) == true then return false end
+    if call(unit.is_in_combat, unit) == true then return true end
+    local hp, mx = call(unit.get_health, unit), call(unit.get_max_health, unit)
+    return type(hp) == "number" and type(mx) == "number" and mx > 0 and hp < mx
+end
+
+-- APPROACH WATCH (2.230.0). A target the character cannot get closer to -
+-- behind a mountain, up a cliff - used to be chased for as long as the kill
+-- timeout allowed: the 19:13 log swung 50 -> 60 -> 50 yd from a Crag Boar
+-- for 20 s and never gave it up, because the stuck ladder (movement/repath)
+-- watches a destination on a 5-yard grid, and a moving mob keeps changing
+-- it. This watches the TARGET by GUID: the distance must shrink by
+-- APPROACH_GAIN yards within APPROACH_STALL s while outside attack reach;
+-- if not, and the player has no line of sight to it, it is marked
+-- unreachable (scans skip it) and the caller drops it - the waypoint / grind
+-- path then carries on. With line of sight it gets APPROACH_STALL_LOS s.
+local APPROACH_GAIN = 3.0
+local APPROACH_STALL = 8.0
+local APPROACH_STALL_LOS = 15.0
+local aw = { guid = nil, best = nil, best_t = 0 }
+
+local function trail_act(fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, "act", fmt, ...)
+    end
+end
+
+--- True when `unit` should be given up: marked unreachable, the caller
+--- releases it. `reach` is the class attack distance (engage yards).
+function targeting.approach_stuck(player, unit, reach)
+    if not player or not indexable(unit) or call(unit.is_valid, unit) ~= true then return false end
+    local g = call(unit.get_guid, unit)
+    local d = call(player.distance_to, player, unit)
+    if g == nil or type(d) ~= "number" then return false end
+    local now = izi.now()
+    if g ~= aw.guid then
+        aw.guid, aw.best, aw.best_t = g, d, now
+        return false
+    end
+    -- In reach, or the player is busy (casting): nothing to judge.
+    if d <= (tonumber(reach) or 5) + 1.5
+        or call(player.is_channeling_or_casting, player) == true then
+        aw.best, aw.best_t = d, now
+        return false
+    end
+    if d < aw.best - APPROACH_GAIN then
+        aw.best, aw.best_t = d, now
+        return false
+    end
+    local stalled = now - aw.best_t
+    if stalled < APPROACH_STALL then return false end
+    local ok_l, los = pcall(player.los_to, player, unit)
+    local seen = ok_l and los == true
+    if seen and stalled < APPROACH_STALL_LOS then return false end
+    if type(state.mark_unreachable) == "function" then state.mark_unreachable(g) end
+    trail_act("no way closer to %s for %.0fs (%.0f yd, %s) - blacklisted, back to the path",
+        tostring(call(unit.get_name, unit)), stalled, d, seen and "in line of sight" or "no line of sight")
+    aw.guid = nil
+    return true
+end
+
 function targeting.attacker_to_switch(player, current_guid, range)
     if not player or call(player.is_in_combat, player) ~= true then
         return nil
@@ -587,8 +655,8 @@ function targeting.attacker_to_switch(player, current_guid, range)
         end
         local cur = state.target and state.target.unit
         if indexable(cur) and call(cur.is_valid, cur) == true and call(cur.get_guid, cur) == current_guid
-            and call(cur.is_dead_or_ghost, cur) ~= true and call(cur.is_in_combat, cur) == true then
-            return nil              -- still fighting (the pet, say): stay on it
+            and targeting.engaged(cur) then
+            return nil              -- still being fought: stay on it until it dies (2.226.0)
         end
     end
     local now = izi.now()
@@ -835,6 +903,42 @@ function targeting.has_wand_equipped(player)
     return false
 end
 
+-- THROWN WEAPON (2.224.0): a throwing knife / axe in the ranged slot - weapon
+-- subclass 16, or INVTYPE_THROWN, or "Thrown" as the localised subclass.
+local thrown_eq_until = 0
+local thrown_eq_val = false
+
+function targeting.has_thrown_equipped(player)
+    if not player then
+        return false
+    end
+    local now = izi.now()
+    if now < thrown_eq_until then
+        return thrown_eq_val
+    end
+    thrown_eq_until = now + 2
+    thrown_eq_val = false
+    local id = ranged_item_id(player)
+    if not id then
+        return false
+    end
+    local info = safe(function()
+        return core.quests.get_item_info(id)
+    end)
+    if type(info) ~= "table" then
+        return false
+    end
+    if info.class_id == 2 and info.subclass_id == 16 then
+        thrown_eq_val = true
+    elseif info.equip_loc == "INVTYPE_THROWN" then
+        thrown_eq_val = true
+    elseif type(info.item_sub_type) == "string"
+        and string.find(string.lower(info.item_sub_type), "thrown", 1, true) then
+        thrown_eq_val = true
+    end
+    return thrown_eq_val
+end
+
 local function start_attack_type(unit, attack_type)
     if type(attack_type) ~= "number" then
         return false
@@ -879,6 +983,7 @@ end
 -- is inside that attack's own range (gun, wand, or melee), not after the
 -- walk reaches the GUI stand distance.
 local AUTO_GAP = 1.0
+local STEALTH_IDS = { 1784, 1785, 1786, 1787, 5215, 6783, 9913 }   -- Stealth 1-4, Prowl 1-3
 local auto_guid, auto_t, auto_type = nil, -1e9, nil
 
 function targeting.start_auto_attack(player, unit)
@@ -888,6 +993,18 @@ function targeting.start_auto_attack(player, unit)
     -- A freed unit here is a native crash (2.32.0 / 01:11 session).
     if call(unit.is_valid, unit) ~= true then
         return false
+    end
+    -- STEALTH OPENER (2.228.0): no swing while stealthed out of combat - the
+    -- first auto attack would break Stealth before the opener. The opener
+    -- (smart.lua) starts the fight; auto attack follows once in combat.
+    if call(player.is_in_combat, player) ~= true then
+        local hidden = call(player.stealth_up, player)
+        if type(hidden) ~= "boolean" then
+            local ok_a, auras = pcall(require, "auras")
+            hidden = ok_a and type(auras) == "table" and type(auras.buff_up) == "function"
+                and auras.buff_up(player, STEALTH_IDS) == true
+        end
+        if hidden == true then return false end
     end
     local types = auto_attack.ATTACK_TYPE
     if type(types) ~= "table" or type(types.MELEE) ~= "number" then

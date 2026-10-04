@@ -3,7 +3,7 @@
 -- Combat engine - pack scan, target latch, kill-first priority, class hooks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared by every class rotation. Class modules opt in by exposing interrupt,
@@ -380,15 +380,29 @@ end
 --- already inside the class range and at least 3 yards closer, should take
 --- over. The latch only fills in when that target is gone.
 ---@return game_object|nil target, game_object[] pack
+--- Is the candidate being fought (alive; in combat or wounded)? 2.226.0.
+local function engaged(unit)
+    local targeting = targeting_ref()
+    if targeting and type(targeting.engaged) == "function" then
+        return targeting.engaged(unit) == true
+    end
+    return alive(unit) and call(unit.is_in_combat, unit) == true
+end
+
 function combat.acquire(player, range, candidate, pack)
     if type(pack) ~= "table" then
         pack = combat.scan(player, range)
     end
     if alive(candidate) then
-        local nearer = closer_target(player, candidate, pack, range)
-        if nearer then
-            adopt(nearer, "kill")
-            return nearer, pack
+        -- ONE TARGET UNTIL IT DIES (2.226.0): a target being fought is kept,
+        -- whatever else joins - no closer mob, no kill-first npc takes over.
+        -- Those swaps apply only before the fight with it has begun.
+        if not engaged(candidate) then
+            local nearer = closer_target(player, candidate, pack, range)
+            if nearer then
+                adopt(nearer, "kill")
+                return nearer, pack
+            end
         end
         combat.hold(candidate)
         return candidate, pack

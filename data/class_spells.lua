@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -204,36 +204,45 @@ W.HUNTER = t({
     { "Deterrence",             "defensive", on = true },
     { "Intimidation",           "interrupt", on = true },
 
-    { "Hunter's Mark",          "debuff", on = true, min = 8 },
-    { "Serpent Sting",          "debuff", on = true, min = 8, g = "sting", thp = 40 },
-    { "Viper Sting",            "debuff", on = false, min = 8, g = "sting" },
+    { "Hunter's Mark",          "debuff", on = true, min = 11 },
+    { "Serpent Sting",          "debuff", on = true, min = 11, g = "sting", thp = 40 },
+    { "Viper Sting",            "debuff", on = false, min = 11, g = "sting" },
 
     { "Bestial Wrath",          "cooldown", on = true, self = true },
     { "Rapid Fire",             "cooldown", on = true, self = true },
 
-    { "Multi-Shot",             "aoe", on = true, min = 8, n = 2 },
+    { "Multi-Shot",             "aoe", on = true, min = 11, n = 2 },
 
-    -- Melee (2.120.0): Wing Clip first, so a mob that closed in is slowed
-    -- and the Hunter can step back out of the dead zone and shoot again.
+    -- Melee (2.120.0): Wing Clip first, so a mob that closed in is slowed.
+    -- MELEE BAND (2.222.0): at or inside 11 yd the Hunter closes to 3 yd and
+    -- fights in melee; every shot carries min = 11.
     { "Wing Clip",              "control", on = true, melee = true,
       when = function(c) return c.dist() <= 5 and not c.debuff("Wing Clip") and not c.debuff("Concussive Shot") end,
-      tip = "In melee: slow the mob so the Hunter can back out of the dead zone." },
-    -- Shots before melee swings. A shot that is out of its minimum range is
-    -- skipped, so inside the dead zone Raptor Strike is the one that lands.
-    { "Arcane Shot",            "damage", on = true, min = 8 },
-    { "Steady Shot",            "damage", on = true, min = 8 },
+      tip = "In melee (11 yd or closer): slow the mob." },
+    -- Shots before melee swings. A shot inside its minimum range (11 yd) is
+    -- skipped, so in the melee band Raptor Strike is the one that lands.
+    { "Arcane Shot",            "damage", on = true, min = 11 },
+    { "Steady Shot",            "damage", on = true, min = 11 },
     { "Kill Command",           "damage", on = true, when = function(c) return c.dist() > 5 end },
-    { "Concussive Shot",        "damage", on = false, min = 8, when = function(c) return c.dist() <= 10 end },
+    { "Concussive Shot",        "damage", on = false, min = 11, when = function(c) return c.dist() <= 16 end },
     { "Raptor Strike",          "damage", on = true, melee = true },
     { "Mongoose Bite",          "damage", on = true, melee = true },
 
-    { "Auto Shot",              "filler", on = true, min = 8 },
+    { "Auto Shot",              "filler", on = true, min = 11 },
 })
 
 -- ============================================================================
 -- ROGUE
 -- ============================================================================
 W.ROGUE = t({
+    -- 2.224.0: pull with a thrown weapon (smart.lua ROGUE THROW), then wait
+    -- for the mob to come into melee. Not part of the combat order.
+    -- 2.228.0: Stealth opener (smart.lua ROGUE STEALTH OPENER): stealth near
+    -- the target, sneak behind it, open with Backstab. Comes before Throw.
+    { "Stealth",                "stealth", on = true,
+      tip = "Stealth before a pull, sneak behind the target and open with Backstab (Sinister Strike if it cannot get behind)." },
+    { "Throw",                  "pull", on = true,
+      tip = "With a throwing weapon equipped: throw at the target from up to 30 yd, then wait for it to reach melee." },
     { "Evasion",                "defensive", on = true, when = function(c) return c.near(8) >= 2 or c.hp() < c.def_pct() end, hp = 101 },
     { "Cloak of Shadows",       "defensive", on = true },
     { "Kick",                   "interrupt", on = true, melee = true },
@@ -248,13 +257,16 @@ W.ROGUE = t({
     { "Rupture",                "finisher", on = false, melee = true, cp = 4, thp = 50,
       when = function(c) return not c.debuff("Rupture") end },
     { "Envenom",                "finisher", on = false, melee = true, cp = 4 },
-    { "Eviscerate",             "finisher", on = true, melee = true, cp = 4 },
+    { "Eviscerate",             "finisher", on = true, melee = true, cp = 4, id = 2098 },   -- 2.229.0: id 2098 hard-coded
 
     { "Riposte",                "damage", on = true, melee = true },
     { "Ghostly Strike",         "damage", on = true, melee = true },
     { "Mutilate",               "damage", on = true, melee = true },
     { "Hemorrhage",             "damage", on = true, melee = true },
-    { "Backstab",               "damage", on = false, melee = true, tip = "Needs to be behind the target and a dagger." },
+    -- 2.227.0: only from Stealth and from behind the target.
+    { "Backstab",               "damage", on = true, melee = true,
+      when = function(c) return c.stealthed() and c.behind() end,
+      tip = "Used only while stealthed and behind the target (needs a dagger)." },
     { "Sinister Strike",        "damage", on = true, melee = true },
 })
 
@@ -530,7 +542,7 @@ W.DRUID = t({
 -- ============================================================================
 -- The Spells tab groups rows by these headings, in this order.
 local SECTIONS = {
-    { key = "buffs",     label = "Buffs, Auras & Forms", roles = { buff = true, cbuff = true, form = true, seal = true, imbue = true } },
+    { key = "buffs",     label = "Buffs, Auras & Forms", roles = { buff = true, cbuff = true, form = true, seal = true, imbue = true, stealth = true } },
     { key = "pet",       label = "Pet",                  roles = { pet = true, petheal = true } },
     { key = "damage",    label = "Damage",               roles = { damage = true, execute = true, opener = true, finisher = true, filler = true } },
     { key = "debuff",    label = "Damage over Time & Debuffs", roles = { debuff = true, totem = true } },

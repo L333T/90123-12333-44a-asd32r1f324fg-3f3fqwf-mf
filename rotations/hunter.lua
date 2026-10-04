@@ -3,7 +3,7 @@
 -- Hunter grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Warlock.
@@ -68,9 +68,20 @@ function hunter.label() return "Hunter" end
 --     Wing Clip landing makes the mob kitable, so the next tick backs off.
 -- The old profile backed off from anything inside 8 yd, always: a mob on the
 -- hunter just followed, and the bot stepped back, got hit, stepped back.
+--
+-- MELEE BAND AND 40-YARD RANGE (2.222.0)
+--   Replaces the kite-out rule above. At or inside MELEE_BAND (11 yd) the
+--   Hunter always fights in melee: it closes to MELEE_CLOSE (3 yd), swings
+--   and uses the ticked melee spells; no shot is cast there (the shots carry
+--   min = 11 in data/class_spells). Beyond it, Auto Shot and the ticked
+--   shots, from the Shooting distance - at most RANGED_MAX (40 yd), and never
+--   past the weapon's real reach, where no shot can land.
 local AUTO_SHOT_ID = 75
 local DEAD_ZONE_FALLBACK = 8
 local GUN_RANGE_FALLBACK = 35
+local MELEE_BAND = 11
+local MELEE_CLOSE = 3
+local RANGED_MAX = 40
 local SNARE_IDS = {
     2974, 14267, 14268,          -- Wing Clip
     19229,                       -- Improved Wing Clip (root)
@@ -95,8 +106,17 @@ local function spell_ranges()
     return mn, mx
 end
 
---- Inside this many yards Auto Shot and the shots cannot fire.
-function hunter.dead_zone() return (spell_ranges()) end
+--- At or inside this many yards the Hunter fights in melee (2.222.0): the
+--- 11-yard band, or the game's own dead zone if that is ever wider.
+function hunter.dead_zone()
+    local mn = spell_ranges()
+    if mn > MELEE_BAND then return mn end
+    return MELEE_BAND
+end
+
+hunter.MELEE_BAND = MELEE_BAND
+hunter.MELEE_CLOSE = MELEE_CLOSE
+hunter.RANGED_MAX = RANGED_MAX
 
 --- The gun's (bow's, crossbow's) real reach.
 function hunter.gun_range()
@@ -126,31 +146,36 @@ function hunter.can_kite(player, target)
     return auras.debuff_up(target, SNARE_IDS) == true
 end
 
---- Fight this target in melee right now?
+--- Fight this target in melee right now? At or inside the melee band,
+--- always (2.222.0) - no stepping back out to shoot.
 function hunter.melee_mode(player, target)
     if not player or not target then return false end
     local d = safe(function() return player:distance_to(target) end)
-    if type(d) ~= "number" or d > hunter.dead_zone() then return false end
-    return not hunter.can_kite(player, target)
+    return type(d) == "number" and d <= hunter.dead_zone()
 end
 
 --- The engage distance rotation.combat_range uses for a Hunter: the Melee
 --- distance while fighting in melee, the Shooting distance otherwise.
 function hunter.engage_range(player, target)
     if hunter.melee_mode(player, target) then
-        local m = slider("melee_yards", 5)
-        if m < 1 then m = 1 elseif m > 5 then m = 5 end
+        local m = slider("melee_yards", MELEE_CLOSE)
+        if m < 1 then m = 1 elseif m > MELEE_CLOSE then m = MELEE_CLOSE end
         return m, true
     end
     local want = slider("ranged_yards", 25)
     local reach = hunter.gun_range() - 1
+    if reach > RANGED_MAX then reach = RANGED_MAX end
     if want > reach then want = reach end
     local floor = hunter.dead_zone() + 2
     if want < floor then want = floor end
     return want, false
 end
 
-function hunter.combat_range(player) return hunter.gun_range() - 1 end
+function hunter.combat_range(player)
+    local r = hunter.gun_range() - 1
+    if r > RANGED_MAX then r = RANGED_MAX end
+    return r
+end
 function hunter.is_melee(player) return false end
 
 -- The dead zone: a Hunter cannot shoot inside ~8 yards. Unlike every other
@@ -171,13 +196,10 @@ function hunter.combat_profile()
         name         = "hunter",
         melee_danger = dz,
         melee_safe   = dz + 6,
-        -- Back out of the dead zone only when it works (2.120.0): the target
-        -- is held by the pet or slowed / rooted, and nothing else is on the
-        -- hunter in melee. Otherwise stand and fight in melee.
+        -- No backing out (2.222.0): inside the melee band the Hunter closes
+        -- to 3 yd and fights in melee.
         should_retreat = function(ctx)
-            if not ctx or not ctx.target then return false end
-            if (ctx.melee_count or 0) >= 2 then return false end
-            return ctx.distance <= hunter.dead_zone() and hunter.can_kite(ctx.player, ctx.target)
+            return false
         end,
     }
 end

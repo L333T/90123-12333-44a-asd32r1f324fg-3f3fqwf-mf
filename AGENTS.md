@@ -57,6 +57,11 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 
 ## Architecture in one page
 
+- **Targets** (2.226.0): a target being fought (`targeting.engaged`: alive, in combat or wounded) is kept until it dies -
+  `combat.acquire`, `targeting.attacker_to_switch` and the quest fight-back never swap it for an add or a closer mob.
+- **Approach / grind path** (2.230.0): `targeting.approach_stuck` drops a target the character cannot get 3 yd closer to in 8 s
+  without line of sight (15 s with it) - marked unreachable, the engine carries on. Grind pulls only within the class attack
+  distance and walks back to the nearest point of the path (5 yd = on it) after each fight or an 8 yd drift.
 - **Cascade** (`main.lua`): death → flight check → enemy scan → loot → conjure →
   healing/rest → buffs → trainer → vendor → equip → mode (grind / quest / path).
 - **Rotation**: the Spells tab ticks (`picks.lua`) + `data/class_spells.lua` (per-class
@@ -79,6 +84,22 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   Sentinel's own stuck recovery is waited on only while it moves the character: frozen
   6 s (`N.recovery_stalled`) -> `RP.recovery_watch` blacklists the area ahead along the
   path and `N.repath_around` plans around it with find_path_avoid (2.192.0).
+  Terrain (2.221.0, `movement/terrain.lua`, coords_helper): an "unreachable" destination is retried at
+  the floor heights read at its x, y before it is failed; a Sentinel leg stalled 4 s against ground steeper
+  than 1.4 yd/yd is blacklisted at the wall's measured width and re-pathed; move_direct only over walkable terrain.
+  coords_helper heights are a raycast from about player z + 4 - ground far above the character cannot be read.
+- **Hunter** (2.222.0): Call Pet 883 / Revive Pet 982 are hard-coded in `pets.hunter_pet` (dismissed -> Call, dead -> Revive,
+  the other one when the first brings no pet). At or inside 11 yd the Hunter melees at 3 yd (no backing out); beyond it,
+  Auto Shot + shots up to 40 yd (never past the weapon's real reach). Hunter shots carry min = 11 in `data/class_spells`.
+  The pet handler (`common/utility/pet_handler`) is used by a Hunter only at level 10+ with a live pet (`pets.handler_allowed`, 2.223.0).
+  Never cast pet care spells from the fight list: Feed Pet etc. are kept out of "Other known spells" (2.225.0). `pets.attack` re-sends
+  unless the pet is in combat on the target; `pets.passive` never recalls within 6 s of an attack or while the pet fights.
+- **Rogue Throw pull** (2.224.0): Spells-tab "Throw" + Throw 2764 known + thrown weapon equipped -> the rogue stops at 28 yd,
+  throws once per new target (never at an add once in combat), waits for the mob to reach 5 yd, then runs the melee rotation
+  (`smart.lua` ROGUE THROW, `rogue.engage_range`). Fallbacks: 6 s without a throw or 8 s without the mob arriving -> close in.
+- **Rogue Stealth opener** (2.228.0, before Throw): Stealth at 25 yd, no auto attack while stealthed out of combat
+  (`targeting.start_auto_attack`), step behind the target (`movement/combat.lua` behind_step via profile `want_behind`), Backstab;
+  4 s without getting behind -> open from the front. Backstab is only ever cast stealthed and behind.
 - **Sentinel advanced APIs - IF PATHING ERRORS OCCUR, START HERE** (2.219.0): `movement/sentinel_adv.lua` holds the uses of the lower-level services (`client.nav_client` / `client.obstacle`), which Sentinel documents by name only and says are likely to change: continent change reset (`get_continent_id`), running-path validation (`check_path` -> replan), obstacle look-ahead (`probe_path_ahead`, acts only on an explicit `blocked` field), zone-mirror repair (`get_zone_count`). Each call is feature-detected, pcall-guarded, switched off after 5 errors, and logs its first result shape (`adv api <name> first result: ...`) - read those lines first after a Sentinel update. Replans from here: at most one per 8 s and two per destination. Other advanced calls live in `movement/sentinel.lua` (find_path, find_path_avoid, find_path_corridor, check_path, raycast, random_point, kite, flee, add_zone, clear) - suspect them next. `client.movement` is never driven by this plugin.
 - **Bag items**: always through `bags.list` (inventory_helper `bag_id` / `bag_slot`, the pair
   `use_container_item` takes), which keeps only real bag slots - backpack 1-16, worn bags

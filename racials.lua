@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -50,8 +50,20 @@ local resolved_race = nil
 local extra_defs = {}
 
 --- The other known spells smart.lua listed; replaces the previous list.
+-- 2.225.0: pet care spells are never cast from here, even if a list from an
+-- older build ticked them (Feed Pet went off every second in hunter fights).
+local EXTRA_NEVER = { ["Feed Pet"] = true, ["Dismiss Pet"] = true, ["Tame Beast"] = true,
+    ["Beast Training"] = true, ["Call Pet"] = true, ["Revive Pet"] = true, ["Mend Pet"] = true }
+
 function racials.set_extra(list)
-    extra_defs = type(list) == "table" and list or {}
+    local out = {}
+    if type(list) == "table" then
+        for i = 1, #list do
+            local d = list[i]
+            if type(d) == "table" and not EXTRA_NEVER[d.label] then out[#out + 1] = d end
+        end
+    end
+    extra_defs = out
     resolved, resolved_race = nil, nil
 end
 

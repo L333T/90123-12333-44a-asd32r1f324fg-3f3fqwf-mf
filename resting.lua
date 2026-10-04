@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -340,12 +340,43 @@ local function water_ids(player)
     return with_bag_extras("water", list, ew)
 end
 
+-- WHAT IS IN THE BAGS (2.231.0). has_usable walked every known food / water
+-- id (~380) and asked izi.item(id):count() for each - a bag scan per id. With
+-- no food in the bags nothing ended the loop early, and the rest tick asks up
+-- to four times: after every kill at low health, 30-40 ms and 4-6 MB a
+-- check, every 2 s (SPIKE u:healing 60-76 ms, heap +8.7 MB, 19:24 and 19:30
+-- sessions). Now the bags are read once per PRESENT_TTL and only ids
+-- actually carried are asked about. nil = bags unreadable: the old full walk.
+local PRESENT_TTL = 1.0
+local present = { t = -1e9, set = nil }
+
+local function bag_present()
+    if not bags.readable() then return nil end
+    local now = izi.now()
+    if present.set and (now - present.t) < PRESENT_TTL then return present.set end
+    local me = nil
+    pcall(function() me = izi.me() end)
+    local set = {}
+    local list = bags.list(me)
+    for i = 1, #list do
+        local id = list[i].item_id
+        if id then set[id] = true end
+    end
+    present.t, present.set = now, set
+    return set
+end
+
+local function present_reset()
+    present.t = -1e9
+end
+
 local function has_usable(ids)
     if type(ids) ~= "table" then
         return false
     end
+    local carried = bag_present()
     for i = 1, #ids do
-        local item = item_of(ids[i])
+        local item = (carried == nil or carried[ids[i]]) and item_of(ids[i]) or nil
         if item then
             local count = safe(function() return item:count() end) or 0
             local ready = safe(function() return item:cooldown_up() end) == true
@@ -378,8 +409,9 @@ local function use_first(ids)
     -- table scored zero and lost to a level 1 vendor roll.
     local held = 0
     local refused = nil
+    local carried = bag_present()
     for i = 1, #ids do
-        local item = item_of(ids[i])
+        local item = (carried == nil or carried[ids[i]]) and item_of(ids[i]) or nil
         if item then
             local count = safe(function() return item:count() end) or 0
             local ready = safe(function() return item:cooldown_up() end) == true
@@ -398,6 +430,7 @@ local function use_first(ids)
                 end
                 rprobe("rest:used")
                 if ok == true then
+                    present_reset()          -- the last one may just have gone
                     rtrail("used %s", tostring(safe(function() return item:name() end) or ids[i]))
                     return true
                 end

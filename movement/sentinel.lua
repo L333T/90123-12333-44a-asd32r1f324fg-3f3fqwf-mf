@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -175,6 +175,19 @@ function N.on_nav_done(ok, reason, detail)
             W.clear_dest()
         end
         return
+    end
+    -- WAYPOINT HEIGHT RETRY (2.221.0, movement/terrain.lua): "unreachable" is
+    -- most often the right x, y at the wrong z. When another floor height is
+    -- found there, drop the leg without the failure handling below (no hold,
+    -- no off-mesh blacklist); the caller's next move asks at that height.
+    if r == "unreachable" and R.has_dest and R.cur_owner ~= OWNER.COMBAT then
+        local ok_t, Tr = pcall(require, "movement/terrain")
+        if ok_t and type(Tr) == "table" and Tr.on_unreachable(R.dest_x, R.dest_y, R.dest_z) then
+            R.sn_active, R.sn_reason = false, r
+            R.sn_leash_hold = false
+            W.clear_dest()
+            return
+        end
     end
     -- Remember the failed destination (2.109.0): Sentinel-only travel does not
     -- re-request it for K.SN_FAIL_HOLD seconds.
@@ -639,7 +652,11 @@ function N.move(p, why)
     end
     if hx then
         local d = dist2(hx, hy, p.x, p.y)
-        if d < 30 and line_clear(hx, hy, hz, p.x, p.y, p.z) then
+        -- 2.221.0: a clear ray is not walkable ground - a slope too steep to
+        -- climb lets it through. Terrain the line cannot vouch for is planned.
+        local ok_t, Tr = pcall(require, "movement/terrain")
+        if d < 30 and line_clear(hx, hy, hz, p.x, p.y, p.z)
+            and (not ok_t or type(Tr) ~= "table" or Tr.line_ok(hx, hy, hz, p.x, p.y)) then
             W.halt()
             begin_leg(p, why)
             local okd = pcall(c.move_direct, c, to_vec3(p), on_nav_done)
@@ -1430,6 +1447,8 @@ function N.reset_caches()
     ar = { dest = nil }
     corr_key = nil
     R.sn_fail = nil
+    local ok_t, Tr = pcall(require, "movement/terrain")   -- 2.221.0
+    if ok_t and type(Tr) == "table" and type(Tr.reset) == "function" then Tr.reset() end
 end
 
 return N

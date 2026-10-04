@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.220.0
+-- Version: 2.232.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -30,6 +30,7 @@ local C = require("movement/combat")
 local RP = require("movement/repath")      -- 2.84.0: re-aim + stuck ladder
 local Lk_mod = require("movement/locks")
 local Adv = require("movement/sentinel_adv")   -- 2.219.0: Sentinel advanced APIs
+local Tr = require("movement/terrain")         -- 2.221.0: terrain walls (coords_helper)
 
 local STATE             = K.STATE
 local OWNER             = K.OWNER
@@ -351,6 +352,7 @@ function F.pulse()
     RP.recovery_watch(t)     -- 2.192.0: Sentinel's recovery frozen 6 s -> re-path around the spot
     N.repath_tick(t)         -- 2.192.0: follow the avoid plan once it is back
     Adv.tick(t)              -- 2.219.0: continent reset, path check, probe, zone mirror
+    Tr.tick(t)               -- 2.221.0: stalled at a mountain / cliff -> blacklist its width, re-path
     -- Backpedalling (2.97.0): nothing else may steer until it ends.
     if Lk_mod.backpedal_tick(t) then
         return

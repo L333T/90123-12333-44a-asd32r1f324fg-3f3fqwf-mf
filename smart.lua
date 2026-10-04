@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.226.0
+-- Version: 2.227.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -518,6 +518,26 @@ end
 function c.buff(name)
     local ids = ranks_of(name)
     return ids ~= nil and auras.buff_up(P, ids) == true
+end
+
+--- Stealthed (2.227.0)? izi stealth_up first, then the Stealth / Prowl buff.
+function c.stealthed()
+    if memo.stealth == nil then
+        local v = safe(P.stealth_up, P)
+        if type(v) ~= "boolean" then v = c.buff("Stealth") or c.buff("Prowl") end
+        memo.stealth = v == true
+    end
+    return memo.stealth
+end
+
+--- In the target's rear arc (2.227.0)? izi is_behind_unit; unreadable = no.
+function c.behind()
+    if memo.behind == nil then
+        local v = T and safe(P.is_behind_unit, P, T) or nil
+        if type(v) ~= "boolean" and T then v = safe(P.is_behind, P, T) end
+        memo.behind = v == true
+    end
+    return memo.behind
 end
 
 --- Is the named debuff (any rank) on the target?

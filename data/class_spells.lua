@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.226.0
+-- Version: 2.227.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -259,7 +259,10 @@ W.ROGUE = t({
     { "Ghostly Strike",         "damage", on = true, melee = true },
     { "Mutilate",               "damage", on = true, melee = true },
     { "Hemorrhage",             "damage", on = true, melee = true },
-    { "Backstab",               "damage", on = false, melee = true, tip = "Needs to be behind the target and a dagger." },
+    -- 2.227.0: only from Stealth and from behind the target.
+    { "Backstab",               "damage", on = false, melee = true,
+      when = function(c) return c.stealthed() and c.behind() end,
+      tip = "Used only while stealthed and behind the target (needs a dagger)." },
     { "Sinister Strike",        "damage", on = true, melee = true },
 })
 

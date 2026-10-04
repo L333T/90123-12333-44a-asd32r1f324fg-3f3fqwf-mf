@@ -3,7 +3,7 @@
 -- movement/terrain.lua - terrain-aware Sentinel pathing (coords_helper)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.234.0
+-- Version: 2.235.0
 -- ============================================================================
 -- Sentinel plans on its navmesh and knows nothing about the ground the client
 -- has loaded. Three things here read that ground through
@@ -61,6 +61,7 @@ local R = require("movement/rt")
 local U = require("movement/util")
 local Z = require("movement/zones")
 local N = require("movement/sentinel")
+local Hz = require("movement/hazards")   -- 2.235.0: learned bad terrain
 
 local OWNER = K.OWNER
 local pt = R.pt
@@ -116,46 +117,97 @@ local function api_error(name)
 end
 
 -- ----------------------------------------------------------------------------
--- HEIGHT  (coords:get_terrain_height, cached on a 1-yard grid)
+-- HEIGHT  (coords:get_terrain_height, else core.get_height_for_position)
 -- ----------------------------------------------------------------------------
+-- 2.235.0: on this client coords_helper:get_terrain_height answers 0 for
+-- every point (23:04 session: "first result: number 0") - every wall check
+-- and line check since 2.221.0 read "no terrain" and did nothing. After
+-- COORDS_DEAD zero answers in a row it is dropped for the session and
+-- core.get_height_for_position takes over: the height of the ground below a
+-- point we choose, so the ray can start ABOVE a slope (zstart) and terrain
+-- higher than the character becomes readable (the window grows to
+-- CORE_WINDOW). Cached on a 1-yard grid per ray start.
 local H_TTL, H_MAX = 2.0, 600
 local hc, hc_n = {}, 0
+local COORDS_DEAD = 5
+local CORE_WINDOW = 15.0
+local WINDOW_COORDS = 2.5  -- coords_helper: stop once the ground is this far above the reference
+local coords_zero, coords_dead = 0, false
+local HQ = nil                         -- the one vec3 handed to core
 
 local function hkey(x, y)
     return (floor(x) + WORLD_LIMIT) * 40001 + (floor(y) + WORLD_LIMIT)
 end
 
---- Terrain height at (x, y), or nil. Only near the player: the raycast reads
---- terrain the client has loaded.
-function T.height(x, y)
-    if not finite(x) or not finite(y) then return nil end
+local function coords_height(x, y)
     local c = coords()
-    if not c or type(c.get_terrain_height) ~= "function" or errors.height >= ERR_MAX then
-        return nil
+    if coords_dead or not c or type(c.get_terrain_height) ~= "function" or errors.height >= ERR_MAX then
+        return nil, false
     end
-    local key = hkey(x, y)
-    local now = izi.now()
-    local e = hc[key]
-    if e and (now - e.t) < H_TTL then return e.h or nil end
     local ok, h = pcall(c.get_terrain_height, c, x, y)
     if not ok then
         api_error("height")
-        return nil
+        return nil, false
     end
     if not first.height then
         first.height = true
         trail("coords_helper get_terrain_height first result: %s %s", type(h), tostring(h))
     end
     -- 0 is what the call answers with nothing under the point.
-    if not finite(h) or h == 0 then h = false end
+    if not finite(h) or h == 0 then
+        coords_zero = coords_zero + 1
+        if coords_zero >= COORDS_DEAD then
+            coords_dead = true
+            trail("coords_helper answered 0 %d times - terrain heights from core.get_height_for_position",
+                COORDS_DEAD)
+        end
+        return nil, true
+    end
+    coords_zero = 0
+    return h, true
+end
+
+local function core_height(x, y, zstart)
+    if type(core) ~= "table" or type(core.get_height_for_position) ~= "function" then return nil end
+    if not HQ then HQ = vec3.new(x, y, zstart) else HQ.x, HQ.y, HQ.z = x, y, zstart end
+    local ok, h = pcall(core.get_height_for_position, HQ)
+    if not ok or not finite(h) or h == 0 then return nil end
+    return h
+end
+
+--- How far above the character the ground can be read (see march).
+function T.window()
+    return coords_dead and CORE_WINDOW or WINDOW_COORDS
+end
+
+--- Ground height at (x, y), or nil. `zstart`: where the ray starts (default
+--- the character's height + 4, as coords_helper does). Only near the player:
+--- the raycast reads terrain the client has loaded.
+function T.height(x, y, zstart)
+    if not finite(x) or not finite(y) then return nil end
+    if not finite(zstart) then
+        local _, _, hz = here_xyz()
+        zstart = (hz or 0) + 4
+    end
+    local key = hkey(x, y)
+    local now = izi.now()
+    local e = hc[key]
+    if e and (now - e.t) < H_TTL and abs((e.zs or 0) - zstart) < 2 then return e.h or nil end
+    local h = nil
+    if not coords_dead then
+        local got, asked = coords_height(x, y)
+        h = got
+        if not asked then h = nil end
+    end
+    if h == nil and coords_dead then h = core_height(x, y, zstart) end
     if not e then
         if hc_n >= H_MAX then hc, hc_n = {}, 0 end
         e = {}
         hc[key] = e
         hc_n = hc_n + 1
     end
-    e.h, e.t = h, now
-    return h or nil
+    e.h, e.t, e.zs = h or false, now, zstart
+    return h
 end
 
 -- ----------------------------------------------------------------------------
@@ -314,7 +366,6 @@ end
 local STEP      = 1.0    -- yards between samples
 local STEEP     = 1.4    -- rise per yard: ~54 degrees, past WoW's walkable slope
 local STEEP_PAD = 0.25   -- sample noise allowed on top of STEEP
-local WINDOW    = 2.5    -- stop once the ground is this far above the reference
 local FLOOR_TOL = 3.0    -- terrain under the character must be this close to its z
 
 --- Walk the terrain from (x, y) along the unit vector (ux, uy) for `len`.
@@ -326,13 +377,16 @@ local FLOOR_TOL = 3.0    -- terrain under the character must be this close to it
 ---   "high",  s    the ground has risen out of the readable window at s
 ---   nil           no terrain under the start (bridge, building, cave)
 local function march(x, y, zref, tol, ux, uy, len)
-    local h0 = T.height(x, y)
+    local win = T.window()
+    local zs = zref + win + 2           -- ray start: above everything readable
+    if not coords_dead then zs = nil end -- coords: its own start (player z + 4)
+    local h0 = T.height(x, y, zs)
     if not h0 or abs(h0 - zref) > tol then return nil end
     local prev, prev_s, s, misses = h0, 0, 0, 0
     while s < len do
-        if prev > zref + WINDOW then return "high", s end
+        if prev > zref + win then return "high", s end
         s = min(len, s + STEP)
-        local h = T.height(x + ux * s, y + uy * s)
+        local h = T.height(x + ux * s, y + uy * s, zs)
         if h then
             if abs(h - prev) > STEEP * (s - prev_s) + STEEP_PAD then return "steep", s end
             prev, prev_s, misses = h, s, 0
@@ -406,8 +460,120 @@ local function stalled_reason()
     return false
 end
 
+-- ============================================================================
+-- 4. CHECK THE ROUTE BEFORE WALKING IT (2.235.0)
+-- ============================================================================
+-- Every new Sentinel path (and every SCAN_REDO yards of progress on it) the
+-- next SCAN_AHEAD yards are sampled every SCAN_STEP: ground height under the
+-- path, the ray started SCAN_ABOVE above the path's own height. Where two
+-- neighbouring samples both lie on the path's layer (ON_LAYER - not under a
+-- bridge or inside a building) and the ground between them rises or drops
+-- more than STEEP per yard, the path crosses a cliff or a slope too steep to
+-- climb: the spot becomes a learned hazard (movement/hazards) and the
+-- destination is re-planned around it before the character walks into it.
+-- Shares the wall budget (WALL_GAP, WALL_MAX per destination) with 2.
+local SCAN_AHEAD = 40.0
+local SCAN_STEP  = 2.0
+local SCAN_ABOVE = 6.0
+local ON_LAYER   = 4.0
+local SCAN_GAP   = 1.0
+local SCAN_REDO  = 10.0
+local DROP_MAX   = 10.0   -- a downward step this big is a cliff (fall damage), smaller is a ledge
+local ps = { key = nil, next = 0, x = nil, y = nil }
+
+local function path_key(path)
+    local last = path[#path]
+    if type(last) ~= "table" or type(last.x) ~= "number" then return nil end
+    -- The shape too: a new route to the same end with as many points.
+    local sx, sz = 0, 0
+    for i = 1, #path do
+        local p = path[i]
+        if type(p) == "table" then sx, sz = sx + (tonumber(p.x) or 0), sz + (tonumber(p.z) or 0) end
+    end
+    return string.format("%d|%d|%d|%d|%d", #path, floor(last.x), floor(last.y), floor(sx), floor(sz))
+end
+
+--- First cliff along the path from (hx, hy, hz): x, y, z, or nil.
+local function path_cliff(path, idx, hx, hy, hz)
+    local walked = 0
+    local px, py, pz = hx, hy, hz
+    local prev_g, prev_d = nil, nil
+    for i = idx, #path do
+        local p = path[i]
+        if type(p) == "table" and type(p.x) == "number" then
+            local qz = tonumber(p.z) or pz
+            local seg = dist2(px, py, p.x, p.y)
+            local d = 0
+            while d < seg do
+                d = min(seg, d + SCAN_STEP)
+                local k = d / seg
+                local x, y, z = px + (p.x - px) * k, py + (p.y - py) * k, pz + (qz - pz) * k
+                -- core directly: the ray must start above the path, which
+                -- coords_helper (player z + 4) cannot do.
+                local g = core_height(x, y, z + SCAN_ABOVE)
+                local at = walked + d
+                if g and abs(g - z) <= ON_LAYER then
+                    if prev_g and (at - prev_d) <= SCAN_STEP * 1.6 then
+                        local rise = g - prev_g
+                        local lim = STEEP * (at - prev_d) + STEEP_PAD
+                        -- Up: a wall. Down: only a real cliff - dropping off a
+                        -- ledge is ordinary movement until fall damage.
+                        if rise > lim or -rise > math.max(lim, DROP_MAX) then
+                            return x, y, z
+                        end
+                    end
+                    prev_g, prev_d = g, at
+                else
+                    prev_g = nil
+                end
+                if at >= SCAN_AHEAD then return nil end
+            end
+            walked = walked + seg
+            px, py, pz = p.x, p.y, qz
+        end
+    end
+    return nil
+end
+
+local function scan_path(t)
+    if t < ps.next then return end
+    ps.next = t + SCAN_GAP
+    if R.cur_owner == OWNER.COMBAT or not R.sn_active or not R.has_dest then return end
+    if N.planning() or N.recovering() then return end
+    if (t - w.last) < WALL_GAP then return end
+    local c = R.sn_client
+    if type(c) ~= "table" or type(c.get_current_path) ~= "function" then return end
+    local okp, path = pcall(c.get_current_path, c)
+    if not okp or type(path) ~= "table" or #path < 1 then return end
+    local hx, hy, hz = here_xyz()
+    if not hx then return end
+    local key = path_key(path)
+    if key == ps.key and ps.x and dist2(hx, hy, ps.x, ps.y) < SCAN_REDO then return end
+    ps.key, ps.x, ps.y = key, hx, hy
+    local idx = 1
+    if type(c.get_path_index) == "function" then
+        local oki, i = pcall(c.get_path_index, c)
+        if oki and type(i) == "number" and i >= 1 then idx = i end
+    end
+    local cx, cy, cz = path_cliff(path, idx, hx, hy, hz)
+    if not cx then return end
+    local gx, gy, gz = R.dest_x, R.dest_y, R.dest_z
+    if not finite(gx) or dist2(cx, cy, gx, gy) < 8 then return end   -- the goal is up there
+    local key_d = gkey(gx, gy)
+    if key_d ~= w.key then w.key, w.n = key_d, 0 end
+    if w.n >= WALL_MAX then return end
+    w.last, w.n = t, w.n + 1
+    Hz.add(cx, cy, cz, 6, "cliff on path")
+    trail("path crosses a cliff / too-steep slope at (%.0f, %.0f), %.0f yd ahead - avoiding it, re-planning (%d/%d)",
+        cx, cy, dist2(hx, hy, cx, cy), w.n, WALL_MAX)
+    local ok_rp, RP = pcall(require, "movement/repath")
+    if ok_rp and type(RP) == "table" and type(RP.reset) == "function" then RP.reset() end
+    N.repath_around(pt(R.P_DEST, gx, gy, gz), "terrain_avoid")
+end
+
 --- Per movement pulse.
 function T.tick(t)
+    scan_path(t)
     if t < w.next then return end
     w.next = t + 0.5
     if R.cur_owner == OWNER.COMBAT or not R.sn_active or not R.has_dest then
@@ -466,7 +632,7 @@ function T.tick(t)
         cx, cy = hx + ux * (radius + 1.5), hy + uy * (radius + 1.5)
     end
     w.last, w.n = t, w.n + 1
-    Z.blacklist_area(pt(R.P_TMP, cx, cy, hz), radius, "terrain")
+    Hz.add(cx, cy, hz, radius, "terrain")
     trail("%s ground %.0f yd ahead at (%.0f, %.0f), %.0f yd wide - area (%.0f, %.0f) r%.0f blacklisted, re-pathing around it (%d/%d)",
         verdict, s, hx, hy, width * 2, cx, cy, radius, w.n, WALL_MAX)
     local ok_rp, RP = pcall(require, "movement/repath")
@@ -479,6 +645,8 @@ end
 -- RESET  (continent change - every key here is x / y only)
 -- ============================================================================
 function T.reset()
+    ps.key, ps.x, ps.y = nil, nil, nil
+    if type(Hz.reset) == "function" then Hz.reset() end
     hc, hc_n = {}, 0
     fix, fix_n = {}, 0
     w.x, w.key, w.n, w.last = nil, nil, 0, -1e9

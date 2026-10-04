@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.234.0
+-- Version: 2.235.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -427,6 +427,7 @@ local client = N.client
 -- The Sentinel UI owns path config. We do not read get_path_opts, write
 -- update_config, or pass z_extent / avoid_zones / soft_update on move_to.
 local AVOID_MAX = 8
+local AVOID_WAIT = 2.5     -- s a move waits for its find_path_avoid plan (2.235.0)
 local AVOID_RANGE = 200
 local BODY_WIDTH = 2 * K.BODY_HALF   -- the body width the obstacle traces use (1.0)
 
@@ -678,6 +679,15 @@ function N.move(p, why)
                 if #pts >= 2 then
                     return N.follow(pts, why or "avoid")
                 end
+            end
+            -- WAIT FOR THE AVOID PLAN (2.235.0). The first ask only SENT the
+            -- find_path_avoid request and move_to ran the plain plan at once -
+            -- straight through the bad terrain - and Sentinel's own obstacle
+            -- list is often empty (23:04 log: "holds 0 avoidance zone(s)").
+            -- The plan is waited on up to AVOID_WAIT s; the caller sees
+            -- "moving" and asks again next tick.
+            if av.pending and (izi.now() - av.asked) < AVOID_WAIT then
+                return true
             end
         end
     end

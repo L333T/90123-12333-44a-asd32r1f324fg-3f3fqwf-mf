@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.234.0
+-- Version: 2.235.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -197,6 +197,17 @@ menu:checkbox("mfg_path_combat", true, {
     label = "Attack Along Path",
     tab = "path",
     tooltip = "Auto-target the closest PvE mob in rotation range and fight from the loaded path (10-yard leash). Starts melee auto-attack so any class swings when the mob is in melee.",
+})
+-- 2.235.0: movement/hazards - learned bad terrain.
+menu:checkbox("mfg_learn_terrain", true, {
+    label = "Learn Bad Terrain",
+    tab = "path",
+    tooltip = "Remember cliffs, too-steep slopes and spots the character got stuck on, and route around them for the rest of the session. A spot hit twice is saved per map and avoided from the start next time.",
+})
+menu:checkbox("mfg_forget_terrain", false, {
+    label = "Forget Learned Terrain",
+    tab = "path",
+    tooltip = "Tick to clear this map's learned bad-terrain spots (and their saved file). Unticks itself.",
 })
 menu:checkbox("mfg_draw_path", true, {
     label = "Draw Loaded Path",
@@ -639,6 +650,8 @@ local aliases = {
     sell_green = "mfg_sell_green",
     delete_junk = "mfg_delete_junk",
     path_loop = "mfg_path_loop",
+    learn_terrain = "mfg_learn_terrain",
+    forget_terrain = "mfg_forget_terrain",
     path_reverse = "mfg_path_reverse",
     path_combat = "mfg_path_combat",
     draw_path = "mfg_draw_path",

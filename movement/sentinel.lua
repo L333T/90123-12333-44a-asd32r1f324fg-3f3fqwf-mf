@@ -1,13 +1,27 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- movement/sentinel.lua - actuator: Sentinel navmesh fallback (out of combat)
+-- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
--- so nothing in the plugin may treat Sentinel as required.
+-- so nothing in the plugin may treat the nav client as required.
+--
+-- MASTER FARMER BOT - AMEISEN (2.235.0-ameisen)
+--   The filename and the N.* facade are Sentinel's; the client is
+--   _G.AmeisenNav.client (scripts\AmeisenNav, server Ameisen\Start-Ameisen.bat).
+--   Only calls in AmeisenNav/docs/API.md and anav/client.lua are used:
+--   move_to, move_direct, follow_path, replan, stop, is_moving, is_busy,
+--   get_state, get_full_state, get_current_path, get_path_index,
+--   get_progress, get_destination, is_server_available, health_check, on,
+--   validate_destination, find_path, raycast, random_point, kite, flee,
+--   plan_route. Sentinel's nav_client / event bus / obstacle service /
+--   find_path_avoid / check_path / corridor queries do not exist here:
+--   avoid plans are built locally from find_path (avoid_plan), the rest is
+--   feature-detected away. Comments below that describe Sentinel bugs are
+--   history from the parent project.
 -- ============================================================================
 
 ---@type izi_api
@@ -34,6 +48,26 @@ local P_DEST = R.P_DEST
 
 local N = {}
 
+-- PATH SMOOTHING (2.235.3-ameisen). AmeisenNavigation's PATH request takes
+-- PathRequestFlags (github.com/L333T/AmeisenNavigation, Server/src/Protocol.hpp
+-- and Main.hpp HandlePathFlagsAndSendData): SMOOTH_CHAIKIN = 1 rounds every
+-- corner of the Detour straight path, VALIDATE_MAS = 16 then slides each
+-- smoothed point along the navmesh (moveAlongSurface, <= 25 yd steps) so none
+-- of them leaves walkable ground. AmeisenNav's default is 0 - corner to corner
+-- - and those sharp corners are where the character clips rocks and walls.
+-- Chaikin rather than Catmull-Rom / Bezier: it only cuts corners (never
+-- overshoots past a waypoint), the safest of the three next to cliffs.
+-- Passed per request (move_to / find_path opts.flags, AmeisenNav API.md);
+-- the installed 1.8.3.2 server supports these flags.
+local AN_FLAGS = 1 + 16
+local AN_OPTS = { flags = AN_FLAGS }
+local AN_SEAMLESS = { flags = AN_FLAGS, seamless = true }
+
+--- find_path with the smoothing flags: cb(ok, points, info).
+local function an_find(n, a, b, cb)
+    return pcall(n.find_path, n, a, b, cb, AN_OPTS)
+end
+
 local function read_client(t) return t.client end
 
 -- ============================================================================
@@ -52,11 +86,11 @@ local function read_client(t) return t.client end
 local STOP_WAIT_MAX = 15.0
 local stop_pending = nil       -- { client, since }
 
+-- AMEISEN: no deferral. Its stop() during "planning" finishes the navigation
+-- as cancelled and the late path answer is ignored ("superseded" in
+-- anav/client.lua _plan), so a stop is always sent at once.
 local function in_flight(c)
-    if type(c) ~= "table" or type(c.get_full_state) ~= "function" then return false end
-    local ok, st = pcall(c.get_full_state, c)
-    return ok and type(st) == "string"
-        and (st:find("awaiting", 1, true) ~= nil or st:find("repathing", 1, true) ~= nil)
+    return false
 end
 
 --- Send a deferred stop once the path request has come back. Per frame.
@@ -66,7 +100,7 @@ function N.flush_stop(t)
     if in_flight(p.client) and (t - p.since) < STOP_WAIT_MAX then return end
     stop_pending = nil
     pcall(p.client.stop, p.client)
-    dlog("sentinel", "deferred stop sent")
+    dlog("ameisen", "deferred stop sent")
 end
 
 function N.stop()
@@ -75,12 +109,20 @@ function N.stop()
     -- Sentinel move up to AR_WAIT s later - while eating, say. Every stop path
     -- (O.halt_all) comes through here.
     if N.cancel_repath then N.cancel_repath() end
-    if not R.sn_active then return false end
     local c = R.sn_client
+    -- Ameisen may still be walking a leg we no longer track (is_busy):
+    -- AmeisenNav owns simple_movement until it is stopped.
+    if not R.sn_active then
+        if type(c) == "table" and type(c.is_busy) == "function" then
+            local okb, busy = pcall(c.is_busy, c)
+            if okb and busy == true then pcall(c.stop, c) end
+        end
+        return false
+    end
     if type(c) == "table" then
         if in_flight(c) then
             stop_pending = { client = c, since = izi.now() }
-            dlog("sentinel", "stop deferred - path request still in flight")
+            dlog("ameisen", "stop deferred - path request still in flight")
         else
             pcall(c.stop, c)
         end
@@ -105,7 +147,10 @@ end
 -- which used to arrive here as "table: 0x...". Both are classified here, the
 -- same way Sentinel does it when no code is given.
 local FAIL_CODES = { unreachable = true, server_timeout = true,
-    max_stuck_exceeded = true, max_repath_exceeded = true }
+    max_stuck_exceeded = true, max_repath_exceeded = true,
+    -- Ameisen's own codes (anav/client.lua), kept distinct (2.235.0-ameisen)
+    cancelled = true, start_off_mesh = true, end_off_mesh = true, no_path = true,
+    map_not_loaded = true, server_down = true, bad_request = true }
 
 local function fail_code(reason, detail)
     if type(detail) == "table" and FAIL_CODES[detail.code] then
@@ -136,9 +181,12 @@ function N.on_nav_done(ok, reason, detail)
     local r, msg = "arrived", ""
     if ok ~= true then
         r, msg = fail_code(reason, detail)
+        -- AMEISEN: "cancelled" is our own stop() or a newer navigation that
+        -- replaced this one (retarget, follow_path) - never a failure.
+        if r == "cancelled" then return end
         local ok_e, el = pcall(require, "errorlog")
         if ok_e and type(el) == "table" and type(el.trail) == "function" then
-            pcall(el.trail, "sentinel", "leg '%s' failed: %s (%s)", tostring(R.sn_why or ""), r, msg)
+            pcall(el.trail, "ameisen", "leg '%s' failed: %s (%s)", tostring(R.sn_why or ""), r, msg)
         end
     end
     if ok == true then
@@ -165,6 +213,25 @@ function N.on_nav_done(ok, reason, detail)
         W.halt()
         return
     end
+    -- AMEISEN: the server, the map or the player's own position is the
+    -- problem, not the destination - walk this leg with the walker and
+    -- blacklist nothing.
+    if r == "server_down" or r == "map_not_loaded" or r == "start_off_mesh" then
+        if r ~= "start_off_mesh" then R.sn_ok = false end
+        local ok_e2, el2 = pcall(require, "errorlog")
+        if ok_e2 and type(el2) == "table" and type(el2.trail) == "function" then
+            pcall(el2.trail, "ameisen", "%s - walking this leg without Ameisen%s", r,
+                r == "server_down" and " (start Ameisen\\Start-Ameisen.bat)" or "")
+        end
+        R.sn_active, R.sn_reason = false, r
+        R.sn_leash_hold = false
+        if R.has_dest then
+            W.move(pt(P_DEST, R.dest_x, R.dest_y, R.dest_z), "an_" .. r)
+        else
+            W.clear_dest()
+        end
+        return
+    end
     if r == "server_timeout" then
         R.sn_ok = false
         R.sn_active, R.sn_reason = false, r
@@ -180,7 +247,8 @@ function N.on_nav_done(ok, reason, detail)
     -- most often the right x, y at the wrong z. When another floor height is
     -- found there, drop the leg without the failure handling below (no hold,
     -- no off-mesh blacklist); the caller's next move asks at that height.
-    if r == "unreachable" and R.has_dest and R.cur_owner ~= OWNER.COMBAT then
+    if (r == "unreachable" or r == "end_off_mesh" or r == "no_path")
+        and R.has_dest and R.cur_owner ~= OWNER.COMBAT then
         local ok_t, Tr = pcall(require, "movement/terrain")
         if ok_t and type(Tr) == "table" and Tr.on_unreachable(R.dest_x, R.dest_y, R.dest_z) then
             R.sn_active, R.sn_reason = false, r
@@ -194,7 +262,7 @@ function N.on_nav_done(ok, reason, detail)
     if R.has_dest then
         R.sn_fail = { x = R.dest_x, y = R.dest_y, t = izi.now(), reason = r, detail = msg }
     end
-    if r == "unreachable" or r == "max_repath_exceeded" then
+    if r == "unreachable" or r == "max_repath_exceeded" or r == "end_off_mesh" or r == "no_path" then
         W.mark_fail("unreachable")
     elseif r == "max_stuck_exceeded" then
         if try_random_unstick() then
@@ -283,17 +351,17 @@ local function on_sn_stuck()
     local ok, Pr = pcall(require, "movement/probe")
     local side = ok and type(Pr) == "table" and Pr.blocked() or nil
     if type(side) == "string" then
-        dlog("sentinel", "stuck detected, obstacle to the " .. side
-            .. " - Sentinel is recovering, holding")
+        dlog("ameisen", "stuck detected, obstacle to the " .. side
+            .. " - Ameisen is recovering, holding")
     else
-        dlog("sentinel", "stuck detected - Sentinel is recovering, holding")
+        dlog("ameisen", "stuck detected - Ameisen is recovering, holding")
     end
 end
 
 --- Recovery worked and navigation continues.
 local function on_sn_recovered()
     N.end_recovery()
-    dlog("sentinel", "stuck recovered")
+    dlog("ameisen", "stuck recovered")
 end
 
 local function on_sn_failed(data)
@@ -317,48 +385,29 @@ local function on_reach_done(reachable, reason, _distance)
     end
 end
 
---- Subscribe to Sentinel's navigation events.
----
---- TWO NAMING SCHEMES, AND THEY ARE NOT INTERCHANGEABLE.
----   client:on(...)        legacy compatibility: "state_change", "arrived",
----                         "stuck", "failed"
----   get_event_bus():on()  namespaced: nav.state_changed, nav.arrived,
----                         nav.stuck_detected, nav.stuck_recovered, nav.failed
----
---- The bus branch used to subscribe to the bare "stuck" and "failed". Those
---- keys are never emitted on the bus, so it bound to nothing - and because
---- bus:on happily registers a subscription for an event that never fires,
---- the pcall succeeded and sn_events was set, so the silence looked like
---- success. Sentinel's stuck and failure reports simply never arrived.
----
---- The bus is preferred now: it carries stuck_recovered, which the legacy
---- event set has no equivalent for.
+--- Subscribe to Ameisen's events (c:on only - there is no event bus).
+---   stuck(level)           recovery STARTED: wait, as for Sentinel
+---   failed(code, detail)   also reported by the move_to callback; the second
+---                          report finds the leg already closed and is ignored
+---   state_change(new, old) leaving "...recovering..." = recovered (Ameisen
+---                          has no separate recovered event)
+local function on_an_state(new, old)
+    if type(old) == "string" and old:find("recovering", 1, true)
+        and not (type(new) == "string" and new:find("recovering", 1, true)) then
+        on_sn_recovered()
+    end
+end
+
+local function on_an_failed(code, detail)
+    on_nav_done(false, code or "failed", { code = code, detail = detail })
+end
+
 local function bind_sn_events(c)
-    if R.sn_events or type(c) ~= "table" then return end
-
-    if type(c.get_event_bus) == "function" then
-        local okB, bus = pcall(c.get_event_bus, c)
-        if okB and type(bus) == "table" and type(bus.on) == "function" then
-            local opts = { owner = N }
-            local ok1 = pcall(bus.on, bus, "nav.stuck_detected", on_sn_stuck, opts)
-            local ok2 = pcall(bus.on, bus, "nav.stuck_recovered", on_sn_recovered, opts)
-            local ok3 = pcall(bus.on, bus, "nav.failed", on_sn_failed, opts)
-            local ok4 = pcall(bus.on, bus, "nav.deviation_detected", function()
-                dlog("sentinel", "path deviation detected")
-            end, opts)
-            if ok1 or ok2 or ok3 or ok4 then
-                R.sn_events = true
-                return
-            end
-        end
-    end
-
-    -- Older build with no bus: the legacy names are the right ones there.
-    if type(c.on) == "function" then
-        local ok1 = pcall(c.on, c, "stuck", on_sn_stuck)
-        local ok2 = pcall(c.on, c, "failed", on_sn_failed)
-        R.sn_events = ok1 == true or ok2 == true
-    end
+    if R.sn_events or type(c) ~= "table" or type(c.on) ~= "function" then return end
+    local ok1 = pcall(c.on, c, "stuck", on_sn_stuck)
+    local ok2 = pcall(c.on, c, "failed", on_an_failed)
+    local ok3 = pcall(c.on, c, "state_change", on_an_state)
+    R.sn_events = ok1 == true or ok2 == true or ok3 == true
 end
 
 -- ============================================================================
@@ -372,11 +421,12 @@ end
 -- server every HEALTH_GAP s; a good answer re-probes the client at once.
 local HEALTH_GAP = 30
 local health_asked = -1e9
+local an_warned, an_down_warned, an_ready_logged = false, false, false
 
 local function on_health(ok)
     if ok == true then
         R.sn_checked_t = -1e9
-        dlog("sentinel", "server reachable again")
+        dlog("ameisen", "server reachable again")
     end
 end
 
@@ -387,15 +437,27 @@ function N.client()
     if (t - R.sn_checked_t) < 5 then return R.sn_ok and R.sn_client or nil end
     R.sn_checked_t = t
     R.sn_ok, R.sn_client = false, nil
-    local S = rawget(_G, "SentinelNavClient")
-    if type(S) ~= "table" then return nil end
-    local ok, c = pcall(read_client, S)
+    -- AMEISEN: looked up here, never in header.lua (plugin load order).
+    local g = rawget(_G, "AmeisenNav")
+    if type(g) ~= "table" then
+        if not an_warned then
+            an_warned = true
+            core.log_warning("[Master Farmer - Grindbot] AmeisenNav not loaded - walking without navmesh "
+                .. "(install scripts\\AmeisenNav, start Ameisen\\Start-Ameisen.bat, reload)")
+        end
+        return nil
+    end
+    local ok, c = pcall(read_client, g)
     if not ok or type(c) ~= "table" then return nil end
     for i = 1, #SN_NEED do
         if type(c[SN_NEED[i]]) ~= "function" then return nil end
     end
     local okA, avail = pcall(c.is_server_available, c)
     if not okA or avail ~= true then
+        if not an_down_warned then
+            an_down_warned = true
+            core.log_warning("[Master Farmer - Grindbot] Ameisen server not answering - start Ameisen\\Start-Ameisen.bat")
+        end
         if okA and type(c.health_check) == "function" and (t - health_asked) >= HEALTH_GAP then
             health_asked = t
             pcall(c.health_check, c, on_health)
@@ -403,6 +465,10 @@ function N.client()
         return nil
     end
     bind_sn_events(c)
+    if an_down_warned or not an_ready_logged then
+        an_down_warned, an_ready_logged = false, true
+        core.log("[Master Farmer - Grindbot] Ameisen ready - out-of-combat travel through AmeisenNav")
+    end
     R.sn_ok, R.sn_client = true, c
     return c
 end
@@ -431,10 +497,9 @@ local AVOID_WAIT = 2.5     -- s a move waits for its find_path_avoid plan (2.235
 local AVOID_RANGE = 200
 local BODY_WIDTH = 2 * K.BODY_HALF   -- the body width the obstacle traces use (1.0)
 
+-- AMEISEN: the queries live on the client itself (no nav_client service).
 local function nav()
-    local c = client()
-    if not c or type(c.nav_client) ~= "table" then return nil end
-    return c.nav_client
+    return client()
 end
 
 local function danger_zones(p)
@@ -506,14 +571,12 @@ local function line_clear(ax, ay, az, bx, by, bz)
         and ray.ax == ax and ray.ay == ay and ray.bx == bx and ray.by == by then
         return ray.clear == true
     end
-    local n = nav()
-    if n and type(n.raycast) == "function" and (now - ray.asked) >= 1.0 then
-        ray.asked = now
-        pcall(n.raycast, n, vec3.new(ax, ay, az), vec3.new(bx, by, bz), function(a)
-            ray.t, ray.ax, ray.ay, ray.bx, ray.by = izi.now(), ax, ay, bx, by
-            ray.clear = (a == true)
-        end)
-    end
+    -- NO /raycast TO AMEISEN (2.235.1-ameisen). The 11:39 session (nav log
+    -- t=3127-3130): the bot's first short direct move sent /raycast, the nav
+    -- server never answered it, and http_bridge.py holds one lock for every
+    -- request (30 s TCP timeout, retried) - /health and every path after it
+    -- timed out for the rest of the session. The straight line is judged by
+    -- the local walk test only.
     if ray.clear ~= nil and ray.ax == ax and ray.ay == ay and ray.bx == bx and ray.by == by then
         return ray.clear == true
     end
@@ -523,12 +586,105 @@ local function line_clear(ax, ay, az, bx, by, bz)
     return false
 end
 
+-- ----------------------------------------------------------------------------
+-- AVOID PLAN FROM find_path (Master Farmer Bot / Ameisen)
+-- ----------------------------------------------------------------------------
+-- Ameisen has no find_path_avoid and no obstacle list, so the blacklisted
+-- areas and learned hazards (movement/hazards) would never reach its planner.
+-- avoid_plan asks find_path for the direct path; when that path passes
+-- through a zone, it asks again from the player to a DETOUR point beside the
+-- first zone hit (DETOUR_PAD yards outside it, on the side the path already
+-- leans to) and from there to the destination, and joins the two. One detour
+-- per plan; a joined path that still crosses a zone is dropped (cb(nil)) and
+-- the caller falls back to a plain move. cb(points) / cb(nil), exactly once.
+local DETOUR_PAD = 4.0
+
+local function seg_zone_hit(ax, ay, bx, by, z)
+    local vx, vy = bx - ax, by - ay
+    local len2 = vx * vx + vy * vy
+    local k = 0
+    if len2 > 0.0001 then
+        k = ((z.x - ax) * vx + (z.y - ay) * vy) / len2
+        if k < 0 then k = 0 elseif k > 1 then k = 1 end
+    end
+    local cx, cy = ax + vx * k, ay + vy * k
+    local dx, dy = z.x - cx, z.y - cy
+    return dx * dx + dy * dy < z.radius * z.radius, cx, cy
+end
+
+--- The first zone the path walks through: zone, segment start index.
+local function first_zone_hit(pts, zones)
+    for i = 1, #pts - 1 do
+        local a, b = pts[i], pts[i + 1]
+        local ax, ay = xyz(a)
+        local bx, by = xyz(b)
+        if ax and bx then
+            for k = 1, #zones do
+                if seg_zone_hit(ax, ay, bx, by, zones[k]) then return zones[k], i end
+            end
+        end
+    end
+    return nil
+end
+
+local function detour_point(z, a, b)
+    local ax, ay, az = xyz(a)
+    local bx, by = xyz(b)
+    local _, cx, cy = seg_zone_hit(ax, ay, bx, by, z)
+    local nx, ny = cx - z.x, cy - z.y
+    local len = math.sqrt(nx * nx + ny * ny)
+    if len < 0.1 then
+        -- the path runs through the centre: go round on the segment's left
+        local vx, vy = bx - ax, by - ay
+        local vl = math.sqrt(vx * vx + vy * vy)
+        if vl < 0.1 then return nil end
+        nx, ny, len = -vy / vl, vx / vl, 1
+    end
+    local d = z.radius + DETOUR_PAD
+    return vec3.new(z.x + nx / len * d, z.y + ny / len * d, z.z or az)
+end
+
+local function path_of(ok_q, pts)
+    if ok_q == true and type(pts) == "table" and #pts >= 2 then return pts end
+    return nil
+end
+
+local function avoid_plan(n, from, dest, zones, cb)
+    if not n or type(n.find_path) ~= "function" then cb(nil) return false end
+    local ok = an_find(n, from, dest, function(ok1, pts1)
+        local direct = path_of(ok1, pts1)
+        if not direct then cb(nil) return end
+        local z, i = first_zone_hit(direct, zones)
+        if not z then cb(direct) return end
+        local via = detour_point(z, direct[i], direct[i + 1])
+        if not via then cb(nil) return end
+        local ok2 = an_find(n, from, via, function(okA, ptsA)
+            local legA = path_of(okA, ptsA)
+            if not legA then cb(nil) return end
+            local ok3 = an_find(n, via, dest, function(okB, ptsB)
+                local legB = path_of(okB, ptsB)
+                if not legB then cb(nil) return end
+                local out = {}
+                for k = 1, #legA do out[#out + 1] = legA[k] end
+                for k = 2, #legB do out[#out + 1] = legB[k] end
+                if first_zone_hit(out, zones) then cb(nil) return end
+                dlog("ameisen", string.format("avoid plan: detour (%.0f, %.0f) round a zone r%.0f",
+                    via.x, via.y, z.radius))
+                cb(out)
+            end)
+            if not ok3 then cb(nil) end
+        end)
+        if not ok2 then cb(nil) end
+    end)
+    return ok == true
+end
+
 local av = { asked = -1e9, t = -1e9, pts = nil, gx = nil, gy = nil, pending = false }
 
 local function take_avoid_pts(from, dest, zones)
     if type(zones) ~= "table" or #zones == 0 then return nil end
     local n = nav()
-    if not n or type(n.find_path_avoid) ~= "function" then return nil end
+    if not n or type(n.find_path) ~= "function" then return nil end
     local now = izi.now()
     if av.pts and av.gx and (now - av.t) <= 2.5 then
         local dx, dy = av.gx - dest.x, av.gy - dest.y
@@ -542,45 +698,31 @@ local function take_avoid_pts(from, dest, zones)
     if (now - av.asked) < 1.0 then return nil end
     av.asked, av.pending = now, true
     local gx, gy = dest.x, dest.y
-    local ok = pcall(n.find_path_avoid, n, vec3.new(from.x, from.y, from.z),
-        vec3.new(dest.x, dest.y, dest.z), zones, function(...)
+    local ok = avoid_plan(n, vec3.new(from.x, from.y, from.z),
+        vec3.new(dest.x, dest.y, dest.z), zones, function(pts)
             av.pending = false
-            for i = 1, select("#", ...) do
-                local pts = select(i, ...)
-                if type(pts) == "table" and #pts >= 2 then
-                    av.pts, av.t, av.gx, av.gy = pts, izi.now(), gx, gy
-                    return
-                end
+            if type(pts) == "table" and #pts >= 2 then
+                av.pts, av.t, av.gx, av.gy = pts, izi.now(), gx, gy
             end
         end)
     if not ok then av.pending = false end
+    -- Ameisen answers from its 10 s query cache inside the call itself: the
+    -- plan may already be here - use it now, not on the next request.
+    if av.pts and av.gx == gx and av.gy == gy then
+        local pts = av.pts
+        av.pts = nil
+        return pts
+    end
     return nil
 end
 
 local chk = { key = nil, ok = nil, pending = false, asked = -1e9 }
 
+-- Ameisen has no check_path: a planned path is walked as planned (its own
+-- stuck recovery and "deviated" repath cover a path gone bad).
 local function path_checked(from, pts)
-    local n = nav()
-    if not n or type(n.check_path) ~= "function" then return true end
-    if type(pts) ~= "table" or #pts < 2 then return true end
-    local a, b = pts[1], pts[#pts]
-    local key = string.format("%.0f|%.0f|%.0f|%.0f|%d", a.x, a.y, b.x, b.y, #pts)
-    local now = izi.now()
-    if chk.key == key and chk.ok ~= nil and (now - chk.asked) < 8 then
-        return chk.ok == true
-    end
-    if chk.pending and (now - chk.asked) < 5 then return false end
-    if (now - chk.asked) < 1.0 and chk.key == key then return false end
-    chk.key, chk.pending, chk.asked, chk.ok = key, true, now, nil
-    local ok = pcall(n.check_path, n, vec3.new(from.x, from.y, from.z), pts, function(ok_path)
-        chk.pending = false
-        chk.ok = ok_path == true
-    end)
-    if not ok then
-        chk.pending, chk.ok = false, true
-        return true
-    end
-    return false
+    chk.ok = true
+    return true
 end
 
 local unstick_at = -1e9
@@ -592,8 +734,11 @@ try_random_unstick = function()
     if (now - unstick_at) < 8 then return false end
     unstick_at = now
     local gx, gy, gz = R.dest_x, R.dest_y, R.dest_z
-    local ok = pcall(n.random_point, n, function(p)
-        if type(p) ~= "table" or type(p.x) ~= "number" then return end
+    local hx, hy, hz = here_xyz()
+    if not hx then return false end
+    -- Ameisen: random_point(center, radius, cb(ok, point))
+    local ok = pcall(n.random_point, n, vec3.new(hx, hy, hz), 8, function(ok_q, p)
+        if ok_q ~= true or type(p) ~= "table" or type(p.x) ~= "number" then return end
         R.sn_active = false
         if type(gx) == "number" then
             R.goal_x, R.goal_y, R.goal_z = gx, gy, gz
@@ -602,7 +747,7 @@ try_random_unstick = function()
         N.move({ x = p.x, y = p.y, z = p.z }, "unstick")
     end)
     if ok then
-        dlog("sentinel", "max_stuck - random_point then replan")
+        dlog("ameisen", "max_stuck - random_point then replan")
     end
     return ok == true
 end
@@ -694,7 +839,7 @@ function N.move(p, why)
     W.halt()
     begin_leg(p, why)
     stop_pending = nil
-    local ok = pcall(c.move_to, c, to_vec3(p), on_nav_done)
+    local ok = pcall(c.move_to, c, to_vec3(p), on_nav_done, AN_OPTS)
     if not ok then
         R.sn_active, R.sn_reason = false, nil
         R.sn_leash_hold = false
@@ -721,21 +866,19 @@ function N.retarget(p, why)
     -- out the request gap: that wait is the character standing at the hop.
     local urgent = why == "chain" or why == "avoid"
     if not urgent and (now - R.sn_last_issue_t) < SN_MIN_GAP then return false end
-    local hx, hy, hz = here_xyz()
-    if not hx then return false end
-    local pts = N.prefetch({ x = hx, y = hy, z = hz }, p)
-    if not pts or #pts < 2 then
-        return true
-    end
-    pts = skip_near_pts(pts) or pts
-    if #pts < 2 then return false end
-    begin_leg({ x = pts[#pts].x, y = pts[#pts].y, z = pts[#pts].z }, why or R.sn_why)
+    -- AMEISEN (2.235.2-ameisen): move_to with { seamless = true } (API.md
+    -- "Following a moving unit"): Ameisen plans from where the character is
+    -- NOW and the running walk takes the new path without releasing a key.
+    -- The Sentinel way - a path prefetched up to 2.5 s earlier, then
+    -- follow_path - started behind the character and was flagged "deviated".
+    -- The replaced navigation's callback arrives as "cancelled" (ignored).
+    begin_leg({ x = p.x, y = p.y, z = p.z }, why or R.sn_why)
     stop_pending = nil
-    local ok = pcall(c.follow_path, c, pts, on_nav_done)
+    local ok = pcall(c.move_to, c, to_vec3(p), on_nav_done, AN_SEAMLESS)
     if not ok then return false end
     R.sn_active = true
     R.sn_why = why or R.sn_why
-    dlog("issue", string.format("sentinel retarget follow -> (%.1f, %.1f, %.1f)", p.x, p.y, p.z))
+    dlog("issue", string.format("ameisen retarget (seamless) -> (%.1f, %.1f, %.1f)", p.x, p.y, p.z))
     return true
 end
 
@@ -776,9 +919,11 @@ function N.planning()
     -- recovering (Sentinel's own stuck handler) are all "still working" -
     -- the grouping Sentinel's own questing adapter uses (2.112.0), plus
     -- recovering so a jump or strafe is not counted as a stall.
+    -- Ameisen: "planning[.reason]" and "navigating.recovering.<step>".
     if not ok or type(st) ~= "string"
-        or not (st:find("awaiting", 1, true) or st:find("repathing", 1, true)
-            or st:find("deferred", 1, true) or st:find("recovering", 1, true)) then
+        or not (st:find("planning", 1, true) or st:find("awaiting", 1, true)
+            or st:find("repathing", 1, true) or st:find("deferred", 1, true)
+            or st:find("recovering", 1, true)) then
         plan_since = nil
         return false
     end
@@ -813,7 +958,7 @@ function N.replan(reason)
     R.sn_last_issue_t = now
     local ok = pcall(c.replan, c, reason or "no_progress")
     if ok then
-        dlog("sentinel", "replan " .. tostring(reason or ""))
+        dlog("ameisen", "replan " .. tostring(reason or ""))
     end
     return ok == true
 end
@@ -853,45 +998,21 @@ local corr_asked = -1e9
 -- re-plan per destination; the stuck ladder owns anything after that.
 local corr_key = nil
 
+-- AMEISEN: no corridor widths and no find_path_corridor - a narrow doorway
+-- is left to Ameisen's own stuck recovery (jump, repath, detour, back off).
 local function maybe_corridor(c)
-    local indoors = false
-    pcall(function() indoors = izi.me():is_indoors() == true end)
-    if not indoors then return end
-    if type(c.get_corridor_widths) ~= "function" then return end
-    local okw, widths = pcall(c.get_corridor_widths, c)
-    local oki, idx = pcall(c.get_path_index, c)
-    if not okw or type(widths) ~= "table" or type(idx) ~= "number" then return end
-    local w = widths[idx] or widths[idx + 1]
-    if type(w) ~= "number" or w >= BODY_WIDTH then return end
-    local n = nav()
-    if not n or type(n.find_path_corridor) ~= "function" then return end
-    local now = izi.now()
-    if (now - corr_asked) < 2 then return end
-    local dest = nil
-    if type(c.get_destination) == "function" then
-        local okd, d = pcall(c.get_destination, c)
-        if okd then dest = d end
-    end
-    local hx, hy, hz = here_xyz()
-    if not hx or type(dest) ~= "table" or type(dest.x) ~= "number" then return end
-    local key = string.format("%d|%d", math.floor(dest.x / 4), math.floor(dest.y / 4))
-    if key == corr_key then return end
-    corr_key = key
-    corr_asked = now
-    pcall(n.find_path_corridor, n, vec3.new(hx, hy, hz), vec3.new(dest.x, dest.y, dest.z), function(...)
-        for i = 1, select("#", ...) do
-            local pts = select(i, ...)
-            if type(pts) == "table" and #pts >= 2 then
-                N.follow(pts, "corridor")
-                return
-            end
-        end
-    end)
+    return
 end
 
 --- Sentinel's current waypoint is under the player: skip it. 1-yard densify
 --- points were walked as dests and the character orbited them.
 local function skip_near_wp(c)
+    -- AMEISEN (2.235.1-ameisen): off. Sentinel walked its 1-yard densify
+    -- points as destinations; AmeisenNav's follower reaches its waypoints by
+    -- itself. This re-handed the rest of the path with follow_path every 1-2 s
+    -- (nav log 11:35: "walking N points (route" then "repath #1 (deviated)",
+    -- over and over), and each one restarted Ameisen's walk.
+    do return end
     if type(c) ~= "table" then return end
     if N.planning() or R.sn_recovering then return end
     if type(c.get_current_path) ~= "function" or type(c.get_path_index) ~= "function" then
@@ -933,7 +1054,7 @@ local function skip_near_wp(c)
     local last = rest[#rest]
     W.begin_issue(last.x, last.y, last.z)
     pcall(c.follow_path, c, rest, on_nav_done)
-    dlog("sentinel", "skipped underfoot waypoint")
+    dlog("ameisen", "skipped underfoot waypoint")
 end
 
 function N.watch(t)
@@ -941,10 +1062,10 @@ function N.watch(t)
     R.sn_watch_t = t
     if R.sn_active and stall_check(t) then
         local why = tostring(R.sn_why or "")
-        dlog("sentinel", "leg '" .. why .. "' stalled - dropped")
+        dlog("ameisen", "leg '" .. why .. "' stalled - dropped")
         local ok_e, el = pcall(require, "errorlog")
         if ok_e and type(el) == "table" and type(el.trail) == "function" then
-            pcall(el.trail, "move", "Sentinel leg '%s' made no progress for %.0fs - dropped", why, SN_STALL_SEC)
+            pcall(el.trail, "move", "Ameisen leg '%s' made no progress for %.0fs - dropped", why, SN_STALL_SEC)
         end
         stall_x, stall_y = nil, nil
         if R.keep_path and R.has_dest then
@@ -1095,9 +1216,7 @@ local function as_points(v)
 end
 
 local function nav_service()
-    local c = client()
-    if not c or type(c.nav_client) ~= "table" then return nil end
-    return c.nav_client
+    return client()
 end
 
 -- ----------------------------------------------------------------------------
@@ -1242,21 +1361,19 @@ function N.repath_around(p, why)
     local n = nav()
     local zones = danger_zones({ x = px, y = py, z = pz })
     local hx, hy, hz = here_xyz()
-    if n and type(n.find_path_avoid) == "function" and zones and hx then
+    if n and type(n.find_path) == "function" and zones and hx then
         local job = { dest = { x = px, y = py, z = pz }, asked = izi.now(), pts = nil, why = why }
         ar = job
-        local ok = pcall(n.find_path_avoid, n, vec3.new(hx, hy, hz), vec3.new(px, py, pz), zones, function(...)
-            for i = 1, select("#", ...) do
-                local pts = as_points((select(i, ...)))
-                if pts and #pts >= 2 then
-                    job.pts = pts
-                    return
-                end
+        local ok = avoid_plan(n, vec3.new(hx, hy, hz), vec3.new(px, py, pz), zones, function(raw)
+            local pts = as_points(raw)
+            if pts and #pts >= 2 then
+                job.pts = pts
+                return
             end
             job.failed = true
         end)
         if ok then
-            dlog("sentinel", string.format("re-path around %d blacklisted area(s) -> (%.0f, %.0f)", #zones, px, py))
+            dlog("ameisen", string.format("re-path around %d blacklisted area(s) -> (%.0f, %.0f)", #zones, px, py))
             return true
         end
         ar = { dest = nil }
@@ -1330,7 +1447,7 @@ function N.prefetch(from, to)
     if not nav or type(nav.find_path) ~= "function" then return nil end
     pre.asked, pre.pending = now, true
     local gx, gy = tx, ty
-    local ok = pcall(nav.find_path, nav, vec3.new(fx, fy, fz), vec3.new(tx, ty, tz), function(...)
+    local ok = an_find(nav, vec3.new(fx, fy, fz), vec3.new(tx, ty, tz), function(...)
         pre.pending = false
         for i = 1, select("#", ...) do
             local pts = as_points((select(i, ...)))
@@ -1369,7 +1486,7 @@ function N.chase_path(from, to, key)
     if not nav or type(nav.find_path) ~= "function" then return nil end
     chase.asked, chase.pending = now, true
     local want = key
-    local ok = pcall(nav.find_path, nav, vec3.new(fx, fy, fz), vec3.new(tx, ty, tz), function(...)
+    local ok = an_find(nav, vec3.new(fx, fy, fz), vec3.new(tx, ty, tz), function(...)
         chase.pending = false
         local pts = nil
         for i = 1, select("#", ...) do

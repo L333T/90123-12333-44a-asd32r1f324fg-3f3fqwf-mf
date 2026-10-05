@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -788,7 +788,7 @@ if errorlog then
         if not ok or type(R) ~= "table" then
             return nil
         end
-        local text = string.format("sentinel requests %d issued, %d rate-limited",
+        local text = string.format("ameisen requests %d issued, %d rate-limited",
             R.sn_issued or 0, R.sn_refused or 0)
         R.sn_issued, R.sn_refused = 0, 0
         return text

@@ -3,7 +3,7 @@
 -- movement/hazards.lua - learned bad terrain (cliffs, slopes, snag spots)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- ============================================================================
 -- WHY (2.235.0)
 --   The 23:04 grind session was caught at the same five spots on every lap
@@ -50,7 +50,7 @@ local REFRESH_MOVE = 80.0    -- re-pick the near set after moving this far
 local TICK_GAP    = 5.0
 local SAVE_GAP    = 15.0
 local MAX_HAZARDS = 300
-local FOLDER      = "mfg"
+local FOLDER      = "mfb"   -- Ameisen meshes: kept apart from the Sentinel-era mfg hazards
 
 local list = {}              -- { x, y, z, r, hits, why }
 local map_key = nil          -- the map the list belongs to

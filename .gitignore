@@ -17,3 +17,9 @@ dist/
 *.swp
 Thumbs.db
 desktop.ini
+
+# Ameisen server binary and navmesh data stay local (1.9 GB) - see ameisen/README.md
+ameisen/server/*.exe
+ameisen/server/maps/
+ameisen/server/mmaps/
+ameisen/server/logs/

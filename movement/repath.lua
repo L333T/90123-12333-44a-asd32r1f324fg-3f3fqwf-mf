@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -372,8 +372,8 @@ function RP.recovery_watch(t)
     local hx, hy, hz = here_xyz()
     local gx, gy, gz, _, kind = current_goal()
     if not hx or not gx or kind ~= "nav" then return end
-    trail("Sentinel stuck recovery has not moved the character - re-pathing ourselves")
-    if not avoid_ahead(hx, hy, hz, gx, gy, gz, kind, "Sentinel recovery stuck") then
+    trail("Ameisen stuck recovery has not moved the character - re-pathing ourselves")
+    if not avoid_ahead(hx, hy, hz, gx, gy, gz, kind, "Ameisen recovery stuck") then
         -- Too close to the goal to blacklist: drop the recovery hold so the
         -- ladder (re-plan, jump, give up) runs on its own clock.
         N.end_recovery()

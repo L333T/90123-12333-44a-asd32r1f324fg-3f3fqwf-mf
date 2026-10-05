@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1912,7 +1912,7 @@ menu:set_status({
             elseif snap.paused then
                 text = text .. " (paused)"
             elseif snap.sentinel then
-                text = text .. " (navmesh)"
+                text = text .. " (Ameisen)"
             elseif snap.quiet then
                 text = text .. " (settling)"
             end
@@ -1920,6 +1920,32 @@ menu:set_status({
                 text = text .. string.format("  %.0fyd", snap.target_dist)
             end
             return text
+        end,
+    },
+    {
+        -- Is out-of-combat travel going through Ameisen?
+        -- Reads AmeisenNav's own connection flag only (plain Lua, no game
+        -- call), so it is safe on the draw path.
+        label = "Ameisen",
+        value = function()
+            local g = rawget(_G, "AmeisenNav")
+            local c = type(g) == "table" and g.client or nil
+            if type(c) ~= "table" or type(c.is_server_available) ~= "function" then
+                return "AmeisenNav not loaded"
+            end
+            local ok, up = pcall(c.is_server_available, c)
+            if ok and up == true then return "Ameisen ready" end
+            return "server down - start Ameisen\\Start-Ameisen.bat"
+        end,
+        color = function()
+            local g = rawget(_G, "AmeisenNav")
+            local c = type(g) == "table" and g.client or nil
+            local ok, up = false, false
+            if type(c) == "table" and type(c.is_server_available) == "function" then
+                ok, up = pcall(c.is_server_available, c)
+            end
+            if ok and up == true then return C(90, 210, 110, 255) end
+            return C(210, 78, 78, 255)
         end,
     },
     {

@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -101,7 +101,12 @@ local function look_ahead(t)
     if t < look_next then return end
     look_next = t + LOOK_GAP
     if not R.has_dest or R.rest_lock then return end
-    local sentinel = R.sn_active and R.keep_path
+    -- AMEISEN (2.235.2-ameisen): never on a nav leg. This tested the STRAIGHT
+    -- line toward the destination; a planned route bends, so it kept finding
+    -- "walls", swapped Ameisen's route for a detour hop and chained back - a
+    -- new follow_path every ~2 s, each one flagged "deviated" (nav log 11:55).
+    -- Ameisen plans the route and steers round walls and objects itself.
+    local sentinel = false
     if not sentinel and (not R.walker_moving or R.sn_active) then return end
     local pr = R.pause_reason
     if pr.cast or pr.restrict or pr.rest or pr.loot or pr.nav then return end

@@ -34,7 +34,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 
-SKIP_PREFIX = ("plugin_loader/", "bootstrap/", ".bak_", ".git/", ".claude/")
+SKIP_PREFIX = ("plugin_loader/", "ameisen/", "bootstrap/", ".bak_", ".git/", ".claude/")
 SKIP_FILES = {"plugin_loader.zip", "make_local.py"}
 SKIP_SUFFIX = (".bak", ".orig", ".rej", ".zip", ".7z", ".rar")
 

@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- ============================================================================
 -- Out-of-combat travel.
 --
@@ -317,6 +317,14 @@ function Nv.nav_path(points)
         return navigate(pts[1], false)              -- steer to the first point
     end
     return W.navigate_path(pts)
+end
+
+--- Walk a list of points as ONE route (2.235.2-ameisen, the grind path).
+--- `replace` = the route being walked is handed over to this one (a refill
+--- before the old one ends, so the walk never stops at its last point).
+function Nv.follow_route(points, replace)
+    if replace then R.force_reissue = true end
+    return Nv.nav_path(points)
 end
 
 --- The travel leg in flight is an approach to this mob (2.140.0), or nil.

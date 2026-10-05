@@ -3,7 +3,7 @@
 -- movement/zones.lua - blacklist zones
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- ============================================================================
 -- Areas movement refuses to path into, pruned in place on a TTL. Nothing here
 -- issues a command, so every other module may require it freely.
@@ -35,11 +35,11 @@ local Z = {}
 -- When our list shrinks, Sentinel's is cleared and re-filled from it.
 local sn_count = 0
 
+-- MASTER FARMER BOT (Ameisen): AmeisenNav keeps no obstacle list, so there is
+-- nothing to mirror into - the zones reach Ameisen's routes through
+-- movement/sentinel.lua avoid_plan (find_path + a detour beside the zone).
 local function obstacle()
-    local S = rawget(_G, "SentinelNavClient")
-    local c = type(S) == "table" and S.client or nil
-    if type(c) ~= "table" or type(c.obstacle) ~= "table" then return nil end
-    return c.obstacle
+    return nil
 end
 
 local function sn_add(z)

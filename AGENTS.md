@@ -71,6 +71,12 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   and rest (their old `tick` / `buffs_ooc` / `register_gui` / `interrupt` code was
   removed in 2.142.0 - do not reintroduce class-module casting). The spellbook
   (`spellbook.lua`) admits only spells this character owns. Racial ids in `data/racials` (and `spellbook.probe_ids`) are asked about directly on every scan, since `get_spells()` can omit them (Forever's Eureka!); book spells outside the class catalog appear unticked under "Other known spells" (2.194.0). On Forever the scan also probes RestedXP's Forever trainer ids (`data/forever_spells.lua`, `tools/gen_forever_spells.py`, 2.207.0).
+- **Ameisen navigation (2.236.0)**: out-of-combat travel now goes through AmeisenNav
+  (`_G.AmeisenNav.client`, local AmeisenNavigation server at 127.0.0.1:47110), not
+  Sentinel. The code still lives in `movement/sentinel.lua` / `sentinel_adv.lua` (same
+  module names); "Sentinel" below means that nav layer. AmeisenNav, the server files
+  and the install steps are in `ameisen/` (README there); the 1.9 GB mmaps and the
+  server exe stay out of git. No `/raycast` to Ameisen (the server never answers it).
 - **Movement** (`movement/*`): Sentinel (`SentinelNavClient`) owns out-of-combat
   travel (`K.SENTINEL_TRAVEL` in `movement/const.lua`); the local walker owns
   combat (chase, stand-off, kite, Frost Nova backpedal). Never flood Sentinel

@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -354,6 +354,113 @@ local function path_nearest(zone, hx, hy)
     return bx, by, bz, bd, bnext
 end
 
+-- ============================================================================
+-- SMOOTH GRIND PATH (Master Farmer Bot / Ameisen, 2.235.2-ameisen)
+-- ============================================================================
+-- The patrol walked a recorded path one node at a time: each node (6-7 yd
+-- apart) was its own move, Ameisen reported "arrived" and stopped, and the
+-- next move began ~0.3 s later - a stop at every node (nav log 11:56,
+-- "walking 2 points ... arrived after 0.7s" x 15). Now the next CHUNK_MAX
+-- nodes from the current one, in the walking direction (wrapping on a
+-- loop, turning round at the ends of an open path), go to Ameisen as ONE
+-- route (movement.follow_route), so it walks through them without stopping.
+-- Nodes passed (within NODE_PASS yd) advance state.grind.move; with
+-- CHUNK_REFILL nodes left the next chunk replaces the running route before
+-- it ends. Blacklisted nodes are left out. Fights, loot and the walk back to
+-- the path (rejoin) work as before: they stop the route, and the next chunk
+-- starts from the node after the rejoin point.
+local CHUNK_MAX    = 60
+local CHUNK_REFILL = 4
+local NODE_PASS    = 5.0
+local gc = { list = nil, idx = nil, k = 1, zone = nil }
+
+local function flat_dist(a, b)
+    local dx, dy = a.x - b.x, a.y - b.y
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+--- Next node index from i in direction dir, with the turn-round / wrap
+--- rules of the patrol. Returns the index and the (maybe flipped) direction.
+local function step_node(zone, n, i, dir)
+    local open = zone.path and zone.path.loop == false
+    local j = i + dir
+    if j > n then
+        if open then return math.max(1, n - 1), -1 end
+        return 1, dir
+    elseif j < 1 then
+        return math.min(n, 2), 1
+    end
+    return j, dir
+end
+
+local function build_chunk(zone, n)
+    local list, idx = {}, {}
+    local i, dir = state.grind.move, state.grind.dir or 1
+    if zone.path and zone.path.loop ~= false then dir = 1 end
+    if i < 1 or i > n then i = 1 end
+    for _ = 1, math.min(CHUNK_MAX, n * 2) do
+        local x, y, z = node_xyz(zone, i)
+        if x and not movement.is_blocked({ x = x, y = y, z = z }) then
+            list[#list + 1] = { x = x, y = y, z = z }
+            idx[#idx + 1] = i
+        end
+        i, dir = step_node(zone, n, i, dir)
+    end
+    return list, idx
+end
+
+--- Walk the recorded path as long routes. True when it handled the tick.
+local function smooth_walk(zone, n)
+    if type(movement.follow_route) ~= "function" or n < 2 then return false end
+    local here = state.cached_pos
+    if not here or type(here.x) ~= "number" then return false end
+    if gc.zone ~= zone then gc.list, gc.zone = nil, zone end
+    if movement.is_quiet() or movement.in_combat_movement() then
+        state.set_note("Grind", "Nav settle")
+        return true
+    end
+    -- Advance past the nodes walked through.
+    if gc.list then
+        local best_k, best_d = nil, nil
+        local last = math.min(#gc.list, gc.k + 8)
+        for k = gc.k, last do
+            local d = flat_dist(here, gc.list[k])
+            if not best_d or d < best_d then best_k, best_d = k, d end
+        end
+        if best_k and best_d <= NODE_PASS then
+            local old = state.grind.move
+            gc.k = best_k + 1
+            local nxt = gc.idx[math.min(gc.k, #gc.idx)]
+            if nxt then
+                -- a closed loop wrapping past its last node is a lap
+                if zone.path and zone.path.loop ~= false and nxt < old and (old - nxt) > n / 2 then
+                    lap_pending = math.min(lap_pending + 1, 1)
+                end
+                -- direction on an open path follows the chunk
+                if best_k < #gc.idx and gc.idx[best_k + 1] then
+                    local a, b = gc.idx[best_k], gc.idx[best_k + 1]
+                    if b ~= a then state.grind.dir = (b > a) and 1 or -1 end
+                end
+                state.grind.move = nxt
+            end
+        end
+    end
+    local remaining = gc.list and (#gc.list - gc.k + 1) or 0
+    local moving = movement.is_moving()
+    if gc.list and moving and remaining > CHUNK_REFILL then
+        state.set_note("Grind", string.format("%s  node %d / %d", tostring(zone.name or "Patrol"), state.grind.move, n))
+        return true
+    end
+    local list, idx = build_chunk(zone, n)
+    if #list < 2 then return false end
+    local replace = gc.list ~= nil and moving
+    if movement.follow_route(list, replace) then
+        gc.list, gc.idx, gc.k = list, idx, 1
+    end
+    state.set_note("Grind", string.format("%s  node %d / %d", tostring(zone.name or "Patrol"), state.grind.move, n))
+    return true
+end
+
 --- Walk back onto the path when asked to (after a fight) or drifted far.
 --- True while walking back (the caller does nothing else this tick).
 local function rejoin_path(zone, order)
@@ -434,7 +541,15 @@ function grind.kill_mobs(player)
     -- zones only.
     if zone.path then order = nil end
     -- Back onto the path first: after a fight, or drifted off it (2.230.0).
-    if rejoin_path(zone, order) then return end
+    if rejoin_path(zone, order) then
+        gc.list = nil                         -- the next route starts from the rejoin
+        return
+    end
+    -- A recorded path: walked as long routes, not node by node (2.235.2-ameisen).
+    if zone.path then
+        local n_nodes = node_count(zone)
+        if smooth_walk(zone, n_nodes) then return end
+    end
     local using_order = type(order) == "table" and #order > 0
     local n
     local pos

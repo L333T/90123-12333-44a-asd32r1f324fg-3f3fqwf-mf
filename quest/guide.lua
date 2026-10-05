@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2418,94 +2418,17 @@ end
 --   once for the navmesh heights at its x,y (get_all_heights, server side, no
 --   terrain loading) and keeps the layer nearest the player's height. One
 --   request in flight at a time, NAVZ_GAP apart - never a flood.
-local NAVZ_GAP = 1.0
-local navz_busy = false
-local navz_next = 0
-local navz_shape_logged = false
-
---- Every height found in a Sentinel reply, whatever its shape.
-local function heights_in(v, out, depth)
-    depth = depth or 0
-    if depth > 3 then return out end
-    if type(v) == "number" then
-        if finite(v) then out[#out + 1] = v end
-    elseif type(v) == "table" or type(v) == "userdata" then
-        local z = tonumber(get(v, "z")) or tonumber(get(v, "height"))
-        if z and finite(z) then
-            out[#out + 1] = z
-            return out
-        end
-        local hs = get(v, "heights")
-        if hs ~= nil then return heights_in(hs, out, depth + 1) end
-        if type(v) == "table" then
-            for i = 1, #v do heights_in(v[i], out, depth + 1) end
-        end
-    end
-    return out
-end
-
+-- MASTER FARMER BOT (Ameisen): there is no navmesh height query to ask - the
+-- Ameisen 1.8.3.2 server has no height opcode (its HTTP bridge answers
+-- "err no_path"), and Sentinel's get_all_heights does not exist here. A far
+-- waypoint keeps the player's height until it is within HEIGHT_RANGE (the
+-- terrain height then settles it); a wrong height that Ameisen answers with
+-- end_off_mesh / no_path is retried at the floor heights found there
+-- (movement/terrain on_unreachable).
 local function request_nav_height(e, mz)
-    if navz_busy or e.navz_asked then return end
-    local now = izi.now()
-    if now < navz_next then return end
-    local g = rawget(_G, "SentinelNavClient")
-    local c = type(g) == "table" and g.client or nil
-    if not c or type(c.get_all_heights) ~= "function" then
-        e.navz_asked = true
-        e.navz_failed = true
-        return
-    end
+    if e.navz_asked then return end
     e.navz_asked = true
-    navz_busy = true
-    navz_next = now + NAVZ_GAP
-    -- Reachable layers only (2.112.0): the server drops every height with no
-    -- path from the player (filter_unreachable + from_pos, /api/v1/heights).
-    -- If that leaves nothing - or the player is off the mesh - the next
-    -- request for this waypoint asks without the filter.
-    local hopts = nil
-    if not e.navz_plain then
-        local me = safe(function() return izi.me():get_position() end)
-        if me then
-            hopts = { filter_unreachable = true, from_pos = { x = me.x, y = me.y, z = me.z } }
-        end
-    end
-    local ok = pcall(c.get_all_heights, c, vec3.new(e.x, e.y, mz), function(...)
-        navz_busy = false
-        local args = { ... }
-        local hs = {}
-        for i = 1, select("#", ...) do
-            if type(args[i]) ~= "boolean" and type(args[i]) ~= "string" then
-                heights_in(args[i], hs)
-            end
-        end
-        local log = elog()
-        if log and not navz_shape_logged then
-            navz_shape_logged = true
-            log.trail("waypoint", "sentinel get_all_heights reply: %d arg(s), %d height(s) (%s)",
-                select("#", ...), #hs, tostring(args[1]))
-        end
-        if #hs == 0 and hopts and not e.navz_plain then
-            e.navz_plain = true
-            e.navz_asked = false          -- ask once more, without the filter
-            return
-        end
-        local best = nil
-        for i = 1, #hs do
-            if best == nil or math.abs(hs[i] - mz) < math.abs(best - mz) then best = hs[i] end
-        end
-        if best then
-            e.z, e.final = best, true
-            if log then
-                log.trail("waypoint", "world (%.1f, %.1f) navmesh z %.1f (player z %.1f)", e.x, e.y, best, mz)
-            end
-        else
-            e.navz_failed = true
-        end
-    end, hopts)
-    if not ok then
-        navz_busy = false
-        e.navz_failed = true
-    end
+    e.navz_failed = true
 end
 
 local function to_world(wp)

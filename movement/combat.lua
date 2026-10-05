@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.235.0
+-- Version: 2.236.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -420,7 +420,7 @@ function C.combat_engage(player, unit, yards)
             return false
         end
         O.halt_all()
-        dlog("combat", "halted Sentinel leg '" .. tostring(R.sn_why) .. "' to fight")
+        dlog("combat", "halted Ameisen leg '" .. tostring(R.sn_why) .. "' to fight")
     end
 
     O.take(OWNER.COMBAT)

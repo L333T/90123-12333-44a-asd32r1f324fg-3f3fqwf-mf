@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.238.0
+-- Version: 2.239.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -173,6 +173,28 @@ local function fail_code(reason, detail)
 end
 N.fail_code = fail_code
 
+--- A FAR_HOP yd step from the player toward (x, y), at the ground height read
+--- there, when the destination is more than FAR_HOP_MIN yd away. nil when it
+--- is closer (the terrain height retry handles that) or no height is known.
+local FAR_HOP = 120
+local FAR_HOP_MIN = 160
+function N.far_hop(x, y, z)
+    if type(x) ~= "number" or type(y) ~= "number" then return nil end
+    local hx, hy, hz = here_xyz()
+    if not hx then return nil end
+    local d = dist2(hx, hy, x, y)
+    if d <= FAR_HOP_MIN then return nil end
+    local f = FAR_HOP / d
+    local px, py = hx + (x - hx) * f, hy + (y - hy) * f
+    local pz = nil
+    local ok_t, Tr = pcall(require, "movement/terrain")
+    if ok_t and type(Tr) == "table" and type(Tr.height) == "function" then
+        pz = Tr.height(px, py, (hz or 0) + 80)
+    end
+    if type(pz) ~= "number" then return nil end
+    return { x = px, y = py, z = pz, d = d }
+end
+
 local chain_busy = false
 local try_random_unstick
 
@@ -242,6 +264,28 @@ function N.on_nav_done(ok, reason, detail)
             W.clear_dest()
         end
         return
+    end
+    -- FAR LEG WITHOUT A PATH (2.239.0): a far destination's height is a
+    -- guess, and Ameisen answers no_path / end_off_mesh for it. Walk a hop of
+    -- FAR_HOP yd toward it at the ground height read here (terrain within
+    -- range is loaded) and ask again from there - no blacklist, no hold.
+    if (r == "no_path" or r == "end_off_mesh" or r == "unreachable")
+        and R.has_dest and R.cur_owner ~= OWNER.COMBAT then
+        local hop = N.far_hop(R.dest_x, R.dest_y, R.dest_z)
+        if hop then
+            local ok_e3, el3 = pcall(require, "errorlog")
+            if ok_e3 and type(el3) == "table" and type(el3.trail) == "function" then
+                pcall(el3.trail, "ameisen", "%s to a point %.0f yd away (height unknown) - walking a %d yd hop toward it",
+                    r, hop.d, FAR_HOP)
+            end
+            -- The next move toward this goal is sent to the hop (N.move);
+            -- the reply came inside the request gap, so it is not re-issued here.
+            R.far_hop = { gx = R.dest_x, gy = R.dest_y, x = hop.x, y = hop.y, z = hop.z, t = izi.now() }
+            R.sn_active, R.sn_reason = false, r
+            R.sn_leash_hold = false
+            W.clear_dest()
+            return
+        end
     end
     -- WAYPOINT HEIGHT RETRY (2.221.0, movement/terrain.lua): "unreachable" is
     -- most often the right x, y at the wrong z. When another floor height is
@@ -787,6 +831,19 @@ function N.move(p, why)
     -- and a straight-line midpoint can be off the mesh. The one-request-per-
     -- SN_MIN_GAP rate limit above is what guards against flooding.
     if not xyz(p) then return false end
+    -- FAR HOP (2.239.0): a far goal Ameisen had no path to is approached
+    -- through the hop point on_nav_done picked, until the player is there.
+    local fh = R.far_hop
+    if fh then
+        local hx1, hy1 = here_xyz()
+        if (izi.now() - fh.t) > 180 or dist2(fh.gx, fh.gy, p.x, p.y) > 10
+            or (hx1 and dist2(hx1, hy1, fh.x, fh.y) <= 8) then
+            R.far_hop = nil
+        else
+            p = { x = fh.x, y = fh.y, z = fh.z }
+            why = "far_hop"
+        end
+    end
     if travel_near(p.x, p.y) then return false end
     local hx, hy, hz = here_xyz()
     if R.sn_active then
@@ -1236,14 +1293,22 @@ end
 
 --- false only once Sentinel has said "unreachable"; true while pending,
 --- unknown, or with no server - never blocks the caller.
+--- 2.239.0: never false for a point more than REACH_TRUST_FAR yd away. Its
+--- height is a guess there (RestedXP gives x, y only, and the Ameisen server
+--- has no height query), and a wrong height reads "no_path" - one answer
+--- skipped every kill goal of a step at the same spot and stalled the guide.
+--- Far legs are walked in hops instead (on_nav_done, far_hop).
+local REACH_TRUST_FAR = 150
 function N.reachable(pos)
     local x, y, z = xyz(pos)
     if not x then return true end
+    local hx0, hy0 = here_xyz()
+    local far = hx0 ~= nil and dist2(hx0, hy0, x, y) > REACH_TRUST_FAR
     local key = reach_key(x, y)
     local now = izi.now()
     local e = reach[key]
     if e and (now - e.t) < REACH_TTL then
-        return e.ok ~= false
+        return e.ok ~= false or far
     end
     local c = client()
     if not c or now < reach_next then return true end

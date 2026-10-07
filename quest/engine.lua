@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.238.0
+-- Version: 2.239.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2182,6 +2182,44 @@ end
 
 
 --- Select the taxi option of the open gossip frame. True when one was chosen.
+-- 2.239.0 flight-master helpers, in one table (this file is at Lua's 200-local limit).
+local FM = {
+    GOSSIP_TRIES = 3,          -- gossip windows without a flight option before the next NPC
+    FLAG = 0x2000,             -- UNIT_NPC_FLAG_FLIGHTMASTER
+}
+
+--- GUIDs as text (2.239.0): on this client get_guid() can be userdata, and
+--- two reads of the same GUID need not compare equal.
+function FM.guid_text(u)
+    local g = safe(function() return u:get_guid() end)
+    if g == nil then return nil end
+    local ok, s = pcall(tostring, g)
+    if ok and type(s) == "string" and s ~= "" then return s end
+    return nil
+end
+
+function FM.is_flight_master(u)
+    local f = safe(function() return u:get_npc_flags() end)
+    return type(f) == "number" and f > 0 and math.floor(f / FM.FLAG) % 2 == 1
+end
+
+--- One log line with what an open gossip window offers (why no flight option).
+function FM.log_gossip_options(who)
+    local parts = {}
+    local opts = safe(function() return core.quests.get_gossip_options() end)
+    if type(opts) == "table" then
+        for i = 1, math.min(#opts, 8) do
+            local o = opts[i]
+            if type(o) == "table" then
+                parts[#parts + 1] = string.format("'%s' type=%s icon=%s", tostring(o.name),
+                    tostring(o.gossip_type), tostring(o.icon))
+            end
+        end
+    end
+    trail("travel", "%s's gossip has no flight option: %s", tostring(who),
+        #parts > 0 and table.concat(parts, "; ") or "no options listed")
+end
+
 local function taxi_gossip()
     -- gossip.lua (2.144.0): izi's TAXI icon, then type "taxi" / wording.
     return (gossip.select({ icon = "TAXI", type = "taxi", words = { "fly", "flight" } }))
@@ -2315,6 +2353,7 @@ local function fly_goal(player, goal, wps, label)
                 trail("act", "flight master: taxi option selected")
             else
                 g_fly_noopt = g_fly_noopt + 1
+                if g_fly_noopt == 1 then FM.log_gossip_options("the flight master") end
                 trail("act", "flight master frame has no taxi option - closing it and talking again (%d/%d)",
                     g_fly_noopt, FLY_NOOPT_MAX)
                 pcall(function() core.quests.close_gossip() end)
@@ -2434,6 +2473,10 @@ local function best_map_node(map, fkey, target, start)
     for i = 1, n do
         local name = safe(function() return core.taxi.node_name(i) end)
         local list = cat and type(name) == "string" and name ~= "" and name ~= "INVALID" and cat.find(name) or nil
+        -- 2.239.0: only a node this character can fly to now (not CURRENT,
+        -- DISTANT or undiscovered). "" = the client does not say: allowed.
+        local ntype = safe(function() return core.taxi.node_type(i) end)
+        if type(ntype) == "string" and ntype ~= "" and ntype ~= "REACHABLE" then list = nil end
         if type(list) == "table" then
             for k = 1, #list do
                 local e = list[k]
@@ -2503,7 +2546,7 @@ local function far_travel(player, goal, kind, wps, label)
                 dist, tostring(map), tostring(fkey), start and start.name or "none", sd or -1, near_goal or -1))
         end
         g_trip = { key = key, start = start, target = { x = target.x, y = target.y, z = target.z },
-            tried = {}, fm_guid = nil, fm_tries = 0 }
+            tried = {}, fm_guid = nil, fm_tries = 0, fm_name = nil, gossip_misses = 0 }
         g_fly_fails = 0
         trail("travel", "goal %.0f yd away - flying: walk to %s (%.0f yd)", dist, start.name, sd)
     end
@@ -2536,10 +2579,18 @@ local function far_travel(player, goal, kind, wps, label)
     if safe(function() return core.quests.is_gossip_frame_shown() end) == true then
         if now >= g_act_until then
             g_act_until = now + ACT_GAP
-            if not taxi_gossip() then
-                if trip.fm_guid then trip.tried[trip.fm_guid] = true end
-                trip.fm_guid, trip.fm_tries = nil, 0
-                pcall(function() core.quests.close_gossip() end)
+            if taxi_gossip() then
+                trip.gossip_misses = 0
+            else
+                -- 2.239.0: the options can arrive after the frame; give the
+                -- window FM_GOSSIP_TRIES looks, and log what it offered.
+                trip.gossip_misses = (trip.gossip_misses or 0) + 1
+                if trip.gossip_misses == 1 then FM.log_gossip_options(trip.fm_name or "the NPC") end
+                if trip.gossip_misses >= FM.GOSSIP_TRIES then
+                    if trip.fm_guid then trip.tried[trip.fm_guid] = true end
+                    trip.fm_guid, trip.fm_tries, trip.gossip_misses = nil, 0, 0
+                    pcall(function() core.quests.close_gossip() end)
+                end
             end
         end
         state.set_note("Travel", "Talking to the flight master")
@@ -2562,7 +2613,7 @@ local function far_travel(player, goal, kind, wps, label)
         for i = 1, #list do
             local u = list[i]
             if u and safe(function() return u:is_valid() end) == true
-                and safe(function() return u:get_guid() end) == trip.fm_guid then
+                and FM.guid_text(u) == trip.fm_guid then
                 unit = u
                 break
             end
@@ -2570,7 +2621,9 @@ local function far_travel(player, goal, kind, wps, label)
         if not unit then trip.fm_guid = nil end
     end
     if not unit then
-        local best_d = nil
+        -- 2.239.0: the NPC flagged FLIGHTMASTER first (guards and vendors
+        -- stand at flight points too), then the nearest friendly NPC.
+        local best_d, best_fm = nil, false
         local list = targeting.visible_objects() or {}
         for i = 1, #list do
             local u = list[i]
@@ -2578,19 +2631,25 @@ local function far_travel(player, goal, kind, wps, label)
                 and safe(function() return u:is_player() end) ~= true
                 and safe(function() return u:is_dead() end) ~= true
                 and safe(function() return player:can_attack(u) end) ~= true then
-                local g = safe(function() return u:get_guid() end)
+                local g = FM.guid_text(u)
                 local p = safe(function() return u:get_position() end)
                 if g ~= nil and not trip.tried[g] and p and d2(p, sp) <= FM_SEARCH then
                     local d = d2(here, p)
-                    if best_d == nil or d < best_d then unit, best_d = u, d end
+                    local fm = FM.is_flight_master(u)
+                    if best_d == nil or (fm and not best_fm) or (fm == best_fm and d < best_d) then
+                        unit, best_d, best_fm = u, d, fm
+                    end
                 end
             end
         end
         if not unit then
             return trip_fail(key, "no flight master found at " .. sp.name)
         end
-        trip.fm_guid = safe(function() return unit:get_guid() end)
-        trip.fm_tries = 0
+        trip.fm_guid = FM.guid_text(unit)
+        trip.fm_name = safe(function() return unit:get_name() end)
+        trip.fm_tries, trip.gossip_misses = 0, 0
+        trail("travel", "flight master candidate %s%s", tostring(trip.fm_name),
+            best_fm and " (flight master flag)" or "")
     end
     local ud = safe(function() return player:distance_to(unit) end) or 99
     if ud > TALK_REACH then

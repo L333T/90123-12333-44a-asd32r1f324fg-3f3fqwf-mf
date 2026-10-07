@@ -3,7 +3,7 @@
 -- Recorded Alliance roads to inns and flight masters
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.238.0
+-- Version: 2.239.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- data/ek_alliance_routes.lua holds the PathTool roads. A destination that
@@ -177,7 +177,12 @@ function M.hop(here, dest)
             end
             if idx and score then
                 local px, py, pz = at(route, idx)
-                if d2(px, py, dx, dy) > NEAR2 and (not best_score or score < best_score) then
+                -- 2.239.0: the road's end under the player (a quest giver
+                -- beside the flight point the player stands at) is not a
+                -- hop - walking "to" it arrived at once, every tick, and the
+                -- bot stood 44 yd from the NPC. The real destination is walked.
+                if d2(px, py, dx, dy) > NEAR2 and d2(hx, hy, px, py) >= HOP2
+                    and (not best_score or score < best_score) then
                     best_score = score
                     best_name = route[1]
                     best_x, best_y, best_z = px, py, pz

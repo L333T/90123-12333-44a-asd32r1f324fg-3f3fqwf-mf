@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.237.0
+-- Version: 2.238.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -207,6 +207,30 @@ menu:checkbox("mfg_gather_train", true, {
 menu:checkbox("mfg_gather_teleport", false, {
     label = "Teleport Alarm", tab = "gathering", visible_if = gather_on,
     tooltip = "Moved farther than the alarm distance in one tick while alive: stand still for 90 seconds.",
+})
+menu:checkbox("mfg_gather_buy_food", true, {
+    label = "Buy Food / Drink", tab = "gathering", visible_if = gather_on,
+    tooltip = "Restock at the route's food vendor: the route's food and drink when usable at your level, otherwise the best usable food / drink the vendor sells. Mages conjure instead; warriors and rogues buy no drink. Not on WoW Forever (vendor items cannot be read there).",
+})
+menu:checkbox("mfg_gather_buy_ammo", true, {
+    label = "Buy Ammo (Hunter)", tab = "gathering", visible_if = gather_on,
+    tooltip = "Hunters: buy the best arrows (bow / crossbow) or shot (gun) the route's ammo vendor sells that you can use, and put it in the ammo slot.",
+})
+menu:slider_int("mfg_gather_food_low", 0, 40, 5, {
+    label = "Restock Food / Drink At", tab = "gathering", visible_if = gather_on,
+    tooltip = "A food trip starts when food or drink in the bags is at or below this count.",
+})
+menu:slider_int("mfg_gather_food_stock", 5, 100, 20, {
+    label = "Food / Drink Stock", tab = "gathering", visible_if = gather_on,
+    tooltip = "Buy food and drink up to this count each.",
+})
+menu:slider_int("mfg_gather_ammo_low", 0, 1000, 100, {
+    label = "Ammo Buy Below", tab = "gathering", visible_if = gather_on,
+    tooltip = "Hunters: an ammo trip starts when ammo in the bags is under this count.",
+})
+menu:slider_int("mfg_gather_ammo_stop", 100, 2000, 500, {
+    label = "Ammo Stop At", tab = "gathering", visible_if = gather_on,
+    tooltip = "Hunters: buy ammo up to this count.",
 })
 menu:slider_int("mfg_gather_scan", 20, 300, 200, {
     label = "Scan Range (yd)", tab = "gathering", visible_if = gather_on,
@@ -2390,6 +2414,7 @@ menu:on_tab("gathering", function(win, x, y, w, h)
             st.step or 1, st.wp or 1, st.wp_count or 0, st.gathered or 0))
         if st.node then text(gold, "Node: " .. tostring(st.node)) end
         if st.training then text(gold, "Training at the profession trainer") end
+        if st.supplying then text(gold, "Buying ammo / food") end
         if (st.paused or 0) > 0 then text(warn, string.format("Teleport alarm: %d s", st.paused)) end
     else
         text(warn, "No route: " .. tostring(st.reason))

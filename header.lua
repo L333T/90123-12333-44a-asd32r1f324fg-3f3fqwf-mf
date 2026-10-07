@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Purpose: TBC + IZI gate. Not class-locked. Start is gated by rotation registry.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.236.0
+-- Version: 2.237.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -20,7 +20,8 @@ plugin["load"] = true
 -- The header runs before a player exists and is not asked again, so this
 -- gate does not require one. Class is not a gate. Both version calls are
 -- pcalled, then the decision is posted to the local nav boot log.
-local SUPPORTED = { Forever = true, Tbc = true }
+-- "Vanilla" = WoW Classic (2.237.0, gathering: PORT_PLAYBOOK cap 300).
+local SUPPORTED = { Forever = true, Tbc = true, Vanilla = true }
 local BOOT_URL = "http://127.0.0.1:47110/log?src=boot"
 
 local function call(fn, ...)

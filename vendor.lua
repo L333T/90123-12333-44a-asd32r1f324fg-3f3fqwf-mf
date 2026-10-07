@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.236.0
+-- Version: 2.237.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -129,8 +129,21 @@ local function running_grind()
     return nil, nil
 end
 
+-- The gathering route (2.237.0, gather/engine, only when that pack is
+-- loaded and Gathering is the ticked mode). Its merchant is the route's.
+local function gathering()
+    if gui.is_on("mfg_use_gather") ~= true then return nil end
+    local g = package.loaded["gather/engine"]
+    if type(g) == "table" and type(g.current_profile) == "function" then
+        local p = safe(function() return g.current_profile() end)
+        if type(p) == "table" then return p end
+    end
+    return nil
+end
+
 local function path_merchant()
     local _, path = running_grind()
+    if not path then path = gathering() end
     if not path then
         local ok, runner = pcall(require, "path_runner")
         if ok and type(runner) == "table" and type(runner.current_path) == "function" then
@@ -411,6 +424,9 @@ local function refresh_consumables()
     end
 end
 
+-- PORT_PLAYBOOK keep-item list (English names).
+local GATHER_KEEP = { ["Dreamfoil"] = true, ["Mountain Silversage"] = true, ["Arcane Crystal"] = true }
+
 local function should_sell_item(player, item_id)
     if type(item_id) ~= "number" or item_id <= 0 then
         return false
@@ -438,6 +454,16 @@ local function should_sell_item(player, item_id)
     -- 0 consumable, 6 projectile, 11 quiver / ammo pouch, 12 quest
     if info.class_id == 0 or info.class_id == 6 or info.class_id == 11 or info.class_id == 12 then
         return false
+    end
+    -- GATHERING (2.237.0): the keep list is never sold, and with Keep
+    -- Gathered Materials on no Trade Goods (class 7: herbs, ore, stone) are.
+    if gui.is_on("mfg_use_gather") == true then
+        if info.class_id == 7 and gui.is_on("mfg_gather_keep") == true then
+            return false
+        end
+        if type(info.name) == "string" and GATHER_KEEP[info.name] then
+            return false
+        end
     end
     local price = info.sell_price
     if type(price) == "number" and price <= 0 then
@@ -484,6 +510,8 @@ end
 --- Delete the cheapest grey item. True when one was deleted.
 function vendor.destroy_cheapest_junk(player, why)
     if not player or gui.is_on("delete_junk") ~= true then return false end
+    -- Gathering never deletes bag items (PORT_PLAYBOOK, 2.237.0).
+    if gui.is_on("mfg_use_gather") == true then return false end
     if safe(function() return player:is_dead() end) == true then return false end
     local keep = keep_ids(player)
     local food, water = bags.food_water(player)

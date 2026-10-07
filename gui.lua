@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.236.0
+-- Version: 2.237.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -40,9 +40,10 @@ local plugin_helper = require("common/utility/plugin_helper")
 
 local identity = require("version")
 local ui = require("ui")
--- The two bot modes (were modes.lua, removed in 2.217.0 with the unused Path
--- mode). gui.mode() returns one of these; main.lua reads them as gui.modes.
-local modes = { GRIND = "grind", QUEST = "quest" }
+-- The bot modes (were modes.lua, removed in 2.217.0 with the unused Path
+-- mode; Gathering added in 2.237.0). gui.mode() returns one of these;
+-- main.lua reads them as gui.modes.
+local modes = { GRIND = "grind", QUEST = "quest", GATHER = "gather" }
 local state = require("state")
 local spellbook = require("spellbook")
 local loader = require("loader")
@@ -118,6 +119,7 @@ local menu = ui.new({
         { id = "general", label = "General" },
         { id = "grinding", label = "Grinding" },
         { id = "questing", label = "Questing" },
+        { id = "gathering", label = "Gathering" },
         { id = "class", label = "Spells" },
         { id = "healing", label = "Resting" },   -- id kept: saved settings and code refer to it
         { id = "settings", label = "Settings" },
@@ -160,12 +162,75 @@ menu:combobox("mfg_mode", 1, MODE_LABELS, {
 menu:checkbox("mfg_use_grind", false, {
     label = "Enable Grinding",
     tab = "grinding",
-    tooltip = "Turn grinding on, then pick a faction and a route below. Cannot run with Questing.",
+    tooltip = "Turn grinding on, then pick a faction and a route below. Cannot run with Questing or Gathering.",
 })
 menu:checkbox("mfg_use_quest", false, {
     label = "Enable Questing",
     tab = "questing",
-    tooltip = "Turn questing on. The RestedXP Guides addon supplies every quest, NPC, waypoint and mob to kill - load a guide in it, then Start. Cannot run with Grinding.",
+    tooltip = "Turn questing on. The RestedXP Guides addon supplies every quest, NPC, waypoint and mob to kill - load a guide in it, then Start. Cannot run with Grinding or Gathering.",
+})
+
+-- GATHERING (2.237.0, port of EP_Herb_Mine - PORT_PLAYBOOK.md). Herb and ore
+-- routes picked by profession rank; settings show while it is ticked.
+menu:checkbox("mfg_use_gather", false, {
+    label = "Enable Gathering",
+    tab = "gathering",
+    tooltip = "Turn herb and ore gathering on. The route is chosen from your Herbalism / Mining rank and faction (cap 300 on Classic and Forever, 375 on TBC). Cannot run with Grinding or Questing.",
+})
+local function gather_on()
+    return menu:get("mfg_use_gather") == true
+end
+menu:checkbox("mfg_gather_herb", true, {
+    label = "Herbalism", tab = "gathering", visible_if = gather_on,
+    tooltip = "Gather herbs and allow the herbalism routes.",
+})
+menu:checkbox("mfg_gather_mine", true, {
+    label = "Mining", tab = "gathering", visible_if = gather_on,
+    tooltip = "Gather ore and allow the mining routes.",
+})
+menu:checkbox("mfg_gather_fight", true, {
+    label = "Fight While Patrolling", tab = "gathering", visible_if = gather_on,
+    tooltip = "In combat on the route, fight back once health falls to the Fight-Back Health %. At a node the bot always fights what attacks it. Uses the Spells tab rotation.",
+})
+menu:checkbox("mfg_gather_mount", true, {
+    label = "Use Mount", tab = "gathering", visible_if = gather_on,
+    tooltip = "Mount (or Travel Form) for travel from level 30, outdoors and out of combat. Dismounts at each node.",
+})
+menu:checkbox("mfg_gather_keep", true, {
+    label = "Keep Gathered Materials", tab = "gathering", visible_if = gather_on,
+    tooltip = "Never sell Trade Goods (herbs, ore, stone) at the vendor while gathering. Dreamfoil, Mountain Silversage and Arcane Crystal are always kept.",
+})
+menu:checkbox("mfg_gather_train", true, {
+    label = "Train Professions", tab = "gathering", visible_if = gather_on,
+    tooltip = "Visit the Herbalism / Mining trainer when the profession is missing its tracking spell or the skill is at its rank maximum.",
+})
+menu:checkbox("mfg_gather_teleport", false, {
+    label = "Teleport Alarm", tab = "gathering", visible_if = gather_on,
+    tooltip = "Moved farther than the alarm distance in one tick while alive: stand still for 90 seconds.",
+})
+menu:slider_int("mfg_gather_scan", 20, 300, 200, {
+    label = "Scan Range (yd)", tab = "gathering", visible_if = gather_on,
+    tooltip = "How far from the player a herb or ore node is looked for.",
+})
+menu:slider_int("mfg_gather_scan_gap", 1, 5, 1, {
+    label = "Scan Interval (s)", tab = "gathering", visible_if = gather_on,
+    tooltip = "Seconds between node scans while patrolling.",
+})
+menu:slider_int("mfg_gather_max", 30, 600, 200, {
+    label = "Max Gather Time (s)", tab = "gathering", visible_if = gather_on,
+    tooltip = "A node not gathered within this time is blacklisted.",
+})
+menu:slider_int("mfg_gather_fight_hp", 10, 100, 50, {
+    label = "Fight-Back Health %", tab = "gathering", visible_if = gather_on,
+    tooltip = "On the route, fight back when in combat and health is at or below this percentage.",
+})
+menu:slider_int("mfg_gather_fight_yards", 10, 60, 40, {
+    label = "Fight-Back Range (yd)", tab = "gathering", visible_if = gather_on,
+    tooltip = "Attackers within this range are fought.",
+})
+menu:slider_int("mfg_gather_teleport_yards", 20, 500, 100, {
+    label = "Teleport Alarm (yd)", tab = "gathering", visible_if = gather_on,
+    tooltip = "Distance in one tick that sets off the teleport alarm.",
 })
 
 -- Which side's routes to list. Defaults to the character's own faction the
@@ -659,6 +724,7 @@ local aliases = {
     rotation_only = "mfg_rotation_only",
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",
+    use_gather = "mfg_use_gather",
     show_gui = "mfg_show_gui",
     -- Hunter / Warlock / Shaman / Rogue rotations
     aspect_hawk = "mfg_aspect_hawk",
@@ -1103,6 +1169,9 @@ end
 gui.modes = modes
 
 function gui.mode()
+    if is_on("use_gather") then
+        return modes.GATHER
+    end
     if is_on("use_quest") then
         return modes.QUEST
     end
@@ -1556,7 +1625,8 @@ function gui.is_started()
     end
     local g = is_on("use_grind")
     local q = is_on("use_quest")
-    if g == q then
+    local a = is_on("use_gather")
+    if ((g and 1 or 0) + (q and 1 or 0) + (a and 1 or 0)) ~= 1 then
         return false
     end
     if g and not gui.has_grind_profile() then
@@ -1612,9 +1682,10 @@ local function start_bot()
     gui.sync_activity()
     local g = is_on("use_grind")
     local q = is_on("use_quest")
-    if g == q then
-        core.log("[Master Farmer - Grindbot] Start blocked: check Grinding or Quest (not both).")
-        state.set_note("Start", "Check Grinding or Quest")
+    local a = is_on("use_gather")
+    if ((g and 1 or 0) + (q and 1 or 0) + (a and 1 or 0)) ~= 1 then
+        core.log("[Master Farmer - Grindbot] Start blocked: check one of Grinding, Questing or Gathering.")
+        state.set_note("Start", "Check Grinding, Questing or Gathering")
         return
     end
     if not can_start() then
@@ -1645,6 +1716,18 @@ local function start_bot()
             pcall(runner.set_preview, path)
         end
         menu:set("mfg_mode", 1)
+    elseif a then
+        loader.ensure_gather()
+        local engine = loader.gather()
+        if not engine or type(engine.prepare) ~= "function" then
+            core.log("[Master Farmer - Grindbot] Start blocked: gathering failed to load.")
+            state.set_note("Start", "Gathering failed to load")
+            return
+        end
+        -- No route yet is not a block: the engine keeps retrying and can
+        -- train a missing profession first. The reason is logged.
+        local ok_p, why = engine.prepare(izi.me())
+        core.log("[Master Farmer - Grindbot] Gathering route: " .. (ok_p and tostring(why) or ("none - " .. tostring(why))))
     else
         loader.ensure_quest()
         if not gui.has_quest_profile() then
@@ -1655,14 +1738,15 @@ local function start_bot()
         menu:set("mfg_mode", 2)
     end
     set_on("enable", true)
-    state.set_note("Start", g and "Grinding" or "Quest")
+    local what = g and "grinding" or (a and "gathering" or "questing")
+    state.set_note("Start", g and "Grinding" or (a and "Gathering" or "Quest"))
     local ok_e, errorlog = pcall(require, "errorlog")
     if ok_e and type(errorlog) == "table" then
-        errorlog.info("Start: %s", g and "grinding" or "questing")
+        errorlog.info("Start: %s", what)
         -- The recorder writes a line per stage per frame - ~2.7 ms of disk
         -- each, 90+ ms a frame (2.28.0 log). Its own opt-in box only.
         if is_on("crash_recorder") then
-            errorlog.arm("start " .. (g and "grinding" or "questing"))
+            errorlog.arm("start " .. what)
         end
         -- The first 30 s after Start (2.88.0): most shutdowns came 4-45 s in.
         if is_on("crash_capture") and type(errorlog.arm_light) == "function" then
@@ -1782,20 +1866,36 @@ end
 function gui.sync_activity()
     local g = is_on("use_grind")
     local q = is_on("use_quest")
-    if g and q then
-        if last_activity == "grind" then
-            set_on("use_quest", false)
-            q = false
-        else
-            set_on("use_grind", false)
-            g = false
+    local a = is_on("use_gather")
+    if ((g and 1 or 0) + (q and 1 or 0) + (a and 1 or 0)) > 1 then
+        -- One mode at a time: the running one keeps its box (as before
+        -- Gathering existed); with none running, Quest, then Gathering.
+        local keep = last_activity
+        if not ((keep == "grind" and g) or (keep == "quest" and q) or (keep == "gather" and a)) then
+            keep = (q and "quest") or (a and "gather") or "grind"
         end
+        if keep ~= "grind" and g then set_on("use_grind", false) g = false end
+        if keep ~= "quest" and q then set_on("use_quest", false) q = false end
+        if keep ~= "gather" and a then set_on("use_gather", false) a = false end
+    end
+    if a then
+        if last_activity ~= "gather" then
+            last_activity = "gather"
+            set_on("enable", false)
+            loader.unload_grind()
+            loader.unload_quest()
+            armed_path = nil
+            loader.ensure_gather()
+            state.set_note("Mode", "Gathering - Start to gather herbs / ore")
+        end
+        return
     end
     if g then
         if last_activity ~= "grind" then
             last_activity = "grind"
             set_on("enable", false)
             loader.unload_quest()
+            loader.unload_gather()
             loader.ensure_grind()
             picker_cache_key = ""
             gui.sync_profile_list(false)
@@ -1809,6 +1909,7 @@ function gui.sync_activity()
             last_activity = "quest"
             set_on("enable", false)
             loader.unload_grind()
+            loader.unload_gather()
             armed_path = nil
             loader.ensure_quest()
             menu:set("mfg_mode", 2)
@@ -1821,11 +1922,12 @@ function gui.sync_activity()
         set_on("enable", false)
         loader.unload_grind()
         loader.unload_quest()
+        loader.unload_gather()
         armed_path = nil
         picker_cache_key = ""
         last_path_key = ""
         menu:set_combobox_items("mfg_path", { EMPTY_PATH })
-        state.set_note("Mode", "Select Grinding or Quest")
+        state.set_note("Mode", "Select Grinding, Quest or Gathering")
     end
 end
 
@@ -1861,6 +1963,9 @@ local function class_status()
 end
 
 local function mode_status()
+    if gui.mode() == modes.GATHER then
+        return "Gather"
+    end
     if gui.mode() == modes.QUEST then
         return "Quest"
     end
@@ -2150,7 +2255,7 @@ menu:on_tab("grinding", function(win, x, y, w, h)
 
     if not is_on("use_grind") then
         text(warn, "Tick Enable Grinding to choose a route.")
-        text(mute, "Grinding and Questing cannot run at the same time.")
+        text(mute, "Grinding, Questing and Gathering cannot run at the same time.")
         return
     end
 
@@ -2247,6 +2352,51 @@ end)
 -- Session-only: the detection panel is a diagnostic, not a setting.
 -- RestedXP detection is always shown while questing (2.188.0); the toggle
 -- button is gone.
+-- GATHERING TAB (2.237.0): status under the settings.
+menu:on_tab("gathering", function(win, x, y, w, h)
+    local gold = C(232, 222, 196, 255)
+    local mute = C(180, 170, 150, 255)
+    local ok_col = C(90, 210, 110, 255)
+    local warn = C(220, 176, 56, 255)
+    local LEFT = x + 12
+    local LINE = 18
+    local cy = y + 4
+    local function text(col, str)
+        win:render_text(FONT_SMALL, vec2.new(LEFT, cy), col, str)
+        cy = cy + LINE
+    end
+    if not is_on("use_gather") then
+        text(warn, "Tick Enable Gathering to farm herbs and ore.")
+        text(mute, "Grinding, Questing and Gathering cannot run at the same time.")
+        return
+    end
+    local ok_r, groute = pcall(require, "gather/route")
+    if ok_r and type(groute) == "table" then
+        local herb, mine, has_herb, has_mine = groute.ranks()
+        text(gold, string.format("Herbalism %s   Mining %s   Cap %d",
+            has_herb and tostring(herb) or "-", has_mine and tostring(mine) or "-", groute.profession_cap()))
+    end
+    local map = nil
+    pcall(function() map = core.game_ui.get_current_map_id() end)
+    local engine = loader.gather()
+    local st = engine and type(engine.status) == "function" and engine.status() or nil
+    if not st then
+        text(mute, "Press Start to choose a route.")
+        return
+    end
+    if st.route then
+        text(ok_col, string.format("Route %s   map %s", tostring(st.route), tostring(map)))
+        text(gold, string.format("Step %d   waypoint %d / %d   gathered %d",
+            st.step or 1, st.wp or 1, st.wp_count or 0, st.gathered or 0))
+        if st.node then text(gold, "Node: " .. tostring(st.node)) end
+        if st.training then text(gold, "Training at the profession trainer") end
+        if (st.paused or 0) > 0 then text(warn, string.format("Teleport alarm: %d s", st.paused)) end
+    else
+        text(warn, "No route: " .. tostring(st.reason))
+    end
+    text(mute, "Travel uses Ameisen navigation. Fights use the Spells tab rotation.")
+end)
+
 local show_quest_diag = true
 
 menu:on_tab("questing", function(win, x, y, w, h)
@@ -2275,7 +2425,7 @@ menu:on_tab("questing", function(win, x, y, w, h)
 
     if not is_on("use_quest") then
         text(warn, "Tick Enable Questing to follow the RestedXP guide.")
-        text(mute, "Grinding and Questing cannot run at the same time.")
+        text(mute, "Grinding, Questing and Gathering cannot run at the same time.")
         return
     end
 
@@ -2729,7 +2879,7 @@ local function draw_mini()
         end
     end)
     local mode = is_on("rotation_only") and "Rotation Only"
-        or (is_on("use_quest") and "Questing" or "Grinding")
+        or (is_on("use_quest") and "Questing" or (is_on("use_gather") and "Gathering" or "Grinding"))
 
     local gold = C(232, 222, 196, 255)
     local mute = C(180, 170, 150, 255)

@@ -3,7 +3,7 @@
 -- Game version: TBC Classic or WoW Forever
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.236.0
+-- Version: 2.237.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.get_game_version() answers "Tbc" on TBC Classic (and the TBC 2.5.3
@@ -26,6 +26,7 @@ local gamever = {}
 
 gamever.TBC = "Tbc"
 gamever.FOREVER = "Forever"
+gamever.VANILLA = "Vanilla"   -- WoW Classic (2.237.0)
 
 local cached = nil
 
@@ -57,14 +58,17 @@ function gamever.is_forever()
     return gamever.version() == gamever.FOREVER or exact_version() == FOREVER_EXACT
 end
 function gamever.is_tbc() return gamever.version() == gamever.TBC end
+function gamever.is_vanilla() return gamever.version() == gamever.VANILLA end
 
 --- Is this a game version the plugin runs on?
 function gamever.supported()
-    return gamever.is_tbc() or gamever.is_forever()
+    return gamever.is_tbc() or gamever.is_forever() or gamever.is_vanilla()
 end
 
 local RACES_TBC = { [1] = true, [2] = true, [3] = true, [4] = true, [5] = true,
     [6] = true, [7] = true, [8] = true, [10] = true, [11] = true }
+local RACES_VANILLA = { [1] = true, [2] = true, [3] = true, [4] = true, [5] = true,
+    [6] = true, [7] = true, [8] = true }
 local RACES_FOREVER = { [1] = true, [2] = true, [3] = true, [4] = true, [5] = true,
     [6] = true, [7] = true, [8] = true, [95] = true, [96] = true }
 
@@ -72,6 +76,7 @@ local RACES_FOREVER = { [1] = true, [2] = true, [3] = true, [4] = true, [5] = tr
 function gamever.race_playable(race_id)
     if type(race_id) ~= "number" then return false end
     if gamever.is_forever() then return RACES_FOREVER[race_id] == true end
+    if gamever.is_vanilla() then return RACES_VANILLA[race_id] == true end
     return RACES_TBC[race_id] == true
 end
 

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.236.0
+-- Version: 2.237.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -238,7 +238,7 @@ end
 local supplies = load_mod("supplies")
 local loader = load_mod("loader")
 local path_runner = load_mod("path_runner")
-local modes = gui and gui.modes or { GRIND = "grind", QUEST = "quest" }
+local modes = gui and gui.modes or { GRIND = "grind", QUEST = "quest", GATHER = "gather" }
 
 if gui and supplies and type(supplies.register_gui) == "function" then
     pcall(supplies.register_gui, gui.get_menu())
@@ -708,6 +708,19 @@ local function on_update()
         else
             state.set_note("Quest", "RestedXP Guides is not loaded")
         end
+        return
+    end
+
+    -- Gathering (2.237.0): herb / ore routes, lazily loaded like grind.
+    if mode == modes.GATHER then
+        local gather = loader and loader.ensure_gather() or nil
+        if not gather then
+            state.set_note("Gather", "Gather pack failed to load")
+            return
+        end
+        probe("u:gather.tick")
+        gather.tick(player)
+        probe("u:gather.tick done")
         return
     end
 

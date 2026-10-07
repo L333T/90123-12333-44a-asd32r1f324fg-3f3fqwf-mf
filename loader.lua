@@ -1,9 +1,9 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- Lazy grind / quest pack loader. Path tables stay on disk until a mode is checked.
+-- Lazy grind / quest / gather pack loader. Path tables stay on disk until a mode is checked.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.236.0
+-- Version: 2.237.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -13,6 +13,8 @@ local grind_mod = nil
 local quest_mod = nil
 local grind_on = false
 local quest_on = false
+local gather_mod = nil
+local gather_on = false
 
 local GRIND_PACK = {
     "grind/catalog",
@@ -25,6 +27,19 @@ local QUEST_PACK = {
     "quest/npc",
     "quest/engine",
     "quest",
+}
+
+-- Gathering (2.237.0, port of EP_Herb_Mine): node / route tables stay on
+-- disk until the Gathering box is ticked.
+local GATHER_PACK = {
+    "gather/nodes",
+    "gather/routes",
+    "gather/route",
+    "gather/scan",
+    "gather/mount",
+    "gather/trainer",
+    "gather/engine",
+    "gather",
 }
 
 local function drop(list)
@@ -66,6 +81,38 @@ function loader.ensure_quest()
     quest_mod = mod
     quest_on = true
     return quest_mod
+end
+
+function loader.ensure_gather()
+    if gather_mod then
+        gather_on = true
+        return gather_mod
+    end
+    local ok, mod = pcall(require, "gather")
+    if not ok or type(mod) ~= "table" then
+        core.log_error("[Master Farmer - Grindbot] gather pack failed: " .. tostring(mod))
+        return nil
+    end
+    gather_mod = mod
+    gather_on = true
+    return gather_mod
+end
+
+function loader.unload_gather()
+    if gather_mod and type(gather_mod.reset) == "function" then
+        pcall(gather_mod.reset)
+    end
+    gather_mod = nil
+    gather_on = false
+    drop(GATHER_PACK)
+end
+
+function loader.gather()
+    return gather_mod
+end
+
+function loader.gather_ready()
+    return gather_on and gather_mod ~= nil
 end
 
 function loader.unload_grind()

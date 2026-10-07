@@ -3,7 +3,7 @@
 -- Shared runtime state (no leaked globals)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.237.0
+-- Version: 2.238.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

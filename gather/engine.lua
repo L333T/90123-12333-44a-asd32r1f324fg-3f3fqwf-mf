@@ -3,7 +3,7 @@
 -- Gathering mode: patrol a route, gather herb / ore nodes, fight back
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.237.0
+-- Version: 2.238.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine (MainThread + Gather_Process), PORT_PLAYBOOK.md.
@@ -17,7 +17,8 @@
 --      already latched. The fight is the Grind tab's: targeting + rotation.tick
 --      (Spells tab), never a class module of its own.
 --   3. route (gather/route.select, re-checked every minute as ranks rise)
---   4. profession trainer trips (gather/trainer)
+--   4. profession trainer trips (gather/trainer), then hunter ammo and
+--      route food / drink trips (gather/supply, 2.238.0)
 --   5. tracking aura (Find Herbs / Find Minerals) when missing
 --   6. gather: step 1 patrol + scan, step 2 walk to the node and use it
 --
@@ -41,6 +42,7 @@ local route = require("gather/route")
 local scan = require("gather/scan")
 local mount = require("gather/mount")
 local trainer = require("gather/trainer")
+local supply = require("gather/supply")
 
 local gather = {}
 
@@ -74,6 +76,12 @@ local ID = {
     fight_hp = "mfg_gather_fight_hp",
     fight_yards = "mfg_gather_fight_yards",
     teleport_yards = "mfg_gather_teleport_yards",
+    buy_food = "mfg_gather_buy_food",
+    food_low = "mfg_gather_food_low",
+    food_stock = "mfg_gather_food_stock",
+    buy_ammo = "mfg_gather_buy_ammo",
+    ammo_low = "mfg_gather_ammo_low",
+    ammo_stop = "mfg_gather_ammo_stop",
 }
 
 local S = nil
@@ -202,6 +210,7 @@ function gather.reset()
     pcall(function() movement.nav_stop() end)
     mount.reset()
     trainer.reset()
+    supply.reset()
     S = fresh()
 end
 
@@ -222,6 +231,7 @@ function gather.status()
         gathered = S.gathered,
         paused = now() < S.pause_until and math.floor(S.pause_until - now()) or 0,
         training = trainer.busy(),
+        supplying = supply.busy(),
     }
 end
 
@@ -611,6 +621,16 @@ function gather.tick(player)
         end
     end
     scan.refresh(need_herb, need_mine)
+
+    -- 4b. Hunter ammo / route food and drink (step 1 only, 2.238.0).
+    if S.step == 1 and supply.tick(player, S.route, {
+        ammo = on(ID.buy_ammo), ammo_low = num(ID.ammo_low, 100), ammo_stop = num(ID.ammo_stop, 500),
+        food = on(ID.buy_food), food_low = num(ID.food_low, 5), food_stock = num(ID.food_stock, 20),
+        mount_up = function(far) return mount_up(player, far) end,
+    }) then
+        S.chunk = nil
+        return
+    end
 
     -- 5. Tracking aura.
     if safe(function() return player:is_in_combat() end) ~= true then keep_tracking(player) end

@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/client.lua - public API: _G.AmeisenNav.client
 -- ============================================================================
--- Version: 1.0.0
+-- Version: 1.5.0
 -- Author: BLIZZ
 -- ============================================================================
 -- STATES   idle -> planning -> navigating -> arrived | failed
@@ -28,6 +28,7 @@ local T = require("anav/transport")
 local X = require("anav/context")
 local Q = require("anav/query")
 local F = require("anav/follower")
+local PC = require("anav/pathcheck")    -- 1.5.0: 5-yard waypoints, height / width checks ahead
 
 local M = {}
 M.__index = M
@@ -117,6 +118,7 @@ function M:_finish(ok, code, detail, keep_moving)
     if not nav then return end
     self.nav = nil
     if not keep_moving then F.stop() end
+    PC.clear()
     if ok then
         L.debug("arrived at (%.1f, %.1f, %.1f) after %.1fs, %d repaths", nav.dest.x, nav.dest.y, nav.dest.z,
             now() - nav.started, nav.repaths)
@@ -140,15 +142,25 @@ end
 --- Start walking `points`; `nav` must be the active navigation.
 function M:_walk(nav, points)
     if self.nav ~= nav then return end
-    nav.points = points
+    -- 1.5.0: no two waypoints more than C.waypoint_spacing apart; src maps
+    -- every walked point back to the server point it came from (route index).
+    local walk, src = points, nil
+    if C.pathcheck then walk, src = PC.densify(points) end
     self.last_path = points
-    L.debug("walking %d points (%s, %.0f yd)", #points, nav.mode, Q.path_length(points))
-    if not F.follow(points, nav.opts.seamless) then
+    L.debug("walking %d points (%s, %.0f yd)%s", #walk, nav.mode, Q.path_length(points),
+        #walk ~= #points and fmt(" - %d server points", #points) or "")
+    if not F.follow(walk, nav.opts.seamless) then
+        PC.clear()
         self:_finish(false, "bad_request", "walker refused the path")
         return
     end
+    -- the follower's own copy: pathcheck corrects these points in place
+    nav.points = F.points
+    nav.pc_src = src
+    nav.pc_dirty = false
+    if C.pathcheck then PC.reset(F.points, src) else PC.clear() end
     self:_set_state("navigating")
-    self:_emit("path", points)
+    self:_emit("path", nav.points)
 end
 
 local function new_nav(self, mode, dest, cb, opts)
@@ -176,10 +188,16 @@ function M:_plan(nav, target, tail, reason, route_i)
         return
     end
     self:_set_state("planning", reason)
+    -- 1.5.0: with the path check on, walked paths are not Chaikin-smoothed
+    -- (flag 1): measured on the server, smoothing cut off the walkable mesh
+    -- twice on a 540 yd route (cliff edges). The 5-yard waypoints and the
+    -- clearance shifts keep the walk smooth instead. VALIDATE_MAS (16) stays.
+    local flags = nav.opts.flags or C.path_flags
+    if C.pathcheck and C.pathcheck_unsmoothed and flags % 2 == 1 then flags = flags - 1 end
     Q.find_path(from, target, {
         no_cache = reason ~= nil,
         allow_partial = nav.opts.allow_partial,
-        flags = nav.opts.flags,
+        flags = flags,
     }, function(ok, pts, info)
         if self.nav ~= nav then return end -- superseded
         if not ok then
@@ -281,7 +299,21 @@ function M:update()
 
     if nav.mode == "route" and F.active and nav.walk_map and not nav.detour then
         -- keep route_index in step with the walker for route rejoining
-        nav.route_index = nav.walk_map[F.current_index()] or nav.route_index
+        -- (1.5.0: walked index -> the server point it came from)
+        nav.route_index = nav.walk_map[PC.source_index(F.current_index())] or nav.route_index
+    end
+
+    -- 1.5.0: check the next C.check_ahead waypoints (throttled inside) and
+    -- hand corrections to the follower. Not during a detour (its own 2 points).
+    if C.pathcheck and F.active and nav.points and F.points == nav.points and not nav.detour then
+        PC.tick(F.current_index(), function(new_pts)
+            if self.nav ~= nav then return end
+            nav.points = new_pts
+            nav.pc_dirty = true
+        end)
+    end
+    if nav.pc_dirty and F.active and not nav.detour then
+        if F.replace_points(nav.points, F.current_index()) then nav.pc_dirty = false end
     end
 
     local ev = F.tick()

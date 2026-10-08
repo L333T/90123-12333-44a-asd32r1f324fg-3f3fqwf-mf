@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/follower.lua - walks a waypoint list
 -- ============================================================================
--- Version: 1.1.0
+-- Version: 1.5.0
 -- Author: BLIZZ
 -- ============================================================================
 -- Pure execution: it walks, watches and reports. Deciding what to do about a
@@ -48,6 +48,8 @@ F.paused = false
 F.driver = nil             -- driver of the active walk: "walker" | "input"
 
 local walker_refused = false  -- auto: simple_movement refused once this session
+local walker_offset = 0       -- walker driver: F.points index = walker index + offset (1.5.0)
+local last_replace = -1e9
 
 local pause_reasons = {}   -- reason -> true
 local walker_paused = false
@@ -247,6 +249,7 @@ function F.follow(points, seamless)
     F.driver = driver
     L.debug("driver: %s", driver)
 
+    walker_offset = 0
     F.points = pts
     F.active = true
     -- Force a resume() unless a pause reason is still live: the walker may have been
@@ -275,8 +278,39 @@ function F.current_index()
     if not F.active or not F.points then return 1 end
     if F.driver == "input" then return math.min(idx, #F.points) end
     local ok, i = X.call(walker, "get_current_index")
-    if ok and type(i) == "number" and i >= 1 then return math.min(i, #F.points) end
-    return 1
+    if ok and type(i) == "number" and i >= 1 then return math.min(i + walker_offset, #F.points) end
+    return math.min(1 + walker_offset, #F.points)
+end
+
+--- 1.5.0 (anav/pathcheck): corrected points for the walk in progress, from
+--- waypoint `from` on. The input driver swaps them in place; the walker gets
+--- the rest of the list re-issued (at most every REPLACE_GAP s - a correction
+--- arriving sooner is still in F.points and goes out with the next one).
+--- Returns true when the walk now uses them.
+local REPLACE_GAP = 0.5
+function F.replace_points(points, from)
+    if not F.active or type(points) ~= "table" or #points == 0 then return false end
+    from = math.max(1, math.min(from or 1, #points))
+    F.points = points
+    if F.driver == "input" then
+        idx = from
+        last_turn, aim_until = nil, 0
+        return true
+    end
+    local t = now()
+    if t - last_replace < REPLACE_GAP then return false end
+    last_replace = t
+    local rest = {}
+    for k = from, #points do rest[#rest + 1] = points[k] end
+    X.call(walker, "clear_navigation")
+    local ok, issued = X.call(walker, "navigate", rest, false, true)
+    if not ok or issued == false then
+        L.warn("simple_movement refused the corrected path")
+        return false
+    end
+    walker_offset = from - 1
+    if walker_paused then X.call(walker, "pause") end
+    return true
 end
 
 --- Back up for `seconds` (walking paused meanwhile). tick() returns "backed" when done.
@@ -367,8 +401,11 @@ local function steer_target(t, px, py, pz)
     local pts, n = F.points, #F.points
     if not C.avoid then return pts[idx] end
     AV.refresh(px, py, pz)
-    -- corner cutting: aim at the next waypoint as soon as it is in clear view
-    if idx < n and t >= next_pull then
+    -- corner cutting: aim at the next waypoint as soon as it is in clear view.
+    -- 1.5.0: off while the path check runs - skipping ahead would bypass the
+    -- checked / shifted 5-yard waypoints, and its server /raycast took 3.5 s
+    -- and then killed AmeisenNavigationServer (2026-10-08).
+    if idx < n and t >= next_pull and not C.pathcheck then
         next_pull = t + PULL_EVERY
         if AV.can_skip_to(px, py, pz, pts[idx + 1], pts[idx + 1]) then
             idx = idx + 1

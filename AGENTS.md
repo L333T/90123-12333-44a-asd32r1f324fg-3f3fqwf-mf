@@ -76,7 +76,11 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   Sentinel. The code still lives in `movement/sentinel.lua` / `sentinel_adv.lua` (same
   module names); "Sentinel" below means that nav layer. AmeisenNav, the server files
   and the install steps are in `ameisen/` (README there); the 1.9 GB mmaps and the
-  server exe stay out of git. No `/raycast` to Ameisen (the server never answers it).
+  server exe stay out of git. No `/raycast` to Ameisen (it takes 3.5 s and then kills
+  AmeisenNavigationServer, 2026-10-08). AmeisenNav 1.5.0 (`ameisen/AmeisenNav/anav/pathcheck.lua`): 5-yard
+  waypoints, the next 3 checked once each with short server paths (ground height, steep / cliff legs re-planned
+  unsmoothed, 1-2 yd kept from walls / edges, narrow corridors centred); while it runs the bot's flags 17 are walked
+  as 16. `get_current_path` / `get_path_index` report the 5-yard points.
 - **Movement** (`movement/*`): Sentinel (`SentinelNavClient`) owns out-of-combat
   travel (`K.SENTINEL_TRAVEL` in `movement/const.lua`); the local walker owns
   combat (chase, stand-off, kite, Frost Nova backpedal). Never flood Sentinel

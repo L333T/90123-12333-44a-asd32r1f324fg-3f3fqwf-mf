@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.0
+-- Version: 2.239.1
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -101,6 +101,15 @@ K.SN_MIN_GAP       = 1.0    -- seconds between any two Sentinel move_to requests
 -- walker / movement-handler legs. The walker is used out of combat only when
 -- Sentinel itself is unavailable (not loaded, server down).
 K.SENTINEL_TRAVEL  = true
+-- 2.239.1: the route cliff scan (movement/terrain.lua scan_path, 2.235.0) is
+-- OFF. On every new navigation path and every 10 yd walked it fired up to 20
+-- core.get_height_for_position rays in one frame, up to 40 yd ahead - terrain
+-- the client may not have loaded. The game died mid-walk without a Lua error
+-- or a WoW crash report, with AmeisenNav and with Marty Nav alike (2026-10-08
+-- sessions 11:06, 11:19, 11:31: each 1-15 s into a fresh path, right after a
+-- scan point). The stalled-wall check (near the player, after 4 s without
+-- progress) and the learned hazards stay on.
+K.TERRAIN_ROUTE_SCAN = false
 K.SN_FAIL_HOLD     = 3.0    -- seconds a destination Sentinel just failed is not re-requested
 K.MAX_LEG          = 300    -- yards: no navigation leg or path request is longer
 

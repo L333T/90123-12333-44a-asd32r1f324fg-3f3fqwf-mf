@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/pathcheck.lua - 5-yard waypoints, height and width checks ahead
 -- ============================================================================
--- Version: 1.5.0
+-- Version: 1.5.1
 -- Author: BLIZZ
 -- ============================================================================
 -- Every path the client walks is first resampled so no two waypoints are more
@@ -210,7 +210,10 @@ local function ground_of(res, a, q)
         local r = res[i]
         if r and r.ok and r.points and #r.points > 0 then
             local e = r.points[#r.points]
-            if dist2d(e, q) <= 1.0 and Q.path_length(r.points) <= leg * 1.4 + 1.0 then
+            -- 1.5.1: + 2.5 yd, not + 1.0: the probe starts where the server
+            -- snaps the previous waypoint, which on a short leg is most of it
+            -- (a 1.2 yd leg was rejected with its end 0.0 yd off).
+            if dist2d(e, q) <= 1.0 and Q.path_length(r.points) <= leg * 1.4 + 2.5 then
                 return e.z
             end
         end
@@ -269,6 +272,8 @@ function P.tick(index, on_change)
     end
     if not k then return end
     local a, q = pts[k - 1], pts[k]
+    -- 1.5.1: a leg under 2 yd (a splice joint) is not worth a request
+    if dist2d(a, q) < 2.0 then checked[k] = true; return end
     local my_gen = gen
     local opts = { flags = C.splice_flags, allow_partial = true }
 

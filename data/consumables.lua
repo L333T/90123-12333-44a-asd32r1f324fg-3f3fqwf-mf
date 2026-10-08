@@ -3,7 +3,7 @@
 -- Consumables — conjured + vendor food/water from Orca tables
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- Folder: Master_Farmer_Grindbot
 -- Source: orca de.lua conjuredFood / food / conjuredDrinks / drinks / foodordrink
 -- Highest rank / best restore first.
@@ -180,8 +180,12 @@ consumables.WATER_ITEM_IDS = merge_unique({
 })
 
 -- Eat / drink buff spell IDs (not item IDs)
+-- 2.240.0: 433 is a Food aura (it was listed under drinks), and 1127 / 1129 /
+-- 1131 (Food - Conjured Sweet Roll is 1131) and 33264 were missing, so the
+-- bot re-ate every USE_COMMIT seconds. resting.lua now also reads the item's
+-- own use spell and the aura NAME, so a missing id here is no longer fatal.
 consumables.FOOD_AURA_IDS = {
-    434, 435, 5004, 5005, 5006, 5007,
+    433, 434, 435, 1127, 1129, 1131, 5004, 5005, 5006, 5007, 33264,
     10256, 10257, 18229, 18230, 18231, 18233, 18234,
     22731, 24869, 25660, 26401, 27094, 28616,
     33252, 33253, 33254, 33257, 33259, 33261, 33263, 33265, 33268,
@@ -189,7 +193,7 @@ consumables.FOOD_AURA_IDS = {
 }
 
 consumables.DRINK_AURA_IDS = {
-    430, 431, 432, 433,
+    430, 431, 432,
     1133, 1135, 1137,
     10250, 22734, 27089, 34291, 43182, 43183,
     43706, 46755,

@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -97,6 +97,7 @@ local REST_TOPUP = 95         -- 2.99.0: the other resource is topped up in the 
 -- alone by the first check in consume_one however long it runs.
 local USE_COMMIT = 15.0
 local JUST_USED = 3.0          -- 2.110.0: seconds an item use counts as eating / drinking
+local FOOD_AFTER_DRINK = 1.2   -- 2.240.0: seconds between the drink and the food (one use per tick)
 -- Worst-case bound per rest session if aura detection is broken entirely.
 local MAX_USES = 8
 
@@ -274,6 +275,44 @@ local function has_any_aura(player, ids)
     return false
 end
 
+-- 2.240.0: the Food / Drink aura by NAME as well as by id. The id lists
+-- missed the Conjured Sweet Roll's Food (1131), so the food was re-used every
+-- USE_COMMIT seconds mid-meal, and "not eating" also let the threat check walk
+-- the character off its meal. Names: Food, Drink, Refreshment, Food & Drink.
+local AURA_NAMES = {
+    food  = { ["Food"] = true, ["Refreshment"] = true, ["Food & Drink"] = true },
+    drink = { ["Drink"] = true, ["Refreshment"] = true, ["Food & Drink"] = true },
+}
+
+local function has_named_aura(player, kind)
+    local names = AURA_NAMES[kind]
+    local list = safe(function() return player:get_buffs() end)
+    if type(list) ~= "table" then return false end
+    for i = 1, #list do
+        local b = list[i]
+        local n = type(b) == "table" and b.buff_name or nil
+        if n and names[n] then return true end
+    end
+    return false
+end
+
+--- The aura spell an item casts when used (core.quests.get_item_spell), or nil.
+local function item_aura_id(item_id)
+    if type(item_id) ~= "number" or not (core.quests and core.quests.get_item_spell) then return nil end
+    local info = safe(function() return core.quests.get_item_spell(item_id) end)
+    local id = type(info) == "table" and tonumber(info.spell_id) or nil
+    if id and id > 0 then return id end
+    return nil
+end
+
+--- Eating / drinking right now: the listed ids, the used item's own spell,
+--- or an aura named Food / Drink.
+local function consuming(player, kind, ids, st)
+    if has_any_aura(player, ids) then return true end
+    if st and st.aura_id and has_any_aura(player, { st.aura_id }) then return true end
+    return has_named_aura(player, kind)
+end
+
 local function ranked_ids(base, extra)
     local seen = {}
     local out = {}
@@ -432,7 +471,7 @@ local function use_first(ids)
                 if ok == true then
                     present_reset()          -- the last one may just have gone
                     rtrail("used %s", tostring(safe(function() return item:name() end) or ids[i]))
-                    return true
+                    return true, nil, ids[i]
                 end
                 refused = refused or (safe(function() return item:name() end) or ids[i])
             end
@@ -696,11 +735,12 @@ local function consume_one(st, kind, ids, aura_up, now, aura_list)
         return false
     end
 
-    local ok, why = use_first(ids)
+    local ok, why, item_id = use_first(ids)
     if ok then
         st.last = now
         st.uses = st.uses + 1
         st.pending = true
+        st.aura_id = item_aura_id(item_id) or st.aura_id
         rest_debug("used one %s (use %d this rest)", kind, st.uses)
         return true
     end
@@ -724,6 +764,22 @@ end
 --- Is the bot sitting down right now?
 function resting_mod.is_resting()
     return resting == true
+end
+
+--- 2.240.0: HP or mana at or under the Resting tab's lines (the same sliders
+--- the rest starts on). healing.lua holds the tick on it during the loot hold,
+--- so questing does not start a walk at 1% mana a moment before the rest.
+function resting_mod.below_line(player)
+    if not player then return false end
+    local eat_at, drink_at = REST_DEFAULT, REST_DEFAULT
+    if type(gui.slider) == "function" then
+        local e = gui.slider("eat_hp", nil)
+        if type(e) == "number" then eat_at = start_pct({ v = e }, "v", eat_at) end
+        local d = gui.slider("drink_mana", nil)
+        if type(d) == "number" then drink_at = start_pct({ v = d }, "v", drink_at) end
+    end
+    if health_pct(player) <= eat_at then return true end
+    return power.has_mana(player) and mana_pct(player) <= drink_at or false
 end
 
 --- Drop every latch. Called when the owner changes or the bot stops.
@@ -768,8 +824,15 @@ function resting_mod.tick(player, opts)
     local hp = health_pct(player)
     local mana = mana_pct(player)
     local has_mana = power.has_mana(player)
-    local eating = has_any_aura(player, FOOD_AURAS)
-    local drinking = has_any_aura(player, DRINK_AURAS)
+    -- NOTHING TO DO (2.240.0): not resting and both above their lines - no
+    -- aura reads, no food / water lists (they were built every 0.1 s at full
+    -- health and mana: two bag scans, table sorts and a signature per tick).
+    if resting ~= true and rest_eat ~= true and rest_drink ~= true and regen_wait ~= true
+        and hp > eat_at and (not has_mana or mana > drink_at) then
+        return false
+    end
+    local eating = consuming(player, "food", FOOD_AURAS, food_state)
+    local drinking = consuming(player, "drink", DRINK_AURAS, drink_state)
     -- JUST USED (2.110.0): the aura lands a moment after the item is used.
     -- Eating the LAST piece of food left the bags empty before the aura
     -- showed, and the check below read "no usable food - not resting" 0.3 s
@@ -872,6 +935,13 @@ function resting_mod.tick(player, opts)
             -- yet: stay on the RestedXP step. The run starts on its own once
             -- gold or junk covers the water (2.171.0).
             local water_only = no_water and not no_food and hp >= eat_at
+            -- 2.240.0: a mage who conjures water is never sent to buy it
+            -- (supplies.missing), so "stay on the quest" left one questing
+            -- under the drink line with too little mana to conjure. It waits
+            -- for the mana instead; conjure.tick conjures as soon as it can.
+            local ok_cj, cj = pcall(require, "conjure")
+            local conjurer = ok_cj and type(cj) == "table" and type(cj.knows) == "function" and cj.knows("water")
+            if water_only and conjurer then water_only = false end
             if water_only and not run and not vendor_busy then
                 if not water_stay_logged then
                     water_stay_logged = true
@@ -976,11 +1046,18 @@ function resting_mod.tick(player, opts)
 
     local now = izi.now()
 
-    if rest_eat and hp < REST_DONE then
-        consume_one(food_state, "food", foods, eating, now, "FOOD_AURA_IDS")
-    end
+    -- ONE ITEM PER TICK, DRINK FIRST (2.240.0). Food and drink used in the
+    -- same tick: the client dropped the second use while use_self_safe still
+    -- said true - 13:08 session, MP 3 -> 17 in 30 s (base regeneration), then
+    -- 17 -> 89 in 31 s once the drink was used on its own. Rests with both took
+    -- 52-60 s, drink-only ones 37-40 s. Food follows FOOD_AFTER_DRINK s later.
+    local used_drink = false
     if rest_drink and mana < REST_DONE then
-        consume_one(drink_state, "drink", waters, drinking, now, "DRINK_AURA_IDS")
+        used_drink = consume_one(drink_state, "drink", waters, drinking, now, "DRINK_AURA_IDS")
+    end
+    if rest_eat and hp < REST_DONE and not used_drink
+        and (now - drink_state.last) >= FOOD_AFTER_DRINK then
+        consume_one(food_state, "food", foods, eating, now, "FOOD_AURA_IDS")
     end
     return true
 end

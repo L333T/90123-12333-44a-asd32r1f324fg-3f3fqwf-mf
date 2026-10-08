@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -303,6 +303,14 @@ local function fight_unit(player, unit, note)
     if g_appr.guid ~= guid_a then
         g_appr.guid, g_appr.since, g_appr.off, g_appr.released = guid_a, now, false, false
     end
+    -- 2.240.0: a gap since the last approach tick (a rest held the cascade)
+    -- restarts the wait. Without it APPROACH_WAIT had run out during the rest
+    -- and the first tick after it gave up the path - "no path leg ... closing
+    -- directly" at a mob 64 yd away. Same target, so `off` is cleared too.
+    if (now - (g_appr.seen or now)) > 1.0 then
+        g_appr.since, g_appr.off = now, false
+    end
+    g_appr.seen = now
     if not g_appr.off and dist > (yards + APPROACH_BAND)
         and safe(function() return player:is_in_combat() end) ~= true then
         local up = safe(function() return unit:get_position() end)

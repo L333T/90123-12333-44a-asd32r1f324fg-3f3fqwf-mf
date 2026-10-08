@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -158,9 +158,19 @@ K.SN_NEED = { "move_to", "follow_path", "stop", "is_moving", "get_state", "valid
 -- ----------------------------------------------------------------------------
 -- ENGINE FLAGS
 -- ----------------------------------------------------------------------------
+-- NATIVE RAYS OFF (2.240.0): core.graphics.trace_line / native_intersect are
+-- not used. AmeisenNav blocks trace_line outright ("crashed the WoW Forever
+-- client"), and every game crash traced on 2026-10-08 (five, Burning
+-- Steppes, both accounts) came without a Lua error or a WoW crash report,
+-- the last one mid-approach right after a line-of-sight check - and this bot
+-- traced at eye height whenever los_to said no, every combat tick. With the
+-- flags nil: line of sight is player:los_to only, the avoidance corridor reads
+-- open (the navmesh path already routes round walls), and movement/probe
+-- answers "unknown". Set true to bring them back.
+K.NATIVE_RAYS = false
 K.FLAG_COLLISION, K.FLAG_LOS, K.FLAG_OBSTACLE = nil, nil, nil
 do
-    local cf = type(enums) == "table" and enums.collision_flags
+    local cf = K.NATIVE_RAYS and type(enums) == "table" and enums.collision_flags
     if type(cf) == "table" then
         if type(cf.Collision) == "number" then K.FLAG_COLLISION = cf.Collision end
         if type(cf.LineOfSight) == "number" then K.FLAG_LOS = cf.LineOfSight end

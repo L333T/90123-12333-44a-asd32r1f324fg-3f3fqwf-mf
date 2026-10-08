@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -140,6 +140,12 @@ function healing.tick(player)
     if not resting.is_resting() then
         local ok_l, loot = pcall(require, "loot")
         if ok_l and type(loot) == "table" and type(loot.hold_rest) == "function" and loot.hold_rest(player) then
+            -- 2.240.0: under the rest line, hold the tick (loot.tick has already
+            -- run above us) instead of falling through to the quest / grind,
+            -- which started an AmeisenNav approach at 1% mana 0.2 s before the rest.
+            if type(resting.below_line) == "function" and resting.below_line(player) then
+                return true
+            end
             return false
         end
     end

@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -171,9 +171,17 @@ local function ready(spell)
     return up ~= false
 end
 
-local function cast(spell, unit, label)
+-- `safe_only` (2.240.0): no unguarded spell:cast fallback. izi's cast
+-- "queues the spell with no safety gates" and answers true, so a ticked
+-- "other" spell that cast_safe refused (Conjure Mana Agate with a gem held,
+-- a 3 s cast while moving) counted as cast every ACT_GAP - 106 times in one
+-- session, each one taking the rotation's cast tick ahead of Frostbolt.
+local extra_hold = {}          -- label -> time a refused "other" spell may be tried again
+local EXTRA_RETRY = 8.0
+
+local function cast(spell, unit, label, safe_only)
     local ok = safe(function() return spell:cast_safe(unit, label) end)
-    if ok ~= true then
+    if ok ~= true and not safe_only then
         ok = safe(function() return spell:cast(unit, label) end)
     end
     if ok == true then
@@ -324,10 +332,15 @@ function racials.tick(player, target, ctx)
                 local unit = target_for(entry, player, target)
                 -- An uncatalogued spell (2.194.0): whether it takes the enemy
                 -- or the player is not known - the enemy first, then self.
-                if def.extra and target and cast(entry.spell, target, def.label) then
-                    return true
-                end
-                if unit and cast(entry.spell, unit, def.label) then
+                -- 2.240.0: guarded casts only, and a refused one rests
+                -- EXTRA_RETRY s instead of being tried every second.
+                if def.extra then
+                    if now >= (extra_hold[def.label] or 0) then
+                        if target and cast(entry.spell, target, def.label, true) then return true end
+                        if unit and cast(entry.spell, unit, def.label, true) then return true end
+                        extra_hold[def.label] = now + EXTRA_RETRY
+                    end
+                elseif unit and cast(entry.spell, unit, def.label) then
                     if def.kind == "fight_start" then
                         fight.used, fight.used_at, fight.seen_combat = true, izi.now(), false
                     end

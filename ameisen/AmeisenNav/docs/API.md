@@ -84,6 +84,39 @@ level; real progress (3 yd) resets it.
 Being pushed more than 8 yd off the path repaths immediately. Walking pauses
 while casting or channelling (menu option), and that never counts as stuck.
 
+## Path check (1.5.0)
+
+`anav/pathcheck.lua`, on by default (`pathcheck = true`).
+
+- **5-yard waypoints.** Every walked path is resampled so no two waypoints are
+  more than `waypoint_spacing` (5) yards apart. `get_current_path()` and
+  `get_path_index()` report the walked (resampled) points.
+- **Checked 15 yards ahead.** The next `check_ahead` (3) waypoints are checked
+  once each, as they come into that window, and corrected before the character
+  gets there. One small request in flight, the next waypoint no sooner than
+  `check_gap` (0.25 s): about 3 requests a second while running, none while
+  standing. Never per frame. No game (native) calls: server requests only.
+- **Height.** A short server path from the previous waypoint is asked at four
+  heights in one batch (the line's, the last ground height, +/- 6 yd); the one
+  that lands on the waypoint gives the ground height, and the waypoint takes it.
+- **Too steep / cliff.** A climb over `max_climb` (1.0 yd per yd), a drop over
+  `max_drop` (1.5 yd per yd) or deeper than `cliff_drop` (6 yd), or a leg that
+  leaves the walkable mesh: that leg is re-planned unsmoothed (`splice_flags`
+  16) between the waypoints around it and spliced in (`max_splices` 4 per path).
+- **Width.** Side probes 1.5 and 3 yd left and right of the waypoint (from the
+  ground height). A wall / edge on one side moves the waypoint
+  `edge_clearance` (1.5) yd away from it, so the character keeps 1-2 yd; both
+  sides closed at 1.5 yd (a corridor under 3 yd) centres it. The destination
+  itself is never moved.
+- **No Chaikin smoothing** while it runs (`pathcheck_unsmoothed`): flag 1 is
+  dropped from walked paths - measured on the server, smoothing left the
+  walkable mesh twice on a 540 yd route. VALIDATE_MAS (16) is kept.
+- **No corner skipping** (input driver) while it runs: skipping ahead would
+  bypass the checked waypoints, and its `/raycast` kills the 1.8.3.2 server.
+
+`client:update_config({ pathcheck = false })` turns all of it off (1.4.0
+behaviour). Stats: `require("anav/pathcheck").stats`.
+
 ## Following a moving unit
 
 ```lua

@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/config.lua - defaults for every tunable
 -- ============================================================================
--- Version: 1.0.0
+-- Version: 1.5.0
 -- Author: BLIZZ
 -- ============================================================================
 -- One shared table. The menu (anav/ui.lua) writes the user-facing values into
@@ -53,6 +53,22 @@ local C = {
     avoid_fresh         = 0.6,      -- seconds a server answer stays usable
     string_pull_range   = 15,       -- yards: skip to the next waypoint when it is this close and in view
     deviation_limit     = 8.0,      -- yards off the path before a repath
+
+    -- ------------------------------------------------- path check (1.5.0)
+    -- anav/pathcheck.lua: 5-yard waypoints; the next 3 (15 yd) are checked
+    -- once each, as they come into range, with one batched server request.
+    pathcheck           = true,     -- master switch
+    waypoint_spacing    = 5.0,      -- yards: no two walked waypoints further apart
+    check_ahead         = 3,        -- waypoints ahead of the player that are checked
+    check_gap           = 0.25,     -- seconds: at most one check request this often
+    max_climb           = 1.0,      -- yd up per yd (45 deg): steeper is re-planned
+    max_drop            = 1.5,      -- yd down per yd: steeper is a cliff
+    cliff_drop          = 6.0,      -- yd down in one leg: a cliff whatever the slope
+    edge_clearance      = 1.5,      -- yards kept from walls / edges (1-2 yd)
+    side_probes         = { 1.5, 3.0 }, -- yards to each side that are checked
+    splice_flags        = 16,       -- re-planned pieces: VALIDATE_MAS, no Chaikin corner cutting
+    max_splices         = 4,        -- per path
+    pathcheck_unsmoothed = true,    -- walk paths without Chaikin corner cutting (flag 1 dropped)
     max_repaths         = 10,       -- per navigation
 
     -- ------------------------------------------------------------ stuck logic

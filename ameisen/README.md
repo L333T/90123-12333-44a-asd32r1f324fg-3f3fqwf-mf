@@ -54,6 +54,15 @@ Also: no `/raycast` is ever sent (the 1.8.3.2 server never answers it and the br
 every request for 30 s); grind paths are handed over as one long route (60 nodes); re-targets use
 Ameisen's seamless `move_to`; every path request sends `flags = 17` (`SMOOTH_CHAIKIN | VALIDATE_MAS`).
 
+**AmeisenNav 1.5.0 path check** (`AmeisenNav/anav/pathcheck.lua`, docs/API.md "Path check"): walked
+paths are resampled to 5-yard waypoints; the next 3 (15 yd) are checked once each with short server paths -
+ground height, climbs over 1 yd/yd, drops over 1.5 yd/yd or 6 yd, legs leaving the mesh (re-planned unsmoothed
+and spliced in), and walls / edges 1.5 and 3 yd to each side (the waypoint is kept 1-2 yd away; narrow
+corridors are centred). About 3 small requests a second while walking, no native game calls. While it runs, the
+bot's `flags = 17` is walked as 16 (Chaikin smoothing left the mesh on a measured route) and the input
+driver's corner skipping is off. `/raycast` does worse than block: on 2026-10-08 it took 3.5 s and then killed
+AmeisenNavigationServer.
+
 ## Known server-side gaps (not changed)
 
 - The server sends no reply to an unknown message type or a too-small packet; `http_bridge.py`

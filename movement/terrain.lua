@@ -3,7 +3,7 @@
 -- movement/terrain.lua - terrain-aware Sentinel pathing (coords_helper)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.0
+-- Version: 2.239.1
 -- ============================================================================
 -- Sentinel plans on its navmesh and knows nothing about the ground the client
 -- has loaded. Three things here read that ground through
@@ -536,6 +536,8 @@ local function path_cliff(path, idx, hx, hy, hz)
 end
 
 local function scan_path(t)
+    -- 2.239.1: off - suspected native crash, see K.TERRAIN_ROUTE_SCAN.
+    if not K.TERRAIN_ROUTE_SCAN then return end
     if t < ps.next then return end
     ps.next = t + SCAN_GAP
     if R.cur_owner == OWNER.COMBAT or not R.sn_active or not R.has_dest then return end

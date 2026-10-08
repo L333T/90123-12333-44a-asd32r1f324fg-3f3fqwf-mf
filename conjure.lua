@@ -3,7 +3,7 @@
 -- Conjured food and water, for mages
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- A mage never has to buy food or water, and until now the bot made it do
@@ -51,6 +51,8 @@ local CAST_GAP = 2.5         -- seconds between conjure attempts
 local FAIL_GAP = 15.0        -- back-off after one that did not land
 
 local last_cast = -1e9
+local started_wait = nil       -- 2.240.0: time a conjure was sent, until it is seen casting
+local START_WAIT = 1.0
 local fail_until = 0
 
 -- NOT EVERY FRAME (2.114.0). Counting water and food means one item lookup
@@ -194,7 +196,21 @@ function conjure.tick(player)
     local now = izi.now()
     -- Our conjure is being cast: hold everything else until it lands.
     if safe(function() return player:is_channeling_or_casting() end) == true then
+        started_wait = nil
         return (now - last_cast) < CAST_HOLD
+    end
+    -- SENT BUT NOT STARTED (2.240.0): a cast that was only queued answered
+    -- true, the next tick returned false, the quest walked on and the cast was
+    -- dropped - stop, "cast", walk, every CAST_GAP. Hold up to START_WAIT s
+    -- for the cast to show; if it never does, it failed: back off FAIL_GAP.
+    if started_wait then
+        if now - started_wait < START_WAIT then return true end
+        started_wait = nil
+        local mv0 = get_movement()
+        if mv0 and type(mv0.release) == "function" then pcall(mv0.release) end
+        fail_until = now + FAIL_GAP
+        state.set_note("Conjure", "Conjure did not start - retrying later")
+        return false
     end
     if (now - last_cast) < CAST_GAP then
         return false
@@ -263,6 +279,7 @@ function conjure.tick(player)
     last_cast = now
     if cast(spell_id, label) then
         state.set_note("Conjure", label)
+        started_wait = now
         return true
     end
 
@@ -286,6 +303,7 @@ end
 
 function conjure.reset()
     last_cast = -1e9
+    started_wait = nil
     fail_until = 0
 end
 

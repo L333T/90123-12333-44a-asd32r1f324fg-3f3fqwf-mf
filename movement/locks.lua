@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest lock and cast / channel / loot locks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- ============================================================================
 -- Locks pause the walker by reason, so a cast finishing can never un-pause a
 -- stun or a food break. Releasing a cast lock touches only the cast and loot
@@ -133,8 +133,29 @@ local function clamp_sec(value, fallback)
     return n
 end
 
+-- HOLD WHILE STILL CASTING (2.240.0). A channel's lock was a fixed 3.2 s
+-- (smart.lua takes 3.0 s for every CHANNEL spell): Evocation and Blizzard
+-- run 8 s, Arcane Missiles up to 5, so movement came back mid-channel and a
+-- waiting combat hop broke it. When the timer fires while the player is
+-- still casting or channelling, the pause is renewed and checked again every
+-- HOLD_STEP s, up to HOLD_MAX s from the start of the lock.
+local HOLD_STEP, HOLD_MAX = 0.25, 12.0
+
+local function still_casting()
+    local okp, me = pcall(izi.me)
+    if not okp or not me then return false end
+    local ok, b = pcall(me.is_channeling_or_casting, me)
+    return ok and b == true
+end
+
 local function on_unlock_timer(gen)
-    if gen == R.lock_gen then Lk.release() end
+    if gen ~= R.lock_gen then return end
+    if still_casting() and (izi.now() - (R.lock_started or 0)) < HOLD_MAX then
+        pcall(handler.pause_movement, handler, HOLD_STEP + 0.25)
+        pcall(izi.after, HOLD_STEP, function() on_unlock_timer(gen) end)
+        return
+    end
+    Lk.release()
 end
 
 local function arm_unlock(seconds)
@@ -155,6 +176,7 @@ function Lk.release()
 end
 
 local function begin_lock(sec, light, target, pos)
+    R.lock_started = izi.now()
     W.set_pause("cast", true)
     if light then
         pcall(handler.pause_movement_light, handler, sec)

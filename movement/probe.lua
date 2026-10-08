@@ -3,7 +3,7 @@
 -- movement/probe.lua - forward collision probing and path shaping
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- ============================================================================
 -- The legacy obstacle code, ported onto the Sylvanas API:
 --
@@ -170,7 +170,7 @@ end
 ---
 --- Arguments are the natural way round for this one: from, then to.
 function probe.hits(a, b, flags)
-    if type(flags) ~= "number" then
+    if not K.NATIVE_RAYS or type(flags) ~= "number" then
         return nil
     end
     local ax, ay, az = U.xyz(a)
@@ -198,7 +198,7 @@ end
 --- position. Its boolean is the other way round - true means it DID hit - so
 --- there is no inversion here.
 function probe.hit_at(a, b, flags)
-    if type(flags) ~= "number" then
+    if not K.NATIVE_RAYS or type(flags) ~= "number" then
         return nil
     end
     local ax, ay, az = U.xyz(a)

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.239.1
+-- Version: 2.240.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -157,8 +157,28 @@ local spell_cache = {}         -- best-rank id -> izi spell
 -- target. Pet care is pets.lua's job; these are never fight spells.
 local OTHER_SKIP = { ["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true,
     ["Feed Pet"] = true, ["Dismiss Pet"] = true, ["Tame Beast"] = true, ["Beast Training"] = true,
-    ["Call Pet"] = true, ["Revive Pet"] = true, ["Mend Pet"] = true }
+    ["Call Pet"] = true, ["Revive Pet"] = true, ["Mend Pet"] = true,
+    -- UTILITY (2.240.0): a ticked one went off in every fight - Conjure Mana
+    -- Agate 106 times in one session, ahead of Frostbolt. Blink or a Teleport
+    -- ticked here would have fired mid-fight, Polymorph on the target itself.
+    ["Blink"] = true, ["Slow Fall"] = true, ["Polymorph"] = true, ["Amplify Magic"] = true,
+    ["Dampen Magic"] = true, ["Remove Lesser Curse"] = true, ["Remove Curse"] = true,
+    ["Arcane Brilliance"] = true, ["Arcane Intellect"] = true, ["Evocation"] = true,
+    ["Hearthstone"] = true, ["Unstuck"] = true }
+-- ...and every spell whose name starts with one of these (item makers,
+-- travel, gathering trackers, rituals).
+local OTHER_SKIP_PREFIX = { "Conjure ", "Teleport", "Portal", "Create ", "Find ", "Ritual of ", "Track " }
+local function other_skipped(name)
+    if type(name) ~= "string" then return true end
+    if OTHER_SKIP[name] then return true end
+    for i = 1, #OTHER_SKIP_PREFIX do
+        local p = OTHER_SKIP_PREFIX[i]
+        if name:sub(1, #p) == p then return true end
+    end
+    return false
+end
 smart.NEVER_CAST_OTHER = OTHER_SKIP
+smart.other_skipped = other_skipped
 
 --- A passive spell (SPELL_ATTR0_PASSIVE, attribute 0 flag 0x40). A client
 --- that does not answer leaves it listed.
@@ -324,7 +344,7 @@ local function build(player)
         for k = 1, #ranks do
             if racial_ids[ranks[k]] then is_racial = true break end
         end
-        if not is_racial and not row_of[fam.name] and not OTHER_SKIP[fam.name] and not is_passive(fam.id)
+        if not is_racial and not row_of[fam.name] and not other_skipped(fam.name) and not is_passive(fam.id)
             and castable(fam, ranks) then
             local desc = safe(function() return core.spell_book.get_spell_description(fam.id) end)
             local tip = (type(desc) == "string" and desc ~= "") and desc
@@ -1202,6 +1222,10 @@ end
 function smart.upkeep(player)
     if not player or not spellbook.ready() then return false end
     if safe(player.is_mounted, player) == true then return false end
+    -- 2.240.0: never over a cast or a channel. Ice Barrier went out during a
+    -- Frostbolt cast (twice, 1 s apart); during Evocation, Blizzard or Arcane
+    -- Missiles an instant cancels the channel. smart.combat already waited.
+    if safe(player.is_channeling_or_casting, player) == true then return false end
     build(player)
     if #built.list == 0 then return false end
     begin(player, nil, nil)

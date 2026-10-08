@@ -99,6 +99,8 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   the floor heights read at its x, y before it is failed; a Sentinel leg stalled 4 s against ground steeper
   than 1.4 yd/yd is blacklisted at the wall's measured width and re-pathed; move_direct only over walkable terrain.
   coords_helper answers 0 on this client: after 5 zeros terrain.lua uses core.get_height_for_position (2.235.0).
+  NATIVE RAYS OFF (2.240.0, `K.NATIVE_RAYS` in movement/const.lua): no core.graphics.trace_line / native_intersect -
+  line of sight is player:los_to only, the avoidance corridor reads open, movement/probe answers nil.
   Each new Sentinel path was checked 40 yd ahead for climbs > 1.4 yd/yd and drops > 10 yd - OFF since 2.239.1
   (`K.TERRAIN_ROUTE_SCAN`: suspected native crash mid-walk; keep it off unless that is disproved); such spots, and every stuck
   spot, are learned hazards (`movement/hazards.lua`: session-long keep zones, saved per map once hit twice,
@@ -125,6 +127,9 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   supply runs count every kind, not only `data/consumables.lua`. No vendoring
   below level 2 (`vendor.level_ok`): no trips or buying; a quest ".vendor" step still
   opens the merchant so RestedXP ticks it.
+- **Resting** (2.240.0): one consumable use per tick, the drink first and the food 1.2 s later (two in one tick: the client
+  drops the second); eating / drinking = listed aura ids OR the used item's own spell OR an aura named Food / Drink /
+  Refreshment. "Other known spells" never list utility spells (smart.lua OTHER_SKIP / OTHER_SKIP_PREFIX) and are cast guarded only.
 - **Mana**: read through `power.lua` only (izi mana_* first, native get_power / get_max_power with power type 0 as fallback - the izi extensions read nothing on Forever, 2.202.0).
 - **Supplies**: a rest with nothing to eat / drink asks `supplies.request`; `vendor.lua` runs a food / water trip to the nearest inn (`data/ek_alliance_routes` inn ends) when gold or junk allows, else `resting.lua` waits for 80% HP / MP. Mages conjure once `is_usable_spell` allows.
 - **Questing**: all quest data comes from RestedXP (`core.addons.rested_xp`) via

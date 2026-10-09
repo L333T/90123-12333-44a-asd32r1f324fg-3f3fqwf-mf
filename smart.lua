@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.252.0
+-- Version: 2.253.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -50,6 +50,14 @@ local state = require("state")
 local catalog = require("data/class_spells")
 local spellcheck = require("spellcheck")   -- 2.246.0: spell_helper gate on every cast
 local why_not = {}          -- 2.251.0: spell name -> why try() passed it over (diagnostic)
+-- READY TIMING (2.253.0): a spell waits - without the 1.5 s fail gap - for
+-- its resource and the global cooldown, and fires on the first tick both
+-- are there. The 03:33 Rogue log showed Sinister Strike tried every ~1.65 s
+-- (FAIL_GAP 1.5 + a tick): energy-short attempts were refused and the spell
+-- then sat out 1.5 s even after the energy was back.
+local POWER_NAMES = { [0] = "mana", [1] = "rage", [3] = "energy", [6] = "runic power" }
+local GCD_LATENCY = 0.30     -- s after a GCD cast before the next GCD spell is tried
+local last_gcd_cast = -1e9
 -- 2.252.0: pcall that keeps both return values (izi's ok, reason)
 local function safe2(fn)
     local ok, a, b = pcall(fn)
@@ -868,6 +876,8 @@ local function cast(e, unit, pos)
     local now = izi.now()
     if ok == true then
         last_cast[e.key] = now
+        local cqm = mod("castq")
+        if not (cqm and type(cqm.off_gcd) == "function" and cqm.off_gcd(e.id, sp)) then last_gcd_cast = now end
         if e.name == "Shoot" then
             wand_guid = unit and safe(unit.get_guid, unit) or nil
         elseif e.name == "Auto Shot" then
@@ -1113,6 +1123,41 @@ end
 
 local no_cast = { since = nil, logged = -1e9 }
 local NO_CAST_S, NO_CAST_GAP = 3.0, 10.0
+--- Is `e` ready to go out this tick? false + why while it waits for its
+--- resource or the global cooldown (no fail gap for either).
+local function ready_now(e)
+    if e.name == "Auto Shot" then return true end      -- a toggle, not a GCD cast
+    local cq = mod("castq")
+    local id = e.id
+    local sp = spell_of(e)
+    local off = cq and type(cq.off_gcd) == "function" and cq.off_gcd(id, sp) or false
+    if not off then
+        local t = izi.now()
+        if t - last_gcd_cast < GCD_LATENCY then return false, "just cast, waiting for the GCD" end
+        local g = tonumber(safe(P.gcd_remains, P))
+        if g and g > 0.05 then
+            -- with the spell queue, the next spell is queued in the GCD's last moments
+            local window = (queue_on() and cq and cq.QUEUE_WINDOW) or 0
+            if g > window then return false, string.format("GCD %.1f s", g) end
+        end
+    end
+    local costs = safe(function() return core.spell_book.get_spell_costs(id) end)
+    if type(costs) == "table" then
+        for i = 1, #costs do
+            local k = costs[i]
+            if type(k) == "table" and (k.required_buff_id or 0) == 0 and tonumber(k.cost) and k.cost > 0
+                and tonumber(k.cost_type) then
+                local have = tonumber(safe(P.get_power, P, k.cost_type))
+                if have and have < k.cost then
+                    return false, string.format("pooling %s %d/%d", POWER_NAMES[k.cost_type] or ("power " .. k.cost_type),
+                        have, k.cost)
+                end
+            end
+        end
+    end
+    return true
+end
+
 local function try(e, role_cond)
     if not usable(e) then why_not[e.name] = "unticked / not in use" return false end
     local now = izi.now()
@@ -1122,6 +1167,8 @@ local function try(e, role_cond)
     if role_cond and not role_cond(e) then why_not[e.name] = "role condition (" .. tostring(e.role) .. ")" return false end
     if def.when and safe(def.when, c) ~= true then why_not[e.name] = "its condition" return false end
     if not ctype_ok(def) then why_not[e.name] = "creature type" return false end
+    local rdy, rwhy = ready_now(e)
+    if not rdy then why_not[e.name] = rwhy return false end
     why_not[e.name] = "cast refused"
     -- EITHER (2.244.0): a spell whose target is not known (Eureka!) - the
     -- enemy first, then the player.

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.249.0
+-- Version: 2.250.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -729,17 +729,22 @@ end
 --- cast is still finishing (queue ahead). Returns ok, soft - soft = not a
 --- failure (already queued, or the off-GCD queue is busy this frame).
 local function queue_cast(cq, e, sp, unit, pos)
+    -- 2.250.0: izi's FULL castable check gates every queued spell (range,
+    -- facing, resource, cooldown, line of sight) - the queue path skips
+    -- cast_safe, so this is its only gate. spell_helper only advises.
     local ahead = safe(P.is_casting, P) == true
+    local opts = { skip_facing = e.self == true }
     if ahead then
-        local opts = { skip_casting = true, skip_gcd = true, skip_facing = e.self == true, skip_moving = true }
-        local okc
-        if pos then
-            okc = safe(function() return sp:is_castable_to_position(unit, pos, opts) end)
-        else
-            okc = safe(function() return sp:is_castable_to_unit(unit, opts) end)
-        end
-        if okc ~= true then return false, true end
+        opts.skip_casting, opts.skip_gcd, opts.skip_moving = true, true, true
+    end
+    local okc
+    if pos then
+        okc = safe(function() return sp:is_castable_to_position(unit, pos, opts) end)
     else
+        okc = safe(function() return sp:is_castable_to_unit(unit, opts) end)
+    end
+    if okc ~= true then return false, ahead end
+    if not ahead then
         local okg
         if pos then
             okg = spellcheck.can_cast_at(sp, P, unit, pos)

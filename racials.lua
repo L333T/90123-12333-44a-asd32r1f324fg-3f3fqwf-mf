@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.245.0
+-- Version: 2.246.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -30,6 +30,7 @@
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
+local spellcheck = require("spellcheck")   -- 2.246.0: spell_helper gate on every cast
 
 local data = require("data/racials")
 local spellbook = require("spellbook")
@@ -180,9 +181,9 @@ local extra_hold = {}          -- label -> time a refused "other" spell may be t
 local EXTRA_RETRY = 8.0
 
 local function cast(spell, unit, label, safe_only)
-    local ok = safe(function() return spell:cast_safe(unit, label) end)
+    local ok = safe(function() return spellcheck.cast_safe(spell, unit, label) end)
     if ok ~= true and not safe_only then
-        ok = safe(function() return spell:cast(unit, label) end)
+        ok = safe(function() return spellcheck.cast(spell, unit, label) end)
     end
     if ok == true then
         last_act = izi.now()

@@ -3,7 +3,7 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.245.0
+-- Version: 2.246.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED
@@ -44,6 +44,7 @@
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
+local spellcheck = require("spellcheck")   -- 2.246.0: spell_helper gate on every cast
 
 local gui = require("gui")
 local auras = require("auras")
@@ -241,9 +242,9 @@ function buffs.tick(player)
                 local spell = safe(function() return izi.spell(fam.id) end)
                 local cast = false
                 if spell then
-                    cast = safe(function() return spell:cast_safe(player, name) end) == true
+                    cast = safe(function() return spellcheck.cast_safe(spell, player, name) end) == true
                     if not cast then
-                        cast = safe(function() return spell:cast(player, name) end) == true
+                        cast = safe(function() return spellcheck.cast(spell, player, name) end) == true
                     end
                 end
 

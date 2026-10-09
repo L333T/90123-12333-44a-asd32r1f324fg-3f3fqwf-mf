@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.245.0
+-- Version: 2.246.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -48,6 +48,7 @@ local auras = require("auras")
 local range = require("spell_range")
 local state = require("state")
 local catalog = require("data/class_spells")
+local spellcheck = require("spellcheck")   -- 2.246.0: spell_helper gate on every cast
 local racial_data = require("data/racials")
 
 local smart = {}
@@ -769,11 +770,11 @@ local function cast(e, unit, pos)
     local ok
     xprobe("sm:cast " .. e.name)
     if pos then
-        ok = safe(function() return sp:cast_position(pos, e.name, { min_hits = 1, aoe_radius = 8 }) end)
+        ok = safe(function() return spellcheck.cast_position(sp, pos, e.name, { min_hits = 1, aoe_radius = 8 }) end)
     else
-        ok = safe(function() return sp:cast_safe(unit, e.name) end)
+        ok = safe(function() return spellcheck.cast_safe(sp, unit, e.name) end)
         if ok ~= true then
-            ok = safe(function() return sp:cast(unit, e.name) end)
+            ok = safe(function() return spellcheck.cast(sp, unit, e.name) end)
         end
     end
     xprobe("sm:cast done")
@@ -1231,7 +1232,7 @@ local function random_buff()
     if random_seen_n > 200 then random_seen, random_seen_n = {}, 0 end
     random_seen_n = random_seen_n + 1
     random_next = now + RANDOM_GAP
-    local ok = safe(function() return sp:cast_safe(best, "Arcane Intellect") end)
+    local ok = safe(function() return spellcheck.cast_safe(sp, best, "Arcane Intellect") end)
     if ok == true then
         random_seen[g] = now + RANDOM_DONE
         state.set_note("Buff", "Arcane Intellect on " .. tostring(safe(best.get_name, best) or "a player"))

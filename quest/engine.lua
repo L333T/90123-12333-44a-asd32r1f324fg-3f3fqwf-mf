@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.240.0
+-- Version: 2.241.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2952,6 +2952,117 @@ local function goal_label(goal, wps)
     return tostring(goal.quest_id or goal.action or "?")
 end
 
+-- CONTINUOUS ROUTE WALKING (2.241.0). Replaces the end of tick_inner, which
+-- walked one waypoint at a time and stood still at a single-waypoint goal.
+--   * kill / collect / xp goals walk guide.route: every step waypoint, the
+--     arrow, and a patrol ring around a lone point - looped, never "waiting at";
+--   * the next point is handed to the path CHAIN_WP yards before the current
+--     one is reached (a seamless retarget), moving or not, so the walk never
+--     stops on a point;
+--   * back from a fight, loot or rest (the route was not walked for
+--     IS.rt.GAP s) the walk resumes at the NEAREST route point, not the stale
+--     one it was heading for before the fight;
+--   * a point the path reports unreachable / off the mesh is skipped for the
+--     next one instead of standing on "cannot reach".
+-- Accept / turn-in / talk / fly goals keep their own waypoints and arrival.
+-- Kept on IS, outside tick_inner: tick_inner sits at the 60-upvalue limit.
+IS.rt = { t = 0, GAP = 1.0 }
+
+IS.next_wp = function(n)
+    g_move = g_move + 1
+    if g_move > n then
+        g_move = 1
+    end
+end
+
+IS.walk_route = function(player, goal, kind, wps, label)
+    if #wps == 0 then
+        if guide.wrong_continent() then
+            state.set_note("Quest", "Guide: target is on another continent")
+        else
+            state.set_note("Quest", "Guide: no usable waypoint for " .. label)
+        end
+        return
+    end
+    local must_do = kind == "accept" or kind == "turnin" or kind == "talk" or kind == "fly"
+    local pts = wps
+    if not must_do and type(guide.route) == "function" then
+        pts = guide.route(goal, kind, wps) or wps
+    end
+    if g_move > #pts then
+        g_move = 1
+    end
+    local now = izi.now()
+    -- Back on the route after a fight / loot / rest: the nearest point.
+    if not must_do and #pts > 1 and now - IS.rt.t > IS.rt.GAP then
+        local me = safe(function() return izi.me():get_position() end)
+        if me then
+            local best, best_d = g_move, nil
+            for i = 1, #pts do
+                local d = geometry.distance_flat(me, pts[i].pos)
+                if type(d) == "number" and (not best_d or d < best_d) then best, best_d = i, d end
+            end
+            if best ~= g_move then
+                trail("route", "resume at point %d of %d (%.0f yd) for %s", best, #pts, best_d or -1, tostring(label))
+            end
+            g_move = best
+        end
+    end
+    IS.rt.t = now
+    -- REACHABILITY FIRST (2.59.0): Sentinel's validate_destination, cached.
+    -- A waypoint it reports unreachable is skipped for the next one; when
+    -- every waypoint of the goal is unreachable the goal is skipped with a log
+    -- line, instead of walking into the 5-minute stuck watchdog.
+    -- Never for an accept / turn-in / talk goal (2.71.0): the guide cannot
+    -- move on without it, so skipping it left the bot idle on "step complete"
+    -- with the quest never taken. Those keep walking to their waypoint.
+    if type(movement.reachable) == "function" and not must_do then
+        local tried = 0
+        while tried < #pts and movement.reachable(pts[g_move].pos) == false do
+            IS.next_wp(#pts)
+            tried = tried + 1
+        end
+        if tried >= #pts then
+            trail("quest", "every waypoint of goal %d is unreachable - skipping it", goal.index or 0)
+            core.log_warning("[Master Farmer - Grindbot] Quest goal '" .. tostring(label)
+                .. "': Sentinel reports every waypoint unreachable - skipping it.")
+            guide.mark_goal_done(guide.step_num(), goal.index)
+            return
+        end
+    end
+    if #pts > 1 and not must_do then
+        -- A route point the path could not reach: the next one, not a stand.
+        if movement.is_blocked(pts[g_move].pos) or movement.last_fail_offmesh() then
+            movement.clear_fail()
+            trail("route", "point %d of %d unreachable - next point", g_move, #pts)
+            IS.next_wp(#pts)
+        end
+        -- Chain ahead: the next point before this one is reached.
+        if near(pts[g_move].pos, CHAIN_WP) then
+            IS.next_wp(#pts)
+        end
+    elseif #pts > 1 and movement.is_moving() and near(pts[g_move].pos, CHAIN_WP) then
+        IS.next_wp(#pts)
+    end
+    local arrive = must_do and TALK_ARRIVE or ARRIVE
+    if walk_to(pts[g_move].pos, label, arrive) then
+        return
+    end
+    -- Standing on this waypoint with nothing to do. A kill, collect or xp
+    -- loop moves on to the next of its waypoints; anything else waits here
+    -- for the addon to tick the goal off.
+    if #pts > 1 then
+        IS.next_wp(#pts)
+        walk_to(pts[g_move].pos, label, arrive)
+        return
+    end
+    if kind == "xp" then
+        state.set_note("Quest", "Guide: grinding - scanning for enemies")
+        return
+    end
+    state.set_note("Quest", "Guide: waiting at " .. label)
+end
+
 local tick_inner
 
 --- The tick, plus a breadcrumb whenever the status line changes - the finest
@@ -3186,71 +3297,8 @@ tick_inner = function(player)
         end
     end
 
-    -- Nothing to act on here yet: walk the goal's waypoints.
-    if #wps == 0 then
-        if guide.wrong_continent() then
-            state.set_note("Quest", "Guide: target is on another continent")
-        else
-            state.set_note("Quest", "Guide: no usable waypoint for " .. label)
-        end
-        return
-    end
-    if g_move > #wps then
-        g_move = 1
-    end
-    -- REACHABILITY FIRST (2.59.0): Sentinel's validate_destination, cached.
-    -- A waypoint it reports unreachable is skipped for the next one; when
-    -- every waypoint of the goal is unreachable the goal is skipped with a log
-    -- line, instead of walking into the 5-minute stuck watchdog.
-    -- Never for an accept / turn-in / talk goal (2.71.0): the guide cannot
-    -- move on without it, so skipping it left the bot idle on "step complete"
-    -- with the quest never taken. Those keep walking to their waypoint.
-    local must_do = kind == "accept" or kind == "turnin" or kind == "talk" or kind == "fly"
-    if type(movement.reachable) == "function" and not must_do then
-        local tried = 0
-        while tried < #wps and movement.reachable(wps[g_move].pos) == false do
-            g_move = g_move + 1
-            if g_move > #wps then
-                g_move = 1
-            end
-            tried = tried + 1
-        end
-        if tried >= #wps then
-            trail("quest", "every waypoint of goal %d is unreachable - skipping it", goal.index or 0)
-            core.log_warning("[Master Farmer - Grindbot] Quest goal '" .. tostring(label)
-                .. "': Sentinel reports every waypoint unreachable - skipping it.")
-            guide.mark_goal_done(guide.step_num(), goal.index)
-            return
-        end
-    end
-    -- Still short of this waypoint, with another after it: hand the path
-    -- the next point before this one is reached, so the walk does not stop.
-    if #wps > 1 and movement.is_moving() and near(wps[g_move].pos, CHAIN_WP) then
-        g_move = g_move + 1
-        if g_move > #wps then
-            g_move = 1
-        end
-    end
-    local arrive = must_do and TALK_ARRIVE or ARRIVE
-    if walk_to(wps[g_move].pos, label, arrive) then
-        return
-    end
-    -- Standing on this waypoint with nothing to do. A kill, collect or xp
-    -- loop moves on to the next of its waypoints; anything else waits here
-    -- for the addon to tick the goal off.
-    if #wps > 1 then
-        g_move = g_move + 1
-        if g_move > #wps then
-            g_move = 1
-        end
-        walk_to(wps[g_move].pos, label, arrive)
-        return
-    end
-    if kind == "xp" then
-        state.set_note("Quest", "Guide: grinding - scanning for enemies")
-        return
-    end
-    state.set_note("Quest", "Guide: waiting at " .. label)
+    -- Nothing to act on here yet: walk the goal's route (2.241.0).
+    IS.walk_route(player, goal, kind, wps, label)
 end
 
 -- ----------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.259.0
+-- Version: 2.260.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -320,6 +320,10 @@ local function under_attack(player)
     if type(targeting.attackers) == "function" and targeting.attackers(player) > 0 then
         return true
     end
+    -- 2.260.0: a fleeing target is finished first (targeting.fight_unfinished)
+    if type(targeting.fight_unfinished) == "function" and targeting.fight_unfinished(player) then
+        return true
+    end
     if safe(function() return player:is_in_combat() end) ~= true then
         return false
     end
@@ -425,6 +429,9 @@ local was_in_combat = false
 function loot.hold_rest(player)
     if not enabled() or not player then return false end
     if type(targeting.attackers) == "function" and targeting.attackers(player) > 0 then
+        return true
+    end
+    if type(targeting.fight_unfinished) == "function" and targeting.fight_unfinished(player) then
         return true
     end
     local now = izi.now()

@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.259.0
+-- Version: 2.260.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -994,7 +994,10 @@ function resting_mod.tick(player, opts)
 
     -- A rest is needed. Out of combat is not the same as clear: find a spot
     -- with no real threat within REST_CLEAR_YARDS first.
-    local threat = (eating or drinking) and nil or rest_threat(player, REST_CLEAR_YARDS)
+    -- 2.260.0: once sat down the rest is not broken off to walk away (the
+    -- 17:12 log stood up at 82% HP mid-meal when the food aura read missed);
+    -- a mob that attacks ends the rest through combat anyway.
+    local threat = (eating or drinking or resting) and nil or rest_threat(player, REST_CLEAR_YARDS)
     if threat then
         local now_m = izi.now()
         if move_since == 0 then

@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.259.0
+-- Version: 2.260.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -666,12 +666,23 @@ function grind.tick(player)
         local cur_guid = (state.target.kind == "kill") and state.target.guid or nil
         local range = math.max(gui.slider("fight_back_yards", 30), targeting.THREAT_RANGE or 40)
         local attacker = targeting.attacker_to_switch(player, cur_guid, range)
+        local runner = (not attacker and state.grind.step == 1 and type(targeting.fight_unfinished) == "function")
+            and targeting.fight_unfinished(player) or nil
         if attacker then
             targeting.combat_active()
             targeting.set_current(attacker, "kill")
             state.grind.step = 2
             state.grind.black_until = izi.now() + gui.slider("max_kill", 60)
             state.set_note("Grind", "Fight back")
+            attacked = true
+        elseif runner then
+            -- 2.260.0: the target ran (fleeing mobs drop their target): chase
+            -- it down and finish it before looting, resting or the next pull.
+            targeting.combat_active()
+            targeting.set_current(runner, "kill")
+            state.grind.step = 2
+            state.grind.black_until = izi.now() + gui.slider("max_kill", 60)
+            state.set_note("Grind", "Finishing a fleeing target")
             attacked = true
         elseif state.grind.step == 1 and targeting.combat_hold(player) then
             -- A corpse waiting outranks the sit: loot.tick walks it.

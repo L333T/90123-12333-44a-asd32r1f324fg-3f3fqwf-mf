@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.259.0
+-- Version: 2.260.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -595,6 +595,50 @@ function targeting.engaged(unit)
     return type(hp) == "number" and type(mx) == "number" and mx > 0 and hp < mx
 end
 
+-- FINISH THE FIGHT (2.260.0). A wounded mob that runs (Tunnel Rat Scouts
+-- flee at low health) drops its target, so it is no "attacker" any more: the
+-- 2026-10-09 17:05 log walked off to loot - and to the next pull - with the
+-- scout 0.1-9 yd away and still in combat; it came back with help and the
+-- rogue died at 2% walking to a corpse. The fight is unfinished while the
+-- current kill target (or a game target the bot engaged) is alive, within
+-- `range` and in combat or wounded. Looting, the rest and
+-- the next pull wait; the grind keeps chasing it until it dies.
+function targeting.fight_unfinished(player, range)
+    if not player then return nil end
+    range = tonumber(range) or THREAT_RANGE
+    local cands = {}
+    if state.target and state.target.kind == "kill" and indexable(state.target.unit) then
+        cands[#cands + 1] = { u = state.target.unit, ours = true }
+    end
+    -- The game target only when the bot engaged it (state.was_engaged): a mob
+    -- another player is fighting never holds the loot or the rest.
+    local gt = call(player.get_target, player)
+    if indexable(gt) and type(state.was_engaged) == "function" then
+        local gg = call(gt.get_guid, gt)
+        if gg ~= nil and state.was_engaged(gg) then cands[#cands + 1] = { u = gt, ours = true } end
+    end
+    for i = 1, #cands do
+        local u = cands[i].u
+        if call(u.is_valid, u) == true and call(u.is_dead_or_ghost, u) ~= true
+            and call(u.is_dead, u) ~= true then
+            local d = call(player.distance_to, player, u)
+            if type(d) == "number" and d <= range then
+                local hostile = call(player.can_attack, player, u)
+                if hostile ~= false then
+                    if call(u.is_in_combat, u) == true then return u end
+                    if cands[i].ours then
+                        local hp, mx = call(u.get_health, u), call(u.get_max_health, u)
+                        if type(hp) == "number" and type(mx) == "number" and mx > 0 and hp < mx then
+                            return u
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
 -- APPROACH WATCH (2.230.0). A target the character cannot get closer to -
 -- behind a mountain, up a cliff - used to be chased for as long as the kill
 -- timeout allowed: the 19:13 log swung 50 -> 60 -> 50 yd from a Crag Boar
@@ -636,8 +680,11 @@ function targeting.approach_stuck(player, unit, reach)
         return false
     end
     -- In reach, or the player is busy (casting): nothing to judge.
+    -- 2.260.0: nor while an engaged target runs - a fleeing mob is chased
+    -- down (the kill timeout still applies), never blacklisted for it.
     if d <= (tonumber(reach) or 5) + 1.5
-        or call(player.is_channeling_or_casting, player) == true then
+        or call(player.is_channeling_or_casting, player) == true
+        or (call(unit.is_moving, unit) == true and targeting.engaged(unit)) then
         aw.best, aw.best_t = d, now
         return false
     end

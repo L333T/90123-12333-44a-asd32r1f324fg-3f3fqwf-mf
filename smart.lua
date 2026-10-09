@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.244.0
+-- Version: 2.245.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1029,7 +1029,16 @@ local function try(e, role_cond)
     if not in_reach(e, unit) then return false end
     local pos = nil
     if def.ground then
-        pos = T and safe(T.get_position, T) or nil
+        -- 2.245.0: aimed where the target WILL be when the spell lands - its
+        -- cast time (a channel: 1 s into it) plus 0.3 s, at most 2 s ahead -
+        -- by the documented future position (geometry.future_position).
+        local sp0 = spell_of(e)
+        local lead = (sp0 and tonumber(safe(function() return cast_seconds(sp0) end)) or 0)
+            + (CHANNEL[e.name] and 1.0 or 0.3)
+        if lead > 2.0 then lead = 2.0 end
+        local geo = mod("geometry")
+        pos = T and geo and type(geo.future_position) == "function" and geo.future_position(T, lead) or nil
+        if not pos then pos = T and safe(T.get_position, T) or nil end
         if not pos then return false end
     end
     return cast(e, unit, pos)

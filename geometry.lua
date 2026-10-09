@@ -3,7 +3,7 @@
 -- geometry.lua - object and position helpers, on the vec3 API
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.244.0
+-- Version: 2.245.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- The handful of helpers every bot ends up writing - what is this object, how
@@ -225,6 +225,56 @@ function geometry.heading(a, b)
         return nil
     end
     return atan2(vb.y - va.y, vb.x - va.x) % (math.pi * 2)
+end
+
+-- ============================================================================
+-- FUTURE POSITION (2.245.0) - the documented Sylvanas method:
+--   future = position + normalize(direction) * movement_speed * t
+-- A unit that is not moving stays put. Guarded; answers the current
+-- position when anything is missing.
+-- ============================================================================
+local FUTURE_MAX_T = 3.0
+local FUTURE_VEC3 = require("common/geometry/vector_3")
+
+local function fcall(obj, name, ...)
+    local fn = obj and obj[name]
+    if type(fn) ~= "function" then return nil end
+    local ok, v = pcall(fn, obj, ...)
+    if ok then return v end
+    return nil
+end
+
+--- Where `unit` will be in `t` seconds (vec3), or nil when it has no position.
+function geometry.future_position(unit, t)
+    if not unit then return nil end
+    local pos = fcall(unit, "get_position")
+    if type(pos) ~= "table" or type(pos.x) ~= "number" then return nil end
+    t = tonumber(t) or 0
+    if t <= 0 then return pos end
+    if t > FUTURE_MAX_T then t = FUTURE_MAX_T end
+    if fcall(unit, "is_moving") == false then return pos end
+    local dir = fcall(unit, "get_direction")
+    local speed = tonumber(fcall(unit, "get_movement_speed"))
+    if type(dir) ~= "table" or type(dir.x) ~= "number" or not speed or speed <= 0 then
+        return pos
+    end
+    -- normalize: a length of 1
+    local dx, dy, dz = dir.x, dir.y or 0, dir.z or 0
+    local len = math.sqrt(dx * dx + dy * dy + dz * dz)
+    if len < 1e-6 then return pos end
+    -- displacement = speed * time along the direction
+    local d = speed * t / len
+    local ok, f = pcall(FUTURE_VEC3.new, pos.x + dx * d, pos.y + dy * d, (pos.z or 0) + dz * d)
+    if ok and type(f) == "table" and type(f.x) == "number" then return f end
+    return pos
+end
+
+--- Distance from `from` (a vec3) to where `unit` will be in `t` seconds.
+function geometry.future_distance(unit, t, from)
+    local f = geometry.future_position(unit, t)
+    if not f or type(from) ~= "table" or type(from.x) ~= "number" then return nil end
+    local dx, dy, dz = f.x - from.x, f.y - from.y, (f.z or 0) - (from.z or 0)
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
 return geometry

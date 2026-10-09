@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.246.0
+-- Version: 2.247.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -346,6 +346,18 @@ local function enemy_units(player, pos, range)
     return {}
 end
 
+--- 2.247.0: a mob in an area the player died in 3 times (deathzones.lua).
+local dz_mod = nil
+function targeting.in_death_zone(u)
+    if dz_mod == nil then
+        local ok, m = pcall(require, "deathzones")
+        dz_mod = (ok and type(m) == "table") and m or false
+    end
+    if not dz_mod then return false end
+    local ok, blocked = pcall(dz_mod.unit_blocked, u)
+    return ok and blocked == true
+end
+
 function targeting.find_mobs(player, mobs, range, pve_only, opts)
     range = cap(range)
     local found = {}
@@ -398,7 +410,8 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
             end
             if not skip then
                 local guid = call(u.get_guid, u)
-                if (not state.was_killed(guid)) and not (state.is_unreachable and state.is_unreachable(guid)) then
+                if (not state.was_killed(guid)) and not (state.is_unreachable and state.is_unreachable(guid))
+                    and not targeting.in_death_zone(u) then
                     local npc_id = call(u.get_npc_id, u) or 0
                     local lvl = call(u.get_level, u) or 1
                     local diff = lvl - my_level

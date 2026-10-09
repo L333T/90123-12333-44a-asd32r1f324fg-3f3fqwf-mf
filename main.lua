@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.246.0
+-- Version: 2.247.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -17,6 +17,7 @@ local PLUGIN_MODULES = {
     "spellbook",
     "spell_range",
     "geometry",
+    "deathzones",
     "spellcheck",
     "auras",
     "picks",
@@ -598,6 +599,12 @@ local function on_update()
         return
     end
 
+    -- 2.247.0: death zones - expiry, navigation zones, Target Selector pulls
+    probe("u:deathzones")
+    do
+        local ok_dz, dz = pcall(require, "deathzones")
+        if ok_dz and type(dz) == "table" and type(dz.tick) == "function" then pcall(dz.tick) end
+    end
     probe("u:death")
     if death.tick(player) then
         return

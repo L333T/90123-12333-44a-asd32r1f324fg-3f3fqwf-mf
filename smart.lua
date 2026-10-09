@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.241.0
+-- Version: 2.242.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -349,11 +349,18 @@ local function build(player)
             local desc = safe(function() return core.spell_book.get_spell_description(fam.id) end)
             local tip = (type(desc) == "string" and desc ~= "") and desc
                 or "Found in your spell book; not in the class catalog."
-            local row = { name = fam.name, role = "other", ranks = #ranks, id = fam.id, group = nil,
-                default = false, tip = tip, section = "other" }
+            -- DPS OR HEALING (2.242.0), from the spell's own description: a
+            -- spell that deals damage is a DPS spell cast at the target, one
+            -- that only heals is cast on the player below the heal line. It is
+            -- never taken for an AoE spell. Unticked by default either way.
+            local use = smart.spell_use(desc)
+            local section = (use == "heal" and "other_heal") or (use == "dps" and "other_dps") or "other"
+            local row = { name = fam.name, role = section, ranks = #ranks, id = fam.id, group = nil,
+                default = false, tip = tip, section = section }
             row_of[fam.name] = row
             rows[#rows + 1] = row
-            extra[#extra + 1] = { key = "other:" .. fam.name, label = fam.name, kind = "offensive",
+            extra[#extra + 1] = { key = "other:" .. fam.name, label = fam.name,
+                kind = use == "heal" and "heal" or "offensive",
                 default = false, extra = true, ids = ranks, tooltip = tip }
             other_names[#other_names + 1] = fam.name
         end
@@ -1619,6 +1626,17 @@ end
 -- ============================================================================
 --- The rows the Spells tab draws: every known class spell and racial, with
 --- whether it is ticked and whether it is the group's active member.
+--- 2.242.0: what an uncatalogued spell is for, from its description:
+--- "dps" (it deals damage), "heal" (it heals and deals no damage) or nil.
+--- Never "aoe": area damage is only what the class catalog says it is.
+function smart.spell_use(desc)
+    if type(desc) ~= "string" or desc == "" then return nil end
+    local d = desc:lower()
+    if d:find("damage", 1, true) then return "dps" end
+    if d:find("heal", 1, true) or d:find("restores %d") and d:find("health", 1, true) then return "heal" end
+    return nil
+end
+
 function smart.rows(player)
     if not player or not spellbook.ready() then return nil end
     build(player)

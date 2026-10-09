@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.241.0
+-- Version: 2.242.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -336,7 +336,10 @@ function racials.tick(player, target, ctx)
                 -- EXTRA_RETRY s instead of being tried every second.
                 if def.extra then
                     if now >= (extra_hold[def.label] or 0) then
-                        if target and cast(entry.spell, target, def.label, true) then return true end
+                        -- 2.242.0: an uncatalogued HEALING spell goes on the player
+                        if def.kind == "heal" then
+                            if cast(entry.spell, player, def.label, true) then return true end
+                        elseif target and cast(entry.spell, target, def.label, true) then return true end
                         if unit and cast(entry.spell, unit, def.label, true) then return true end
                         extra_hold[def.label] = now + EXTRA_RETRY
                     end

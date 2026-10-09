@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.255.0
+-- Version: 2.256.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1609,8 +1609,14 @@ end
 -- The Throw pull (above) is skipped while a Stealth opener is wanted.
 local STEALTH_AT = 25
 local STEALTH_MELEE = 5
+-- PICK POCKET (2.256.0): a stealthed Rogue on a HUMANOID target tries Pick
+-- Pocket (921) once, within PP_RANGE, then opens at once - whether it
+-- worked or not. Cast directly (not queued, no GCD hold) so the opener is
+-- not delayed; a loot window it opens is emptied and closed.
+local PICK_POCKET = 921
+local PP_RANGE = 5
 local BEHIND_MAX = 4.0
-local SO = { guid = nil, reached_t = nil, done = false }
+local SO = { guid = nil, reached_t = nil, done = false, pp = false, pp_loot = 0 }
 
 local function entry_named(name)
     local list = built.list
@@ -1646,7 +1652,7 @@ local function stealth_wanted(player, target)
     local g = safe(target.get_guid, target)
     if g == nil then return false end
     if g ~= SO.guid then
-        SO.guid, SO.reached_t = g, nil
+        SO.guid, SO.reached_t, SO.pp = g, nil, false
         SO.done = safe(player.is_in_combat, player) == true
     end
     if SO.done then return false end
@@ -1673,8 +1679,21 @@ function smart.rogue_stealth_wanted(player, target)
     return stealth_wanted(player, target)
 end
 
+--- 2.256.0: a Pick Pocket loot window is emptied and closed (never waited on).
+local function pick_pocket_loot()
+    if (SO.pp_loot or 0) < izi.now() then return end
+    local n = safe(function() return core.game_ui.get_loot_item_count() end)
+    if type(n) ~= "number" or n <= 0 then return end
+    for i = 0, n - 1 do
+        pcall(function() core.input.loot_item(i) end)
+    end
+    pcall(function() core.input.close_loot() end)
+    SO.pp_loot = 0
+end
+
 --- Per combat decision. True = handled (cast, or holding Stealth).
 local function rogue_stealth()
+    pick_pocket_loot()
     if not stealth_wanted(P, T) then return false end
     local now = izi.now()
     local d = c.dist()
@@ -1689,6 +1708,22 @@ local function rogue_stealth()
         return false
     end
     if d <= STEALTH_MELEE then SO.reached_t = SO.reached_t or now end
+    -- PICK POCKET (2.256.0), then straight on to the opener this same tick
+    if not SO.pp and d <= PP_RANGE and c.ttype("HUMANOID") then
+        SO.pp = true
+        local known = safe(function() return core.spell_book.is_spell_learned(PICK_POCKET) end) == true
+        if known then
+            local sp = safe(izi.spell, PICK_POCKET)
+            local ok = sp and (safe(function() return spellcheck.cast_safe(sp, T, "Pick Pocket") end) == true
+                or safe(function() return spellcheck.cast(sp, T, "Pick Pocket") end) == true)
+            SO.pp_loot = now + 2.0
+            local el = mod("errorlog")
+            if el and type(el.trail) == "function" then
+                pcall(el.trail, "rotation", "Pick Pocket on %s (%.1f yd): %s - opening now",
+                    tostring(safe(T.get_name, T)), d, ok and "cast" or "refused")
+            end
+        end
+    end
     local bs = backstab_entry()
     if bs then
         if d <= STEALTH_MELEE and c.behind() then

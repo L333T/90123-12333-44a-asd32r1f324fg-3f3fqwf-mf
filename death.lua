@@ -3,7 +3,7 @@
 -- Death run — release, path graveyard to corpse, retrieve
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.255.0
+-- Version: 2.256.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -24,7 +24,15 @@ local geometry = require("geometry")
 local death = {}
 
 local RELEASE_GAP = 3.0
-local RETRIEVE_RANGE = 32.0
+-- CLOSE ENOUGH TO REVIVE (2.256.0). The walk stopped 32 yd from the "safe
+-- spot" - up to ~14 yd beside the corpse when mobs stand on it - so the ghost
+-- could stand ~46 yd from the corpse, out of reach, on "Retrieving corpse"
+-- for good. The distance is now to the CORPSE; the ghost walks to within
+-- RETRIEVE_STEPS[1] yd, and every RETRIEVE_TRIES refused revives it walks
+-- closer (10 yd, then onto the corpse).
+local RETRIEVE_RANGE = 20.0
+local RETRIEVE_STEPS = { 20.0, 10.0, 4.0 }
+local RETRIEVE_TRIES = 3
 local HOSTILE_RANGE = 8.0
 local SAFE_OFFSET = 10.0
 local LEVEL_GAP = 6          -- mobs this far below the player are not a threat
@@ -210,6 +218,18 @@ local function safe_retrieve_pos(corpse, player_level)
     return corpse
 end
 
+local function dtrail(fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, "death", fmt, ...)
+    end
+end
+
+local function dist2d(a, b)
+    if not a or not b or type(a.x) ~= "number" or type(b.x) ~= "number" then return nil end
+    return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2)
+end
+
 local function run_to(dest)
     if not dest then
         return
@@ -290,6 +310,8 @@ local function begin_death()
         end
     end
     state.dead.retrieve_at = 0
+    state.dead.retrieve_tries = 0
+    state.dead.step_logged = nil
     state.grind.step = 1
     state.reset_target()
     if type(movement.set_resting) == "function" then
@@ -341,16 +363,26 @@ function death.tick(player)
 
     local my_level = safe(function() return player:get_level() end)
     local dest = safe_retrieve_pos(corpse, my_level)
-    local d = dist_to(dest) or dist_to(corpse)
+    local d = dist_to(corpse) or dist_to(dest)
     if type(d) ~= "number" then
         run_to(dest)
         state.set_note("Death", "Running to corpse")
         return true
     end
 
-    if d > RETRIEVE_RANGE then
-        run_to(dest)
+    local step = math.min(#RETRIEVE_STEPS, 1 + math.floor((state.dead.retrieve_tries or 0) / RETRIEVE_TRIES))
+    local reach = RETRIEVE_STEPS[step] or RETRIEVE_RANGE
+    if d > reach then
+        -- the safe spot while it is inside the reach, else straight to the corpse
+        local dd = dist_to(dest)
+        local go = (step == 1 and dest and (dist2d(dest, corpse) or 0) < reach) and dest or corpse
+        run_to(go)
         state.set_note("Death", string.format("Corpse  %.0f yd", d))
+        if dd and step > 1 and state.dead.step_logged ~= step then
+            state.dead.step_logged = step
+            dtrail("revive refused %d times at %.0f yd - walking to %.0f yd of the corpse",
+                state.dead.retrieve_tries or 0, d, reach)
+        end
         return true
     end
 
@@ -364,6 +396,8 @@ function death.tick(player)
     end
     if (now - (state.dead.retrieve_at or 0)) >= RETRIEVE_GAP then
         state.dead.retrieve_at = now
+        state.dead.retrieve_tries = (state.dead.retrieve_tries or 0) + 1
+        dtrail("revive at %.0f yd of the corpse (try %d)", d, state.dead.retrieve_tries)
         pcall(function()
             core.input.resurrect_corpse()
         end)

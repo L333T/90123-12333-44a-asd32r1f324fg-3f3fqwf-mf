@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.257.0
+-- Version: 2.258.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -340,6 +340,38 @@ local function forever()
     return gamever.is_forever()
 end
 
+-- QUEST API (2.258.0), after quest/api_examples.lua. Every native call is
+-- guarded, and the 2026-10-06 functions are used only when they exist.
+
+--- Gossip quest_id / gossip_option_id are 1-based ROW INDEXES - never stored,
+--- never compared with a quest id from another source - on the private-server
+--- builds (exact version containing "_ps": core.lua stub gossip table) and on
+--- Vanilla (quest/api_examples.lua). Every other client carries real ids.
+function npc.gossip_ids_are_rows()
+    local exact = safe(function() return core.get_exact_game_version() end)
+    if type(exact) == "string" and exact:find("_ps", 1, true) then return true end
+    local ver = safe(function() return core.get_game_version() end)
+    return ver == "Vanilla"
+end
+
+--- The quest the open detail / progress / reward panel shows: { title,
+--- quest_id }, or nil (no panel, or a core without get_open_quest_info).
+function npc.open_panel()
+    if type(core.quests.get_open_quest_info) ~= "function" then return nil end
+    local info = safe(function() return core.quests.get_open_quest_info() end)
+    if type(info) ~= "table" then return nil end
+    return { title = info.title or "", quest_id = tonumber(info.quest_id) or 0 }
+end
+
+--- The game's own hand-in flag by quest id (is_quest_complete), or nil on a
+--- core without it. Not history: false for a quest already turned in.
+function npc.quest_ready(quest_id)
+    if type(core.quests.is_quest_complete) ~= "function" then return nil end
+    local v = safe(function() return core.quests.is_quest_complete(quest_id) end)
+    if type(v) == "boolean" then return v end
+    return nil
+end
+
 local function on_quest(quest_id)
     return safe(function() return core.quests.is_on_quest(quest_id) end)
 end
@@ -461,6 +493,13 @@ end
 
 --- Abandon `quest_id` (a failed timed quest). True when the request was sent.
 function npc.abandon(quest_id)
+    -- 2.258.0: one call by quest id on a core that has it (no log index).
+    if type(core.quests.abandon_quest_by_id) == "function" then
+        log_cache.qid = nil
+        local sent = safe(function() return core.quests.abandon_quest_by_id(quest_id) end) == true
+        trail("abandon quest %d by id: %s", quest_id, sent and "sent" or "refused")
+        return sent
+    end
     local st, idx = npc.quest_log_scan(quest_id)
     log_cache.qid = nil
     if not idx then return false end
@@ -575,7 +614,7 @@ local function quest_rows(kind)
         return core.quests.get_gossip_active_quests()
     end)
     if type(list) == "table" and #list > 0 then
-        local real = forever()
+        local real = not npc.gossip_ids_are_rows()
         for i = 1, #list do
             local r = list[i]
             local handle = r.quest_id
@@ -662,7 +701,7 @@ local function gossip_row(list, quest_id, quest_name)
             end
         end
     end
-    if forever() then
+    if not npc.gossip_ids_are_rows() then
         for i = 1, #list do
             if list[i].quest_id == quest_id then
                 return list[i]
@@ -843,6 +882,27 @@ end
 --- Returns (index or nil, number of choices, ready).
 local function best_choice(player, waited)
     local choices = reward_choices()
+    -- 2.258.0: get_num_quest_choices is the game's count (get_quest_reward
+    -- takes 1..n). With n > 0 the reward is never 0, even before the item
+    -- links load; RestedXP's goal.reward wins when it is in range.
+    local n = nil
+    if type(core.quests.get_num_quest_choices) == "function" then
+        n = tonumber(safe(function() return core.quests.get_num_quest_choices() end))
+    end
+    local hint = tonumber(dlg.reward_hint) or 0
+    if n and n > 0 and hint >= 1 and hint <= n then
+        trail("%s: RestedXP reward choice %d of %d", tostring(dlg.label), hint, n)
+        return hint, n, true
+    end
+    if n and n > 0 and #choices == 0 then
+        if waited < INFO_WAIT then return nil, n, false end
+        warn_once("reward_nolinks:" .. tostring(dlg.key),
+            "%d reward choices but no item links for %s - taking choice 1.", n, tostring(dlg.label))
+        return 1, n, true
+    end
+    if n == 0 then
+        return nil, 0, true
+    end
     if #choices == 0 then
         return nil, 0, true
     end
@@ -976,6 +1036,14 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
             end
             return
         end
+        -- 2.258.0: the detail panel must show OUR quest (get_open_quest_info).
+        local panel = npc.open_panel()
+        if panel and panel.quest_id ~= 0 and quest_id and panel.quest_id ~= quest_id then
+            trail("accept %s: the panel shows quest %d (%s) - not accepting it",
+                dlg.label, panel.quest_id, tostring(panel.title))
+            pcall(function() core.quests.close_quest() end)
+            return dlg_finish("not_offered")
+        end
         pcall(function() core.quests.accept_quest() end)
         -- Escort and other auto-accept quests raise a second confirmation
         -- popup; without this they sit on screen and never start.
@@ -1044,11 +1112,14 @@ end
 
 --- Hand in `quest_id`. Call every tick while standing at the NPC.
 --- `unit` is optional: the NPC when the caller already has it.
-function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
+--- `reward` (optional, 2.258.0): RestedXP's reward choice for this quest
+--- (goal.reward); used when it is within get_num_quest_choices.
+function npc.turn_in(player, quest_id, quest_name, npc_id, unit, reward)
     local key = "turnin:" .. tostring(quest_id)
     if dlg.key ~= key then
         dlg_reset(key, tostring(quest_name or quest_id))
     end
+    dlg.reward_hint = tonumber(reward)
     if dlg.stage == "done" then
         return dlg.result
     end
@@ -1128,15 +1199,13 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
             return dlg_finish("not_offered")
         end
         if r == "selected" then
-            -- AUTO TURN-IN (2.187.0): select_gossip_active_quest, then
-            -- complete_quest at once - the progress panel's Continue - as the
-            -- API example does, instead of waiting for a QUEST_PROGRESS event
-            -- that may come late or not at all. The completion panel (reward
-            -- choice, get_quest_reward) and the verify step follow.
-            pcall(function() core.quests.complete_quest() end)
-            dlg.continued = true
-            trail("turn in %s: selected and continued", dlg.label)
-            dlg_to("finish", now)
+            -- ONE NATIVE ACTION PER TICK (2.258.0, quest/api_examples.lua):
+            -- the selection opens the progress panel; Continue
+            -- (complete_quest) goes out on a LATER tick, once the panel is
+            -- there (wait stage). 2.187.0 pressed Continue in the same tick,
+            -- before any panel existed.
+            trail("turn in %s: selected", dlg.label)
+            dlg_to("wait", now)
             return
         end
         dlg_to("wait", now)
@@ -1150,7 +1219,15 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit)
             return
         end
         local progress = ev_since("QUEST_PROGRESS", dlg.t_interact)
-        if progress or (not ev_live() and (now - dlg.t) >= FRAME_WAIT) then
+        -- 2.258.0: get_open_quest_info names the panel when it is open
+        local panel = npc.open_panel()
+        if panel and panel.quest_id ~= 0 and quest_id and panel.quest_id ~= quest_id then
+            trail("turn in %s: the panel shows quest %d (%s) instead", dlg.label, panel.quest_id,
+                tostring(panel.title))
+            pcall(function() core.quests.close_quest() end)
+            return dlg_finish("not_offered")
+        end
+        if progress or panel ~= nil or (not ev_live() and (now - dlg.t) >= FRAME_WAIT) then
             -- complete_quest is the PROGRESS panel's "Continue". The quest is
             -- not handed in until the completion panel is finished too
             -- (2.50.0) - that is the finish stage.
@@ -1295,6 +1372,9 @@ end
 --- `quest_name` is only needed for the gossip fallback, where TBC exposes no
 --- real quest id (see the header).
 function npc.is_complete(quest_id, quest_name)
+    -- 2.258.0: the game's own hand-in flag by quest id, every client
+    local ready = npc.quest_ready(quest_id)
+    if ready ~= nil then return ready end
     if forever() then
         if safe(function() return core.quests.is_on_quest(quest_id) end) == false then
             return false

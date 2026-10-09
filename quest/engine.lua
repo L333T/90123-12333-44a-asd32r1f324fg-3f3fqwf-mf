@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.257.0
+-- Version: 2.258.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1864,7 +1864,7 @@ local function dialog_goal(player, goal, kind, wps, label)
             result = npc.accept(player, qid, title, npc_id, unit)
         else
             state.set_note("Quest", "Guide: turn in " .. tostring(title or qid))
-            result = npc.turn_in(player, qid, title, npc_id, unit)
+            result = npc.turn_in(player, qid, title, npc_id, unit, goal.reward)   -- 2.258.0: RestedXP reward choice
         end
         if result == "done" and kind == "accept" then
             remember_accept(qid, npc_id, unit)
@@ -2029,7 +2029,10 @@ local function dialog_goal(player, goal, kind, wps, label)
             TK.gsel.key = key
             local rows = safe(function() return core.quests.get_gossip_options() end)
             local picked = nil
-            if type(rows) == "table" and st.g then
+            -- 2.258.0: guide-file option ids are real ids; on a build whose
+            -- gossip_option_id is a ROW INDEX (npc.gossip_ids_are_rows) they
+            -- are never compared - the positional st.s choice below decides.
+            if type(rows) == "table" and st.g and not npc.gossip_ids_are_rows() then
                 for i = 1, #rows do
                     local id = type(rows[i]) == "table" and rows[i].gossip_option_id or nil
                     for k = 1, #st.g do
@@ -3151,7 +3154,16 @@ tick_inner = function(player)
     guide.learn_npc_id(player)
 
     probe("q:goal")
+    -- 2.258.0: an inactive RestedXP step that waits on nothing is skipped
+    guide.skip_inactive()
     local goal = guide.goal()
+    if not goal and guide.inactive_step() then
+        local ia = guide.inactive_step()
+        state.set_note("Quest", string.format("Guide: step %d not active yet (needs %s)", ia.num,
+            (ia.requires ~= "" and ia.requires) or (ia.requires_step ~= 0 and ("step " .. ia.requires_step))
+            or ("level " .. tostring(ia.level))))
+        return
+    end
     if not goal then
         -- Every goal of the step is done and the addon has not moved on yet.
         -- Standing still is right: inventing work here would fight whatever

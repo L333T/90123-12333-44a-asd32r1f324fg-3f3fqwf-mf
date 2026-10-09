@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.254.0
+-- Version: 2.255.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -606,6 +606,14 @@ local function on_update()
     do
         local ok_dz, dz = pcall(require, "deathzones")
         if ok_dz and type(dz) == "table" and type(dz.tick) == "function" then pcall(dz.tick) end
+    end
+    -- 2.255.0: Escape Artist the moment the player is rooted, stunned or sapped
+    do
+        local ok_r, rc = pcall(require, "racials")
+        if ok_r and type(rc) == "table" and type(rc.escape_tick) == "function" then
+            probe("u:escape")
+            pcall(rc.escape_tick, player)
+        end
     end
     probe("u:death")
     if death.tick(player) then

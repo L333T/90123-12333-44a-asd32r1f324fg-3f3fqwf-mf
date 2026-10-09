@@ -3,7 +3,7 @@
 -- Racial abilities (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.254.0
+-- Version: 2.255.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Only ACTIVE racials are listed. Passives (Diplomacy, Hardiness, The Human
@@ -81,8 +81,10 @@ racials.list = {
     {
         key = "escape_artist", label = "Escape Artist", race = 7, kind = "free_cc",
         ids = { 20589 },
-        cc = "root",
-        tooltip = "Gnome: breaks roots and snares.",
+        -- 2.255.0: rooted, stunned or sapped - checked every tick, in and out
+        -- of combat (racials.escape_tick), not only in the combat rotation.
+        cc = "escape",
+        tooltip = "Gnome: used the moment you are rooted, stunned or sapped (in or out of combat). The game only lets it break roots and snares; under a stun or sap it is tried and the game may refuse.",
     },
     {
         key = "war_stomp", label = "War Stomp", race = 6, kind = "aoe_stun",

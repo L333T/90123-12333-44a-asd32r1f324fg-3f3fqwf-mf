@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.253.0
+-- Version: 2.254.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -55,9 +55,13 @@ local why_not = {}          -- 2.251.0: spell name -> why try() passed it over (
 -- are there. The 03:33 Rogue log showed Sinister Strike tried every ~1.65 s
 -- (FAIL_GAP 1.5 + a tick): energy-short attempts were refused and the spell
 -- then sat out 1.5 s even after the energy was back.
-local POWER_NAMES = { [0] = "mana", [1] = "rage", [3] = "energy", [6] = "runic power" }
+local POWER_NAMES = { [0] = "mana", [1] = "rage", [2] = "focus", [3] = "energy", [6] = "runic power" }
+-- 2.254.0: only these are pooled. Type 4 is COMBO POINTS - a finisher lists
+-- "5" there, and Slice and Dice / Eviscerate waited for 5 points (03:38 log);
+-- the finisher rules own combo points.
 local GCD_LATENCY = 0.30     -- s after a GCD cast before the next GCD spell is tried
 local last_gcd_cast = -1e9
+local stuck_direct = nil     -- 2.254.0: id the spell queue failed to send - cast directly next
 -- 2.252.0: pcall that keeps both return values (izi's ok, reason)
 local function safe2(fn)
     local ok, a, b = pcall(fn)
@@ -844,6 +848,9 @@ local function cast(e, unit, pos)
     local ok
     xprobe("sm:cast " .. e.name)
     local cq = queue_on()
+    -- 2.254.0: a spell the queue just failed to send is cast directly
+    if cq and stuck_direct == e.id then cq = nil end
+    stuck_direct = nil
     local direct = cq == nil
     if cq then
         local soft, qwhy
@@ -1146,7 +1153,7 @@ local function ready_now(e)
         for i = 1, #costs do
             local k = costs[i]
             if type(k) == "table" and (k.required_buff_id or 0) == 0 and tonumber(k.cost) and k.cost > 0
-                and tonumber(k.cost_type) then
+                and POWER_NAMES[tonumber(k.cost_type) or -1] then
                 local have = tonumber(safe(P.get_power, P, k.cost_type))
                 if have and have < k.cost then
                     return false, string.format("pooling %s %d/%d", POWER_NAMES[k.cost_type] or ("power " .. k.cost_type),
@@ -1723,11 +1730,16 @@ function smart.combat(player, target, ctx)
     -- the cast ends. Never during a channel.
     local cq = queue_on()
     if cq and type(cq.check_stuck) == "function" then
-        cq.check_stuck(function(msg)
+        local purged = cq.check_stuck(function(msg)
             core.log_warning("[Master Farmer - Grindbot] " .. msg)
             local el = mod("errorlog")
             if el and type(el.trail) == "function" then pcall(el.trail, "rotation", "%s", msg) end
         end)
+        if purged then
+            -- 2.254.0: the stuck spell may go again at once, the direct way
+            last_gcd_cast = -1e9
+            stuck_direct = purged
+        end
         cq = queue_on()
     end
     if cq then

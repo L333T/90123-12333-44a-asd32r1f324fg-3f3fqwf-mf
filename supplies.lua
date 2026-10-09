@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.242.0
+-- Version: 2.243.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -63,7 +63,7 @@ local debug_done = false
 -- can go on to an innkeeper / general-goods NPC for it. Every zone merchant in
 -- grind/zones is an armorer or weaponsmith, which stocks neither food nor
 -- water - buying could never succeed at them.
-local missing = { food = false, drink = false }
+local missing = { food = false, drink = false, blind = false }   -- blind: 2.243.0, see vendor_blind
 -- A buy that does not raise the bag count is not repeated for ever.
 local pending = nil            -- { reason, have } of the last buy sent
 local refused = {}             -- reason -> failed buys at this merchant
@@ -113,8 +113,11 @@ local function field_of(entry, names)
     return nil
 end
 
+-- DOCUMENTED FIELDS FIRST (2.243.0). core.game_ui.get_vendor_item_info(i)
+-- (1-based) returns { item_id, item_name, cost (copper), quantity,
+-- is_usable, vendor_item_index } on every client since the 2026-10-06 core.
 local ID_KEYS    = { "item_id", "id", "itemId", "item" }
-local PRICE_KEYS = { "price", "cost", "money", "buy_price", "item_price" }
+local PRICE_KEYS = { "cost", "price", "money", "buy_price", "item_price" }
 local QTY_KEYS   = { "quantity", "count", "stack" }     -- 2.182.0: units one purchase gives
 local STACK_KEYS = { "stack_count", "stack", "quantity", "count", "item_stack" }
 
@@ -199,21 +202,38 @@ local function find_on_vendor(ids)
     end
 
     local n = vendor_count()
-    local best_index, best_rank, best_price, best_lot = nil, nil, nil, nil
+    local best_index, best_rank, best_price, best_lot, best_name = nil, nil, nil, nil, nil
+    local readable = 0
     for index = 1, n do
         local entry = vendor_entry(index)
         debug_dump(entry, index)
         local id = field_of(entry, ID_KEYS)
-        if type(id) == "number" and rank[id] then
+        if type(id) == "number" and id > 0 then readable = readable + 1 end
+        -- 2.243.0: an item the character cannot use (food above its level)
+        -- is never bought.
+        local usable = type(entry) ~= "table" or entry.is_usable ~= false
+        if type(id) == "number" and rank[id] and usable then
             local r = rank[id]
             if not best_rank or r < best_rank then
                 best_index, best_rank = index, r
                 best_price = field_of(entry, PRICE_KEYS)
                 best_lot = field_of(entry, QTY_KEYS)
+                best_name = entry.item_name
             end
         end
     end
-    return best_index, best_price, best_lot
+    -- UNREADABLE VENDOR (2.243.0): every row reads item id 0 - an older core on
+    -- Retail / Forever. Buying by index would be buying blind: stand down.
+    if n > 0 and readable == 0 then
+        if not missing.blind then
+            missing.blind = true
+            core.log("[Master Farmer - Grindbot] This merchant's items read as empty (core older than "
+                .. "2026-10-06?) - buying food and water is off; selling and repair still work.")
+            trail("vendor rows unreadable (%d items, all item id 0) - buying off", n)
+        end
+        return nil, nil, nil, nil, true
+    end
+    return best_index, best_price, best_lot, best_name
 end
 
 -- ----------------------------------------------------------------------------
@@ -262,7 +282,10 @@ local function restock(ids, target, reason, player)
         return false, "stock"
     end
 
-    local index, price, lot = find_on_vendor(ids)
+    local index, price, lot, item_name, blind = find_on_vendor(ids)
+    if blind then
+        return false, "blind"
+    end
     if not index then
         state.set_note("Vendor", "No " .. reason .. " stocked here")
         trail("no %s stocked at this merchant (%d vendor items)", reason, vendor_count())
@@ -308,8 +331,14 @@ local function restock(ids, target, reason, player)
     last_buy = izi.now()
     pending = { reason = reason, have = have, q = qty }
     state.set_note("Vendor", string.format("Buying %s (%d/%d)", reason, have, target))
-    trail("buy %d unit(s) of %s at vendor index %d (have %d, want %d, %d per purchase)", qty, reason, index, have, target, lot)
+    trail("buy %d unit(s) of %s (%s) at vendor index %d for %s copper each (have %d, want %d, %d per purchase)",
+        qty, reason, tostring(item_name or "?"), index, tostring(price), have, target, lot)
     pcall(function() core.input.buy_item(index, qty) end)
+    if type(price) == "number" then
+        local c = price * qty
+        core.log(string.format("[Master Farmer - Grindbot] Bought %dx %s for %dg %ds %dc", qty,
+            tostring(item_name or reason), math.floor(c / 10000), math.floor((c % 10000) / 100), c % 100))
+    end
     return true
 end
 
@@ -325,15 +354,16 @@ end
 -- looted food still work - and says so once.
 local forever_logged = false
 
+-- 2.243.0: the core of 2026-10-06 reads vendor items on Forever and Retail
+-- too, so buying is no longer switched off by client. It stands down only
+-- once an open merchant has actually read back empty (missing.blind).
 local function forever_blind()
-    if not gamever.is_forever() then
+    if not missing.blind then
         return false
     end
     if not forever_logged then
         forever_logged = true
-        core.log("[Master Farmer - Grindbot] WoW Forever: vendor items cannot be read on this client "
-            .. "- buying food and water is off (repair and selling still work).")
-        trail("Forever: vendor item info unavailable - food / water buying off")
+        trail("vendor item info unavailable on this core - food / water buying off")
     end
     return true
 end
@@ -354,6 +384,9 @@ function supplies.tick(player)
 
     local food_target = gui.slider("food_target", 20) or 20
     local acted, failure = restock(consumables.FOOD_ITEM_IDS, food_target, "food", player)
+    if failure == "blind" then
+        return false
+    end
     missing.food = failure == "stock"
     if acted then
         return true
@@ -606,7 +639,7 @@ end
 --- when it should not (for the resting note).
 function supplies.trip_wanted(player)
     if not player or not gui.is_on("buy_supplies") then return false, "buying is off" end
-    if forever() then return false, "vendor items unreadable on WoW Forever" end
+    if missing.blind then return false, "vendor items unreadable on this core" end
     local ok_lv, vendor_lv = pcall(require, "vendor")
     if ok_lv and type(vendor_lv) == "table" and type(vendor_lv.level_ok) == "function"
         and not vendor_lv.level_ok(player) then

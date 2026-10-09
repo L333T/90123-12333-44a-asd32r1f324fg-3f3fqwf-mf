@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.248.0
+-- Version: 2.249.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -714,6 +714,49 @@ local function note(label)
     end
 end
 
+--- SPELL QUEUE CASTING (2.249.0, castq.lua). On unless "Spell Queue Casting"
+--- (Spells tab) is unticked, and only when common/modules/spell_queue loads.
+local function queue_on()
+    local g = mod("gui")
+    if g and type(g.is_on) == "function" and g.is_on("spell_queue") == false then return nil end
+    local cq = mod("castq")
+    if cq and type(cq.available) == "function" and cq.available() then return cq end
+    return nil
+end
+
+--- Queue entry `e` (priority 1) after the castability check: spell_helper
+--- (spellcheck) normally; izi's own check with skip_casting while the current
+--- cast is still finishing (queue ahead). Returns ok, soft - soft = not a
+--- failure (already queued, or the off-GCD queue is busy this frame).
+local function queue_cast(cq, e, sp, unit, pos)
+    local ahead = safe(P.is_casting, P) == true
+    if ahead then
+        local opts = { skip_casting = true, skip_gcd = true, skip_facing = e.self == true, skip_moving = true }
+        local okc
+        if pos then
+            okc = safe(function() return sp:is_castable_to_position(unit, pos, opts) end)
+        else
+            okc = safe(function() return sp:is_castable_to_unit(unit, opts) end)
+        end
+        if okc ~= true then return false, true end
+    else
+        local okg
+        if pos then
+            okg = spellcheck.can_cast_at(sp, P, unit, pos)
+        else
+            okg = spellcheck.can_cast(sp, P, unit, { self = e.self == true or unit == P })
+        end
+        if not okg then return false, false end
+    end
+    local ok, why = cq.cast(e.id, sp, unit, pos, e.name, false)
+    if ok then
+        spellcheck.cast_done(sp)
+        return true, false
+    end
+    if why == "requeue_gap" then return true, true end
+    return false, why == "fast_queue_busy"
+end
+
 --- Cast entry `e` at `unit` (or at `pos` for a ground spell). One attempt,
 --- no waiting. Returns true when the cast went out.
 local function cast(e, unit, pos)
@@ -769,7 +812,19 @@ local function cast(e, unit, pos)
 
     local ok
     xprobe("sm:cast " .. e.name)
-    if pos then
+    local cq = queue_on()
+    if cq then
+        local soft
+        ok, soft = queue_cast(cq, e, sp, unit, pos)
+        if ok ~= true and soft then
+            xprobe("sm:cast done")
+            if locked then
+                local mv = mod("movement")
+                if mv and type(mv.release) == "function" then pcall(mv.release) end
+            end
+            return false
+        end
+    elseif pos then
         ok = safe(function() return spellcheck.cast_position(sp, pos, e.name, { min_hits = 1, aoe_radius = 8 }) end)
     else
         ok = safe(function() return spellcheck.cast_safe(sp, unit, e.name) end)
@@ -1581,7 +1636,13 @@ function smart.combat(player, target, ctx)
         xprobe("sm:pet attack")
         pcall(pets.attack, player, target)
     end
-    if safe(player.is_channeling_or_casting, player) == true then
+    -- QUEUE AHEAD (2.249.0): with the spell queue the next spell is picked in
+    -- the last moments of a cast (castq.may_queue), so it goes out the moment
+    -- the cast ends. Never during a channel.
+    local cq = queue_on()
+    if cq then
+        if not cq.may_queue(player) then return true end
+    elseif safe(player.is_channeling_or_casting, player) == true then
         return true
     end
     begin(player, target, ctx and ctx.enemies or nil)

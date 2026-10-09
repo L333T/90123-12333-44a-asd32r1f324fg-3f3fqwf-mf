@@ -3,7 +3,7 @@
 -- Spell categories
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.241.0
+-- Version: 2.242.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW A SPELL GETS ITS CATEGORY
@@ -139,15 +139,11 @@ local RULES = {
         "^Innervate", "^Eat", "^Sit",
     } },
 
-    -- Anything that names a multi-target effect.
-    { categories.AOE, {
-        "Explosion", "Blizzard", "Flamestrike", "Rain of ", "Hellfire",
-        "^Cleave", "^Whirlwind", "^Multi%-Shot", "^Volley", "^Fan of Knives",
-        "^Consecration", "^Holy Nova", "^Hurricane", "^Chain Lightning",
-        "^Magma Totem", "^Fire Nova", "^Swipe", "^Thunder Clap",
-        "^Demoralizing Shout", "^Howl of Terror", "^Psychic Scream",
-        "^Seed of Corruption", "^Blast Wave", "^Cone of Cold",
-    } },
+    -- NO AoE KEYWORD RULE (2.242.0). A spell is never ASSUMED to be area
+    -- damage from its name: "Multi-Shot" was filed as AoE by a name match.
+    -- AoE comes only from an explicit id (BY_ID above) or the class catalog
+    -- (data/class_spells.lua); everything else that deals damage is single
+    -- target.
 }
 
 local function match_rules(name)

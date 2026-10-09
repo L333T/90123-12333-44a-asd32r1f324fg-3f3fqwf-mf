@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.241.0
+-- Version: 2.242.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -211,7 +211,6 @@ W.HUNTER = t({
     { "Bestial Wrath",          "cooldown", on = true, self = true },
     { "Rapid Fire",             "cooldown", on = true, self = true },
 
-    { "Multi-Shot",             "aoe", on = true, min = 11, n = 2 },
 
     -- Melee (2.120.0): Wing Clip first, so a mob that closed in is slowed.
     -- MELEE BAND (2.222.0): at or inside 11 yd the Hunter closes to 3 yd and
@@ -222,6 +221,9 @@ W.HUNTER = t({
     -- Shots before melee swings. A shot inside its minimum range (11 yd) is
     -- skipped, so in the melee band Raptor Strike is the one that lands.
     { "Arcane Shot",            "damage", on = true, min = 11 },
+    -- 2.242.0: Multi-Shot (2643 and every rank) is a DAMAGE shot on the
+    -- target, not an AoE spell - it no longer waits for 2+ enemies.
+    { "Multi-Shot",             "damage", on = true, min = 11 },
     { "Steady Shot",            "damage", on = true, min = 11 },
     { "Kill Command",           "damage", on = true, when = function(c) return c.dist() > 5 end },
     { "Concussive Shot",        "damage", on = false, min = 11, when = function(c) return c.dist() <= 16 end },
@@ -552,6 +554,10 @@ local SECTIONS = {
     { key = "defensive", label = "Defensive",            roles = { defensive = true } },
     { key = "interrupt", label = "Interrupts",           roles = { interrupt = true } },
     { key = "racial",    label = "Racial",               roles = { racial = true } },
+    -- 2.242.0: spells the book has that this catalog does not list, split by
+    -- what their description says they do - damage or healing. Never AoE.
+    { key = "other_dps",  label = "Other DPS spells (not in the catalog)",     roles = { other_dps = true } },
+    { key = "other_heal", label = "Other healing spells (not in the catalog)", roles = { other_heal = true } },
     -- 2.194.0: every other spell the book has (not in this catalog).
     { key = "other",     label = "Other known spells",   roles = { other = true } },
 }

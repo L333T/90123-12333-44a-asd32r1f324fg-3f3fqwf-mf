@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.258.0
+-- Version: 2.259.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -314,7 +314,12 @@ local function behind_step(player, unit)
     local okw, want = pcall(prof.want_behind, player, unit)
     if not okw or want ~= true then return nil end
     local okb, behind = pcall(player.is_behind_unit, player, unit)
-    if okb and behind == true then return nil end
+    if okb and behind == true then
+        -- 2.259.0: still behind it in 0.5 s (izi is_behind_future)? A turning
+        -- target is re-flanked now, not after the opener fails.
+        local okf, later = pcall(player.is_behind_future, player, unit, 0.5)
+        if not okf or later ~= false then return nil end
+    end
     local okd, dir = pcall(unit.get_direction, unit)
     if not okd or dir == nil then return nil end
     local okx, fx, fy = pcall(function() return dir.x, dir.y end)
@@ -361,6 +366,76 @@ local function behind_step(player, unit)
     return nil
 end
 
+-- ============================================================================
+-- MELEE PATHING (2.259.0)
+-- ============================================================================
+-- The 2026-10-09 Rogue sessions stood 0.0-0.6 yd from the target's centre on
+-- most combat ticks (inside its model, where facing is unreliable): the chase
+-- aimed at where the mob WAS while the mob ran at the player too. Every melee
+-- class (warrior, rogue, paladin, feral druid, enhancement shaman, the
+-- hunter's melee band) closes through here, with the izi positioning API
+-- (izi_sdk stub, game_object extensions):
+--   * a target running AT the player (is_moving_towards_me) that
+--     predict_distance says arrives in swing range is waited for, facing
+--     it - no running into each other;
+--   * a target moving away or across is intercepted: the chase aims at
+--     predict_position(lead), lead = time to cover the gap (0.3-1.5 s);
+--   * the stand distance is never closer than both models' bounding radii
+--     + 0.5 (at least 1.5 yd); standing inside a still target, one short
+--     step back (at most every BACKSTEP_GAP s), unless the profile wants
+--     the rear arc (the rogue's opener).
+local MELEE_LEAD_MAX = 1.5
+local CLOSING_LEAD = 0.5
+local TOO_CLOSE = 0.75
+local BACKSTEP_GAP = 3.0
+
+local function call_m(obj, name, ...)
+    local f = obj and obj[name]
+    if type(f) ~= "function" then return nil end
+    local ok, a, b = pcall(f, obj, ...)
+    if ok then return a, b end
+    return nil
+end
+
+--- Closest melee stand from the target's centre: both models' bounding
+--- radii + 0.5 (game_object:get_bounding_radius), at least 1.5 yd.
+local function melee_min_stand(player, unit)
+    local ur = tonumber(call_m(unit, "get_bounding_radius")) or 0.5
+    local pr = tonumber(call_m(player, "get_bounding_radius")) or 0.4
+    local want = ur + pr + 0.5
+    if want < 1.5 then want = 1.5 end
+    return want
+end
+
+--- The target runs at the player and arrives within `hold` yd anyway.
+local function closing_in(player, unit, hold)
+    if call_m(unit, "is_moving") ~= true then return false end
+    if call_m(unit, "is_moving_towards_me", player) ~= true then return false end
+    -- predict_distance(time, other): this unit moves, `other` stays
+    local d = tonumber(call_m(unit, "predict_distance", CLOSING_LEAD, player))
+    return d ~= nil and d <= hold
+end
+
+--- Where to aim at a target moving away or across: predict_position(lead).
+local function intercept_point(player, unit, remain)
+    if call_m(unit, "is_moving") ~= true then return nil end
+    if call_m(unit, "is_moving_towards_me", player) == true then return nil end
+    local spd = tonumber(call_m(player, "get_movement_speed")) or 7
+    if spd < 1 then spd = 7 end
+    local lead = remain / spd
+    if lead < 0.3 then lead = 0.3 elseif lead > MELEE_LEAD_MAX then lead = MELEE_LEAD_MAX end
+    local px, py, pz = xyz(call_m(unit, "predict_position", lead))
+    if not px then return nil end
+    return px, py, pz
+end
+
+local function profile_wants_behind(player, unit)
+    local prof = R.profile
+    if not prof or type(prof.want_behind) ~= "function" then return false end
+    local ok, want = pcall(prof.want_behind, player, unit)
+    return ok and want == true
+end
+
 function C.combat_engage(player, unit, yards)
     if not player or not unit or R.rest_lock then return false end
     -- Backpedalling after Frost Nova owns movement (2.97.0): no chase, no hop.
@@ -380,6 +455,9 @@ function C.combat_engage(player, unit, yards)
         m_stand = yards
         m_reach = yards
         m_hold = yards + 1
+        -- 2.259.0: never aim inside the target's model
+        local mn = melee_min_stand(player, unit)
+        if m_stand < mn then m_stand = math.min(mn, m_reach) end
     end
 
     R.combat_req, R.combat_req_t = true, izi.now()
@@ -463,6 +541,45 @@ function C.combat_engage(player, unit, yards)
     if melee and type(range) == "number" and range <= 10 then
         local bh = behind_step(player, unit)
         if bh ~= nil then return bh end
+    end
+
+    -- 1c. MELEE PATHING (2.259.0): a charging target is waited for; standing
+    --     inside a still target, one short step back.
+    if melee and type(range) == "number" then
+        if range > m_hold and range <= 12 and closing_in(player, unit, m_hold) then
+            if R.walker_moving or R.pending then O.halt_all() end
+            R.chase_fail_key, R.chase_fail_t = nil, 0
+            Rg.face(unit)
+            return false
+        end
+        if range < TOO_CLOSE and call_m(unit, "is_moving") ~= true
+            and (t - (R.backstep_t or 0)) >= BACKSTEP_GAP and not profile_wants_behind(player, unit) then
+            R.backstep_t = t
+            R.combat_stopped = true         -- in position: the band check must not halt the step
+            local ux, uy, uz = unit_xyz(unit)
+            local hx, hy, hz = here_xyz()
+            if ux and hx and O.nav_gap_ok() then
+                local dx, dy = hx - ux, hy - uy
+                local len = sqrt(dx * dx + dy * dy)
+                if len < 0.05 then
+                    -- exactly on its centre: back out in front of it (its facing)
+                    local dir = call_m(unit, "get_direction")
+                    local fx, fy = xyz(dir)
+                    if fx then dx, dy, len = fx, fy, sqrt(fx * fx + fy * fy) end
+                end
+                if len >= 0.05 then
+                    local mn = melee_min_stand(player, unit)
+                    local bx, by = ux + dx / len * mn, uy + dy / len * mn
+                    local here = pt(P_HERE, hx, hy, hz)
+                    local dest = pt(P_ALT, bx, by, ground_z(bx, by, hz))
+                    if walk_open(here, dest) and W.ensure() and W.move(dest, "melee_space") then
+                        dlog("combat", string.format("inside the target (%.1f yd) - stepping back to %.1f yd", range, mn))
+                    end
+                end
+            end
+            Rg.face(unit)
+            return ready
+        end
     end
 
     -- 2. in position, with hysteresis: we must close to CHASE_BAND inside max
@@ -584,6 +701,11 @@ function C.combat_engage(player, unit, yards)
         local ux, uy, uz = unit_xyz(unit)
         local hx, hy, hz = here_xyz()
         if not hx then hx, hy, hz = unit_xyz(player) end
+        -- 2.259.0: a melee chase intercepts a moving target where it WILL be
+        if melee and ux and hx then
+            local ix, iy, iz = intercept_point(player, unit, dist2(hx, hy, ux, uy))
+            if ix then ux, uy, uz = ix, iy, iz end
+        end
         if ux and hx and O.owns(OWNER.COMBAT) and not R.rest_lock then
             local stand = m_stand
             if not melee then

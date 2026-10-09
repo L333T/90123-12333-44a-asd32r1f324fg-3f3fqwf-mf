@@ -3,7 +3,7 @@
 -- castq.lua - rotation casts through the Sylvanas spell queue
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.253.0
+-- Version: 2.254.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.249.0)
@@ -41,8 +41,11 @@ local last_n = 0
 local last_fast_id = nil
 -- STUCK QUEUE (2.251.0): queued spells that never leave the queue. After
 -- STUCK_LIMIT of them the queue is switched off for the session (izi casts).
-local STUCK_S = 1.5
-local STUCK_LIMIT = 3
+-- 2.254.0: 1.0 s / 2 spells. The 03:38 Rogue log: Sinister Strike re-queued
+-- every 0.3 s for 2 s without going out; each re-queue reset its time here,
+-- so the queue never looked stuck. The FIRST queue time is kept now.
+local STUCK_S = 1.0
+local STUCK_LIMIT = 2
 local pending = {}           -- id -> time queued (GCD spells)
 local stuck = 0
 M.disabled = false
@@ -85,15 +88,20 @@ end
 
 --- Call every tick: a queued spell still waiting after STUCK_S never went
 --- out. It is purged; STUCK_LIMIT of them switch the queue off (`on_stuck`
---- is told why, once).
+--- is told why, once). Returns the id of a spell purged this tick (the
+--- caller casts it directly), or nil.
 function M.check_stuck(on_stuck)
     local Q = queue_mod()
-    if not Q or M.disabled then return end
+    if not Q or M.disabled then return nil end
     local t = now()
     for id, qt in pairs(pending) do
-        if t - qt >= STUCK_S then
+        local waiting = in_queue(Q, id)
+        if waiting == false then
+            pending[id] = nil           -- went out
+            stuck = 0
+        elseif t - qt >= STUCK_S then
             pending[id] = nil
-            if in_queue(Q, id) == true then
+            if waiting == true then
                 M.purge(id)
                 stuck = stuck + 1
                 if stuck >= STUCK_LIMIT then
@@ -102,13 +110,12 @@ function M.check_stuck(on_stuck)
                         pcall(on_stuck, string.format("%d queued spells never left the spell queue (last: %d) - "
                             .. "spell queue casting is off for this session, casting through izi", stuck, id))
                     end
-                    return
                 end
-            else
-                stuck = 0
+                return id
             end
         end
     end
+    return nil
 end
 
 --- Does spell `id` (izi spell `sp` when known) skip the global cooldown?
@@ -194,7 +201,7 @@ function M.cast(id, sp, target, pos, message, allow_movement)
     last_n = last_n + 1
     if last_n > 200 then last, last_n = {}, 0 end
     last[key] = t
-    if fast then last_fast_id = id else pending[id] = t end
+    if fast then last_fast_id = id else pending[id] = pending[id] or t end
     return true, fast and "fast" or "gcd"
 end
 

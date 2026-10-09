@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.247.0
+-- Version: 2.248.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -51,6 +51,8 @@
 --   ground   cast at the target's position (Blizzard, Flamestrike...)
 --   center   "self" or "target" for an AoE count (default "target")
 --   r        AoE radius (default 10); n = enemies needed
+--   cone     2.248.0: a cone in front of the player (`angle` degrees, default
+--            60) - predict.lua predicts its hits with spell_prediction
 --   thp      execute: target health below; debuff/cooldown: target above
 --   hp       heal / defensive threshold override (percent)
 --   cp       finisher: combo points needed
@@ -401,9 +403,9 @@ W.MAGE = t({
     { "Frost Nova",             "control", on = true, self = true,
       when = function(c) return c.near(6) >= 1 end,
       tip = "When an enemy is within 6 yards - then the mage backs off for 2.5 seconds." },
-    { "Cone of Cold",           "aoe", on = false, center = "self", r = 10, n = 2 },
+    { "Cone of Cold",           "aoe", on = false, center = "self", r = 10, n = 2, cone = true, angle = 60 },
     { "Blast Wave",             "aoe", on = true, self = true, center = "self", r = 8, n = 2 },
-    { "Dragon's Breath",        "aoe", on = true, center = "self", r = 8, n = 2 },
+    { "Dragon's Breath",        "aoe", on = true, center = "self", r = 8, n = 2, cone = true, angle = 60 },
     { "Arcane Explosion",       "aoe", on = true, self = true, center = "self", r = 10 },
     { "Blizzard",               "aoe", on = false, ground = true },
     { "Flamestrike",            "aoe", on = false, ground = true },

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.251.0
+-- Version: 2.252.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -49,6 +49,13 @@ local range = require("spell_range")
 local state = require("state")
 local catalog = require("data/class_spells")
 local spellcheck = require("spellcheck")   -- 2.246.0: spell_helper gate on every cast
+local why_not = {}          -- 2.251.0: spell name -> why try() passed it over (diagnostic)
+-- 2.252.0: pcall that keeps both return values (izi's ok, reason)
+local function safe2(fn)
+    local ok, a, b = pcall(fn)
+    if ok then return a, b end
+    return nil, tostring(a)
+end
 local racial_data = require("data/racials")
 
 local smart = {}
@@ -744,13 +751,17 @@ local function queue_cast(cq, e, sp, unit, pos)
     if ahead then
         opts.skip_casting, opts.skip_gcd, opts.skip_moving = true, true, true
     end
-    local okc
+    local okc, reason
     if pos then
-        okc = safe(function() return sp:is_castable_to_position(unit, pos, opts) end)
+        okc, reason = safe2(function() return sp:is_castable_to_position(unit, pos, opts) end)
     else
-        okc = safe(function() return sp:is_castable_to_unit(unit, opts) end)
+        okc, reason = safe2(function() return sp:is_castable_to_unit(unit, opts) end)
     end
-    if okc ~= true then return false, ahead end
+    if okc ~= true then
+        why_not[e.name .. "#izi"] = "izi: " .. tostring(reason or "not castable")
+        if ahead then return false, true end
+        return false, false, "izi"
+    end
     if not ahead then
         local okg
         if pos then
@@ -825,9 +836,10 @@ local function cast(e, unit, pos)
     local ok
     xprobe("sm:cast " .. e.name)
     local cq = queue_on()
+    local direct = cq == nil
     if cq then
-        local soft
-        ok, soft = queue_cast(cq, e, sp, unit, pos)
+        local soft, qwhy
+        ok, soft, qwhy = queue_cast(cq, e, sp, unit, pos)
         if ok ~= true and soft then
             xprobe("sm:cast done")
             if locked then
@@ -836,13 +848,21 @@ local function cast(e, unit, pos)
             end
             return false
         end
-    elseif pos then
-        ok = safe(function() return spellcheck.cast_position(sp, pos, e.name, { min_hits = 1, aoe_radius = 8 }) end)
-    else
-        ok = safe(function() return spellcheck.cast_safe(sp, unit, e.name) end)
-        if ok ~= true then
-            ok = safe(function() return spellcheck.cast(sp, unit, e.name) end)
+        -- 2.252.0: izi's castable check refused the queued cast. The Rogue's
+        -- Sinister Strike was refused that way at 0.1 yd with 105 energy
+        -- (03:29 log) while the direct casts below worked on 2.240 - try them.
+        if ok ~= true and qwhy == "izi" then direct = true end
+    end
+    if direct then
+        if pos then
+            ok = safe(function() return spellcheck.cast_position(sp, pos, e.name, { min_hits = 1, aoe_radius = 8 }) end)
+        else
+            ok = safe(function() return spellcheck.cast_safe(sp, unit, e.name) end)
+            if ok ~= true then
+                ok = safe(function() return spellcheck.cast(sp, unit, e.name) end)
+            end
         end
+        if ok ~= true then why_not[e.name] = "cast refused (" .. tostring(why_not[e.name .. "#izi"] or "izi cast") .. ")" end
     end
     xprobe("sm:cast done")
     local now = izi.now()
@@ -1091,7 +1111,6 @@ local function buff_missing(e)
     return auras.buff_up(P, e.ids) ~= true
 end
 
-local why_not = {}          -- 2.251.0: spell name -> why try() passed it over (diagnostic)
 local no_cast = { since = nil, logged = -1e9 }
 local NO_CAST_S, NO_CAST_GAP = 3.0, 10.0
 local function try(e, role_cond)

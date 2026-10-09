@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.254.0
+-- Version: 2.255.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -220,7 +220,19 @@ local function note_fight(player)
     end
 end
 
+--- 2.255.0: rooted, stunned or sapped (izi's CC checks, any remaining time),
+--- and what it is, for the log.
+local function escape_cc(player)
+    if safe(function() return player:is_rooted(0) end) == true then return "rooted" end
+    if safe(function() return player:is_stunned(0) end) == true then return "stunned" end
+    if safe(function() return player:is_sapped(0) end) == true then return "sapped" end
+    return nil
+end
+
 local function cc_on_us(player, which)
+    if which == "escape" then
+        return escape_cc(player) ~= nil
+    end
     if which == "root" then
         return safe(function() return player:is_rooted() end) == true
     end
@@ -312,6 +324,46 @@ end
 -- ----------------------------------------------------------------------------
 --- Combat racials. Returns true when one was cast, so the rotation can hold
 --- the rest of its cascade for a tick.
+-- ESCAPE ARTIST EVERY TICK (2.255.0). The Gnome racial (20589) was only
+-- looked at inside the combat rotation and only for roots: a sap comes
+-- before any fight, and a stun never matched. Now checked every
+-- ESCAPE_GAP s from the main loop, in and out of combat, whatever the
+-- racial gap, and every attempt is logged (racial trail).
+local ESCAPE_GAP = 0.25
+local escape_t = -1e9
+
+local function rtrail(fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, "racial", fmt, ...)
+    end
+end
+
+function racials.escape_tick(player)
+    if not player then return false end
+    local now = izi.now()
+    if now - escape_t < ESCAPE_GAP then return false end
+    escape_t = now
+    local list = for_player(player)
+    if not list then return false end
+    for i = 1, #list do
+        local entry = list[i]
+        local def = entry.def
+        if def.cc == "escape" and wanted(def) and learned(entry.spell) then
+            local what = escape_cc(player)
+            if not what then return false end
+            if not ready(entry.spell) then
+                rtrail("%s: %s, but it is on cooldown", def.label, what)
+                return false
+            end
+            local ok = cast(entry.spell, player, def.label)
+            rtrail("%s: %s - %s", def.label, what, ok and "cast" or "refused by the game")
+            return ok
+        end
+    end
+    return false
+end
+
 function racials.tick(player, target, ctx)
     if not player then
         return false

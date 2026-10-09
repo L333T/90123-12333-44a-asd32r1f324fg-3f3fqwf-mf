@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.243.0
+-- Version: 2.244.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1018,6 +1018,13 @@ local function try(e, role_cond)
     if role_cond and not role_cond(e) then return false end
     if def.when and safe(def.when, c) ~= true then return false end
     if not ctype_ok(def) then return false end
+    -- EITHER (2.244.0): a spell whose target is not known (Eureka!) - the
+    -- enemy first, then the player.
+    if def.either then
+        if T and cast(e, T) == true then return true end
+        fail_until[e.key] = nil
+        return cast(e, P) == true
+    end
     local unit = e.self and P or T
     if not in_reach(e, unit) then return false end
     local pos = nil

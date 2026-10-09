@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.243.0
+-- Version: 2.244.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -261,6 +261,11 @@ W.ROGUE = t({
     { "Envenom",                "finisher", on = false, melee = true, cp = 4 },
     { "Eviscerate",             "finisher", on = true, melee = true, cp = 4, id = 2098 },   -- 2.229.0: id 2098 hard-coded
 
+    -- 2.244.0: Eureka! (WoW Forever, 1259812) - cast every time it is off
+    -- cooldown in a fight. First damage entry, so nothing else goes ahead of
+    -- it; target first, then the player (`either`), whichever it takes.
+    { "Eureka!",                "damage", on = true, id = 1259812, either = true,
+      tip = "Used whenever it is off cooldown in a fight." },
     { "Riposte",                "damage", on = true, melee = true },
     { "Ghostly Strike",         "damage", on = true, melee = true },
     { "Mutilate",               "damage", on = true, melee = true },

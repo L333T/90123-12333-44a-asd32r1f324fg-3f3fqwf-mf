@@ -3,7 +3,7 @@
 -- movement/hazards.lua - learned bad terrain (cliffs, slopes, snag spots)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.256.0
+-- Version: 2.257.0
 -- ============================================================================
 -- WHY (2.235.0)
 --   The 23:04 grind session was caught at the same five spots on every lap
@@ -118,7 +118,12 @@ local function save()
         end
     end
     pcall(function() core.create_data_folder(FOLDER) end)
-    local ok = pcall(function() core.write_data_file(file_of(map_key), table.concat(out, "\n") .. "\n") end)
+    -- write_data_file APPENDS (core.lua stub): empty the file first, or every
+    -- save adds every hazard again (and a missing file is never written).
+    local ok = pcall(function()
+        core.create_data_file(file_of(map_key))
+        core.write_data_file(file_of(map_key), table.concat(out, "\n") .. "\n")
+    end)
     dirty = false
     last_save = izi.now()
     if not ok then trail("could not write %s", file_of(map_key)) end

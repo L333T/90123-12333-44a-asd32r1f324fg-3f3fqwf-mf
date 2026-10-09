@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.256.0
+-- Version: 2.257.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -577,6 +577,11 @@ local function on_update()
     if not gui.is_started() then
         reload_since = nil            -- 2.189.0: the reload timer starts with Start
         halt_bot_movement()
+        -- 2.257.0: the death-zone Target Selector session ends with Stop
+        do
+            local dz = package.loaded["deathzones"]
+            if type(dz) == "table" and type(dz.release) == "function" then pcall(dz.release) end
+        end
         if vendor then
             vendor.reset()
         end
@@ -756,6 +761,11 @@ local function on_update()
 end
 
 local function on_render()
+    -- 2.257.0: a superseded instance does nothing here (movement, pets and the
+    -- debug log ran before this check and kept working for the old instance).
+    if is_stale() then
+        return
+    end
     if movement then
         pcall(movement.on_render)
     end
@@ -766,14 +776,11 @@ local function on_render()
     if pets and type(pets.on_render) == "function" then
         pcall(pets.on_render)
     end
-    -- Debug lines are buffered and written on a debounce, because
-    -- write_data_file overwrites rather than appends. Without this they are
-    -- collected and never reach scripts_data.
+    -- Debug lines are buffered and written on a debounce: each flush empties
+    -- the file (create_data_file) and writes the whole capped buffer, because
+    -- write_data_file appends. Without this they never reach scripts_data.
     if debuglog and type(debuglog.tick) == "function" then
         pcall(debuglog.tick)
-    end
-    if is_stale() then
-        return
     end
     if gui and gui.is_on("draw_path") and path_runner and type(path_runner.draw) == "function" then
         pcall(function()
@@ -928,3 +935,24 @@ core.register_on_render_callback(function()
 end)
 
 core.log(string.format("[Master Farmer - Grindbot] v%s loaded by %s", identity.version, identity.authors))
+
+-- 2.257.0: UNLOAD. The launcher (Master_Farmer loader.lua) calls on_unload and
+-- removes the callbacks it routed for this instance. There is no core API to
+-- unregister a callback, so under the standalone plugin_loader the old
+-- callbacks stay registered: the session counter is bumped so every one of
+-- them sees is_stale() and returns at once. _G.MasterFarmer_Grindbot stays:
+-- header.lua (session counter, meta), events.lua (event handlers, read by
+-- the event callback) and gui.lua (session) all read it.
+local function on_unload()
+    NS._sessions[identity.folder] = (NS._sessions[identity.folder] or MY_SESSION) + 1
+    if path_runner then pcall(path_runner.stop) end
+    if movement then pcall(movement.halt) end      -- AmeisenNav client stop + walker halt
+    if strafe then pcall(strafe.stop) end
+    local dz = package.loaded["deathzones"]
+    if type(dz) == "table" and type(dz.release) == "function" then pcall(dz.release) end
+    pcall(function() core.input.move_forward_stop() end)
+    pcall(function() core.input.move_backward_stop() end)
+    if debuglog and type(debuglog.flush) == "function" then pcall(debuglog.flush, true) end
+end
+
+return { on_unload = on_unload }

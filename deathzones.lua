@@ -3,7 +3,7 @@
 -- deathzones.lua - areas to avoid after dying there 3 times
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.256.0
+-- Version: 2.257.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.247.0)
@@ -60,8 +60,10 @@ local deaths = {}            -- { t, wall, map, x, y, z, npc, name }
 local zones = {}             -- { map, x, y, z, r, npc, name, deaths, until_t, until_wall, pushed }
 local loaded = false
 local next_tick = 0
-local ts_blocked = false
-local ts_reset = false       -- first tick after a load with zones: pulls allowed again
+-- 2.257.0: a ts_override_helper SESSION, not the permanent set_pull_allowed
+-- (stub: "legacy, modifies real settings"). destroy() restores the player's
+-- own setting: away from the zones, on Stop and on unload (M.release).
+local ts_session = nil
 
 -- ----------------------------------------------------------------------------
 -- helpers
@@ -123,6 +125,9 @@ local function save()
         end
     end
     pcall(function() core.create_data_folder(FOLDER) end)
+    -- write_data_file APPENDS (core.lua stub): empty the file first, or every
+    -- save adds every zone again (and a missing file is never written).
+    pcall(function() core.create_data_file(FILE) end)
     pcall(function() core.write_data_file(FILE, table.concat(out, "\n") .. "\n") end)
 end
 
@@ -315,23 +320,42 @@ end
 -- ----------------------------------------------------------------------------
 -- tick: expiry, navigation zones, Target Selector
 -- ----------------------------------------------------------------------------
-local function ts_pull(allowed)
+--- Near a zone: a session with pulls off (created once, kept alive with
+--- tick()). ts_override_helper:create_session / session:set_pull_allowed /
+--- session:tick / session:destroy (stub ts_override_helper.lua).
+local function ts_hold()
+    if ts_session then
+        pcall(ts_session.tick, ts_session)
+        return
+    end
     local ok, ts = pcall(require, "common/utility/ts_override_helper")
-    if not ok or type(ts) ~= "table" or type(ts.set_pull_allowed) ~= "function" then return end
-    local mode = type(ts.enums) == "table" and type(ts.enums.write_mode) == "table" and ts.enums.write_mode.ON_CHANGE or nil
-    pcall(ts.set_pull_allowed, ts, allowed, mode)
+    if not ok or type(ts) ~= "table" or type(ts.create_session) ~= "function" then return end
+    local ok_s, sess = pcall(ts.create_session, ts, "Master Farmer - Grindbot death zones")
+    if not ok_s or type(sess) ~= "table" then return end
+    ts_session = sess
+    pcall(sess.set_pull_allowed, sess, false)
+    trail("near a death zone: Target Selector pulls off (session)")
+end
+
+--- Give the Target Selector back: the session is destroyed and the player's
+--- own pull setting applies again. Safe to call any time (Stop, unload).
+function M.release()
+    if not ts_session then return end
+    local sess = ts_session
+    ts_session = nil
+    pcall(sess.destroy, sess)
+    trail("Target Selector session ended - your own pull setting applies")
 end
 
 function M.tick()
     local t = now()
     if t < next_tick then return end
     next_tick = t + TICK_GAP
-    if not loaded then
-        load()
-        -- a reload while near a zone left the Target Selector's pull flag off
-        ts_reset = #zones > 0
+    if not loaded then load() end
+    if #zones == 0 then
+        M.release()
+        return
     end
-    if #zones == 0 and not ts_blocked and not ts_reset then return end
     local map = map_id()
     local keep, changed = {}, false
     for i = 1, #zones do
@@ -351,18 +375,10 @@ function M.tick()
     -- Target Selector: no auto-pulls near an active zone
     local me = safe(function() return izi.me() end)
     local near = me and M.zone_at_pos(pos_of(me), TS_NEAR) ~= nil or false
-    if ts_reset and not near then
-        ts_reset = false
-        ts_pull(true)
-    end
-    if near and not ts_blocked then
-        ts_blocked = true
-        ts_pull(false)
-        trail("near a death zone: Target Selector pulls off")
-    elseif not near and ts_blocked then
-        ts_blocked = false
-        ts_pull(true)
-        trail("away from death zones: Target Selector pulls back on")
+    if near then
+        ts_hold()
+    else
+        M.release()
     end
 end
 

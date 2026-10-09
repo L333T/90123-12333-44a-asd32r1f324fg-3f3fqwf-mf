@@ -130,7 +130,26 @@ local function want_look_at()
     return not X.is_forever()
 end
 
+-- 1.5.2: the walker (simple_movement) is shared by every plugin. Its arrival
+-- thresholds are saved before AmeisenNav sets its own and put back when the
+-- walk ends (F.stop) - Slave Pens arrives at 0.7 yd and inherited 1.5 yd.
+-- get_threshold / get_final_threshold: simple_movement stub.
+local saved_thresholds = nil
+
+local function restore_walker()
+    local sv = saved_thresholds
+    if not sv then return end
+    saved_thresholds = nil
+    if type(sv.threshold) == "number" then X.call(walker, "set_threshold", sv.threshold) end
+    if type(sv.final) == "number" then X.call(walker, "set_final_threshold", sv.final) end
+end
+
 local function configure_walker()
+    if not saved_thresholds then
+        local _, th = X.call(walker, "get_threshold")
+        local _, fi = X.call(walker, "get_final_threshold")
+        saved_thresholds = { threshold = th, final = fi }
+    end
     X.call(walker, "set_use_look_at", want_look_at())
     X.call(walker, "set_smoothing_enabled", false) -- the server returns the corners we want
     X.call(walker, "set_threshold", C.waypoint_threshold)
@@ -269,6 +288,7 @@ function F.stop()
         X.call(walker, "stop")
         X.call(walker, "clear_navigation")
     end
+    restore_walker()
     F.active = false
     F.points = nil
 end

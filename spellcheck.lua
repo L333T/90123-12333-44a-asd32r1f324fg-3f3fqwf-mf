@@ -17,21 +17,16 @@
 -- is_spell_castable answers for line of sight, cooldown, cost, range and
 -- facing in one call (self casts skip facing and range).
 --
--- NEVER A STALL. A gate that wrongly says "no" for good would silence a spell
--- for good. Missing helper or an error answers "yes" (the cast path's own
--- izi checks still run). A spell refused REFUSE_LIMIT times in a row with no
--- cast in between is logged once with the failing check and let through to
--- izi's own checks for BYPASS_S seconds.
+-- NEVER A STALL (2.250.0). A "no" blocks only a spell the client confirms is
+-- on cooldown. Missing helper, an error or any other refusal answers "yes"
+-- (logged once per spell and reason) - the cast path's own izi checks run.
 -- ============================================================================
 
 local M = {}
 
-M.REFUSE_LIMIT = 40          -- consecutive refusals (counted at most every 0.25 s, ~10 s)
-M.BYPASS_S = 30
 
 local helper = nil           -- spell_helper, false when it cannot be loaded
 local streak = {}            -- id -> { n, t }
-local bypass_until = {}      -- id -> time
 local logger = nil
 
 local function now()
@@ -50,6 +45,11 @@ local function log(fmt, ...)
     if not ok then return end
     if logger then
         pcall(logger, msg)
+        return
+    end
+    local ok_e, el = pcall(require, "errorlog")
+    if ok_e and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, "spellcheck", "%s", msg)
     else
         pcall(function() core.log("[spellcheck] " .. msg) end)
     end
@@ -142,44 +142,45 @@ end
 -- ----------------------------------------------------------------------------
 -- The gate
 -- ----------------------------------------------------------------------------
+-- 2.250.0: THE HELPER ADVISES, THE CLIENT DECIDES. A Rogue on 2.246-2.249
+-- cast nothing: spell_helper refused its strikes for reasons the client did
+-- not share, each refusal put the spell on the rotation's 1-2 s fail gap, and
+-- the "let it through after ~10 s" bypass needed 40 refusals - a minute or
+-- more per spell, long after every fight was over. Now a refusal blocks only
+-- when the CLIENT confirms the spell is on cooldown
+-- (core.spell_book.get_spell_cooldown); any other disagreement is logged once
+-- per spell and reason (DISAGREE_LOG_GAP) and the cast path's own izi checks
+-- decide.
+local DISAGREE_LOG_GAP = 120
+local disagree_t = {}        -- "id|why" -> time logged
+
+local function native_cooldown(id)
+    local ok, cd = pcall(function() return core.spell_book.get_spell_cooldown(id) end)
+    if ok and type(cd) == "number" then return cd > 0 end
+    return nil
+end
+
 local function verdict(id, answer, why_fn)
     if answer ~= false then
-        -- true, or the helper could not answer: let the cast path decide
         if answer == true then streak[id] = nil end
         return true, nil
     end
+    local why = tostring(why_fn())
+    if why == "on cooldown" and native_cooldown(id) ~= false then
+        return false, "cooldown"
+    end
+    local key = tostring(id) .. "|" .. why
     local t = now()
-    if (bypass_until[id] or 0) > t then
-        return true, "bypass"
+    if t - (disagree_t[key] or -1e9) >= DISAGREE_LOG_GAP then
+        disagree_t[key] = t
+        log("spell %d: spell_helper says no (%s) - left to the cast's own checks", id, why)
     end
-    local s = streak[id]
-    if not s then
-        s = { n = 0, t = -1e9 }
-        streak[id] = s
-    end
-    if t - s.t >= 0.25 then
-        s.t = t
-        -- A cooldown, a short purse or a target out of range is a real "no":
-        -- only refusals with no such reason count toward the bypass.
-        local why = why_fn()
-        s.why = why
-        if why ~= "on cooldown" and why ~= "not enough resource" and why ~= "out of range" then
-            s.n = s.n + 1
-        end
-    end
-    if s.n >= M.REFUSE_LIMIT then
-        streak[id] = nil
-        bypass_until[id] = t + M.BYPASS_S
-        log("spell %d: spell_helper refused it %d times in a row (%s) - leaving it to the cast's own checks for %d s",
-            id, M.REFUSE_LIMIT, tostring(s.why), M.BYPASS_S)
-        return true, "bypass"
-    end
-    return false, "spell_helper"
+    return true, "helper_disagrees"
 end
 
 --- May `spell` (id or izi spell) be cast at `target` now?
 --- opts: self (skip facing and range), skip_facing, skip_range, skip_los.
---- Returns ok, reason - reason is nil, "spell_helper" (refused) or "bypass".
+--- Returns ok, reason - reason is nil, "cooldown" (refused) or "helper_disagrees" (let through).
 function M.can_cast(spell, caster, target, opts)
     local id = M.id_of(spell)
     if not id or not caster then return true, nil end

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.247.0
+-- Version: 2.248.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -858,8 +858,22 @@ end
 -- ============================================================================
 -- ROLE CONDITIONS
 -- ============================================================================
+--- SPELL PREDICTION (2.248.0): predicted hits of AoE entry `e` and, for a
+--- ground spell, the most-hits cast position (predict.lua). nil without it.
+local function predicted(e)
+    local pr = mod("predict")
+    if not pr or type(pr.hits) ~= "function" then return nil end
+    local sp0 = spell_of(e)
+    local ct = sp0 and tonumber(safe(function() return cast_seconds(sp0) end)) or 0
+    local mr = sp0 and tonumber(safe(function() return sp0.maximum_range end)) or nil
+    return pr.hits(e, P, T, ct, mr)
+end
+
 local function aoe_count(e)
     local def = e.def
+    -- 2.248.0: the spell_prediction count first, the radius count without it
+    local h = predicted(e)
+    if type(h) == "number" then return h end
     if def.center == "self" or def.self then
         return c.near(def.r or 10)
     end
@@ -1030,6 +1044,9 @@ local function try(e, role_cond)
     if not in_reach(e, unit) then return false end
     local pos = nil
     if def.ground then
+        -- 2.248.0: the spell_prediction MOST_HITS position first (predict.lua)
+        local _, ppos = predicted(e)
+        pos = ppos
         -- 2.245.0: aimed where the target WILL be when the spell lands - its
         -- cast time (a channel: 1 s into it) plus 0.3 s, at most 2 s ahead -
         -- by the documented future position (geometry.future_position).
@@ -1038,7 +1055,7 @@ local function try(e, role_cond)
             + (CHANNEL[e.name] and 1.0 or 0.3)
         if lead > 2.0 then lead = 2.0 end
         local geo = mod("geometry")
-        pos = T and geo and type(geo.future_position) == "function" and geo.future_position(T, lead) or nil
+        pos = pos or (T and geo and type(geo.future_position) == "function" and geo.future_position(T, lead)) or nil
         if not pos then pos = T and safe(T.get_position, T) or nil end
         if not pos then return false end
     end
@@ -1276,6 +1293,25 @@ local COMBAT_ORDER = {
     { "cooldown", COND.cooldown }, { "aoe", COND.aoe }, { "finisher", COND.finisher },
     { "damage", COND.damage }, { "filler", COND.filler },
 }
+
+--- The AoE bucket sorted by predicted hits, most first (stable).
+local aoe_sorted = {}
+local function aoe_by_hits(bucket)
+    local n = #bucket
+    for i = 1, n do
+        local e = bucket[i]
+        local h = (T and enabled(e)) and aoe_count(e) or 0
+        aoe_sorted[i] = { e = e, h = type(h) == "number" and h or 0, i = i }
+    end
+    for i = #aoe_sorted, n + 1, -1 do aoe_sorted[i] = nil end
+    table.sort(aoe_sorted, function(a, b)
+        if a.h ~= b.h then return a.h > b.h end
+        return a.i < b.i
+    end)
+    local out = {}
+    for i = 1, n do out[i] = aoe_sorted[i].e end
+    return out
+end
 
 --- Interrupt any caster in the pack, not only the current target.
 local function pack_interrupt()
@@ -1571,6 +1607,11 @@ function smart.combat(player, target, ctx)
             local role, cond = step[1], step[2]
             if role == "interrupt" and pack_interrupt() then return true end
             local bucket = built.by_role[role]
+            -- MOST HITS FIRST (2.248.0): the AoE spells in the order of their
+            -- predicted hits (spell_prediction), list order among equals.
+            if bucket and role == "aoe" and #bucket > 1 then
+                bucket = aoe_by_hits(bucket)
+            end
             if bucket then
                 for k = 1, #bucket do
                     local e = bucket[k]

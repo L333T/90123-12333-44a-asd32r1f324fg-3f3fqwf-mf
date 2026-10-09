@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.257.0
+-- Version: 2.258.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -239,6 +239,14 @@ local function plain_goal(raw)
             ids[#ids + 1] = v
         end
     end
+    -- 2.258.0 (quest/api_examples.lua goal_record): units, objective,
+    -- reward and money fields are kept too.
+    local units = {}
+    local raw_units = to_list(get(raw, "units"))
+    for i = 1, #raw_units do
+        local v = raw_units[i]
+        if type(v) == "string" or type(v) == "number" then units[#units + 1] = v end
+    end
     return {
         action = as_str(get(raw, "action")) or "",
         quest_id = as_id(get(raw, "quest_id")),
@@ -246,6 +254,11 @@ local function plain_goal(raw)
         is_complete = as_bool(get(raw, "is_complete")),
         text_only = as_bool(get(raw, "text_only")),
         ids = ids,
+        units = units,
+        objective = tonumber(get(raw, "objective")) or 0,
+        objective_max = tonumber(get(raw, "objective_max")) or 0,
+        reward = tonumber(get(raw, "reward")) or 0,
+        money = tonumber(get(raw, "money")) or 0,
     }
 end
 
@@ -261,9 +274,19 @@ local function plain_step(raw)
             goals[#goals + 1] = g
         end
     end
+    -- 2.258.0 (quest/api_examples.lua step_record): active, requires,
+    -- requires_step, level, label. `active` stays nil when the addon does not
+    -- send it, so a core without the field never looks "inactive".
+    local active = get(raw, "active")
+    if active ~= nil then active = as_bool(active) end
     return {
         num = tonumber(get(raw, "num")) or 0,
         is_complete = as_bool(get(raw, "is_complete")),
+        active = active,
+        requires = as_str(get(raw, "requires")) or "",
+        requires_step = tonumber(get(raw, "requires_step")) or 0,
+        level = tonumber(get(raw, "level")) or 0,
+        label = as_str(get(raw, "label")) or "",
         goals = goals,
     }
 end
@@ -443,6 +466,7 @@ local function refresh()
     snap.step = nil
     snap.stickies = {}
     snap.wp = nil
+    snap.wp_wrong_continent = false
     snap.step_wps = {}
     snap.objectives = {}
     snap.memo = {}
@@ -458,7 +482,8 @@ local function refresh()
     -- "ready" and sent the engine after goals that no longer exist. The step
     -- shape decides only when the flag could not be read at all.
     if (type(has_raw) == "boolean" or type(has_raw) == "number") and not has_err then
-        snap.ready = as_bool(has_raw) and step ~= nil
+        -- 2.258.0: step num 0 is RestedXP's empty step, not a step
+        snap.ready = as_bool(has_raw) and step ~= nil and step.num > 0
     else
         snap.ready = step ~= nil and (step.num > 0 or #step.goals > 0)
     end
@@ -474,11 +499,19 @@ local function refresh()
             snap.stickies[#snap.stickies + 1] = st
         end
     end
-    snap.wp = plain_waypoint((ns_call("get_current_waypoint")))
+    -- 2.258.0 (quest/api_examples.lua rested_read): a waypoint with map_id 0
+    -- or on another continent is not a walk target and is never stored, so
+    -- the per-step cache below only ever holds usable points.
+    -- snap.wp_wrong_continent keeps guide.wrong_continent() answering.
+    local arrow = plain_waypoint((ns_call("get_current_waypoint")))
+    snap.wp_wrong_continent = type(arrow) == "table" and arrow.wrong_continent == true
+    if arrow and (arrow.map_id or 0) ~= 0 and arrow.wrong_continent ~= true then
+        snap.wp = arrow
+    end
     local wps = to_list((ns_call("get_step_waypoints")))
     for i = 1, #wps do
         local wp = plain_waypoint(wps[i])
-        if wp then
+        if wp and (wp.map_id or 0) ~= 0 and wp.wrong_continent ~= true then
             snap.step_wps[#snap.step_wps + 1] = wp
         end
     end
@@ -496,10 +529,11 @@ local function refresh()
     else
         snap.step_wps = step_cache.wps
     end
-    -- the arrow too: an empty read keeps the step's last arrow point
+    -- the arrow too: an empty read keeps the step's last arrow point - but
+    -- never once the arrow is on another continent (2.258.0)
     if snap.wp then
         step_cache.wp = snap.wp
-    else
+    elseif not snap.wp_wrong_continent then
         snap.wp = step_cache.wp
     end
 end
@@ -665,6 +699,11 @@ local function shape_goal(g, index)
         is_complete = g.is_complete == true,
         ids = ids,
         index = index,
+        units = g.units,                     -- 2.258.0 (api_examples goal_record)
+        objective = g.objective,
+        objective_max = g.objective_max,
+        reward = g.reward,                   -- RestedXP reward choice (npc.turn_in)
+        money = g.money,
     }
 end
 
@@ -758,6 +797,12 @@ end
 local function compute_goal()
     local step = guide.step()
     if not step or step.is_complete == true then
+        return nil
+    end
+    -- 2.258.0: an INACTIVE step's turn-ins do not count (stub: active). It is
+    -- skipped when it waits on nothing (guide.skip_inactive) and waited on
+    -- when requires_step names the step it needs - no goal either way.
+    if step.active == false then
         return nil
     end
     if done_step ~= step.num then
@@ -1051,8 +1096,11 @@ local function log_index_of(quest_id)
     -- there (get_num_quest_log_entries is always 0, get_quest_log_title
     -- empty, expand / select do nothing) - RestedXP's objectives are the only
     -- source, which they already are first everywhere this is used.
+    -- 2.258.0: the 2026-10-06 core answers the quest log on every client
+    -- (get_quest_log_quest_ids marks it); only an older Forever core does not.
     local ok_g, gamever = pcall(require, "gamever")
-    if ok_g and type(gamever) == "table" and gamever.is_forever() then
+    if ok_g and type(gamever) == "table" and gamever.is_forever()
+        and type(core.quests.get_quest_log_quest_ids) ~= "function" then
         return nil
     end
     if not headers_expanded then
@@ -1113,6 +1161,21 @@ function guide.objective_names(quest_id)
         end
     end
 
+    -- 2.258.0: the game's objectives by quest id (get_quest_objectives:
+    -- text, finished) before the log-index leader boards
+    if #rxp == 0 and type(core.quests.get_quest_objectives) == "function" then
+        local list = safe(function() return core.quests.get_quest_objectives(quest_id) end)
+        if type(list) == "table" then
+            for i = 1, #list do
+                local o = list[i]
+                if type(o) == "table" and o.finished ~= true then
+                    local name = strip_progress(o.text)
+                    if name then names[#names + 1] = name end
+                end
+            end
+            if #list > 0 then rxp = list end
+        end
+    end
     if #rxp == 0 then
         local idx = log_index_of(quest_id)
         if idx then
@@ -1310,6 +1373,14 @@ function guide.step_target_names()
                 local g = step.goals[i]
                 local a = type(g) == "table" and type(g.action) == "string" and string.lower(g.action) or ""
                 if RXP_TARGET_ACTIONS[a] and not ((a == "mob" or a == "rare") and g.is_complete == true) then
+                    -- 2.258.0: RestedXP's own unit names first (goal.units);
+                    -- npc ids in that list are not names
+                    if type(g.units) == "table" then
+                        for k = 1, #g.units do
+                            local u = g.units[k]
+                            if type(u) == "string" and u ~= "" and not tonumber(u) then set[u] = true end
+                        end
+                    end
                     target_line_names(g.text, set)
                     if type(g.ids) == "table" then
                         for k = 1, #g.ids do
@@ -2686,8 +2757,8 @@ end
 --- Is the current waypoint on another continent? Worth saying out loud in the
 --- status line: the bot will not walk, and the reason is not obvious.
 function guide.wrong_continent()
-    local wp = raw_waypoint()
-    return type(wp) == "table" and wp.wrong_continent == true
+    refresh()
+    return snap.wp_wrong_continent == true
 end
 
 --- Every waypoint of the current step, in world coordinates.
@@ -2770,9 +2841,43 @@ compute_snapshot = function()
             map_id = tonumber(wp.map_id),
         }
     end
-    out.wrong_continent = type(wp) == "table" and wp.wrong_continent == true
+    out.wrong_continent = guide.wrong_continent()
     out.stickies = #guide.stickies()
     return out
+end
+
+-- ============================================================================
+-- INACTIVE STEPS (2.258.0, quest/api_examples.lua rested_skip_inactive)
+-- ============================================================================
+-- An inactive step's turn-ins do not count and it has no waypoint of its own
+-- (stub: rested_xp_step_info.active). One that waits on nothing
+-- (requires_step 0) is skipped with skip_current_step, once per step number;
+-- one that names the step it needs is waited on (compute_goal returns nil).
+-- Update callback only (ns_call is gated by reads_ok).
+local skip_state = { num = nil }
+
+function guide.skip_inactive()
+    if not reads_ok then return false end
+    local step = guide.step()
+    if type(step) ~= "table" or step.active ~= false or (tonumber(step.requires_step) or 0) ~= 0 then
+        return false
+    end
+    if skip_state.num == step.num then return false end
+    skip_state.num = step.num
+    local res, err = ns_call("skip_current_step")
+    local log = elog()
+    if log then
+        log.trail("quest", "RestedXP step %d is inactive and waits on nothing (requires %q) - skip: %s",
+            step.num, tostring(step.requires), err and ("unavailable: " .. tostring(err)) or tostring(res))
+    end
+    return res == true
+end
+
+--- The current step is inactive (its goals are held): { requires, requires_step, level }.
+function guide.inactive_step()
+    local step = guide.step()
+    if type(step) ~= "table" or step.active ~= false then return nil end
+    return { requires = step.requires, requires_step = step.requires_step, level = step.level, num = step.num }
 end
 
 return guide

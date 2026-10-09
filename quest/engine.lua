@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.246.0
+-- Version: 2.247.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -3028,6 +3028,24 @@ IS.walk_route = function(player, goal, kind, wps, label)
                 .. "': Sentinel reports every waypoint unreachable - skipping it.")
             guide.mark_goal_done(guide.step_num(), goal.index)
             return
+        end
+    end
+    -- DEATH ZONES (2.247.0): route points inside an area the player died in 3
+    -- times are skipped; with every point inside, the goal waits outside.
+    if not must_do then
+        local ok_dz, dz = pcall(require, "deathzones")
+        if ok_dz and type(dz) == "table" and type(dz.zone_at_pos) == "function" then
+            local tried = 0
+            while tried < #pts and dz.zone_at_pos(pts[g_move].pos) do
+                IS.next_wp(#pts)
+                tried = tried + 1
+            end
+            if tried >= #pts then
+                local zn = dz.zone_at_pos(pts[g_move].pos)
+                state.set_note("Quest", string.format("Guide: avoiding the %s area (died there %d times)",
+                    tostring(zn and zn.name or "?"), zn and zn.deaths or 3))
+                return
+            end
         end
     end
     if #pts > 1 and not must_do then

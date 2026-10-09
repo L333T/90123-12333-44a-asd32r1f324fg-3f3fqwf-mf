@@ -3,7 +3,7 @@
 -- Death run — release, path graveyard to corpse, retrieve
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.246.0
+-- Version: 2.247.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -264,6 +264,8 @@ local function begin_death()
     if state.dead.waiting then
         return
     end
+    -- 2.247.0: the killer, read before blacklist_killer / reset_target
+    local killer = safe(function() return movement.combat_unit() end)
     blacklist_killer()
     state.dead.waiting = true
     state.dead.corpse = nil
@@ -276,6 +278,15 @@ local function begin_death()
         local p = safe(function() return me:get_position() end)
         if as_vec3(p) then
             state.dead.died_pos = { x = p.x, y = p.y, z = p.z }
+        end
+    end
+    -- DEATH ZONES (2.247.0): 3 deaths to the same enemy in one area -> that
+    -- area is avoided for 10+ minutes (deathzones.lua). Only a real death
+    -- spot: a ghost after a reload stands at the graveyard.
+    if state.dead.died_pos then
+        local ok_dz, dz = pcall(require, "deathzones")
+        if ok_dz and type(dz) == "table" and type(dz.record_death) == "function" then
+            pcall(dz.record_death, killer, state.dead.died_pos)
         end
     end
     state.dead.retrieve_at = 0

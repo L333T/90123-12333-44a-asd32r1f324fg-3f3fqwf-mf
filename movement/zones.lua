@@ -3,7 +3,7 @@
 -- movement/zones.lua - blacklist zones
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.246.0
+-- Version: 2.247.0
 -- ============================================================================
 -- Areas movement refuses to path into, pruned in place on a TTL. Nothing here
 -- issues a command, so every other module may require it freely.
@@ -189,6 +189,24 @@ function Z.clear_kept()
     end
     for i = #zones, w + 1, -1 do zones[i] = nil end
     sn_resync(zones)
+end
+
+--- 2.247.0: drop the zone at (x, y) (deathzones.lua, when its time is up).
+function Z.remove_area(x, y)
+    local zones = R.zones
+    local w, gone = 0, false
+    for i = 1, #zones do
+        local zn = zones[i]
+        if not gone and dist2(zn.x, zn.y, x, y) < ZONE_MERGE then
+            gone = true
+        else
+            w = w + 1
+            zones[w] = zn
+        end
+    end
+    for i = #zones, w + 1, -1 do zones[i] = nil end
+    if gone then sn_resync(zones) end
+    return gone
 end
 
 function Z.count()

@@ -8,7 +8,7 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.246.0
+-- Version: 2.247.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -368,6 +368,14 @@ local function run_action(player, act)
     return true
 end
 
+--- 2.247.0: a waypoint inside an area the player died in 3 times.
+local function in_death_zone(wp)
+    local ok, dz = pcall(require, "deathzones")
+    if not ok or type(dz) ~= "table" or type(dz.pos_blocked) ~= "function" then return false end
+    local ok2, b = pcall(dz.pos_blocked, wp)
+    return ok2 and b == true
+end
+
 local function skip_blocked(path, index)
     local i = index
     local n = path_format.count(path)
@@ -378,7 +386,7 @@ local function skip_blocked(path, index)
         if not wp then
             break
         end
-        if movement.is_blocked(wp) then
+        if movement.is_blocked(wp) or in_death_zone(wp) then
             i = i + 1
             hops = hops + 1
         elseif pos and i < n and not path_format.holds_at(path, i) and movement.line_blocked and movement.line_blocked(pos, wp) then

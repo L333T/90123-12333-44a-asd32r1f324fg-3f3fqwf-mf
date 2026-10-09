@@ -4,7 +4,7 @@
 -- "Food, drink, ammo")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.246.0
+-- Version: 2.247.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine BulletRun / BuyBullets / Hunter_Ammo_* and

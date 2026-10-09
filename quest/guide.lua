@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.240.0
+-- Version: 2.241.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -393,6 +393,15 @@ local snap = {
     memo = {},                -- derived values, cleared with the snapshot
 }
 
+-- PER-STEP WAYPOINT CACHE (2.241.0). The snapshot is rebuilt every WINDOW,
+-- and a read that came back empty for a moment (the addon between updates)
+-- left the goal with 0 waypoints and the character standing on "no usable
+-- waypoint" or the arrow fallback. The step's waypoint list is now kept per
+-- step - keyed by the step number and its incomplete goals - and reused
+-- while the step and its open goals are unchanged; it is dropped the moment
+-- either changes.
+local step_cache = { key = nil, wps = {}, wp = nil }
+
 local function clock()
     local ok, t = pcall(izi.now)
     if ok and type(t) == "number" then
@@ -472,6 +481,26 @@ local function refresh()
         if wp then
             snap.step_wps[#snap.step_wps + 1] = wp
         end
+    end
+    -- the per-step cache (2.241.0)
+    local open = { tostring(step.num) }
+    for i = 1, #step.goals do
+        if not step.goals[i].is_complete then open[#open + 1] = tostring(i) end
+    end
+    local key = table.concat(open, "|")
+    if step_cache.key ~= key then
+        step_cache.key, step_cache.wps, step_cache.wp = key, {}, nil
+    end
+    if #snap.step_wps > 0 then
+        step_cache.wps = snap.step_wps
+    else
+        snap.step_wps = step_cache.wps
+    end
+    -- the arrow too: an empty read keeps the step's last arrow point
+    if snap.wp then
+        step_cache.wp = snap.wp
+    else
+        snap.wp = step_cache.wp
     end
 end
 
@@ -2571,6 +2600,82 @@ compute_goal_waypoints = function(goal)
         end
     end
     return out
+end
+
+--- THE ROUTE A GOAL IS WALKED ALONG (2.241.0), as { pos, title } in order.
+---
+--- Kill / collect / xp goals keep the character moving instead of walking to
+--- one point and standing on "waiting at":
+---   * every step waypoint RestedXP gave for the step is part of the route
+---     when none is tagged with this goal (goal_num is documented as the STEP
+---     index, so the per-goal match often finds nothing and only the arrow
+---     was walked);
+---   * the arrow is added when it is not already on the route;
+---   * a single point becomes a patrol: the point, then ROUTE_RING points
+---     ROUTE_RADIUS yards around it, walked in a loop.
+--- Accept / turn-in / talk / fly goals walk their own waypoints unchanged.
+local ROUTE_RADIUS = 25
+local ROUTE_RING = 6
+local ROUTE_SAME = 15         -- yards: the arrow counts as already on the route
+
+local function flat_apart(a, b)
+    return math.sqrt((a.x - b.x) ^ 2 + (a.y - b.y) ^ 2)
+end
+
+function guide.route(goal, kind, wps)
+    wps = wps or guide.goal_waypoints(goal)
+    if kind ~= "kill" and kind ~= "collect" and kind ~= "xp" then
+        return wps
+    end
+    local key = "route:" .. tostring(type(goal) == "table" and goal.index or 0) .. ":" .. tostring(kind)
+    local r = memo(key, function()
+        local out = {}
+        for i = 1, #wps do out[#out + 1] = wps[i] end
+        local index = type(goal) == "table" and goal.index or nil
+        local tagged = false
+        local list = raw_step_waypoints()
+        for i = 1, #list do
+            if index and tonumber(list[i].goal_num) == index then tagged = true break end
+        end
+        if not tagged then
+            for i = 1, #list do
+                local pos = to_world(list[i])
+                if pos then
+                    local dup = false
+                    for k = 1, #out do
+                        if flat_apart(out[k].pos, pos) < ROUTE_SAME then dup = true break end
+                    end
+                    if not dup then
+                        out[#out + 1] = { pos = pos, title = list[i].title }
+                    end
+                end
+            end
+        end
+        local apos, _, atitle = guide.waypoint()
+        if apos then
+            local dup = false
+            for k = 1, #out do
+                if flat_apart(out[k].pos, apos) < ROUTE_SAME then dup = true break end
+            end
+            if not dup then out[#out + 1] = { pos = apos, title = atitle } end
+        end
+        if #out == 1 then
+            local c = out[1].pos
+            for k = 0, ROUTE_RING - 1 do
+                local a = k * 2 * math.pi / ROUTE_RING
+                out[#out + 1] = {
+                    pos = vec3.new(c.x + ROUTE_RADIUS * math.cos(a), c.y + ROUTE_RADIUS * math.sin(a), c.z),
+                    title = out[1].title, patrol = true,
+                }
+            end
+        end
+        if #out == 0 then return nil end
+        return out
+    end)
+    if type(r) == "table" and #r > 0 then
+        return r
+    end
+    return wps
 end
 
 --- Is the current waypoint on another continent? Worth saying out loud in the

@@ -3,7 +3,7 @@
 -- Debug log, written to scripts_data
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.256.0
+-- Version: 2.257.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Every debug toggle in this project used core.log, which goes to the console
@@ -11,9 +11,9 @@
 -- is no way to send one to anybody - which is exactly what you want a debug
 -- toggle for. These lines go to a file as well.
 --
--- WRITE_DATA_FILE OVERWRITES, IT DOES NOT APPEND
---   So a log cannot be written a line at a time. The lines are kept in memory
---   and the whole buffer is rewritten on a debounce. That costs one string
+-- WRITE_DATA_FILE APPENDS (core.lua stub, confirmed 2026-10-06)
+--   The lines are kept in memory and, on a debounce, the file is emptied
+--   (core.create_data_file) and the whole buffer written. That costs one string
 --   concat per flush and bounds the file, which a per-line append would not.
 --
 -- THE BUFFER IS CAPPED
@@ -114,7 +114,10 @@ function debuglog.flush(force)
 
     ensure_folder()
     local body = table.concat(lines, "\n", 1, count) .. "\n"
+    -- write_data_file APPENDS (core.lua stub): empty the file first, or the
+    -- whole buffer is added again on every flush.
     local ok = pcall(function()
+        core.create_data_file(FILE)
         core.write_data_file(FILE, body)
     end)
     if not ok and not warned then

@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/pathcheck.lua - 5-yard waypoints, height and width checks ahead
 -- ============================================================================
--- Version: 1.5.1
+-- Version: 1.5.2
 -- Author: BLIZZ
 -- ============================================================================
 -- Every path the client walks is first resampled so no two waypoints are more

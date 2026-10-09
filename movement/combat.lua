@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.244.0
+-- Version: 2.245.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -113,8 +113,17 @@ end
 --- Predicted distance from the player's current spot to where `unit` will be in
 --- PREDICT_AHEAD seconds. nil when prediction is unavailable.
 local function predicted_distance(player, unit)
-    local ok, p = pcall(unit.predict_position, unit, PREDICT_AHEAD)
-    if not ok then return nil end
+    -- 2.245.0: the documented future position first (geometry.future_position:
+    -- position + normalized direction * movement speed * t), izi's
+    -- predict_position only when that cannot be read.
+    local okg, geo = pcall(require, "geometry")
+    local p = okg and type(geo) == "table" and type(geo.future_position) == "function"
+        and geo.future_position(unit, PREDICT_AHEAD) or nil
+    if not p then
+        local ok, ip = pcall(unit.predict_position, unit, PREDICT_AHEAD)
+        if not ok then return nil end
+        p = ip
+    end
     local px, py, pz = xyz(p)
     if not px then return nil end
     local hx, hy, hz = here_xyz()

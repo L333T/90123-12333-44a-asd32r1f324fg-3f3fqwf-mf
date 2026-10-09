@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.248.0
+-- Version: 2.249.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -603,6 +603,13 @@ end
 -- was the mage's value on a hunter. class_id hides every other class's row.
 local class_slider_ids = {}
 
+-- 2.249.0: rotation casts through the Sylvanas spell queue (castq.lua)
+menu:checkbox("mfg_spell_queue", true, {
+    label = "Spell Queue Casting",
+    tab = "class",
+    tooltip = "Cast the rotation through the spell queue (priority 1): the next spell is queued in the last 0.35 s of a cast so it goes out the moment the cast ends, and off-GCD spells use the fast queue. Untick to cast through izi directly.",
+})
+
 local function add_class_slider(class_id, key, min_v, max_v, default, label, tip)
     local id = string.format("mfg_%s_%d", key, class_id)
     menu:slider_int(id, min_v, max_v, default, {
@@ -738,6 +745,7 @@ local aliases = {
     sell_white = "mfg_sell_white",
     sell_green = "mfg_sell_green",
     delete_junk = "mfg_delete_junk",
+    spell_queue = "mfg_spell_queue",
     path_loop = "mfg_path_loop",
     learn_terrain = "mfg_learn_terrain",
     forget_terrain = "mfg_forget_terrain",

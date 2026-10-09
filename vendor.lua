@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.242.0
+-- Version: 2.243.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -427,49 +427,58 @@ end
 -- PORT_PLAYBOOK keep-item list (English names).
 local GATHER_KEEP = { ["Dreamfoil"] = true, ["Mountain Silversage"] = true, ["Arcane Crystal"] = true }
 
-local function should_sell_item(player, item_id)
+-- 2.243.0: the second return says WHY an item is kept (the sell pass logs a
+-- summary when it sells nothing); `greys_only` sells quality 0 whatever the
+-- Sell toggles say - used to pay for a repair the gold does not cover.
+local function should_sell_item(player, item_id, greys_only)
     if type(item_id) ~= "number" or item_id <= 0 then
-        return false
+        return false, "no item id"
     end
     local keep = keep_ids(player)
     if keep[item_id] then
-        return false
+        return false, "keep list"
     end
     -- NEVER SELL WHAT THE BOT LIVES ON (2.182.0). The 10:10 session "sold"
     -- the bread and water it had just bought (white items under Sell white).
     -- Food, drink, every consumable, ammo and quest items stay.
     local food, water = bags.food_water(player)
     if (food and food[item_id]) or (water and water[item_id]) then
-        return false
+        return false, "food / water"
     end
     -- The inventory helper's consumables list (2.183.0): food, drink and
     -- potions it recognises are kept too. Refreshed when a trip starts.
     if helper_consumables[item_id] then
-        return false
+        return false, "consumable"
     end
     local info = safe(function() return core.quests.get_item_info(item_id) end)
-    if type(info) ~= "table" then
-        return false
+    if type(info) ~= "table" or info.quality == nil then
+        return false, "no item info"
     end
     -- 0 consumable, 6 projectile, 11 quiver / ammo pouch, 12 quest
     if info.class_id == 0 or info.class_id == 6 or info.class_id == 11 or info.class_id == 12 then
-        return false
+        return false, "consumable / ammo / quest"
     end
     -- GATHERING (2.237.0): the keep list is never sold, and with Keep
     -- Gathered Materials on no Trade Goods (class 7: herbs, ore, stone) are.
     if gui.is_on("mfg_use_gather") == true then
         if info.class_id == 7 and gui.is_on("mfg_gather_keep") == true then
-            return false
+            return false, "gathered material"
         end
         if type(info.name) == "string" and GATHER_KEEP[info.name] then
-            return false
+            return false, "gathered material"
         end
     end
     local price = info.sell_price
     if type(price) == "number" and price <= 0 then
-        return false
+        return false, "no sell price"
     end
-    return quality_ok(info.quality)
+    if greys_only then
+        return info.quality == 0, "not grey"
+    end
+    if quality_ok(info.quality) then
+        return true
+    end
+    return false, "quality " .. tostring(info.quality) .. " not ticked"
 end
 
 -- ----------------------------------------------------------------------------
@@ -656,19 +665,26 @@ end
 
 --- Sell one sellable bag item: use_container_item(bag_id, bag_slot) at the
 --- helper's pair for that exact slot.
-local function sell_one(player)
+local sell_summary = {}         -- 2.243.0: mode -> summary already logged this trip
+
+local function sell_one(player, greys_only)
     check_last_sale(player)
     if selling_off then
         return false
     end
     local list = bags.list(player)
     local seen = {}
+    local why = {}
     for i = 1, #list do
         local e = list[i]
         local id = e.item_id
         if id and not seen[id] and type(e.bag) == "number" and type(e.slot) == "number" then
             seen[id] = true
-            if (sell_fails[id] or 0) < SELL_RETRIES and should_sell_item(player, id) then
+            local ok, reason = false, "failed to sell before"
+            if (sell_fails[id] or 0) < SELL_RETRIES then
+                ok, reason = should_sell_item(player, id, greys_only)
+            end
+            if ok then
                 local before = helper_count(player, id)
                 if before > 0 then
                     pcall(function() core.input.use_container_item(e.bag, e.slot) end)
@@ -676,8 +692,22 @@ local function sell_one(player)
                     trail("sell item %s (%d in bags) at bag %d slot %d", tostring(id), before, e.bag, e.slot)
                     return true, id
                 end
+            else
+                local r = tostring(reason or "?")
+                why[r] = (why[r] or 0) + 1
             end
         end
+    end
+    -- NOTHING TO SELL (2.243.0): say why, once per trip, so a trip that sells
+    -- nothing (a Forever repair run on 2026-10-08) is not a mystery.
+    local mode = greys_only and "grey" or "normal"
+    if not sell_summary[mode] then
+        sell_summary[mode] = true
+        local parts = {}
+        for r, n in pairs(why) do parts[#parts + 1] = string.format("%s %d", r, n) end
+        table.sort(parts)
+        trail("sell pass%s: nothing to sell in %d bag item(s) - kept: %s", greys_only and " (greys for repair)" or "",
+            #list, #parts > 0 and table.concat(parts, ", ") or "none")
     end
     return false
 end
@@ -743,6 +773,7 @@ local function finish_trip(note)
     state.vendor.repair_tries = 0
     sell_pending = nil
     sell_fails = {}
+    sell_summary = {}
     surprise = 0
     state.vendor.supplier_guid = nil
     state.vendor.supplier_name = nil
@@ -1499,6 +1530,10 @@ function vendor.tick(player)
             state.set_note("Vendor", "Selling")
             return true
         end
+        if not gui.is_on("sell") and bag_free() > 0 and not sell_summary.off then
+            sell_summary.off = true
+            trail("selling is off (Vendor tab: Sell) - only greys are sold if the repair needs the gold")
+        end
         if gui.is_on("sell") or bag_free() == 0 then
             local sold, item_id = sell_one(player)
             if sold then
@@ -1534,6 +1569,16 @@ function vendor.tick(player)
                     trail("repaired")
                 end
                 state.vendor.repaired = true
+            elseif type(gold) == "number" and cost > gold and sell_one(player, true) then
+                -- SELL JUNK TO PAY FOR THE REPAIR (2.243.0): the 2026-10-08
+                -- Forever trips left with 176 / 259 copper against a 384 / 452
+                -- repair and sold nothing. Greys go first, then the cost is
+                -- checked again.
+                state.vendor.sold = (state.vendor.sold or 0) + 1
+                vendor_progress(now)
+                state.set_note("Vendor", "Selling junk to pay for the repair")
+                state.vendor.interact_until = now + SELL_GAP
+                return true
             elseif type(gold) == "number" and cost > gold then
                 state.vendor.lack_gold = cost
                 trail("repair costs %d copper, only %d on hand", cost, gold)

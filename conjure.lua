@@ -3,7 +3,7 @@
 -- Conjured food and water, for mages
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.245.0
+-- Version: 2.246.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- A mage never has to buy food or water, and until now the bot made it do
@@ -34,6 +34,7 @@
 
 ---@type izi_api
 local izi = require("common/izi_sdk")
+local spellcheck = require("spellcheck")   -- 2.246.0: spell_helper gate on every cast
 
 ---@type enums
 local enums = require("common/enums")
@@ -136,9 +137,9 @@ local function cast(spell_id, label)
     if not spell then
         return false
     end
-    local ok = safe(function() return spell:cast_safe(nil, label) end)
+    local ok = safe(function() return spellcheck.cast_safe(spell, nil, label) end)
     if ok ~= true then
-        ok = safe(function() return spell:cast(nil, label) end)
+        ok = safe(function() return spellcheck.cast(spell, nil, label) end)
     end
     return ok == true
 end

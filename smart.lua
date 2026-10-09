@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.250.0
+-- Version: 2.251.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -733,7 +733,14 @@ local function queue_cast(cq, e, sp, unit, pos)
     -- facing, resource, cooldown, line of sight) - the queue path skips
     -- cast_safe, so this is its only gate. spell_helper only advises.
     local ahead = safe(P.is_casting, P) == true
-    local opts = { skip_facing = e.self == true }
+    -- 2.251.0: ALLOW MOVEMENT for instants and spells usable on the move.
+    -- 2.249.0 queued everything with movement blocked: the queue then held
+    -- a melee Rogue's strikes for as long as it kept stepping after its
+    -- target - it cast nothing. Cast-time spells still wait (prepare_cast
+    -- has already stopped the walk for them).
+    local ct = tonumber(safe(function() return cast_seconds(sp) end)) or 0
+    local allow_move = ct <= 0 or safe(sp.is_usable_while_moving, sp) == true
+    local opts = { skip_facing = e.self == true, skip_moving = allow_move }
     if ahead then
         opts.skip_casting, opts.skip_gcd, opts.skip_moving = true, true, true
     end
@@ -753,7 +760,7 @@ local function queue_cast(cq, e, sp, unit, pos)
         end
         if not okg then return false, false end
     end
-    local ok, why = cq.cast(e.id, sp, unit, pos, e.name, false)
+    local ok, why = cq.cast(e.id, sp, unit, pos, e.name, allow_move)
     if ok then
         spellcheck.cast_done(sp)
         return true, false
@@ -1084,15 +1091,19 @@ local function buff_missing(e)
     return auras.buff_up(P, e.ids) ~= true
 end
 
+local why_not = {}          -- 2.251.0: spell name -> why try() passed it over (diagnostic)
+local no_cast = { since = nil, logged = -1e9 }
+local NO_CAST_S, NO_CAST_GAP = 3.0, 10.0
 local function try(e, role_cond)
-    if not usable(e) then return false end
+    if not usable(e) then why_not[e.name] = "unticked / not in use" return false end
     local now = izi.now()
-    if (fail_until[e.key] or 0) > now then return false end
+    if (fail_until[e.key] or 0) > now then why_not[e.name] = "failed, retry soon" return false end
     local def = e.def
-    if not form_ok(def) then return false end
-    if role_cond and not role_cond(e) then return false end
-    if def.when and safe(def.when, c) ~= true then return false end
-    if not ctype_ok(def) then return false end
+    if not form_ok(def) then why_not[e.name] = "wrong form / stance" return false end
+    if role_cond and not role_cond(e) then why_not[e.name] = "role condition (" .. tostring(e.role) .. ")" return false end
+    if def.when and safe(def.when, c) ~= true then why_not[e.name] = "its condition" return false end
+    if not ctype_ok(def) then why_not[e.name] = "creature type" return false end
+    why_not[e.name] = "cast refused"
     -- EITHER (2.244.0): a spell whose target is not known (Eureka!) - the
     -- enemy first, then the player.
     if def.either then
@@ -1101,7 +1112,7 @@ local function try(e, role_cond)
         return cast(e, P) == true
     end
     local unit = e.self and P or T
-    if not in_reach(e, unit) then return false end
+    if not in_reach(e, unit) then why_not[e.name] = "out of reach / not in sight" return false end
     local pos = nil
     if def.ground then
         -- 2.248.0: the spell_prediction MOST_HITS position first (predict.lua)
@@ -1645,6 +1656,14 @@ function smart.combat(player, target, ctx)
     -- the last moments of a cast (castq.may_queue), so it goes out the moment
     -- the cast ends. Never during a channel.
     local cq = queue_on()
+    if cq and type(cq.check_stuck) == "function" then
+        cq.check_stuck(function(msg)
+            core.log_warning("[Master Farmer - Grindbot] " .. msg)
+            local el = mod("errorlog")
+            if el and type(el.trail) == "function" then pcall(el.trail, "rotation", "%s", msg) end
+        end)
+        cq = queue_on()
+    end
     if cq then
         if not cq.may_queue(player) then return true end
     elseif safe(player.is_channeling_or_casting, player) == true then
@@ -1683,11 +1702,36 @@ function smart.combat(player, target, ctx)
                     local e = bucket[k]
                     if try(e, cond) then
                         if role == "seal" then seal_cast_at = izi.now() end
+                        no_cast.since = nil
                         return true
                     end
                 end
             end
         end
+    end
+    -- NOTHING CAST (2.251.0): in a fight with a target and no spell for
+    -- NO_CAST_S, say why each spell was passed over (every NO_CAST_GAP).
+    if T and c.in_combat() then
+        local t = izi.now()
+        no_cast.since = no_cast.since or t
+        if t - no_cast.since >= NO_CAST_S and t - no_cast.logged >= NO_CAST_GAP then
+            no_cast.logged = t
+            local parts = {}
+            for i = 1, #built.list do
+                local e = built.list[i]
+                if not SELF_ROLES[e.role] or e.role == "heal" then
+                    parts[#parts + 1] = e.name .. ": " .. tostring(why_not[e.name] or "not tried")
+                end
+            end
+            local el = mod("errorlog")
+            if el and type(el.trail) == "function" then
+                pcall(el.trail, "rotation", "nothing cast for %.0f s at %s (%.1f yd, power %s, combo %s, queue %s): %s",
+                    t - no_cast.since, tostring(safe(T.get_name, T)), c.dist() or -1, tostring(safe(P.get_power, P, 3) or c.mana()),
+                    tostring(c.cp()), queue_on() and "on" or "off", table.concat(parts, "; "))
+            end
+        end
+    else
+        no_cast.since = nil
     end
     return false
 end

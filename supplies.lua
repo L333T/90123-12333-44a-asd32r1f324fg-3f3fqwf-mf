@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.265.0
+-- Version: 2.266.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -459,9 +459,9 @@ end
 -- RestedXP step only when one of the level's vendor waters is affordable:
 -- gold on hand, or that gold plus the junk a trip would sell. Otherwise the
 -- step keeps running until the water can be paid for. Food runs are unchanged.
--- vendor.lua walks to the nearest inn on the recorded Alliance Eastern
--- Kingdoms roads (data/ek_alliance_routes - innkeepers sell both), or to an
--- innkeeper in sight, sells junk, buys, and carries on.
+-- vendor.lua walks to the nearest Alliance Eastern Kingdoms inn
+-- (data/ek_inns - innkeepers sell both), or to an innkeeper in sight, sells
+-- junk, buys, and carries on.
 -- (The run's state is declared with the module state at the top: supplies.tick
 -- writes poor_gold, and a declaration down here made that write a global.)
 
@@ -482,29 +482,17 @@ function supplies.trip_done(blocked_for)
     end
 end
 
---- Innkeeper spots: every recorded road end tagged "inn".
+--- Innkeeper spots (2.266.0: data/ek_inns - positions only; the recorded
+--- roads they used to come from are removed).
 local function inns()
     if inn_list then return inn_list end
     inn_list = {}
-    local ok, routes = pcall(require, "data/ek_alliance_routes")
-    if not ok or type(routes) ~= "table" then return inn_list end
-    local function add(x, y, z)
-        if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return end
-        for i = 1, #inn_list do
-            local p = inn_list[i]
-            if (p.x - x) ^ 2 + (p.y - y) ^ 2 < 1600 then return end
-        end
-        inn_list[#inn_list + 1] = { x = x, y = y, z = z }
-    end
-    for i = 1, #routes do
-        local r = routes[i]
-        if type(r) == "table" and #r >= 7 then
-            local n = math.floor((#r - 4) / 3)
-            if r[2] == "inn" then add(r[5], r[6], r[7]) end
-            if r[3] == "inn" and n >= 1 then
-                local b = 5 + (n - 1) * 3
-                add(r[b], r[b + 1], r[b + 2])
-            end
+    local ok, list = pcall(require, "data/ek_inns")
+    if not ok or type(list) ~= "table" then return inn_list end
+    for i = 1, #list do
+        local e = list[i]
+        if type(e) == "table" and type(e[2]) == "number" and type(e[3]) == "number" and type(e[4]) == "number" then
+            inn_list[#inn_list + 1] = { x = e[2], y = e[3], z = e[4], name = e[1] }
         end
     end
     return inn_list

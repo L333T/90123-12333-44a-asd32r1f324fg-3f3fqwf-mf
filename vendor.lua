@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.265.0
+-- Version: 2.266.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -42,7 +42,6 @@ local state = require("state")
 local supplies = require("supplies")
 local targeting = require("targeting")
 local movement = require("movement")
-local travel_routes = require("travel_routes")
 local rotation = require("rotation")
 
 local vendor = {}
@@ -821,13 +820,11 @@ end
 
 local vend_aim_x, vend_aim_y = nil, nil
 
---- Walk `dest`. When it is an inn or flight master on a recorded road, and
---- the player is on that road or the straight line crosses it, follow the
---- road. A running walk is retargeted, not stopped.
+--- Walk `dest`. A running walk is retargeted, not stopped.
+--- 2.266.0: no recorded inn / flight-path roads - `dest` itself is navigated.
 local function nav_place(player, dest, direct)
-    local here = safe(function() return player:get_position() end)
-    local hop = here and travel_routes.hop(here, dest) or nil
-    local target = hop or dest
+    local hop = nil
+    local target = dest
     if hop and type(movement.keep_path) == "function" then
         movement.keep_path(true)
     end

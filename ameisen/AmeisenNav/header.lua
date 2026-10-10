@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- Header - Load Gate
 -- ============================================================================
--- Version: 1.6.5
+-- Version: 1.6.6
 -- Author: BLIZZ
 -- Folder: AmeisenNav
 -- Shared navmesh navigation for every Sylvanas plugin, backed by the local

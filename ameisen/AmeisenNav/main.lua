@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- Main - wiring and the global API
 -- ============================================================================
--- Version: 1.6.5
+-- Version: 1.6.6
 -- Author: BLIZZ
 -- Folder: AmeisenNav
 -- ============================================================================
@@ -18,7 +18,7 @@
 -- Full reference: AmeisenNav/docs/API.md
 -- ============================================================================
 
-local VERSION = "1.6.5"
+local VERSION = "1.6.6"
 local BOOT_URL = "http://127.0.0.1:47110/log?src=boot"
 
 --- Startup problems go to the server too: console output may not be visible
@@ -31,7 +31,7 @@ local function start()
     for _, name in ipairs({
         "anav/config", "anav/log", "anav/context", "anav/transport",
         "anav/query", "anav/avoid", "anav/pathcheck", "anav/horizon", "anav/follower", "anav/client",
-        "anav/follow", "anav/ui",
+        "anav/follow", "anav/coords", "anav/ui",
     }) do
         package.loaded[name] = nil
     end

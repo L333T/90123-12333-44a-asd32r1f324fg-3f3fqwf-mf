@@ -36,6 +36,7 @@ local m = {
     btn_target    = core.menu.button("anav_btn_target"),
     btn_stop      = core.menu.button("anav_btn_stop"),
     btn_ping      = core.menu.button("anav_btn_ping"),
+    kb_minimap    = core.menu.keybind(999, false, "anav_kb_minimap"),   -- 1.6.6
     follow_mode   = core.menu.combobox(1, "anav_follow_mode"),
     follow_name   = core.menu.text_input("anav_follow_name", true),
     btn_fstart    = core.menu.button("anav_follow_start"),
@@ -149,6 +150,20 @@ local function run_request(client)
         else
             L.info("test: no target selected")
         end
+    elseif a == "minimap" then
+        -- 1.6.6: the minimap point under the cursor (coords_helper)
+        local okc, GZ = pcall(require, "anav/coords")
+        local pos, why = nil, "no anav/coords"
+        if okc and type(GZ) == "table" then pos, why = GZ.cursor_point() end
+        if pos then
+            L.info("test: walking to the minimap point %.0f, %.0f, %.0f", pos.x, pos.y, pos.z)
+            client:move_to(pos, function(success, reason)
+                if success then L.info("test: arrived at the minimap point")
+                else L.info("test: failed - %s", tostring(reason)) end
+            end)
+        else
+            L.info("test: no minimap point - %s", tostring(why))
+        end
     elseif a == "stop" then
         client:stop()
     elseif a == "ping" then
@@ -167,9 +182,15 @@ end
 --- Call once per update tick, never from a render callback: copies the menu
 --- values into the config, refreshes what the menu draws, and carries out
 --- whatever a menu button asked for.
+local kb_was = false
 function U.tick(client)
     sync_config()
     refresh(client)
+    -- 1.6.6: "walk to the minimap point" key, on the press (not while held)
+    local okk, down = pcall(m.kb_minimap.get_state, m.kb_minimap)
+    down = okk and down == true
+    if down and not kb_was and not pending then request("minimap") end
+    kb_was = down
     run_request(client)
 end
 
@@ -259,6 +280,8 @@ local function render_buttons()
     if m.btn_ping:render("Ping server", "Check the navigation server now") then
         request("ping")
     end
+    m.kb_minimap:render("Test: walk to the minimap point",
+        "Hover the minimap and press this key: pathfind to that spot (coords_helper) and walk there")
 end
 
 local function render_follow()

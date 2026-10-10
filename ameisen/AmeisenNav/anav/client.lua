@@ -30,6 +30,7 @@ local Q = require("anav/query")
 local F = require("anav/follower")
 local PC = require("anav/pathcheck")    -- 1.5.0: 5-yard waypoints, height / width checks ahead
 local H = require("anav/horizon")      -- 1.6.0: rolling 20-yard validated windows (move_to)
+local GZ = require("anav/coords")      -- 1.6.6: ground heights / minimap points (coords_helper)
 ---@type movement_handler
 local MH = nil
 do
@@ -278,6 +279,22 @@ function M:_plan(nav, target, tail, reason, route_i)
     -- clearance shifts keep the walk smooth instead. VALIDATE_MAS (16) stays.
     local flags = nav.opts.flags or C.path_flags
     if C.pathcheck and C.pathcheck_unsmoothed and flags % 2 == 1 then flags = flags - 1 end
+    -- 1.6.6: the destination takes the ground height under it (coords_helper,
+    -- within 150 yd) before the server is asked, once per navigation, when
+    -- the height given is more than 3 yd off - the height search (1.6.2)
+    -- stays for what this cannot read.
+    if not tail and not nav.z_snapped then
+        nav.z_snapped = true
+        local okg, gz = pcall(GZ.ground, target.x, target.y, target.z)
+        if okg and type(gz) == "number" and math.abs(gz - target.z) > 3 then
+            L.debug("ground height: destination z %.1f -> %.1f (coords_helper)", target.z, gz)
+            if nav.dest and nav.dest ~= target then
+                local ddx, ddy = nav.dest.x - target.x, nav.dest.y - target.y
+                if ddx * ddx + ddy * ddy < 1 then nav.dest.z = gz end
+            end
+            target.z = gz
+        end
+    end
     Q.find_path(from, target, {
         no_cache = reason ~= nil,
         allow_partial = nav.opts.allow_partial,

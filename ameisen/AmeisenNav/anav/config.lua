@@ -68,6 +68,21 @@ local C = {
     side_probes         = { 1.5, 3.0 }, -- yards to each side that are checked
     splice_flags        = 16,       -- re-planned pieces: VALIDATE_MAS, no Chaikin corner cutting
     max_splices         = 4,        -- per path
+
+    -- ---------------------------------------------- rolling horizon (1.6.0)
+    -- anav/horizon.lua: move_to walks validated 20-yard windows of 5-yard
+    -- waypoints, re-planned from the player's position 5 yards before each
+    -- window ends. Unsmoothed. Recorded routes (follow_path) keep pathcheck.
+    horizon             = true,     -- master switch
+    horizon_length      = 20.0,     -- yards of path per window
+    horizon_refresh     = 5.0,      -- yards before the window end: plan the next one
+    horizon_clearance   = 2.0,      -- yards kept from walls, ledges, drops (both sides)
+    horizon_probes      = { 1.0, 2.0, 3.0 }, -- side probe distances (yards)
+    horizon_object_clearance = 1.0, -- extra yards kept from cached objects
+    horizon_splices     = 3,        -- bad legs re-planned per window
+
+    -- ------------------------------------------------------ handoff (1.6.0)
+    handoff_face        = 1.0,      -- seconds a combat handoff keeps facing the target
     pathcheck_unsmoothed = true,    -- walk paths without Chaikin corner cutting (flag 1 dropped)
     max_repaths         = 10,       -- per navigation
 

@@ -1,4 +1,4 @@
-# AmeisenNav API (v1.0.0)
+# AmeisenNav API (v1.6.0)
 
 Shared navmesh navigation for Sylvanas plugins, backed by the local
 AmeisenNavigation server. Replaces SentinelNavClient.
@@ -116,6 +116,51 @@ while casting or channelling (menu option), and that never counts as stuck.
 
 `client:update_config({ pathcheck = false })` turns all of it off (1.4.0
 behaviour). Stats: `require("anav/pathcheck").stats`.
+
+## Rolling horizon (1.6.0)
+
+`c:move_to` no longer walks one long server path. Every walk is a chain of
+**windows**:
+
+1. The server is asked for an **unsmoothed** path from the player's current
+   position and height to the destination.
+2. Its first `horizon_length` (20) yards become waypoints `waypoint_spacing`
+   (5) yards apart, starting at the player.
+3. The window is checked **before** a step is taken (nav server only, two
+   batched requests - no native traces):
+   - **ground**: each leg is probed at four heights; the waypoint takes the real
+     ground height. A leg that leaves walkable ground, climbs steeper than
+     `max_climb`, or drops steeper than `max_drop` / deeper than `cliff_drop`
+     is re-planned unsmoothed between its neighbours and spliced in
+     (`horizon_splices` per window).
+   - **width**: probes `horizon_probes` (1, 2, 3) yards left and right measure
+     the free room; every waypoint is moved to keep `horizon_clearance` (2)
+     yards from walls, ledges and drops. A corridor narrower than twice that
+     is walked down its middle.
+   - **objects**: nearby objects (radius + `body_radius` +
+     `horizon_object_clearance`) push the waypoint aside, never past the
+     measured free room.
+4. When the player is within `horizon_refresh` (5) yards of the window end,
+   the next window is planned from the player's position and swapped in
+   **without releasing a key**. This repeats until the destination is in the
+   window. The destination itself is never moved.
+
+`opts.horizon = false` (or `horizon = false` in the config) walks the whole
+server path the old way (with the 1.5.0 path check). `c:follow_path`
+(recorded routes) keeps the 1.5.0 path check.
+
+## Handoff (1.6.0)
+
+| Call | Does |
+|---|---|
+| `c:handoff("simple", { position = p })` | Lets go of the walk **without releasing a key**. The walker gets its own thresholds back and, with `position`, is pointed at it (`simple_movement:move_to_position`); your code drives simple_movement from there. |
+| `c:handoff("combat", { target = u, face = s, pause = s })` | Stops the walk; the movement handler faces `u` for `face` seconds (`handoff_face`, 1) and, with `pause`, holds still that long (`pause_movement_light`, for a cast). Your combat movement takes over. |
+| `c:move_to(p, cb, { handoff = { at = 5 } })` | Automatic handoff: once the player is `at` yards from the destination, the callback gets `(true, "arrived", { code = "arrived", detail = "handoff:simple" })` and simple_movement walks the last yards to `p` with no stop in between. |
+
+The callback of a navigation handed off by `c:handoff` receives
+`(false, "handoff:<to>", { code = "cancelled", detail = "handoff:<to>" })`, the
+same code as `c:stop()`. The movement handler's `on_render` is called by
+AmeisenNav while its handoff lock lasts.
 
 ## Following a moving unit
 

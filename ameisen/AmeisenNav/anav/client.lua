@@ -29,6 +29,13 @@ local X = require("anav/context")
 local Q = require("anav/query")
 local F = require("anav/follower")
 local PC = require("anav/pathcheck")    -- 1.5.0: 5-yard waypoints, height / width checks ahead
+local H = require("anav/horizon")      -- 1.6.0: rolling 20-yard validated windows (move_to)
+---@type movement_handler
+local MH = nil
+do
+    local ok, m = pcall(require, "common/utility/movement_handler")
+    if ok and type(m) == "table" then MH = m end
+end
 
 local M = {}
 M.__index = M
@@ -208,6 +215,10 @@ function M:_plan(nav, target, tail, reason, route_i)
         if tail then
             for i = 1, #tail do pts[#pts + 1] = tail[i] end
         end
+        if nav.horizon and not tail then
+            self:_window(nav, pts, from)
+            return
+        end
         if route_i then
             -- walked point k -> route waypoint being approached
             local map = {}
@@ -217,6 +228,107 @@ function M:_plan(nav, target, tail, reason, route_i)
         end
         self:_walk(nav, pts)
     end)
+end
+
+-- ============================================================================
+-- ROLLING HORIZON (1.6.0, anav/horizon.lua)
+-- ============================================================================
+--- Build and walk (or swap in) the next validated window of `path`, which
+--- starts at `from` (the player position when it was asked for).
+function M:_window(nav, path, from)
+    nav.window_pending = true
+    H.build(from, path, function(ok, win, info)
+        if self.nav ~= nav then return end
+        nav.window_pending = false
+        if not ok or not win or #win == 0 then
+            self:_finish(false, "no_path", info and info.why or "window could not be built")
+            return
+        end
+        nav.window_final = info and info.final == true
+        nav.window_end = win[#win]
+        nav.windows = (nav.windows or 0) + 1
+        self.last_path = win
+        L.debug("window #%d: %d points, %.0f yd%s", nav.windows, #win, Q.path_length(win),
+            nav.window_final and " (final)" or "")
+        local started
+        if F.active then started = F.swap(win) else started = F.follow(win) end
+        if not started then
+            self:_finish(false, "bad_request", "walker refused the window")
+            return
+        end
+        nav.points = F.points
+        PC.clear()                                       -- windows are checked before walking
+        if self.state ~= "navigating" or self.sub then self:_set_state("navigating") end
+        self:_emit("path", nav.points)
+    end)
+end
+
+--- Ask the server for the path from the player to the destination and turn
+--- it into the next window (not counted as a repath: this is normal progress).
+function M:_next_window(nav)
+    local from = player_point()
+    if not from or nav.window_pending then return end
+    nav.window_pending = true
+    Q.find_path(from, nav.dest, { flags = 0, no_cache = true, allow_partial = nav.opts.allow_partial },
+        function(ok, pts, info)
+            if self.nav ~= nav then return end
+            nav.window_pending = false
+            if not ok then
+                -- keep walking what we have; the stuck / arrival logic decides
+                L.debug("next window: %s (%s)", tostring(info and info.code), tostring(info and info.detail))
+                nav.window_retry_t = now() + 1.0
+                if not F.active then self:_finish(false, info and info.code or "no_path", info and info.detail) end
+                return
+            end
+            self:_window(nav, pts, from)
+        end)
+end
+
+--- 1.6.0 HANDOFF. Let go of the active navigation for another mover.
+---   to = "simple": no key is released; simple_movement is pointed at
+---        opts.position (if given) and the consumer drives it from here.
+---   to = "combat": the walk stops; the movement handler faces opts.target
+---        for opts.face seconds (C.handoff_face) and, with opts.pause, holds
+---        still that long (a cast). The consumer's combat movement takes over.
+--- The handed-off navigation's callback gets (false, "handoff:<to>",
+--- { code = "cancelled", detail = "handoff:<to>" }) - consumers treat it as
+--- an ordinary cancel. Returns true when the handoff was made.
+function M:handoff(to, opts)
+    opts = opts or {}
+    local nav = self.nav
+    if to == "simple" then
+        if nav then
+            self.nav = nil
+            PC.clear()
+            if nav.cb then pcall(nav.cb, false, "handoff:simple", { code = "cancelled", detail = "handoff:simple" }) end
+        end
+        local ok = F.hand_to_walker(opts.position and as_point(opts.position) or nil)
+        self:_set_state("idle")
+        self:_emit("handoff", "simple")
+        L.debug("handoff -> simple_movement%s", ok and " (still moving)" or "")
+        return true
+    end
+    if to == "combat" then
+        if nav then self:_finish(false, "cancelled", "handoff:combat") else F.stop() end
+        if MH then
+            if opts.pause and opts.pause > 0 then pcall(MH.pause_movement_light, MH, opts.pause) end
+            if opts.target then
+                pcall(MH.look_at_target, MH, opts.face or C.handoff_face, 0, opts.target)
+            end
+            self.mh_until = now() + math.max(opts.pause or 0, opts.target and (opts.face or C.handoff_face) or 0) + 0.5
+        end
+        if self.state ~= "idle" then self:_set_state("idle") end
+        self:_emit("handoff", "combat")
+        L.debug("handoff -> combat movement")
+        return true
+    end
+    return false
+end
+
+--- Movement handler bookkeeping after a combat handoff (its delays and
+--- auto-resume run in on_render - main.lua calls this from its render).
+function M:render()
+    if MH and self.mh_until and now() < self.mh_until then pcall(MH.on_render, MH) end
 end
 
 --- Rebuild the path from where the player stands.
@@ -305,7 +417,37 @@ function M:update()
 
     -- 1.5.0: check the next C.check_ahead waypoints (throttled inside) and
     -- hand corrections to the follower. Not during a detour (its own 2 points).
-    if C.pathcheck and F.active and nav.points and F.points == nav.points and not nav.detour then
+    -- 1.6.0 rolling horizon: 5 yards before the window ends, the next one
+    if nav.horizon and F.active and not nav.detour and not nav.window_final
+        and not nav.window_pending and nav.window_end and now() >= (nav.window_retry_t or 0) then
+        local here = player_point()
+        if here then
+            local dx, dy = nav.window_end.x - here.x, nav.window_end.y - here.y
+            if dx * dx + dy * dy <= C.horizon_refresh * C.horizon_refresh then self:_next_window(nav) end
+        end
+    end
+    -- 1.6.0 quick handoff near the destination (opts.handoff = { at = yards })
+    local ho = nav.opts.handoff
+    if ho and F.active and type(ho.at) == "number" then
+        local here = player_point()
+        if here then
+            local dx, dy = nav.dest.x - here.x, nav.dest.y - here.y
+            if dx * dx + dy * dy <= ho.at * ho.at and math.abs(nav.dest.z - here.z) < 6 then
+                local dest, cb = nav.dest, nav.cb
+                self.nav = nil
+                PC.clear()
+                F.hand_to_walker(dest)
+                self:_set_state("arrived")
+                self:_emit("handoff", "simple")
+                self:_emit("arrived", dest)
+                L.debug("handoff -> simple_movement %.1f yd from the destination", sqrt(dx * dx + dy * dy))
+                if cb then pcall(cb, true, "arrived", { code = "arrived", detail = "handoff:simple" }) end
+                return
+            end
+        end
+    end
+
+    if C.pathcheck and not nav.horizon and F.active and nav.points and F.points == nav.points and not nav.detour then
         PC.tick(F.current_index(), function(new_pts)
             if self.nav ~= nav then return end
             nav.points = new_pts
@@ -322,6 +464,12 @@ function M:update()
     -- previous walk (the follower already stopped itself on "arrived")
     if not nav.points then return end
 
+    if ev == "arrived" and nav.horizon and not nav.detour and not nav.window_final then
+        -- the window ran out before the next one was ready: plan it now
+        self:_set_state("navigating", "window")
+        self:_next_window(nav)
+        return
+    end
     if ev == "arrived" then
         if nav.detour then
             nav.detour = false
@@ -351,7 +499,10 @@ function M:move_to(target, cb, opts)
         return
     end
     local nav = new_nav(self, "move_to", dest, cb, opts)
-    L.debug("move_to (%.1f, %.1f, %.1f)", dest.x, dest.y, dest.z)
+    -- 1.6.0: rolling validated windows unless switched off (C.horizon / opts.horizon = false)
+    nav.horizon = C.horizon and not (opts and opts.horizon == false)
+    if nav.horizon then nav.opts.flags = 0 end           -- unsmoothed, always
+    L.debug("move_to (%.1f, %.1f, %.1f)%s", dest.x, dest.y, dest.z, nav.horizon and " - horizon" or "")
     self:_plan(nav, dest, nil, nil)
 end
 

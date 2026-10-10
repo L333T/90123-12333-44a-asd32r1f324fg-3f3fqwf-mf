@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.261.0
+-- Version: 2.262.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -428,8 +428,14 @@ function C.combat_engage(player, unit, yards)
             Rg.face(unit)
             return false
         end
-        O.halt_all()
-        dlog("combat", "halted Ameisen leg '" .. tostring(R.sn_why) .. "' to fight")
+        -- 2.262.0: hand the walker over (no key release) when AmeisenNav can
+        local why = R.sn_why
+        if type(N.handoff) == "function" and N.handoff("simple") then
+            dlog("combat", "Ameisen leg '" .. tostring(why) .. "' handed to combat movement")
+        else
+            O.halt_all()
+            dlog("combat", "halted Ameisen leg '" .. tostring(why) .. "' to fight")
+        end
     end
 
     O.take(OWNER.COMBAT)

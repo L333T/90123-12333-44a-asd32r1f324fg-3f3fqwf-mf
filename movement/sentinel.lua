@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.261.0
+-- Version: 2.262.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -131,6 +131,34 @@ function N.stop()
     R.sn_leash_hold = false
     R.sn_watch_t = 0
     N.end_recovery()
+    return true
+end
+
+--- 2.262.0 HANDOFF (AmeisenNav 1.6.0 client:handoff). Combat takes the player
+--- from a running Ameisen leg WITHOUT a key release: AmeisenNav lets go of
+--- simple_movement while the character keeps running, and the combat chase's
+--- first walker move re-aims it the same frame. Before this the leg was
+--- stopped (forward released) and the chase pressed it again a frame later.
+--- Returns false (the caller stops the leg as before) when there is no leg,
+--- a path request is still in flight, or the installed AmeisenNav has no
+--- handoff.
+function N.handoff(to, opts)
+    if not R.sn_active then return false end
+    local c = R.sn_client
+    if type(c) ~= "table" or type(c.handoff) ~= "function" or in_flight(c) then return false end
+    if N.cancel_repath then N.cancel_repath() end
+    -- our state first: the handed-off leg's callback ("cancelled") is then stale
+    R.sn_active, R.sn_reason = false, nil
+    R.sn_leash_hold = false
+    R.sn_watch_t = 0
+    N.end_recovery()
+    local ok, done = pcall(c.handoff, c, to or "simple", opts)
+    if not ok or done ~= true then
+        pcall(c.stop, c)
+        return false
+    end
+    W.clear_dest()
+    dlog("ameisen", "handoff -> " .. tostring(to or "simple"))
     return true
 end
 

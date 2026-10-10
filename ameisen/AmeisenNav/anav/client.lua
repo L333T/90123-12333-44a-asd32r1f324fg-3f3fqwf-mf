@@ -120,9 +120,47 @@ end
 -- ============================================================================
 -- navigation lifecycle
 -- ============================================================================
+-- START POSITION WITHOUT A PATH (1.6.5). The 11:2x log: from (-5760,-2599)
+-- every request failed no_path at once, every 3 s for 90 s - the height
+-- search found nothing at any height, because the START was the problem
+-- (the character on a spot the navmesh does not cover). The walk ladder
+-- never ran: no walk ever started. After C.unstick_after_fails failed plans
+-- from the same spot (within 2 yd), the manoeuvre runs on its own (side
+-- alternating; the 4th failure backs off instead); the consumer's next
+-- request then starts from wherever that left the character.
+local PLAN_FAIL_CODES = { no_path = true, start_off_mesh = true, unreachable = true, end_off_mesh = true }
+
+function M:_note_plan_fail(code)
+    if not PLAN_FAIL_CODES[code] then return end
+    local here = player_point()
+    if not here then return end
+    local f = self.spot_fail
+    if f and (here.x - f.x) ^ 2 + (here.y - f.y) ^ 2 <= 4 and (now() - f.t) < 20 then
+        f.n, f.t = f.n + 1, now()
+    else
+        f = { x = here.x, y = here.y, n = 1, t = now() }
+        self.spot_fail = f
+    end
+    if f.n >= C.unstick_after_fails and not F.manoeuvring() and not F.active then
+        if f.n % 4 == 0 then
+            L.info("no path from (%.1f, %.1f) %d times - backing off", here.x, here.y, f.n)
+            X.call_fn("core.input.move_backward_start", core.input.move_backward_start)
+            local back = core.time() + C.backoff_time
+            self.backing_free = back
+        else
+            L.info("no path from (%.1f, %.1f) %d times - strafe, jump, strafe", here.x, here.y, f.n)
+            F.manoeuvre()
+        end
+    end
+end
+
 function M:_finish(ok, code, detail, keep_moving)
     local nav = self.nav
     if not nav then return end
+    if ok then self.spot_fail = nil elseif nav.mode == "move_to" then
+        -- noted after this navigation is closed (below)
+        self.pending_fail_code = code
+    end
     self.nav = nil
     if not keep_moving then F.stop() end
     PC.clear()
@@ -144,6 +182,9 @@ function M:_finish(ok, code, detail, keep_moving)
             { code = ok and "arrived" or code, detail = detail })
         if not ok_cb then L.error("navigation callback failed: %s", tostring(err)) end
     end
+    local pc = self.pending_fail_code
+    self.pending_fail_code = nil
+    if pc and not self.nav then self:_note_plan_fail(pc) end
 end
 
 --- Start walking `points`; `nav` must be the active navigation.
@@ -503,12 +544,15 @@ function M:_on_stuck(nav)
     end
 
     L.debug("stuck level %d", level)
-    if level == 1 then
-        self:_set_state("navigating", "recovering.jump")
-        F.jump()
+    -- 1.6.5 ladder: 1 strafe-jump-strafe, 2 repath, 3 strafe-jump-strafe the
+    -- other way, 4 detour, 5 back off, 6 jump + repath
+    if level == 1 or level == 3 then
+        self:_set_state("navigating", "recovering.strafe_jump")
+        nav.manoeuvre = true
+        F.manoeuvre()
     elseif level == 2 then
         self:_repath(nav, "recovering.repath")
-    elseif level == 3 then
+    elseif level == 4 then
         self:_set_state("navigating", "recovering.detour")
         local center = here
         Q.random_point(center, 5, function(ok, p)
@@ -520,7 +564,7 @@ function M:_on_stuck(nav)
             end
             self:_repath(nav, "recovering.repath")
         end)
-    elseif level == 4 then
+    elseif level == 5 then
         self:_set_state("navigating", "recovering.backoff")
         F.back_off(C.backoff_time)
     else
@@ -534,6 +578,21 @@ end
 -- ============================================================================
 function M:update()
     T.tick()
+    -- 1.6.5: the back-off from a spot without a path ends after C.backoff_time
+    if self.backing_free and core.time() >= self.backing_free then
+        self.backing_free = nil
+        X.call_fn("core.input.move_backward_stop", core.input.move_backward_stop)
+    end
+    -- 1.6.5: the strafe-jump-strafe manoeuvre runs with or without a walk
+    if F.manoeuvring() then
+        local done = F.manoeuvre_tick()
+        local nv = self.nav
+        if done and nv and nv.manoeuvre then
+            nv.manoeuvre = false
+            self:_repath(nv, "after_strafe_jump")
+        end
+        if F.manoeuvring() then return end
+    end
     local nav = self.nav
     if not nav then return end
 

@@ -3,7 +3,7 @@
 -- Spell picks - what the Spells tab has switched on
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.271.0
+-- Version: 2.272.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One registry of "the user ticked this spell", keyed by spell NAME, filled

@@ -200,9 +200,16 @@ end
 -- A failing element must not blank the rest of the page, and each distinct
 -- failure is logged once (the menu is drawn every frame).
 local reported = {}
+-- 1.6.7: the Sylvanas menu builds its elements over the first frames with a
+-- per-frame budget (menu_api consume_build_unit); a section that does not
+-- fit yet fails once and draws on the next frame. Not reported while the
+-- menu is still being built.
+local BUILD_FRAMES = 10
+local rendered_frames = 0
 
 local function section(name, fn)
     local ok, err = xpcall(fn, L.traceback)
+    if not ok and rendered_frames <= BUILD_FRAMES then return end
     if not ok and not reported[name] then
         reported[name] = true
         L.error("menu section '%s' failed: %s", name, tostring(err))
@@ -313,6 +320,7 @@ local function render_follow()
 end
 
 function U.render_menu(version)
+    rendered_frames = rendered_frames + 1
     header_next = 1
     m.tree:render("AmeisenNav", function()
         section("status", function() render_status(version) end)

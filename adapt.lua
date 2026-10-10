@@ -3,7 +3,7 @@
 -- Adaptive rotation - learns what kills fastest, per character
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.277.0
+-- Version: 2.277.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT (2.274.0, GUI "Adaptive Rotation", Spells tab, on by default)

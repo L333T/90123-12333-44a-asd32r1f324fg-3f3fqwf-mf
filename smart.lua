@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.276.0
+-- Version: 2.277.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1717,7 +1717,12 @@ local STEALTH_MELEE = 5
 local PICK_POCKET = 921
 local PP_RANGE = 5
 local BEHIND_MAX = 4.0
-local SO = { guid = nil, reached_t = nil, done = false, pp = false, pp_loot = 0 }
+local SO = { guid = nil, reached_t = nil, done = false, pp = false, pp_loot = 0, sap = false }
+-- SAP (2.277.0): while stealthed and sneaking in, a pack member other than
+-- the target - humanoid, alive, not in combat, within SAP_NEAR yd of the
+-- target and in melee reach of the rogue - is sapped, once per pull.
+local SAP_NEAR = 10
+local SAP_REACH = 5
 
 local function entry_named(name)
     local list = built.list
@@ -1753,7 +1758,7 @@ local function stealth_wanted(player, target)
     local g = safe(target.get_guid, target)
     if g == nil then return false end
     if g ~= SO.guid then
-        SO.guid, SO.reached_t, SO.pp = g, nil, false
+        SO.guid, SO.reached_t, SO.pp, SO.sap = g, nil, false, false
         SO.done = safe(player.is_in_combat, player) == true
     end
     if SO.done then return false end
@@ -1809,6 +1814,38 @@ local function rogue_stealth()
         return false
     end
     if d <= STEALTH_MELEE then SO.reached_t = SO.reached_t or now end
+    -- SAP (2.277.0): the add next to the target, before the opener
+    if not SO.sap and type(PACK) == "table" then
+        local e = entry_named("Sap")
+        if e and usable(e) and (fail_until[e.key] or 0) <= now then
+            local humanoid = enums.creature_type and enums.creature_type.HUMANOID
+            local tg = safe(T.get_guid, T)
+            for i = 1, #PACK do
+                local u = PACK[i]
+                if u and safe(u.get_guid, u) ~= tg and safe(u.is_dead_or_ghost, u) ~= true
+                    and safe(u.is_in_combat, u) ~= true
+                    and type(humanoid) == "number" and safe(u.get_creature_type, u) == humanoid then
+                    local dt = tonumber(safe(T.distance_to, T, u))
+                    local dp = tonumber(safe(P.distance_to, P, u))
+                    if dt and dp and dt <= SAP_NEAR and dp <= SAP_REACH then
+                        local rdy = ready_now(e)
+                        if not rdy then return true end      -- hold Stealth for the energy
+                        SO.sap = true
+                        if cast(e, u) then
+                            state.set_note("Stealth", "sapped " .. tostring(safe(u.get_name, u)))
+                            local el = mod("errorlog")
+                            if el and type(el.trail) == "function" then
+                                pcall(el.trail, "rotation", "Sap on %s (%.1f yd from the target)",
+                                    tostring(safe(u.get_name, u)), dt)
+                            end
+                            return true
+                        end
+                        break
+                    end
+                end
+            end
+        end
+    end
     -- PICK POCKET (2.256.0), then straight on to the opener this same tick
     if not SO.pp and d <= PP_RANGE and c.ttype("HUMANOID") then
         SO.pp = true

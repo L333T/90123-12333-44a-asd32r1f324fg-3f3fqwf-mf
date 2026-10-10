@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.276.0
+-- Version: 2.277.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -245,6 +245,13 @@ W.ROGUE = t({
     -- the target, sneak behind it, open with Backstab. Comes before Throw.
     { "Stealth",                "stealth", on = true,
       tip = "Stealth before a pull, sneak behind the target and open with Backstab (Sinister Strike if it cannot get behind)." },
+    -- 2.277.0: Sap (6770, needs Stealth, humanoids out of combat, 25 s).
+    -- Not in the catalog before, so the Spells tab never listed it (an
+    -- uncatalogued spell needs Stealth to be "usable"). Used by the Stealth
+    -- opener (smart.lua ROGUE SAP): a second humanoid of the pack, near the
+    -- target and in melee reach while sneaking in, is sapped once.
+    { "Sap",                    "sap", on = true, id = 6770, melee = true,
+      tip = "While sneaking in: saps a second humanoid next to the target (not in combat, within reach) so the fight is one at a time." },
     { "Throw",                  "pull", on = true,
       tip = "With a throwing weapon equipped: throw at the target from up to 30 yd, then wait for it to reach melee." },
     { "Evasion",                "defensive", on = true, when = function(c) return c.near(8) >= 2 or c.hp() < c.def_pct() end, hp = 101 },
@@ -563,7 +570,7 @@ local SECTIONS = {
     { key = "pet",       label = "Pet",                  roles = { pet = true, petheal = true } },
     { key = "damage",    label = "Damage",               roles = { damage = true, execute = true, opener = true, finisher = true, filler = true } },
     { key = "debuff",    label = "Damage over Time & Debuffs", roles = { debuff = true, totem = true } },
-    { key = "aoe",       label = "Area of Effect",       roles = { aoe = true, control = true } },
+    { key = "aoe",       label = "Area of Effect",       roles = { aoe = true, control = true, sap = true } },
     { key = "cooldown",  label = "Cooldowns & Resources", roles = { cooldown = true, resource = true } },
     { key = "heal",      label = "Healing",              roles = { heal = true } },
     { key = "defensive", label = "Defensive",            roles = { defensive = true } },

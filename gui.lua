@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.276.0
+-- Version: 2.277.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1702,6 +1702,12 @@ function gui.is_started()
 end
 
 menu.on_close = function()
+    -- 2.277.0: loaded from the Master Farmer launcher, closing the window
+    -- unloads the bot and brings the launcher's main GUI back.
+    if type(MASTER_FARMER) == "table" and type(MASTER_FARMER.close) == "function" then
+        pcall(MASTER_FARMER.close)
+        return
+    end
     set_on("show_gui", false)
 end
 

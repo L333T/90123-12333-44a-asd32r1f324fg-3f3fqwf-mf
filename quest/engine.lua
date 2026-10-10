@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.280.0
+-- Version: 2.281.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -583,6 +583,9 @@ local function walk_to(pos, note, arrive, exact)
         if type(d) == "number" and d <= TALK_SEARCH_FAR then
             return false
         end
+        -- 2.281.0: told to the guide-mismatch check (quest/mismatch.lua)
+        local mm = package.loaded["quest/mismatch"]
+        if type(mm) == "table" then pcall(mm.note_unreachable) end
         state.set_note("Quest", "Guide: cannot reach " .. note)
         return true
     end
@@ -1473,6 +1476,13 @@ end
 --- walking to (the NPC, or the waypoint while no NPC is found). Returns true
 --- when STALL_AFTER seconds have passed without any.
 local function stalled(now, goal, d)
+    -- 2.281.0: a held guide mismatch is not a stall (recoveries would skip
+    -- one guide goal after another).
+    local mm = package.loaded["quest/mismatch"]
+    if type(mm) == "table" and mm.held() then
+        g_stall.t, g_stall.seen = now, now
+        return false
+    end
     -- Ticks spent fighting, resting or looting are not this goal's time.
     if (now - g_stall.seen) > 1.0 then
         g_stall.t = now
@@ -3043,6 +3053,22 @@ IS.next_wp = function(n)
     end
 end
 
+-- GUIDE MISMATCH (2.281.0, quest/mismatch.lua): a step in another zone with
+-- no path on foot - the guide for another race / start zone is loaded. The
+-- bot holds with a note instead of walking at it forever.
+IS.mm = require("quest/mismatch")
+IS.mismatch = function(player, goal, wps)
+    local me = safe(function() return player:get_position() end)
+    local key = tostring(guide.step_num()) .. "|" .. tostring(goal and goal.index)
+    local held, text = IS.mm.check(key, wps, me)
+    if held then
+        movement.nav_stop()
+        state.set_note("Quest", text)
+        return true
+    end
+    return false
+end
+
 IS.walk_route = function(player, goal, kind, wps, label)
     if #wps == 0 then
         if guide.wrong_continent() then
@@ -3332,6 +3358,9 @@ tick_inner = function(player)
     g_cur_kind = kind
 
     -- A far goal: fly most of the way (2.115.0).
+    if IS.mismatch(player, goal, wps) then
+        return
+    end
     if far_travel(player, goal, kind, wps, label) then
         return
     end

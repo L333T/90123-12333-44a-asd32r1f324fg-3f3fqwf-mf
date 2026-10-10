@@ -3,7 +3,7 @@
 -- Gathering mode: patrol a route, gather herb / ore nodes, fight back
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.282.1
+-- Version: 2.283.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine (MainThread + Gather_Process), PORT_PLAYBOOK.md.

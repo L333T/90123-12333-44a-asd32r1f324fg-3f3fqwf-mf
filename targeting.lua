@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.282.1
+-- Version: 2.283.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1123,9 +1123,71 @@ end
 -- shot or wand starts once that enemy is the focused target and the distance
 -- is inside that attack's own range (gun, wand, or melee), not after the
 -- walk reaches the GUI stand distance.
-local AUTO_GAP = 1.0
+local AUTO_GAP = 0.5          -- 2.283.0: was 1.0 - a dropped swing is re-armed within half a second
 local STEALTH_IDS = { 1784, 1785, 1786, 1787, 5215, 6783, 9913 }   -- Stealth 1-4, Prowl 1-3
 local auto_guid, auto_t, auto_type = nil, -1e9, nil
+
+-- SWING TIMER (2.283.0). Melee used weapon swings late:
+--   * the swing was only armed inside 5 yd of the mob's CENTRE - on a large
+--     mob the character stood in melee range (hitbox) and did not swing;
+--     now it is armed in real melee range (is_in_melee_range, spell_range)
+--     or within MELEE_ARM yd: auto attack started a step early stays on and
+--     swings the moment the target is in reach;
+--   * the attack was re-sent every AUTO_GAP while already swinging at the
+--     same target; it is not re-sent while auto_attack_helper says the
+--     player is auto attacking (a re-sent Attack can toggle it off);
+--   * SWING WATCH: in melee range and auto attacking, the time to the first
+--     swing is logged, and no swing for the weapon speed + SWING_SLACK s
+--     faces the target (the usual cause: facing away) and re-arms the attack.
+local MELEE_ARM = 8
+local SWING_SLACK = 1.0
+local SW = { guid = nil, since = nil, first = false, warned = -1e9 }
+
+local function trail(cat, fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then
+        pcall(el.trail, cat, fmt, ...)
+    end
+end
+
+local function auto_attacking(player)
+    return safe(function() return auto_attack:is_auto_attacking(player) end) == true
+end
+
+local function in_melee(unit)
+    local ok, sr = pcall(require, "spell_range")
+    if ok and type(sr) == "table" and type(sr.melee) == "function" then
+        return sr.melee(unit, 5) == true
+    end
+    return false
+end
+
+--- Swing watch for the melee target `unit` (see SWING TIMER).
+local function swing_watch(player, unit, g)
+    local t = safe(core.time) or izi.now()
+    if g ~= SW.guid then SW.guid, SW.since, SW.first = g, nil, false end
+    if not in_melee(unit) then SW.since = nil return end
+    SW.since = SW.since or t
+    local last = tonumber(safe(function() return auto_attack:get_last_attack_core_time(player) end))
+    local swung = last ~= nil and last >= SW.since
+    if swung and not SW.first then
+        SW.first = true
+        pcall(trail, "swing", "melee: first swing %.1f s after reaching %s", last - SW.since,
+            tostring(call(unit.get_name, unit)))
+    end
+    local speed = tonumber(call(player.get_attack_speed, player))
+    if not speed or speed <= 0 or speed > 10 then speed = 2.6 end
+    local since_swing = t - math.max(swung and last or SW.since, SW.since)
+    if since_swing > speed + SWING_SLACK and (t - SW.warned) > 5 then
+        SW.warned = t
+        pcall(trail, "swing", "melee: no swing for %.1f s in melee range of %s (weapon %.1f s, attacking %s) - facing it, re-arming",
+            since_swing, tostring(call(unit.get_name, unit)), speed, tostring(auto_attacking(player)))
+        local okm, mv = pcall(require, "movement")
+        if okm and type(mv) == "table" and type(mv.face) == "function" then pcall(mv.face, unit) end
+        auto_t = -1e9              -- re-arm on this call
+        return "rearm"
+    end
+end
 
 function targeting.start_auto_attack(player, unit)
     if not player or not indexable(unit) then
@@ -1218,7 +1280,12 @@ function targeting.start_auto_attack(player, unit)
             reach = 30
         end
     end
-    if type(d) == "number" and d > reach then
+    if want == types.MELEE and reach <= 5 then
+        -- 2.283.0: real melee range (hitbox), or close enough to arm early
+        if not (in_melee(unit) or (type(d) == "number" and d <= MELEE_ARM)) then
+            return false
+        end
+    elseif type(d) == "number" and d > reach then
         return false
     end
     -- Not through a wall (2.78.0).
@@ -1229,6 +1296,14 @@ function targeting.start_auto_attack(player, unit)
     end
     local g = ug
     local now = izi.now()
+    -- 2.283.0: already swinging at this target - nothing to send
+    if want == types.MELEE then
+        local rearm = swing_watch(player, unit, g)
+        if rearm ~= "rearm" and auto_attacking(player) then
+            auto_guid, auto_t, auto_type = g, now, want
+            return true
+        end
+    end
     if g ~= nil and g == auto_guid and (now - auto_t) < AUTO_GAP then
         if auto_type == want then return true end
         if auto_type == nil then return false end

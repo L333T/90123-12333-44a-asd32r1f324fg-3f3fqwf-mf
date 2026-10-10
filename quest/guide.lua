@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.268.0
+-- Version: 2.269.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2631,7 +2631,12 @@ local function to_world(wp)
             z = mz
             local dx, dy = e.x - mx, e.y - my
             if dx * dx + dy * dy <= HEIGHT_RANGE * HEIGHT_RANGE then
-                local ok, h = pcall(izi.get_terrain_height, e.x, e.y)
+                -- 2.269.0: the ray starts extra_height above the character -
+                -- outdoors 30 yd up so a waypoint up a hill is read; indoors
+                -- 4 (a larger start hits the floor above, IZI Maps docs)
+                local indoors = false
+                pcall(function() indoors = izi.me():is_indoors() == true end)
+                local ok, h = pcall(izi.get_terrain_height, e.x, e.y, indoors and 4 or 30)
                 -- 0 is what the height query returns when it has no answer
                 -- (2.71.0): "Eagan Peltskinner" got z 0 at a spot ~82 high, Sentinel
                 -- answered "Position not on navmesh" and the goal was skipped as

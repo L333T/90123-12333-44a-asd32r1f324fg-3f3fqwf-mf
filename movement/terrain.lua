@@ -3,7 +3,7 @@
 -- movement/terrain.lua - terrain-aware Sentinel pathing (coords_helper)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.268.0
+-- Version: 2.269.0
 -- ============================================================================
 -- Sentinel plans on its navmesh and knows nothing about the ground the client
 -- has loaded. Three things here read that ground through
@@ -175,6 +175,23 @@ local function core_height(x, y, zstart)
     return h
 end
 
+-- 2.269.0: izi.get_terrain_height (IZI Maps; fixed in the 2026-10-06 update:
+-- before it cast from height 0). The ray starts extra_height yards above the
+-- CHARACTER, so the caller's zstart becomes extra = zstart - player z: a far
+-- hop asks from 80 yd up and a hill above the character is read. An answer
+-- above the ray start, or a 0 away from height 0, is no answer.
+local function izi_height(x, y, zstart)
+    if type(izi) ~= "table" or type(izi.get_terrain_height) ~= "function" then return nil end
+    local _, _, hz = here_xyz()
+    if not finite(hz) then return nil end
+    local zs = finite(zstart) and zstart or (hz + 4)
+    local ok, h = pcall(izi.get_terrain_height, x, y, zs - hz)
+    if not ok or not finite(h) then return nil end
+    if h == 0 and abs(hz) > 5 then return nil end
+    if h > zs + 0.5 then return nil end
+    return h
+end
+
 --- How far above the character the ground can be read (see march).
 function T.window()
     return coords_dead and CORE_WINDOW or WINDOW_COORDS
@@ -199,6 +216,7 @@ function T.height(x, y, zstart)
         h = got
         if not asked then h = nil end
     end
+    if h == nil then h = izi_height(x, y, zstart) end
     if h == nil and coords_dead then h = core_height(x, y, zstart) end
     if not e then
         if hc_n >= H_MAX then hc, hc_n = {}, 0 end

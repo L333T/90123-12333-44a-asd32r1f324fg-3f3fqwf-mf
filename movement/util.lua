@@ -3,7 +3,7 @@
 -- movement/util.lua - logging, position input, distance, ground and traces
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.268.0
+-- Version: 2.269.0
 -- ============================================================================
 -- The bottom layer. Depends only on const + rt, so every other movement module
 -- may require it without creating a cycle.
@@ -151,7 +151,11 @@ function U.ground_z(x, y, hint_z)
     q.x, q.y, q.z = x, y, hint_z
     local ok, hz = pcall(core.get_height_for_position, q)
     if not ok or type(hz) ~= "number" or hz ~= hz then
-        ok, hz = pcall(izi.get_terrain_height, x, y)
+        -- 2.269.0: the ray starts 4 yd above the expected height (izi casts
+        -- extra_height yards above the CHARACTER), not above the character
+        local _, _, pz = U.here_xyz()
+        local extra = (type(pz) == "number" and type(hint_z) == "number") and (hint_z - pz + 4) or 4
+        ok, hz = pcall(izi.get_terrain_height, x, y, extra)
     end
     if ok and type(hz) == "number" and hz == hz and abs(hint_z - hz) < 80 then
         return hz

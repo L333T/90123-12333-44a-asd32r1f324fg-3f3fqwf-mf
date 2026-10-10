@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.269.0
+-- Version: 2.270.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -104,6 +104,11 @@ function healing.tick(player)
             local hp = health_pct(player)
             local mana = mana_pct(player)
             local has_mana = power.has_mana(player)
+            -- 2.270.0: the health 1.5 s from now (get_health_percentage_inc,
+            -- an IZI forecast of the incoming damage) - the potion goes in
+            -- before a big hit lands, not after
+            local fut = safe(function() return player:get_health_percentage_inc(1.5) end)
+            if type(fut) == "number" and fut > 0 and fut < hp then hp = fut end
             if hp <= gui.slider("hp_pot", 35) then
                 izi.use_best_health_potion_safe()
             end

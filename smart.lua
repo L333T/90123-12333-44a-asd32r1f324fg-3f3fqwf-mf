@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.275.0
+-- Version: 2.276.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -525,6 +525,12 @@ end
 function c.in_combat()
     if memo.combat == nil then memo.combat = safe(P.is_in_combat, P) == true end
     return memo.combat
+end
+
+--- 2.276.0: is the target moving (a fleeing mob)?
+function c.tmoving()
+    if memo.tmoving == nil then memo.tmoving = T ~= nil and safe(T.is_moving, T) == true end
+    return memo.tmoving
 end
 
 function c.moving()

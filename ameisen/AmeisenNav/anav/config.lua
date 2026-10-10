@@ -81,6 +81,10 @@ local C = {
     horizon_object_clearance = 1.0, -- extra yards kept from cached objects
     horizon_splices     = 3,        -- bad legs re-planned per window
 
+    -- ------------------------------------------- indoors / interact (1.6.1)
+    arrive_dz           = 2.5,      -- yards of height: more is another floor, not arrived
+    interact_pad        = 0.5,      -- yards kept from an object / NPC standing on the destination
+
     -- ------------------------------------------------------ handoff (1.6.0)
     handoff_face        = 1.0,      -- seconds a combat handoff keeps facing the target
     pathcheck_unsmoothed = true,    -- walk paths without Chaikin corner cutting (flag 1 dropped)

@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/horizon.lua - rolling 20-yard path windows, validated before walking
 -- ============================================================================
--- Version: 1.6.0
+-- Version: 1.6.1
 -- Author: BLIZZ
 -- ============================================================================
 -- WHAT (1.6.0)
@@ -35,6 +35,13 @@
 --               waypoint sideways, never past the free distance measured in 2.
 -- The start point is the player's own position; the destination is never
 -- moved. No smoothing anywhere: the walker's own smoothing is off as well.
+--
+-- INTERACT APPROACH (1.6.1). When a cached object or NPC stands on the
+-- destination (a quest giver, a quest object), the final window ends at its
+-- edge - its radius + the body radius + C.interact_pad, back along the path -
+-- instead of walking into it, and info.exact tells the client that the
+-- destination height is real (an upstairs NPC: arriving a floor below is
+-- not arriving).
 -- ============================================================================
 
 local C = require("anav/config")
@@ -283,8 +290,9 @@ end
 -- build one window
 -- ----------------------------------------------------------------------------
 --- cb(ok, window_points(vec3[]) | nil, info { final, why })
---- `from` = player position (x, y, z), `path` = server path to the destination.
-function H.build(from, path, cb)
+--- `from` = player position (x, y, z), `path` = server path to the destination,
+--- `want` = the destination asked for (the server may snap it to another floor).
+function H.build(from, path, cb, want)
     if type(path) ~= "table" or #path == 0 then cb(false, nil, { why = "empty path" }); return end
     local win, final = H.cut(from, path, C.horizon_length)
     if #win < 2 then
@@ -293,12 +301,43 @@ function H.build(from, path, cb)
     end
     pcall(AV.refresh, from.x, from.y, from.z)
     local splices = 0
+    local exact = false
+    if final then
+        local dest = want or path[#path]
+        local objs, n = AV.objects()
+        local at = nil
+        for i = 1, n do
+            local o = objs[i]
+            if d2(o, dest) <= math.max(1.5, o.r) and math.abs(o.z - dest.z) < 3 then at = o; break end
+        end
+        if at then
+            exact = true
+            local stand = at.r + C.body_radius + C.interact_pad
+            -- inside its stand circle ON ITS FLOOR (under an upstairs NPC is not)
+            local function inside(p)
+                return d2(p, at) < stand and math.abs(p.z - at.z) < C.arrive_dz
+            end
+            -- drop points inside the stand circle, then end on its edge
+            while #win > 2 and inside(win[#win - 1]) do table.remove(win) end
+            local a, b = win[#win - 1], win[#win]
+            if inside(a) then
+                table.remove(win)                      -- already at the edge
+            elseif math.abs(a.z - at.z) < C.arrive_dz then
+                local da = d2(a, at)
+                local f = (da - stand) / math.max(d2(a, b), 0.01)
+                if f > 1 then f = 1 elseif f < 0 then f = 0 end
+                win[#win] = pt(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, a.z + (b.z - a.z) * f)
+            end
+            -- a on another floor: the last leg is the climb - keep its end
+            L.debug("horizon: object on the destination - stopping %.1f yd from it", stand)
+        end
+    end
 
     local function finish()
         H.stats.windows = H.stats.windows + 1
         local out = {}
         for i = 1, #win do out[i] = vec3.new(win[i].x, win[i].y, win[i].z) end
-        cb(true, out, { final = final })
+        cb(true, out, { final = final, exact = exact })
     end
 
     local function widths()

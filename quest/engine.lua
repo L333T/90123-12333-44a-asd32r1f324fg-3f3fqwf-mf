@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.262.0
+-- Version: 2.263.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -519,7 +519,14 @@ local function approach_kind()
 end
 
 --- Standing within `yards` of `pos`, measured flat (see ARRIVE_DZ).
-local function near(pos, yards)
+-- INDOORS (2.263.0): an NPC or object position has a REAL height. Flat
+-- distance with ARRIVE_DZ (12 yd, for guide waypoints whose height is a
+-- terrain estimate) let the bot "arrive" under an upstairs quest giver
+-- (Mountaineer Stormpike, Thelsamar, 10:11 log: three refused interacts).
+-- `exact` targets need the same floor: within EXACT_DZ.
+local EXACT_DZ = 2.5
+
+local function near(pos, yards, exact)
     local me = safe(function() return izi.me():get_position() end)
     if not me or not pos then
         return false
@@ -528,15 +535,18 @@ local function near(pos, yards)
     if type(d) ~= "number" or d > yards then
         return false
     end
+    if exact and type(me.z) == "number" and type(pos.z) == "number" then
+        return math.abs(me.z - pos.z) <= EXACT_DZ
+    end
     if type(me.z) ~= "number" or type(pos.z) ~= "number" or math.abs(me.z - pos.z) <= ARRIVE_DZ then
         return true
     end
     return not movement.is_moving()
 end
 
-local function walk_to(pos, note, arrive)
+local function walk_to(pos, note, arrive, exact)
     arrive = arrive or ARRIVE
-    if near(pos, arrive) then
+    if near(pos, arrive, exact) then
         return false
     end
     -- Movement treats 5 yards as arrived and stops. Asking it for another
@@ -545,7 +555,9 @@ local function walk_to(pos, note, arrive)
     if arrive >= TALK_ARRIVE then
         local me = safe(function() return izi.me():get_position() end)
         local d = me and geometry.distance_flat(me, pos)
-        if type(d) == "number" and d <= TALK_ARRIVE then
+        if type(d) == "number" and d <= TALK_ARRIVE
+            and not (exact and type(me.z) == "number" and type(pos.z) == "number"
+                and math.abs(me.z - pos.z) > EXACT_DZ) then
             return false
         end
     end
@@ -940,7 +952,7 @@ local function buy_goal(player, goal, wps, label)
     local d = safe(function() return player:distance_to(unit) end) or 99
     if d > 5 then
         local up = safe(function() return unit:get_position() end)
-        if up and walk_to(up, label, 4) then return true end
+        if up and walk_to(up, label, 4, true) then return true end
     end
     movement.nav_stop()
     if (now - b.talk_t) >= BUY_TALK_GAP then
@@ -1141,7 +1153,7 @@ local function prof_goal(player, goal, wps, label)
     local d = safe(function() return player:distance_to(unit) end) or 99
     if d > 5 then
         local up = safe(function() return unit:get_position() end)
-        if up and walk_to(up, label, 4) then return true end
+        if up and walk_to(up, label, 4, true) then return true end
     end
     movement.nav_stop()
     if (now - p.talk_t) >= PROF_TALK_GAP then
@@ -1826,6 +1838,13 @@ local function dialog_goal(player, goal, kind, wps, label)
         trail("act", "%s: the NPC refused the interaction - closing in", tostring(label))
     end
     local reach = g_close_in and CLOSE_REACH or TALK_REACH
+    -- 2.263.0: the reach is 3D - flat, an NPC one floor up was "in reach"
+    do
+        local mp = safe(function() return player:get_position() end)
+        local np = safe(function() return unit:get_position() end)
+        local d3 = mp and np and geometry.distance(mp, np)
+        if type(d3) == "number" then d = d3 end
+    end
     if d > reach then
         local p = safe(function() return unit:get_position() end)
         if p then
@@ -1837,7 +1856,7 @@ local function dialog_goal(player, goal, kind, wps, label)
                 g_giver_walk = { x = p.x, y = p.y, z = p.z }
                 movement.nav_stop()
             end
-            walk_to(p, label, math.max(reach - 1.0, 1.5))
+            walk_to(p, label, math.max(reach - 1.0, 1.5), true)
             return true
         end
         return false
@@ -2389,7 +2408,7 @@ local function fly_goal(player, goal, wps, label)
     if d > TALK_REACH then
         local p = safe(function() return unit:get_position() end)
         if p then
-            walk_to(p, label)
+            walk_to(p, label, nil, true)
             return true
         end
         return false
@@ -2665,7 +2684,7 @@ local function far_travel(player, goal, kind, wps, label)
     local ud = safe(function() return player:distance_to(unit) end) or 99
     if ud > TALK_REACH then
         local p = safe(function() return unit:get_position() end)
-        if p then walk_to(p, "flight master") end
+        if p then walk_to(p, "flight master", nil, true) end
         state.set_note("Travel", "To the flight master")
         return true
     end
@@ -2726,7 +2745,10 @@ end
 --   * An object used OBJECT_TRIES times with nothing to show is skipped for
 --     OBJECT_SKIP seconds, so the next one is tried.
 local OBJECT_REACH = 5.0
-local OBJECT_CLICK = 8.0
+-- 2.263.0: 6, not 8 - a use from 8 yd is out of range and burnt one of the
+-- OBJECT_TRIES; a retry is made from OBJECT_CLOSE after walking in.
+local OBJECT_CLICK = 6.0
+local OBJECT_CLOSE = 3.0
 local OBJECT_TRIES = 4
 local OBJECT_SKIP = 60
 local g_obj = { guid = nil, uses = 0 }
@@ -2774,6 +2796,14 @@ local function object_goal(player, goal, label)
         g_obj.guid, g_obj.uses = guid, 0
     end
     local standing = not movement.is_moving()
+    -- 2.263.0: a use that brought nothing is retried from closer
+    if g_obj.uses >= 1 and type(odist) == "number" and odist > OBJECT_CLOSE then
+        local cp = safe(function() return obj:get_position() end)
+        if cp and not movement.is_blocked(cp) and walk_to(cp, label, OBJECT_CLOSE - 1.0, true) then
+            state.set_note("Quest", "Guide: closer to " .. label)
+            return true
+        end
+    end
     if type(odist) == "number" and (odist <= OBJECT_REACH or (standing and odist <= OBJECT_CLICK)) then
         movement.nav_stop()
         local now = izi.now()
@@ -2801,7 +2831,7 @@ local function object_goal(player, goal, label)
     end
     local opos = safe(function() return obj:get_position() end)
     if opos and not movement.is_blocked(opos) then
-        walk_to(opos, label)
+        walk_to(opos, label, nil, true)
         return true
     end
     return false

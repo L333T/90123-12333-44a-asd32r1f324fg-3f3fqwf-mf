@@ -246,6 +246,12 @@ function M:_window(nav, path, from)
         end
         nav.window_final = info and info.final == true
         nav.window_end = win[#win]
+        if info and info.exact then nav.exact_z = true end
+        if nav.window_final and #win <= 1 then
+            -- 1.6.1: already standing at the object's / NPC's edge
+            self:_finish(true, "arrived")
+            return
+        end
         nav.windows = (nav.windows or 0) + 1
         self.last_path = win
         L.debug("window #%d: %d points, %.0f yd%s", nav.windows, #win, Q.path_length(win),
@@ -260,7 +266,7 @@ function M:_window(nav, path, from)
         PC.clear()                                       -- windows are checked before walking
         if self.state ~= "navigating" or self.sub then self:_set_state("navigating") end
         self:_emit("path", nav.points)
-    end)
+    end, nav.dest)
 end
 
 --- Ask the server for the path from the player to the destination and turn
@@ -470,6 +476,17 @@ function M:update()
         self:_next_window(nav)
         return
     end
+    if ev == "arrived" and nav.exact_z and not nav.detour then
+        -- 1.6.1: an object / NPC stands on the destination, so its height is
+        -- real: arriving on another floor (under an upstairs NPC) is not there
+        local here = player_point()
+        if here and math.abs(here.z - nav.dest.z) >= C.arrive_dz then
+            L.debug("arrived %.1f yd below/above the destination - another floor, re-planning",
+                math.abs(here.z - nav.dest.z))
+            self:_repath(nav, "wrong_floor")
+            return
+        end
+    end
     if ev == "arrived" then
         if nav.detour then
             nav.detour = false
@@ -477,6 +494,8 @@ function M:update()
         else
             self:_finish(true, "arrived")
         end
+    elseif ev == "wrong_floor" then
+        self:_repath(nav, "wrong_floor")
     elseif ev == "stuck" then
         self:_on_stuck(nav)
     elseif ev == "deviated" then

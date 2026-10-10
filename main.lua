@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.265.0
+-- Version: 2.266.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -882,7 +882,7 @@ end
 -- grind route files are unloaded and re-required, and they are not listed).
 -- A host without package.preload (or a local folder load) is unaffected.
 local DATA_CHUNKS = {
-    "data/rxp_targets", "data/ek_alliance_routes", "data/class_spells", "data/taxi_nodes",
+    "data/rxp_targets", "data/ek_inns", "data/class_spells", "data/taxi_nodes",
     "data/forever_spells", "data/spell_categories", "data/consumables", "data/racials",
     "data/factions",
 }

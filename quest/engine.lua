@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.265.0
+-- Version: 2.266.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -38,7 +38,6 @@ local movement = require("movement")
 local healing = require("healing")
 local geometry = require("geometry")
 local guide = require("quest/guide")
-local travel_routes = require("travel_routes")
 local loot = nil
 do
     local ok, mod = pcall(require, "loot")
@@ -164,7 +163,6 @@ end
 
 local last_walk_x, last_walk_y = nil, nil
 local last_aim_x, last_aim_y = nil, nil
-local last_road = nil
 local last_note = nil
 
 local function trail(tag, fmt, ...)
@@ -594,17 +592,9 @@ local function walk_to(pos, note, arrive, exact)
     end
     state.set_note("Quest", "Guide: " .. note)
     g_in_travel = true
-    -- A destination on a recorded inn or flight-path road is walked as the
-    -- next point of that road. The real waypoint stays the arrival test.
-    local me = safe(function() return izi.me():get_position() end)
-    local hop = me and travel_routes.hop(me, pos) or nil
-    local target = hop or pos
-    if travel_routes.road ~= last_road then
-        last_road = travel_routes.road
-        if last_road then
-            trail("walk", "recorded road %s toward %s", last_road, tostring(note))
-        end
-    end
+    -- 2.266.0: the recorded inn / flight-path roads are gone - the
+    -- destination itself is navigated (AmeisenNav windows).
+    local target = pos
     local tx = math.floor(target.x or 0)
     local ty = math.floor(target.y or 0)
     local aim_moved = tx ~= last_aim_x or ty ~= last_aim_y
@@ -1520,15 +1510,6 @@ local function stalled(now, goal, d)
     if g_talk_opened ~= 0 and g_stall.talked ~= true then
         g_stall.talked = true
         moved = true
-    end
-    -- A recorded road can lead away from the goal for a while before it
-    -- turns toward it; covering ground on one is progress.
-    if travel_routes.road then
-        local me = safe(function() return izi.me():get_position() end)
-        if me and (g_stall.pos == nil or (geometry.distance_flat(me, g_stall.pos) or 0) >= 5) then
-            g_stall.pos = { x = me.x, y = me.y, z = me.z }
-            moved = true
-        end
     end
     if moved then
         g_stall.t = now

@@ -3,7 +3,7 @@
 -- movement/terrain.lua - terrain-aware Sentinel pathing (coords_helper)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.274.0
+-- Version: 2.275.0
 -- ============================================================================
 -- Sentinel plans on its navmesh and knows nothing about the ground the client
 -- has loaded. Three things here read that ground through
@@ -139,12 +139,23 @@ local function hkey(x, y)
     return (floor(x) + WORLD_LIMIT) * 40001 + (floor(y) + WORLD_LIMIT)
 end
 
-local function coords_height(x, y)
+-- 2.275.0 (Coords Helper, 2026-10-06 fix): get_terrain_height(x, y,
+-- extra_height) casts down from the CHARACTER's height + extra_height. It was
+-- called without extra_height, so every ray started 4 yd above the character
+-- whatever the caller asked: a hill or ramp ahead and above could not be
+-- read (march's window was held at 2.5 yd for it). The caller's ray start
+-- (zstart) is now passed as extra_height = zstart - character z; an answer
+-- above the ray start is no answer, and a 0 only counts as "nothing there"
+-- away from height 0 (where 0 can be real ground).
+local function coords_height(x, y, zstart)
     local c = coords()
     if coords_dead or not c or type(c.get_terrain_height) ~= "function" or errors.height >= ERR_MAX then
         return nil, false
     end
-    local ok, h = pcall(c.get_terrain_height, c, x, y)
+    local _, _, hz = here_xyz()
+    local extra = nil
+    if finite(hz) and finite(zstart) then extra = zstart - hz end
+    local ok, h = pcall(c.get_terrain_height, c, x, y, extra)
     if not ok then
         api_error("height")
         return nil, false
@@ -154,7 +165,7 @@ local function coords_height(x, y)
         trail("coords_helper get_terrain_height first result: %s %s", type(h), tostring(h))
     end
     -- 0 is what the call answers with nothing under the point.
-    if not finite(h) or h == 0 then
+    if not finite(h) or (h == 0 and not (finite(hz) and abs(hz) <= 5)) then
         coords_zero = coords_zero + 1
         if coords_zero >= COORDS_DEAD then
             coords_dead = true
@@ -164,6 +175,7 @@ local function coords_height(x, y)
         return nil, true
     end
     coords_zero = 0
+    if finite(zstart) and h > zstart + 0.5 then return nil, true end
     return h, true
 end
 
@@ -192,9 +204,28 @@ local function izi_height(x, y, zstart)
     return h
 end
 
---- How far above the character the ground can be read (see march).
+-- Indoors (izi is_indoors, cached 1 s) the ray must start low: started high
+-- it hits the floor above or the ceiling (Coords Helper: "inside buildings
+-- and caves keep it small").
+local indoor_t, indoor_v = -1e9, false
+local function indoors()
+    local t = izi.now()
+    if t - indoor_t >= 1.0 then
+        indoor_t = t
+        local v = false
+        pcall(function() v = izi.me():is_indoors() == true end)
+        indoor_v = v
+    end
+    return indoor_v
+end
+T.indoors = indoors
+
+--- How far above the character the ground can be read (see march). 2.275.0:
+--- CORE_WINDOW outdoors with every height source (coords_helper now takes
+--- the ray start as extra_height); WINDOW_COORDS indoors.
 function T.window()
-    return coords_dead and CORE_WINDOW or WINDOW_COORDS
+    if indoors() then return WINDOW_COORDS end
+    return CORE_WINDOW
 end
 
 --- Ground height at (x, y), or nil. `zstart`: where the ray starts (default
@@ -212,7 +243,7 @@ function T.height(x, y, zstart)
     if e and (now - e.t) < H_TTL and abs((e.zs or 0) - zstart) < 2 then return e.h or nil end
     local h = nil
     if not coords_dead then
-        local got, asked = coords_height(x, y)
+        local got, asked = coords_height(x, y, zstart)
         h = got
         if not asked then h = nil end
     end
@@ -280,6 +311,11 @@ local function map_floors(out, x, y, z)
     if not mx or not my or mx <= 0 or my <= 0 or mx >= 0.99 or my >= 0.99 then return end
     local v2 = vec2_new(mx, my)
     if not v2 then return end
+    -- 2.275.0: the helper's own bounds check (rejects > 0.99 edge cases)
+    if type(c.is_valid_map_coords) == "function" then
+        local okv, valid = pcall(c.is_valid_map_coords, c, v2)
+        if okv and valid == false then return end
+    end
     for i = 1, #FLOOR_EXTRA do
         local ok, w = pcall(c.map_to_world, c, map_id, v2, FLOOR_EXTRA[i])
         if not ok then
@@ -396,8 +432,7 @@ local FLOOR_TOL = 3.0    -- terrain under the character must be this close to it
 ---   nil           no terrain under the start (bridge, building, cave)
 local function march(x, y, zref, tol, ux, uy, len)
     local win = T.window()
-    local zs = zref + win + 2           -- ray start: above everything readable
-    if not coords_dead then zs = nil end -- coords: its own start (player z + 4)
+    local zs = zref + win + 2           -- ray start: above everything readable (2.275.0: every source)
     local h0 = T.height(x, y, zs)
     if not h0 or abs(h0 - zref) > tol then return nil end
     local prev, prev_s, s, misses = h0, 0, 0, 0

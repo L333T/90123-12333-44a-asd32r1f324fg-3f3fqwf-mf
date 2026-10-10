@@ -3,7 +3,7 @@
 -- predict.lua - Sylvanas spell_prediction for the class rotations
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.268.0
+-- Version: 2.269.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.248.0)

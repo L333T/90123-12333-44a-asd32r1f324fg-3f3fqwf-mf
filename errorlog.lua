@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.268.0
+-- Version: 2.269.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:

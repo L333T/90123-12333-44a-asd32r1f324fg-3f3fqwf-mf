@@ -3,7 +3,7 @@
 -- WoW Forever trainer spell ids (GENERATED - tools/gen_forever_spells.py)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.281.0
+-- Version: 2.282.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- From RXPGuides DB/forever/spells.lua (addon.defaultSpellList). Keys are

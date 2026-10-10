@@ -3,7 +3,7 @@
 -- callbacks.lua - IZI callbacks: combat finished, spell cancelled
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.281.0
+-- Version: 2.282.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.271.0)

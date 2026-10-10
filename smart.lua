@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.281.0
+-- Version: 2.282.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -692,6 +692,7 @@ end
 -- ============================================================================
 local fail_until = {}          -- entry key -> time
 local last_cast = {}           -- entry key -> time
+local imbue_cast_at = -1e9     -- 2.282.0: last main-hand imbue cast (see MAIN-HAND IMBUE)
 local last_upkeep = -1e9
 local seal_cast_at = -1e9
 -- The wand is auto-repeat: casting Shoot again while it is firing stops it.
@@ -894,6 +895,7 @@ local function cast(e, unit, pos)
         last_cast[e.key] = now
         local cqm = mod("castq")
         if not (cqm and type(cqm.off_gcd) == "function" and cqm.off_gcd(e.id, sp)) then last_gcd_cast = now end
+        if e.role == "imbue" then imbue_cast_at = now end    -- 2.282.0
         if e.name == "Shoot" then
             wand_guid = unit and safe(unit.get_guid, unit) or nil
         elseif e.name == "Auto Shot" then
@@ -993,14 +995,56 @@ local function aoe_count(e)
     return c.near_target(def.r or 10)
 end
 
-local function mainhand_imbued()
-    local v = safe(P.item_has_enchant, P, 16)
-    if type(v) == "boolean" then return v end
-    local id = safe(P.item_enchant_id, P, 16)
-    if type(id) == "number" then return id > 0 end
-    local exp = safe(P.item_enchant_expiration, P, 16)
-    if type(exp) == "number" then return exp > 0 end
+-- MAIN-HAND IMBUE (2.282.0). item_has_enchant / item_enchant_id /
+-- item_enchant_expiration belong to the ITEM game object and take no slot.
+-- They were called on the PLAYER with slot 16 - a player is no item, the
+-- answer was "no enchant", and a Shaman recast Rockbiter Weapon every tick.
+-- Now, in this order:
+--   1. GetWeaponEnchantInfo (the game's own; temporary enchants only),
+--   2. the main-hand item (get_item_at_inventory_slot(16).object): an
+--      enchant with time left, or an enchant id / flag,
+--   3. unreadable (no item object): nil - never guessed.
+-- And an imbue cast within IMBUE_HOLD s is not recast on a "missing" answer
+-- (Rockbiter lasts 5 min): a client that cannot tell recasts on schedule,
+-- never every tick. What each source answered is logged once.
+local IMBUE_HOLD = 270
+local imbue_logged = false
+
+local function mainhand_item()
+    local info = safe(P.get_item_at_inventory_slot, P, 16)
+    if type(info) == "table" and info.object ~= nil then return info.object end
+    if type(info) == "userdata" then return info end
     return nil
+end
+
+local function mainhand_imbued()
+    local wei = nil
+    local gw = rawget(_G, "GetWeaponEnchantInfo")
+    if type(gw) == "function" then
+        local ok, has_main = pcall(gw)
+        if ok and type(has_main) == "boolean" then wei = has_main end
+    end
+    local item = mainhand_item()
+    local has, id, exp
+    if item ~= nil then
+        has = safe(item.item_has_enchant, item)
+        id = safe(item.item_enchant_id, item)
+        exp = safe(item.item_enchant_expiration, item)
+    end
+    if not imbue_logged then
+        imbue_logged = true
+        local el = mod("errorlog")
+        if el and type(el.trail) == "function" then
+            pcall(el.trail, "rotation", "imbue check: GetWeaponEnchantInfo=%s, main-hand item=%s, has_enchant=%s, enchant_id=%s, expiration=%s",
+                tostring(wei), item ~= nil and "yes" or "none", tostring(has), tostring(id), tostring(exp))
+        end
+    end
+    if wei ~= nil then return wei end
+    if item == nil then return nil end
+    if type(exp) == "number" and exp > 0 then return true end
+    if type(id) == "number" and id > 0 then return true end
+    if has == true then return true end
+    return false
 end
 
 local COND = {}
@@ -1128,6 +1172,8 @@ end
 local function buff_missing(e)
     local role = e.role
     if role == "imbue" then
+        -- 2.282.0: never within IMBUE_HOLD s of the last imbue cast
+        if (izi.now() - imbue_cast_at) < IMBUE_HOLD then return false end
         return mainhand_imbued() == false
     end
     if role == "form" then

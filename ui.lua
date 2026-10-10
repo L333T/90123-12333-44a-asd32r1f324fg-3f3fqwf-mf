@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.278.0
+-- Version: 2.279.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -607,30 +607,86 @@ end
 -- artwork repo (the launcher's own source) and cached in scripts_data next to
 -- the launcher's artwork; the mf_assets zip logo is only the fallback.
 -- ---------------------------------------------------------------------------
-local BANNER_URL = "https://raw.githubusercontent.com/L333T/master-farmer-assets/main/gui/logo_master_farmer.png"
+-- The game emblem (left of the banner) comes the same way: icon_forever.png
+-- on WoW Forever, icon_retail.png on every other client.
+local ART_URL = "https://raw.githubusercontent.com/L333T/master-farmer-assets/main/gui/"
 local BANNER_DIR = "master_farmer/gui_v3"
-local BANNER_FILE = BANNER_DIR .. "/logo_master_farmer.png"
-local banner = { bytes = nil, asked = false }
+local remote_art = {}      -- file name -> { bytes, asked }
 
-local function banner_bytes()
-    if banner.bytes then return banner.bytes end
-    local cached = safe(function() return core.read_data_file(BANNER_FILE) end)
+local function art_bytes(name)
+    local r = remote_art[name]
+    if not r then
+        r = { bytes = nil, asked = false }
+        remote_art[name] = r
+    end
+    if r.bytes then return r.bytes end
+    local path = BANNER_DIR .. "/" .. name
+    local cached = safe(function() return core.read_data_file(path) end)
     if usable_bytes(cached) and #cached > 1000 then
-        banner.bytes = cached
+        r.bytes = cached
         return cached
     end
-    if not banner.asked and type(core.http_get) == "function" then
-        banner.asked = true
-        pcall(core.http_get, BANNER_URL, function(code, _, data)
+    if not r.asked and type(core.http_get) == "function" then
+        r.asked = true
+        pcall(core.http_get, ART_URL .. name, function(code, _, data)
             if tonumber(code) ~= 200 or not usable_bytes(data) then return end
-            banner.bytes = data
+            r.bytes = data
             pcall(core.create_data_folder, "master_farmer")
             pcall(core.create_data_folder, BANNER_DIR)
-            pcall(core.create_data_file, BANNER_FILE)
-            pcall(core.write_data_file, BANNER_FILE, data)
+            pcall(core.create_data_file, path)
+            pcall(core.write_data_file, path, data)
         end)
     end
     return nil
+end
+
+local function banner_bytes()
+    return art_bytes("logo_master_farmer.png")
+end
+
+--- The emblem for this client: Forever, else retail.
+local function game_icon_name()
+    local mf = MASTER_FARMER     -- the launcher puts it in the plugin environment
+    if type(mf) == "table" and mf.version_id == "forever" then return "icon_forever.png" end
+    local gv = safe(function() return core.get_game_version() end)
+    if type(gv) == "string" and gv:lower():find("forever", 1, true) then return "icon_forever.png" end
+    return "icon_retail.png"
+end
+
+--- The game emblem as a texture (cached once it decodes).
+local game_icon = { tex = nil, next_try = 0 }
+local function game_icon_tex()
+    if game_icon.tex then return game_icon.tex end
+    local now = safe(core.time) or 0
+    if now < game_icon.next_try then return nil end
+    game_icon.next_try = now + 0.5
+    local bytes = art_bytes(game_icon_name())
+    if not bytes then return nil end
+    local id = nil
+    local ok = pcall(function() id = core.graphics.load_texture(bytes) end)
+    if ok and id ~= nil then
+        _asset_keep.game_icon = bytes
+        game_icon.tex = id
+    end
+    return game_icon.tex
+end
+
+--- Draw the game emblem at window-local (x, y), `size` square.
+local function draw_game_icon(win, x, y, size)
+    local id = game_icon_tex()
+    if id == nil or size < 4 then return false end
+    local sx, sy = x, y
+    local origin = safe(function() return win:get_position() end)
+    if origin and type(origin.x) == "number" and type(origin.y) == "number" then
+        sx, sy = origin.x + x, origin.y + y
+    end
+    local pos = vec2.new(sx, sy)
+    local tint = color.white(255)
+    local ok = pcall(function() core.graphics.draw_texture(id, pos, size, size, tint, true) end)
+    if not ok then
+        ok = pcall(function() core.graphics.draw_texture_rect(id, pos, size, size, 0, 0, 1, 1, tint, true) end)
+    end
+    return ok
 end
 
 function Menu:ensure_logo()
@@ -1383,6 +1439,9 @@ function Menu:draw_header(win, m)
             ly = math.max(4, band_h - dh)
         end
         self:draw_logo_texture(win, lx, ly, dw, dh)
+        -- the game emblem, left of the banner (Forever / retail)
+        local isz = math.floor(dh * 0.92)
+        draw_game_icon(win, lx - isz - 12, ly + math.floor((dh - isz) * 0.5), isz)
     end
 
     local tx = pad

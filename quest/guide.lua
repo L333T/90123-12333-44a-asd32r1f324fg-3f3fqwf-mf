@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.267.0
+-- Version: 2.268.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2013,7 +2013,10 @@ function guide.find_path_mob(player, dest, range, cone, below, above)
             local hostile = type(d) == "number" and d <= (range or 20)
                 and (call(u.is_enemy_with, u, player) == true or call(u.is_in_combat, u) == true)
             local lvl = hostile and (call(u.get_level, u) or 0) or 0
-            if hostile and lvl >= my_level - (below or 4) and lvl <= my_level + (above or 3)
+            -- 2.268.0: a path pull is never an elite (targeting.too_strong)
+            local tg = hostile and targeting_mod or nil
+            local strong = tg and type(tg.too_strong) == "function" and tg.too_strong(player, u)
+            if hostile and not strong and lvl >= my_level - (below or 4) and lvl <= my_level + (above or 3)
                 and not camp_excluded(u) and fightable(player, u) then
                 local pos = call(u.get_position, u)
                 if pos then

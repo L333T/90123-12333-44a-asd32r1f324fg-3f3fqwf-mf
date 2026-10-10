@@ -338,6 +338,14 @@ function X.map_info()
 end
 
 --- x, y, z of the player or nil.
+--- 1.6.3: is the player inside a building / cave (game_object:is_indoors)?
+function X.is_indoors()
+    local p = X.player()
+    if not p then return false end
+    local ok, v = X.call(p, "is_indoors")
+    return ok and v == true
+end
+
 function X.position()
     local p = X.player()
     if not p then return nil end

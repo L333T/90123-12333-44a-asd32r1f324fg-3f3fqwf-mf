@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.267.0
+-- Version: 2.268.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -308,6 +308,27 @@ function targeting.attackers(player)
     return n
 end
 
+-- ELITES (2.268.0, game_object:get_classification): 1 elite, 2 rare
+-- elite, 3 world boss. Only the level was checked, so a same-level elite
+-- (a cave boss, a camp leader) was pulled like any mob. One is fought only
+-- when it is at least ELITE_MARGIN levels under the player, or when the
+-- grind profile names it (find_mobs with an npc id list).
+local ELITE_MARGIN = 3
+local DANGEROUS_CLASS = { [1] = true, [2] = true, [3] = true }
+
+--- An elite / rare elite / world boss the player should not pull on its own.
+function targeting.too_strong(player, unit)
+    if not player or not indexable(unit) then return false end
+    local c = call(unit.get_classification, unit)
+    if not DANGEROUS_CLASS[c] then return false end
+    local my_lvl = call(player.get_level, player)
+    local lvl = call(unit.get_level, unit)
+    if type(my_lvl) == "number" and type(lvl) == "number" and lvl <= my_lvl - ELITE_MARGIN then
+        return false
+    end
+    return true
+end
+
 --- Too high to fight: more than LEVEL_CAP levels above the player.
 function targeting.too_high(player, unit)
     local my_lvl = call(player.get_level, player)
@@ -421,6 +442,11 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
                     end
                     -- Never more than 5 above (2.95.0), whatever the band says.
                     if diff > LEVEL_CAP then
+                        level_ok = false
+                    end
+                    -- 2.268.0: no elites unless the profile names this npc
+                    if level_ok and not (type(mobs) == "table" and #mobs > 0)
+                        and targeting.too_strong(player, u) then
                         level_ok = false
                     end
                     if id_wanted(npc_id, mobs) and level_ok then

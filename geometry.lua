@@ -3,7 +3,7 @@
 -- geometry.lua - object and position helpers, on the vec3 API
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.267.0
+-- Version: 2.268.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- The handful of helpers every bot ends up writing - what is this object, how
@@ -253,7 +253,14 @@ function geometry.future_position(unit, t)
     if t <= 0 then return pos end
     if t > FUTURE_MAX_T then t = FUTURE_MAX_T end
     if fcall(unit, "is_moving") == false then return pos end
-    local dir = fcall(unit, "get_direction")
+    -- 2.268.0: the direction it MOVES (get_movement_direction), not the one
+    -- it faces - a unit backing up or strafing moves away from its facing.
+    -- Facing only when the movement direction cannot be read.
+    local dir = fcall(unit, "get_movement_direction")
+    if type(dir) ~= "table" or type(dir.x) ~= "number"
+        or (math.abs(dir.x) < 1e-6 and math.abs(dir.y or 0) < 1e-6 and math.abs(dir.z or 0) < 1e-6) then
+        dir = fcall(unit, "get_direction")
+    end
     local speed = tonumber(fcall(unit, "get_movement_speed"))
     if type(dir) ~= "table" or type(dir.x) ~= "number" or not speed or speed <= 0 then
         return pos

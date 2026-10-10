@@ -79,6 +79,9 @@ local C = {
     horizon_clearance   = 2.0,      -- yards kept from walls, ledges, drops (both sides)
     horizon_probes      = { 1.0, 2.0, 3.0 }, -- side probe distances (yards)
     horizon_object_clearance = 1.0, -- extra yards kept from cached objects
+    -- 1.6.3 indoors (game_object:is_indoors): doorways and rooms are narrow
+    horizon_clearance_indoors = 1.25,
+    horizon_object_clearance_indoors = 0.4,
     horizon_splices     = 3,        -- bad legs re-planned per window
 
     -- ------------------------------------------- indoors / interact (1.6.1)

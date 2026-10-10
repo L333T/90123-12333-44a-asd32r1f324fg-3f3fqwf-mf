@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.263.0
+-- Version: 2.264.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2793,11 +2793,21 @@ local function object_goal(player, goal, label)
     end
     local guid = safe(function() return obj:get_guid() end)
     if guid ~= g_obj.guid then
-        g_obj.guid, g_obj.uses = guid, 0
+        g_obj.guid, g_obj.uses, g_obj.used_t, g_obj.need = guid, 0, nil, nil
     end
     local standing = not movement.is_moving()
+    -- 2.264.0: the use was refused as too far (UI_ERROR_MESSAGE) - it does
+    -- not count as a try, and the next one is made from 2 yd
+    if g_obj.used_t and events and type(events.too_far_since) == "function"
+        and events.too_far_since(g_obj.used_t) then
+        g_obj.used_t = nil
+        g_obj.uses = math.max(0, g_obj.uses - 1)
+        g_obj.need = 2.0
+        trail("act", "quest object %s: too far to use - closing in",
+            tostring(safe(function() return obj:get_name() end)))
+    end
     -- 2.263.0: a use that brought nothing is retried from closer
-    if g_obj.uses >= 1 and type(odist) == "number" and odist > OBJECT_CLOSE then
+    if (g_obj.uses >= 1 or g_obj.need) and type(odist) == "number" and odist > (g_obj.need or OBJECT_CLOSE) then
         local cp = safe(function() return obj:get_position() end)
         if cp and not movement.is_blocked(cp) and walk_to(cp, label, OBJECT_CLOSE - 1.0, true) then
             state.set_note("Quest", "Guide: closer to " .. label)
@@ -2819,6 +2829,8 @@ local function object_goal(player, goal, label)
             end
             g_act_until = now + ACT_GAP
             g_obj.uses = g_obj.uses + 1
+            g_obj.used_t = now
+            g_obj.need = nil
             local ok = safe(function() return core.input.use_object(obj) end)
             if ok ~= true then
                 pcall(function() core.input.interact_with_object(obj) end)

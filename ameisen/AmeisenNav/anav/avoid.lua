@@ -56,6 +56,28 @@ local function truthy(obj, name)
     return ok and v == true
 end
 
+--- One object as a cache entry: x, y, z, radius - or nil when it does not
+--- block (1.6.5: a function instead of goto, so the plugin can be encoded -
+--- Prometheus parses Lua 5.1, which has no goto).
+local function cache_entry(object, px, py, pz, radius2)
+    if object == nil then return nil end
+    local okv, valid = X.call(object, "is_valid")
+    if okv and valid == false then return nil end
+    -- other players never block movement; units only when enabled
+    if truthy(object, "is_player") then return nil end
+    local is_unit = truthy(object, "is_unit")
+    if is_unit and (not C.avoid_units or truthy(object, "is_dead")) then return nil end
+    local okp, pos = X.call(object, "get_position")
+    if not okp or not pos then return nil end
+    local dx, dy, dz = pos.x - px, pos.y - py, pos.z - pz
+    local d2 = dx * dx + dy * dy
+    -- skip the player itself (distance ~0), far objects and other floors
+    if d2 < 0.25 or d2 > radius2 or math.abs(dz) > 6 then return nil end
+    local r = num(object, "get_bounding_radius") or 1.0
+    if r < 0.3 then r = 0.3 elseif r > 4 then r = 4 end
+    return pos.x, pos.y, pos.z, r
+end
+
 --- Rebuild the cache around (px, py, pz); rate-limited to C.object_scan_every.
 function A.refresh(px, py, pz)
     local t = core.time()
@@ -68,31 +90,13 @@ function A.refresh(px, py, pz)
     local radius2 = C.object_scan_radius * C.object_scan_radius
     local n = 0
     for i = 1, #objects do
-        local object = objects[i]
-        if object == nil then goto continue end
-        local okv, valid = X.call(object, "is_valid")
-        if okv and valid == false then goto continue end
-        -- other players never block movement; units only when enabled
-        if truthy(object, "is_player") then goto continue end
-        local is_unit = truthy(object, "is_unit")
-        if is_unit and (not C.avoid_units or truthy(object, "is_dead")) then goto continue end
-
-        do
-            local okp, pos = X.call(object, "get_position")
-            if not okp or not pos then goto continue end
-            local dx, dy, dz = pos.x - px, pos.y - py, pos.z - pz
-            local d2 = dx * dx + dy * dy
-            -- skip the player itself (distance ~0), far objects and other floors
-            if d2 < 0.25 or d2 > radius2 or math.abs(dz) > 6 then goto continue end
-            local r = num(object, "get_bounding_radius") or 1.0
-            if r < 0.3 then r = 0.3 elseif r > 4 then r = 4 end
+        local x, y, z, r = cache_entry(objects[i], px, py, pz, radius2)
+        if x then
             n = n + 1
             local e = cache[n]
             if not e then e = {}; cache[n] = e end
-            e.x, e.y, e.z, e.r = pos.x, pos.y, pos.z, r
+            e.x, e.y, e.z, e.r = x, y, z, r
         end
-
-        ::continue::
     end
     cache_n = n
 end
@@ -115,12 +119,10 @@ local function blocking_object(px, py, tx, ty)
         local e = cache[i]
         local ox, oy = e.x - px, e.y - py
         local s = ox * ux + oy * uy            -- distance along the segment
-        if s <= 0 or s > reach then goto continue end
-        do
+        if s > 0 and s <= reach then
             local perp = math.abs(ox * uy - oy * ux) -- distance off the line
             if perp < e.r + C.body_radius and s < best_s then best, best_s = e, s end
         end
-        ::continue::
     end
     return best
 end

@@ -3,7 +3,7 @@
 -- Eastern Plaguelands 51-54
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.272.0
+-- Version: 2.272.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

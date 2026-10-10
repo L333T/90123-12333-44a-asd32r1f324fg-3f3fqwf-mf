@@ -3,7 +3,7 @@
 -- Gathering: mount up for travel (PORT_PLAYBOOK "Mount and dismount")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.272.0
+-- Version: 2.272.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Called by gather/engine.lua while travelling when the next point is more

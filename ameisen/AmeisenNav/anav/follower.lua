@@ -596,10 +596,18 @@ function F.tick()
 
     if px and last then
         local dx, dy, dz = last.x - px, last.y - py, last.z - pz
-        local close = dx * dx + dy * dy <= C.final_threshold * C.final_threshold and math.abs(dz) < 6
-        if reached or close then
+        -- 1.6.1: the same floor - indoors the floor above / below is a few
+        -- yards up, and 6 yd let the character "arrive" under an upstairs NPC
+        local level = math.abs(dz) < C.arrive_dz
+        local close = dx * dx + dy * dy <= C.final_threshold * C.final_threshold and level
+        if close or (reached and level) then
             F.stop()
             return "arrived"
+        end
+        if reached then
+            -- the walker is done, but on another floor than the path's end
+            F.stop()
+            return "wrong_floor"
         end
     end
 

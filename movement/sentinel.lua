@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.262.0
+-- Version: 2.263.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -886,7 +886,9 @@ function N.move(p, why)
         -- 2.221.0: a clear ray is not walkable ground - a slope too steep to
         -- climb lets it through. Terrain the line cannot vouch for is planned.
         local ok_t, Tr = pcall(require, "movement/terrain")
-        if d < 30 and line_clear(hx, hy, hz, p.x, p.y, p.z)
+        -- 2.263.0: never straight to another floor (an upstairs NPC 8 yd
+        -- away flat): a height step of more than 2.5 yd is pathed (stairs)
+        if d < 30 and math.abs((p.z or hz) - hz) <= 2.5 and line_clear(hx, hy, hz, p.x, p.y, p.z)
             and (not ok_t or type(Tr) ~= "table" or Tr.line_ok(hx, hy, hz, p.x, p.y)) then
             W.halt()
             begin_leg(p, why)

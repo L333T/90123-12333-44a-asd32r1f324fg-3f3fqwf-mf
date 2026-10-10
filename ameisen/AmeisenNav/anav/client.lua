@@ -185,6 +185,42 @@ local function new_nav(self, mode, dest, cb, opts)
     return nav
 end
 
+-- HEIGHT SEARCH (1.6.2). A far destination's height is often a guess: a
+-- RestedXP waypoint is x, y only, and on WoW Forever the terrain height read
+-- answers 0, so the consumer passes the player's own height - 514 yd away
+-- that was 20+ yd off the ground and the server answered no_path (10:53
+-- Loch Modan log: the bot then stood on "cannot reach" for good). On
+-- no_path / end_off_mesh / unreachable the same x, y is asked again at
+-- Z_SEARCH offsets in ONE batched request; the first offset (nearest to the
+-- guess) with a full path is walked, and the destination takes its height.
+local Z_SEARCH = { 8, -8, 20, -20, 40, -40, 80, -80, 150 }
+local Z_RETRY_CODES = { no_path = true, end_off_mesh = true, unreachable = true }
+
+function M:_z_search(nav, from, target, flags, done)
+    local list = {}
+    for i = 1, #Z_SEARCH do
+        list[i] = { from, { x = target.x, y = target.y, z = target.z + Z_SEARCH[i] } }
+    end
+    Q.find_paths(list, { flags = flags, allow_partial = false }, function(ok, res)
+        if self.nav ~= nav then return end
+        if ok and type(res) == "table" then
+            for i = 1, #Z_SEARCH do
+                local r = res[i]
+                if r and r.ok and r.points and #r.points > 1 then
+                    local e = r.points[#r.points]
+                    local dx, dy = e.x - target.x, e.y - target.y
+                    if dx * dx + dy * dy <= C.partial_accept * C.partial_accept then
+                        L.debug("height search: destination found %+d yd from the given height (z %.1f)",
+                            Z_SEARCH[i], e.z)
+                        return done(true, r.points, e.z)
+                    end
+                end
+            end
+        end
+        done(false)
+    end)
+end
+
 --- Ask the server for a path from the player to `target` and walk it.
 --- `tail` points are appended after the path (used when following a route);
 --- `route_i` is the route index of `target` in route mode.
@@ -207,6 +243,27 @@ function M:_plan(nav, target, tail, reason, route_i)
         flags = flags,
     }, function(ok, pts, info)
         if self.nav ~= nav then return end -- superseded
+        if not ok and not tail and not nav.z_searched and Z_RETRY_CODES[info and info.code] then
+            -- 1.6.2: the right x, y at the wrong height - search the height once
+            nav.z_searched = true
+            self:_z_search(nav, from, target, flags, function(found, zpts, z)
+                if not found then
+                    self:_finish(false, info.code, (info.detail or info.code) .. " (no height at that spot)")
+                    return
+                end
+                target.z = z
+                if nav.dest and nav.dest ~= target then
+                    local ddx, ddy = nav.dest.x - target.x, nav.dest.y - target.y
+                    if ddx * ddx + ddy * ddy < 1 then nav.dest.z = z end
+                end
+                if nav.horizon then
+                    self:_window(nav, zpts, from)
+                else
+                    self:_walk(nav, zpts)
+                end
+            end)
+            return
+        end
         if not ok then
             self:_finish(false, info.code, info.detail)
             return

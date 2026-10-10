@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.266.0
+-- Version: 2.267.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -206,6 +206,7 @@ N.fail_code = fail_code
 --- is closer (the terrain height retry handles that) or no height is known.
 local FAR_HOP = 120
 local FAR_HOP_MIN = 160
+local FAR_GUESS = 150         -- 2.267.0: beyond this a refused path is a guessed height
 function N.far_hop(x, y, z)
     if type(x) ~= "number" or type(y) ~= "number" then return nil end
     local hx, hy, hz = here_xyz()
@@ -219,6 +220,10 @@ function N.far_hop(x, y, z)
     if ok_t and type(Tr) == "table" and type(Tr.height) == "function" then
         pz = Tr.height(px, py, (hz or 0) + 80)
     end
+    -- 2.267.0: no terrain height (WoW Forever: coords_helper answers 0) -
+    -- the player's own height; AmeisenNav 1.6.2 searches the real ground
+    -- around it (Z_SEARCH) when the server has no path at that height.
+    if type(pz) ~= "number" or pz == 0 then pz = hz end
     if type(pz) ~= "number" then return nil end
     return { x = px, y = py, z = pz, d = d }
 end
@@ -334,7 +339,20 @@ function N.on_nav_done(ok, reason, detail)
     if R.has_dest then
         R.sn_fail = { x = R.dest_x, y = R.dest_y, t = izi.now(), reason = r, detail = msg }
     end
-    if r == "unreachable" or r == "max_repath_exceeded" or r == "end_off_mesh" or r == "no_path" then
+    -- 2.267.0: a path refused to a FAR point is its guessed height, not an
+    -- unreachable place. "unreachable" blacklisted 12 yd around it for 15
+    -- minutes (K.OFFMESH_WORDS) - the 10:53 Loch Modan log: one no_path to
+    -- a quest giver 514 yd away, then "cannot reach" every tick, three stall
+    -- recoveries that could not ask again, and the step skipped. Far: a
+    -- plain failure, asked again after K.SN_FAIL_HOLD.
+    local far_dest = false
+    if R.has_dest then
+        local fx, fy = here_xyz()
+        far_dest = fx ~= nil and dist2(fx, fy, R.dest_x, R.dest_y) > FAR_GUESS
+    end
+    if far_dest and (r == "unreachable" or r == "end_off_mesh" or r == "no_path") then
+        W.mark_fail("no path at the guessed height")
+    elseif r == "unreachable" or r == "max_repath_exceeded" or r == "end_off_mesh" or r == "no_path" then
         W.mark_fail("unreachable")
     elseif r == "max_stuck_exceeded" then
         if try_random_unstick() then

@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- Header - Load Gate
 -- ============================================================================
--- Version: 1.6.1
+-- Version: 1.6.2
 -- Author: BLIZZ
 -- Folder: AmeisenNav
 -- Shared navmesh navigation for every Sylvanas plugin, backed by the local
@@ -23,7 +23,7 @@
 local plugin = {}
 plugin["name"]      = "AmeisenNav"
 plugin["short_tag"] = "ANAV"
-plugin["version"]   = "1.6.1"
+plugin["version"]   = "1.6.2"
 plugin["author"]    = "BLIZZ"
 plugin["load"]      = true
 

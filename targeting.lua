@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -327,6 +327,12 @@ function targeting.too_strong(player, unit)
         return false
     end
     return true
+end
+
+--- 2.271.0 (callbacks.lua, izi.on_combat_finish): the next attackers() call
+--- counts again instead of answering from the ATTACK_TTL cache.
+function targeting.forget_attackers()
+    attackers_cache.t = -1e9
 end
 
 --- Too high to fight: more than LEVEL_CAP levels above the player.

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -238,6 +238,11 @@ end
 local events = load_mod("events")
 if events and type(events.install) == "function" then
     pcall(events.install)
+end
+-- 2.271.0: IZI callbacks - combat finished, spell cancelled (callbacks.lua)
+local izi_callbacks = load_mod("callbacks")
+if izi_callbacks and type(izi_callbacks.install) == "function" then
+    pcall(izi_callbacks.install)
 end
 local supplies = load_mod("supplies")
 local loader = load_mod("loader")
@@ -952,6 +957,7 @@ local function on_unload()
     if type(dz) == "table" and type(dz.release) == "function" then pcall(dz.release) end
     pcall(function() core.input.move_forward_stop() end)
     pcall(function() core.input.move_backward_stop() end)
+    if izi_callbacks and type(izi_callbacks.uninstall) == "function" then pcall(izi_callbacks.uninstall) end
     if debuglog and type(debuglog.flush) == "function" then pcall(debuglog.flush, true) end
 end
 

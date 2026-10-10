@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1991,6 +1991,23 @@ function smart.reset()
     spell_cache = {}
     fail_until = {}
     last_cast = {}
+end
+
+--- 2.271.0 (callbacks.lua, izi.on_spell_cancel): a cast of `id` was cancelled
+--- or interrupted. It is not "failed" (no back-off) and it used no global
+--- cooldown, so the rotation may cast it - or anything else - at once.
+function smart.cast_cancelled(id)
+    local list = built and built.list
+    if type(list) == "table" then
+        for k = 1, #list do
+            local e = list[k]
+            if e and e.id == id then
+                fail_until[e.key] = nil
+                last_cast[e.key] = nil
+            end
+        end
+    end
+    last_gcd_cast = -1e9
 end
 
 return smart

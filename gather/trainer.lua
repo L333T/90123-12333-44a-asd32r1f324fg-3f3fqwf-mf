@@ -3,7 +3,7 @@
 -- Gathering: profession trainer trips (PORT_PLAYBOOK "Vendor, repair, trainers")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- trainer.lua (the class trainer) refuses every profession service on

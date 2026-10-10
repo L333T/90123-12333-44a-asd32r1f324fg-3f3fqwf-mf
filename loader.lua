@@ -3,7 +3,7 @@
 -- Lazy grind / quest / gather pack loader. Path tables stay on disk until a mode is checked.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

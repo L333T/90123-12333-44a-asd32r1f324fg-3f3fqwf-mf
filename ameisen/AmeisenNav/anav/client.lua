@@ -323,7 +323,70 @@ function M:_window(nav, path, from)
         PC.clear()                                       -- windows are checked before walking
         if self.state ~= "navigating" or self.sub then self:_set_state("navigating") end
         self:_emit("path", nav.points)
+        self:_prefetch(nav)                              -- 1.6.4: the next one, while walking this one
     end, nav.dest)
+end
+
+-- PLAN WHILE MOVING (1.6.4). The next window used to be asked for 5 yd
+-- before the current one ended - a full path to the destination plus the two
+-- validation batches, 0.5-1 s, against 0.7 s of running: the 11:13 Loch
+-- Modan log shows "navigating -> navigating.window" at every window, the
+-- walker stopping, the keys released and a fresh walk 0.25 s later (and a
+-- fresh walk from where the request was made can turn the character back).
+-- Now the next window is built from the CURRENT window's end point the
+-- moment that window starts walking; 5 yd before its end it is appended to
+-- the points still ahead of the player and swapped in as one list - no
+-- stop, no key release, nothing behind the player. Planning from the player
+-- (_next_window) stays the fallback: no prepared window within
+-- PREFETCH_LATE yd of the end, or the walk was re-planned.
+local PREFETCH_LATE = 2.0
+
+function M:_prefetch(nav)
+    if nav.window_final or not nav.window_end then return end
+    nav.pf_id = (nav.pf_id or 0) + 1
+    local id = nav.pf_id
+    nav.prefetch = nil
+    local e = nav.window_end
+    local from = { x = e.x, y = e.y, z = e.z }
+    Q.find_path(from, nav.dest, { flags = 0, no_cache = true, allow_partial = nav.opts.allow_partial },
+        function(ok, pts)
+            if self.nav ~= nav or nav.pf_id ~= id then return end
+            if not ok then return end                    -- the fallback plans from the player
+            H.build(from, pts, function(ok2, win, info)
+                if self.nav ~= nav or nav.pf_id ~= id then return end
+                if ok2 and win and #win >= 2 then
+                    nav.prefetch = { id = id, win = win, info = info, from = from }
+                end
+            end, nav.dest)
+        end)
+end
+
+--- Swap the prepared window in after the points still ahead of the player.
+function M:_take_prefetch(nav)
+    local pf = nav.prefetch
+    nav.prefetch = nil
+    if not pf then return false end
+    local combined = {}
+    if F.active and type(F.points) == "table" then
+        for k = F.current_index(), #F.points do combined[#combined + 1] = F.points[k] end
+    end
+    for k = 2, #pf.win do combined[#combined + 1] = pf.win[k] end   -- pf.win[1] is the old end
+    if #combined == 0 then return false end
+    local started
+    if F.active then started = F.swap(combined) else started = F.follow(combined) end
+    if not started then return false end
+    nav.window_final = pf.info and pf.info.final == true
+    nav.window_end = combined[#combined]
+    if pf.info and pf.info.exact then nav.exact_z = true end
+    nav.windows = (nav.windows or 0) + 1
+    nav.points = F.points
+    self.last_path = combined
+    L.debug("window #%d: %d points, %.0f yd (prepared while walking)%s", nav.windows, #pf.win,
+        Q.path_length(pf.win), nav.window_final and " (final)" or "")
+    if self.state ~= "navigating" or self.sub then self:_set_state("navigating") end
+    self:_emit("path", nav.points)
+    self:_prefetch(nav)
+    return true
 end
 
 --- Ask the server for the path from the player to the destination and turn
@@ -396,6 +459,8 @@ end
 
 --- Rebuild the path from where the player stands.
 function M:_repath(nav, reason)
+    nav.pf_id = (nav.pf_id or 0) + 1                    -- 1.6.4: a prepared window is stale
+    nav.prefetch = nil
     nav.repaths = nav.repaths + 1
     if nav.repaths > C.max_repaths then
         self:_finish(false, "max_repath_exceeded", fmt("gave up after %d repaths", C.max_repaths))
@@ -486,7 +551,14 @@ function M:update()
         local here = player_point()
         if here then
             local dx, dy = nav.window_end.x - here.x, nav.window_end.y - here.y
-            if dx * dx + dy * dy <= C.horizon_refresh * C.horizon_refresh then self:_next_window(nav) end
+            local d2 = dx * dx + dy * dy
+            if d2 <= C.horizon_refresh * C.horizon_refresh then
+                -- 1.6.4: the window prepared while walking; else, late, from the player
+                if not (nav.prefetch and self:_take_prefetch(nav))
+                    and (nav.prefetch == nil and (nav.pf_id == nil or d2 <= PREFETCH_LATE * PREFETCH_LATE)) then
+                    self:_next_window(nav)
+                end
+            end
         end
     end
     -- 1.6.0 quick handoff near the destination (opts.handoff = { at = yards })
@@ -528,7 +600,9 @@ function M:update()
     if not nav.points then return end
 
     if ev == "arrived" and nav.horizon and not nav.detour and not nav.window_final then
-        -- the window ran out before the next one was ready: plan it now
+        -- the window ran out before the next one was taken: a prepared one,
+        -- else plan it now (1.6.4)
+        if nav.prefetch and self:_take_prefetch(nav) then return end
         self:_set_state("navigating", "window")
         self:_next_window(nav)
         return

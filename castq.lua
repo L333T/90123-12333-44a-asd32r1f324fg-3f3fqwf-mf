@@ -3,7 +3,7 @@
 -- castq.lua - rotation casts through the Sylvanas spell queue
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.249.0)
@@ -203,6 +203,18 @@ function M.cast(id, sp, target, pos, message, allow_movement)
     last[key] = t
     if fast then last_fast_id = id else pending[id] = pending[id] or t end
     return true, fast and "fast" or "gcd"
+end
+
+--- 2.271.0 (callbacks.lua, izi.on_spell_cancel): our cast of `id` was
+--- cancelled or interrupted - forget it here so it can be queued again at
+--- once (no REQUEUE_GAP, no stuck count, the fast queue free).
+function M.cancelled(id)
+    pending[id] = nil
+    if last_fast_id == id then last_fast_id = nil end
+    local prefix = tostring(id) .. "|"
+    for k in pairs(last) do
+        if k:sub(1, #prefix) == prefix then last[k] = nil end
+    end
 end
 
 --- Drop every queued entry of `id` (a cast the rotation no longer wants).

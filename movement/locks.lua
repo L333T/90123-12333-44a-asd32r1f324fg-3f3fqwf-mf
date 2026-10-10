@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest lock and cast / channel / loot locks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- ============================================================================
 -- Locks pause the walker by reason, so a cast finishing can never un-pause a
 -- stun or a food break. Releasing a cast lock touches only the cast and loot
@@ -173,6 +173,16 @@ function Lk.release()
     pcall(handler.unlock_look_at, handler)
     W.set_pause("cast", false)
     W.set_pause("loot", false)
+end
+
+--- 2.271.0 (callbacks.lua, izi.on_spell_cancel): the cast is gone - lift
+--- the CAST pause now instead of at the next HOLD_STEP check. The loot,
+--- rest and restriction pauses are not touched.
+function Lk.cast_cancelled()
+    R.lock_gen = R.lock_gen + 1
+    pcall(handler.resume_movement, handler)
+    pcall(handler.unlock_look_at, handler)
+    W.set_pause("cast", false)
 end
 
 local function begin_lock(sec, light, target, pos)

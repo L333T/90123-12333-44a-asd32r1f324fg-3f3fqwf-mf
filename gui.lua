@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.272.1
+-- Version: 2.273.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -390,6 +390,15 @@ menu:checkbox("mfg_untapped", true, {
     label = "Skip Tapped Mobs",
     tab = "grind",
 })
+-- 2.273.0: travel steers around the aggro range of hostile mobs at or below
+-- the player's level (targeting.scan_enemies -> movement danger map).
+menu:checkbox("mfg_avoid_packs", false, {
+    label = "Avoid Mob Packs",
+    tab = "general",
+    tooltip = "Walks and paths keep out of the aggro range of hostile mobs at or below your level "
+        .. "(20 yd at your level, 1 yd less per level below you, 5 yd at least; grey mobs never aggro "
+        .. "and are ignored). The mob being walked to for a fight is not avoided. Off: walk straight through.",
+})
 
 -- Every questing setting lives on the Questing tab, under Enable Questing.
 -- There is no quest list to pick from: RestedXP decides what comes next.
@@ -738,6 +747,7 @@ local aliases = {
     random_path = "mfg_random_path",
     fight_back = "mfg_fight_back",
     untapped = "mfg_untapped",
+    avoid_packs = "mfg_avoid_packs",           -- 2.273.0
     loot = "mfg_loot",
     sell = "mfg_vendor_sell",
     repair = "mfg_repair",

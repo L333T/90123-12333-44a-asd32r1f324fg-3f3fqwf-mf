@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.273.0
+-- Version: 2.274.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -394,6 +394,9 @@ local function build(player)
     built = { scan = scan, class = cls, race = race, list = list, by_role = by_role,
         rows = rows, groups = groups }
     spell_cache = {}
+    -- 2.274.0: the adaptive rotation's profile for this character (adapt.lua)
+    local ad = mod("adapt")
+    if ad and type(ad.sync) == "function" then pcall(ad.sync, player, list) end
     return built
 end
 
@@ -1029,7 +1032,11 @@ end
 function COND.debuff(e)
     if not T then return false end
     if c.thp() < (e.def.thp or 25) then return false end
-    return auras.debuff_up(T, e.ids) ~= true
+    if auras.debuff_up(T, e.ids) == true then return false end
+    -- 2.274.0: not into a fight shorter than half the DoT (adapt.lua)
+    local ad = mod("adapt")
+    if ad and ad.dot_worth(e, T) == false then return false end
+    return true
 end
 
 function COND.totem(e)
@@ -1040,7 +1047,11 @@ end
 
 function COND.cooldown(e)
     if not c.in_combat() or not T then return false end
-    return c.thp() >= 50 or c.near(10) >= 2
+    if not (c.thp() >= 50 or c.near(10) >= 2) then return false end
+    -- 2.274.0: combat_forecast - not for a fight too short for it (adapt.lua)
+    local ad = mod("adapt")
+    if ad and ad.cooldown_worth(e, T) == false then return false end
+    return true
 end
 
 function COND.aoe(e)
@@ -1186,6 +1197,9 @@ local function dies_before(e)
     if type(hp) ~= "number" or hp > TTD_HP then return false end
     local sp = spell_of(e)
     local ct = sp and tonumber(safe(function() return cast_seconds(sp) end)) or 0
+    -- 2.274.0: health_prediction's incoming damage kills it first (adapt.lua)
+    local ad = mod("adapt")
+    if ad and ad.dies_first(T, ct) == true then return true end
     if ct <= 0 then return false end
     local ttd = safe(T.time_to_die, T)
     return type(ttd) == "number" and ttd > 0 and ttd < 1e6 and ttd < ct
@@ -1206,6 +1220,18 @@ local function try(e, role_cond)
     end
     local rdy, rwhy = ready_now(e)
     if not rdy then why_not[e.name] = rwhy return false end
+    -- 2.274.0: auto_attack_helper - in melee, a cast-time spell goes out right
+    -- after a swing or when it ends before the next one (adapt.lua)
+    if not e.self and e.role ~= "heal" and T and not CHANNEL[e.name] then
+        local ad = mod("adapt")
+        if ad and range.melee(T, 5) == true then
+            local sp1 = spell_of(e)
+            local ct1 = sp1 and tonumber(safe(function() return cast_seconds(sp1) end)) or 0
+            if ct1 > 0 and ad.swing_ok(P, ct1) == false then
+                why_not[e.name] = "waiting for the swing" return false
+            end
+        end
+    end
     why_not[e.name] = "cast refused"
     -- EITHER (2.244.0): a spell whose target is not known (Eureka!) - the
     -- enemy first, then the player.
@@ -1462,11 +1488,50 @@ local COMBAT_ORDER = {
     { "heal", COND.heal }, { "defensive", COND.defensive }, { "interrupt", COND.interrupt },
     "racials", "upkeep",
     { "seal", COND.seal },
+    "adapt_kill",
     { "resource", COND.resource }, { "opener", COND.opener }, { "execute", COND.execute },
     { "control", COND.control }, { "debuff", COND.debuff }, { "totem", COND.totem },
     { "cooldown", COND.cooldown }, { "aoe", COND.aoe }, { "finisher", COND.finisher },
     { "damage", COND.damage }, { "filler", COND.filler },
 }
+
+-- KILL NOW (2.274.0, adapt.lua): a ticked damage / filler / finisher /
+-- execute spell whose damage takes the target's remaining health is tried
+-- before the rest of the rotation, the fastest cast first.
+local KILL_ROLES = { "execute", "finisher", "damage", "filler" }
+local KILL_SKIP = { ["Shoot"] = true, ["Auto Shot"] = true, ["Attack"] = true }
+local kill_pool = {}
+local function adapt_kill(ad)
+    if not T or type(ad.killers) ~= "function" then return false end
+    for i = #kill_pool, 1, -1 do kill_pool[i] = nil end
+    local cond_of = {}
+    for r = 1, #KILL_ROLES do
+        local bucket = built.by_role[KILL_ROLES[r]]
+        if bucket then
+            for k = 1, #bucket do
+                local e = bucket[k]
+                if not KILL_SKIP[e.name] and not e.self then
+                    kill_pool[#kill_pool + 1] = e
+                    cond_of[e] = KILL_ROLES[r]
+                end
+            end
+        end
+    end
+    if #kill_pool == 0 then return false end
+    local list = ad.killers(kill_pool, P, T)
+    for i = 1, #list do
+        local e = list[i]
+        local role = cond_of[e]
+        local cond = (role == "finisher" and COND.finisher) or (role == "execute" and COND.execute) or nil
+        if try(e, cond) then
+            note(e.name .. " (kill)")
+            return true
+        end
+    end
+    return false
+end
+
+local ADAPT_ORDERED = { damage = true, filler = true, finisher = true, execute = true }
 
 --- The AoE bucket sorted by predicted hits, most first (stable).
 local aoe_sorted = {}
@@ -1807,6 +1872,15 @@ function smart.combat(player, target, ctx)
         end
         cq = queue_on()
     end
+    -- 2.274.0: the adaptive rotation reads every frame of the fight - the
+    -- target's health drops after a cast, kill times (adapt.lua)
+    local ad = mod("adapt")
+    if ad and type(ad.tick) == "function" then
+        local prof = ad.profile()
+        if not prof or prof.guid ~= safe(player.get_guid, player) then pcall(ad.sync, player, built.list) end
+        pcall(ad.tick, player, target)
+        if not ad.enabled() then ad = nil end
+    end
     if cq then
         if not cq.may_queue(player) then return true end
     elseif safe(player.is_channeling_or_casting, player) == true then
@@ -1831,6 +1905,11 @@ function smart.combat(player, target, ctx)
             end
         elseif step == "upkeep" then
             if upkeep_step(true) then return true end
+        elseif step == "adapt_kill" then
+            if ad and adapt_kill(ad) then
+                no_cast.since = nil
+                return true
+            end
         else
             local role, cond = step[1], step[2]
             if role == "interrupt" and pack_interrupt() then return true end
@@ -1839,6 +1918,13 @@ function smart.combat(player, target, ctx)
             -- predicted hits (spell_prediction), list order among equals.
             if bucket and role == "aoe" and #bucket > 1 then
                 bucket = aoe_by_hits(bucket)
+            end
+            -- 2.274.0: most damage per second of casting first (adapt.lua)
+            if bucket and ad and ADAPT_ORDERED[role] and #bucket > 1 then
+                local pw = mod("power")
+                local mana = (pw and type(pw.has_mana) == "function" and pw.has_mana(P)) and c.mana() or nil
+                local okd, ordered = pcall(ad.order, bucket, role, P, T, mana)
+                if okd and type(ordered) == "table" then bucket = ordered end
             end
             if bucket then
                 for k = 1, #bucket do
@@ -1980,6 +2066,18 @@ end
 
 function smart.class_key(player)
     return catalog.class_key(player and player_class(player) or nil)
+end
+
+-- 2.274.0: adapt.lua judges spells by the same cast time the casting uses.
+do
+    local ad = mod("adapt")
+    if ad and type(ad.set_cast_time_fn) == "function" then
+        ad.set_cast_time_fn(function(e)
+            if CHANNEL[e.name] then return 3.0 end
+            local sp = spell_of(e)
+            return sp and cast_seconds(sp) or 0
+        end)
+    end
 end
 
 -- For offline tests: the condition context and its per-call reset.

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.273.0
+-- Version: 2.274.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -619,6 +619,17 @@ menu:checkbox("mfg_spell_queue", true, {
     tooltip = "Cast the rotation through the spell queue (priority 1): the next spell is queued in the last 0.35 s of a cast so it goes out the moment the cast ends, and off-GCD spells use the fast queue. Untick to cast through izi directly.",
 })
 
+-- 2.274.0: adaptive rotation (adapt.lua)
+menu:checkbox("mfg_adaptive", true, {
+    label = "Adaptive Rotation",
+    tab = "class",
+    tooltip = "Learns, per character, what kills fastest and casts that: reads every spell you cast and the damage it does, "
+        .. "orders the ticked damage spells by damage per second of casting (by damage per mana when low on mana), "
+        .. "casts a spell that kills the target now first, skips DoTs and cooldowns in fights too short for them, "
+        .. "and in melee waits for the swing instead of clipping it. Saved per character (scripts_data/mfg/adapt_<guid>.txt) "
+        .. "and updated when new spells or ranks are learned. Untick for the plain Spells-tab order.",
+})
+
 local function add_class_slider(class_id, key, min_v, max_v, default, label, tip)
     local id = string.format("mfg_%s_%d", key, class_id)
     menu:slider_int(id, min_v, max_v, default, {
@@ -756,6 +767,7 @@ local aliases = {
     sell_green = "mfg_sell_green",
     delete_junk = "mfg_delete_junk",
     spell_queue = "mfg_spell_queue",
+    adaptive = "mfg_adaptive",                 -- 2.274.0
     path_loop = "mfg_path_loop",
     learn_terrain = "mfg_learn_terrain",
     forget_terrain = "mfg_forget_terrain",

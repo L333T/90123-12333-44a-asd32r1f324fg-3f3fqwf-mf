@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -425,6 +425,13 @@ local BUSY_WINDOW = 3.0
 local last_busy_t = -1e9
 local combat_end_t = -1e9
 local was_in_combat = false
+
+--- 2.271.0 (callbacks.lua, izi.on_combat_finish): the fight ended now -
+--- the REST_DELAY hold counts from the real end, not the next loot tick.
+function loot.note_combat_end()
+    combat_end_t = izi.now()
+    was_in_combat = false
+end
 
 function loot.hold_rest(player)
     if not enabled() or not player then return false end

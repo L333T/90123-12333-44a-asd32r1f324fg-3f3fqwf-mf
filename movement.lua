@@ -3,7 +3,7 @@
 -- Intelligent Movement & Navigation System - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- SINGLE-OWNER MOVEMENT STATE MACHINE
@@ -207,6 +207,7 @@ movement.clear_fail        = Lk.clear_fail
 movement.set_resting     = Lk.set_resting
 movement.is_resting      = Lk.is_resting
 movement.release         = Lk.release
+movement.cast_cancelled  = Lk.cast_cancelled       -- 2.271.0 (callbacks.lua)
 movement.backpedal       = Lk.backpedal        -- 2.97.0
 movement.backpedal_stop  = Lk.backpedal_stop
 movement.backpedaling    = Lk.backpedaling

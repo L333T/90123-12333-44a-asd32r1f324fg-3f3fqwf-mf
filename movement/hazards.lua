@@ -3,7 +3,7 @@
 -- movement/hazards.lua - learned bad terrain (cliffs, slopes, snag spots)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.270.0
+-- Version: 2.271.0
 -- ============================================================================
 -- WHY (2.235.0)
 --   The 23:04 grind session was caught at the same five spots on every lap

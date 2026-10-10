@@ -3,7 +3,7 @@
 -- Recorded Alliance roads to inns and flight masters
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.264.0
+-- Version: 2.265.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- data/ek_alliance_routes.lua holds the PathTool roads. A destination that
@@ -30,6 +30,18 @@ local SKIP2 = SKIP_TAIL * SKIP_TAIL
 local NEAR2 = NEAR_DEST * NEAR_DEST
 local HOP2 = HOP_AHEAD * HOP_AHEAD
 local OFF_SCORE = 1000000000
+-- 2.265.0 (10:37 Thelsamar log: three roads swapped every 0.1-1.5 s for an
+-- inn 30 yd away, each a different hop, so no walk lasted - the nav log was
+-- a wall of move_to / cancel between two points 55 yd apart):
+--   * no road for a trip under MIN_TRIP yards - the navmesh walks that;
+--   * a hop is never further from the destination than the player is now
+--     (+ PROGRESS_SLACK) - a road that leads away is not taken;
+--   * the road chosen for a destination is KEPT while it still gives a hop,
+--     instead of re-scoring every road against the player each tick.
+local MIN_TRIP = 80
+local PROGRESS_SLACK = 10
+local MIN_TRIP2 = MIN_TRIP * MIN_TRIP
+local sticky = nil            -- { name, dx, dy }
 
 local PT = { x = 0, y = 0, z = 0 }
 
@@ -156,6 +168,13 @@ function M.hop(here, dest)
     local dx, dy = dest.x, dest.y
     if type(hx) ~= "number" or type(hy) ~= "number" then return nil end
     if type(dx) ~= "number" or type(dy) ~= "number" then return nil end
+    local here_d2 = d2(hx, hy, dx, dy)
+    if here_d2 < MIN_TRIP2 then
+        sticky = nil
+        return nil
+    end
+    if sticky and d2(sticky.dx, sticky.dy, dx, dy) > 100 then sticky = nil end
+    local max_hop_d = math.sqrt(here_d2) + PROGRESS_SLACK
 
     local best_score, best_name = nil, nil
     local best_x, best_y, best_z = nil, nil, nil
@@ -181,8 +200,11 @@ function M.hop(here, dest)
                 -- beside the flight point the player stands at) is not a
                 -- hop - walking "to" it arrived at once, every tick, and the
                 -- bot stood 44 yd from the NPC. The real destination is walked.
+                local is_sticky = sticky ~= nil and sticky.name == route[1]
                 if d2(px, py, dx, dy) > NEAR2 and d2(hx, hy, px, py) >= HOP2
-                    and (not best_score or score < best_score) then
+                    and d2(px, py, dx, dy) <= max_hop_d * max_hop_d
+                    and (is_sticky or not best_score or score < best_score)
+                    and not (best_name and sticky and best_name == sticky.name) then
                     best_score = score
                     best_name = route[1]
                     best_x, best_y, best_z = px, py, pz
@@ -190,7 +212,11 @@ function M.hop(here, dest)
             end
         end
     end
-    if not best_x then return nil end
+    if not best_x then
+        sticky = nil
+        return nil
+    end
+    sticky = { name = best_name, dx = dx, dy = dy }
     M.road = best_name
     PT.x, PT.y, PT.z = best_x, best_y, best_z
     return PT

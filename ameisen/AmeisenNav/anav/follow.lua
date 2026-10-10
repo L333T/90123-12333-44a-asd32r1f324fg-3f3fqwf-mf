@@ -69,15 +69,13 @@ local function find_by_name(wanted)
     if not ok or type(objects) ~= "table" then return nil end
     for i = 1, #objects do
         local object = objects[i]
-        if object == nil then goto continue end
-        do
+        if object ~= nil then
             local okn, name = X.call(object, "get_name")
-            if not okn or name ~= wanted then goto continue end
-            if not alive(object) then goto continue end
-            name_obj = object
-            return object
+            if okn and name == wanted and alive(object) then
+                name_obj = object
+                return object
+            end
         end
-        ::continue::
     end
     return nil
 end

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.269.0
+-- Version: 2.270.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1165,6 +1165,32 @@ local function ready_now(e)
     return true
 end
 
+-- 2.270.0 (IZI game_object extensions):
+--   * a damage spell is never cast into a target that is damage immune
+--     (is_damage_immune - an evading mob running home, a bubble);
+--   * a spell with a cast time is skipped when the target is under
+--     TTD_HP % health and time_to_die says it dies before the cast lands -
+--     the next instant / the auto attack finishes it. Above TTD_HP the
+--     forecast is too young to trust.
+local TTD_HP = 35
+local function target_immune()
+    if memo.t_immune == nil then
+        local v = T and safe(T.is_damage_immune, T) or false
+        memo.t_immune = v == true
+    end
+    return memo.t_immune
+end
+local function dies_before(e)
+    if not T then return false end
+    local hp = c.thp()
+    if type(hp) ~= "number" or hp > TTD_HP then return false end
+    local sp = spell_of(e)
+    local ct = sp and tonumber(safe(function() return cast_seconds(sp) end)) or 0
+    if ct <= 0 then return false end
+    local ttd = safe(T.time_to_die, T)
+    return type(ttd) == "number" and ttd > 0 and ttd < 1e6 and ttd < ct
+end
+
 local function try(e, role_cond)
     if not usable(e) then why_not[e.name] = "unticked / not in use" return false end
     local now = izi.now()
@@ -1174,6 +1200,10 @@ local function try(e, role_cond)
     if role_cond and not role_cond(e) then why_not[e.name] = "role condition (" .. tostring(e.role) .. ")" return false end
     if def.when and safe(def.when, c) ~= true then why_not[e.name] = "its condition" return false end
     if not ctype_ok(def) then why_not[e.name] = "creature type" return false end
+    if not e.self and e.role ~= "heal" and T then
+        if target_immune() then why_not[e.name] = "target immune" return false end
+        if dies_before(e) then why_not[e.name] = "target dies before the cast lands" return false end
+    end
     local rdy, rwhy = ready_now(e)
     if not rdy then why_not[e.name] = rwhy return false end
     why_not[e.name] = "cast refused"

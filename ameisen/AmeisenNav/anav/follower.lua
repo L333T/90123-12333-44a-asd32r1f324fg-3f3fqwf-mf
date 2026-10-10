@@ -281,6 +281,62 @@ function F.follow(points, seamless)
     return true
 end
 
+--- 1.6.0 (anav/horizon): swap a new window in under a running walk, now
+--- (no REPLACE_GAP, no key release): the walker gets the new points from the
+--- one nearest the player.
+function F.swap(points)
+    if type(points) ~= "table" or #points == 0 then return false end
+    if not F.active then return F.follow(points) end
+    local pts = {}
+    for i = 1, #points do pts[i] = vec3.new(points[i].x, points[i].y, points[i].z) end
+    local from = start_index(pts)
+    F.points = pts
+    if F.driver == "input" then
+        idx = from
+        last_turn, aim_until = nil, 0
+        return true
+    end
+    local rest = {}
+    for k = from, #pts do rest[#rest + 1] = pts[k] end
+    X.call(walker, "clear_navigation")
+    local ok, issued = X.call(walker, "navigate", rest, false, true)
+    if not ok or issued == false then
+        L.warn("simple_movement refused the next window")
+        return false
+    end
+    walker_offset = from - 1
+    last_replace = now()
+    if walker_paused then X.call(walker, "pause") end
+    return true
+end
+
+--- 1.6.0 HANDOFF TO SIMPLE MOVEMENT: AmeisenNav lets go of the walk WITHOUT
+--- releasing a key. The walker gets its own settings back (thresholds) and,
+--- with `pos`, is pointed at it at once (move_to_position) - the character
+--- keeps running and the consumer drives simple_movement from here.
+function F.hand_to_walker(pos)
+    if F.driver == "input" then
+        turn_stop()                                         -- simple_movement steers now
+        if backing_until then
+            X.call_fn("core.input.move_backward_stop", core.input.move_backward_stop)
+            backing_until = nil
+        end
+    end
+    pause_reasons = {}
+    if walker_paused then walker_paused = false; X.call(walker, "resume") end
+    restore_walker()
+    X.call(walker, "clear_navigation")
+    local ok = false
+    if pos then
+        local okc, issued = X.call(walker, "move_to_position", vec3.new(pos.x, pos.y, pos.z))
+        ok = okc and issued ~= false
+    end
+    if not ok and F.driver == "input" then forward_stop() end
+    F.active = false
+    F.points = nil
+    return ok
+end
+
 --- Stop walking and release the walker / inputs.
 function F.stop()
     release_inputs()

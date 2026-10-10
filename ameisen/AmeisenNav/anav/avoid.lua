@@ -99,6 +99,9 @@ end
 
 function A.cached_count() return cache_n end
 
+--- 1.6.0 (anav/horizon): the cached objects { x, y, z, r }[] and their count.
+function A.objects() return cache, cache_n end
+
 --- The cached object whose circle (radius + C.body_radius) crosses the segment
 --- (px,py) -> (tx,ty) within C.avoid_lookahead yards, nearest first; or nil.
 local function blocking_object(px, py, tx, ty)

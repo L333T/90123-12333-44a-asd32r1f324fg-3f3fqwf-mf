@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.275.0
+-- Version: 2.276.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -250,6 +250,14 @@ W.ROGUE = t({
     { "Evasion",                "defensive", on = true, when = function(c) return c.near(8) >= 2 or c.hp() < c.def_pct() end, hp = 101 },
     { "Cloak of Shadows",       "defensive", on = true },
     { "Kick",                   "interrupt", on = true, melee = true },
+    -- 2.276.0: Sprint (2983, +50% run speed 15 s, keeps Stealth) was not in
+    -- the catalog, and as an uncatalogued spell it is listed only once the
+    -- game has called it usable - never while on its 5 min cooldown. The id
+    -- is hard-coded so a scan that misses the name still finds it. Used to
+    -- catch a fleeing mob: in combat, target under 35 %, moving, past 8 yd.
+    { "Sprint",                 "resource", on = true, self = true, id = 2983,
+      when = function(c) return c.thp() < 35 and c.tmoving() and c.dist() > 8 end,
+      tip = "Catches a fleeing mob: cast when the target is under 35 % health, moving and more than 8 yd away." },
     { "Gouge",                  "interrupt", on = false, melee = true },
 
     { "Adrenaline Rush",        "cooldown", on = true, self = true },

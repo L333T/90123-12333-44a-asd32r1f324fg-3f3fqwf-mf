@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.279.0
+-- Version: 2.280.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

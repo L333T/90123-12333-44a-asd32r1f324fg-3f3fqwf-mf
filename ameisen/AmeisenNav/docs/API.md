@@ -117,6 +117,22 @@ while casting or channelling (menu option), and that never counts as stuck.
 `client:update_config({ pathcheck = false })` turns all of it off (1.4.0
 behaviour). Stats: `require("anav/pathcheck").stats`.
 
+## Stuck recovery and the strafe-jump-strafe manoeuvre (1.6.5)
+
+The manoeuvre: forward held, strafe to one side for 0.4 s with a jump 0.2 s
+in, then strafe to the other side for 0.4 s; every key is released at the
+end. The side it starts on alternates.
+
+During a walk, each "stuck" (no 0.8 yd of progress in 1.5 s) climbs the
+ladder: 1 strafe-jump-strafe, 2 re-plan, 3 strafe-jump-strafe (other side),
+4 detour to a random mesh point, 5 back off, 6 jump + re-plan; past
+`max_stuck` (6) the navigation fails with `max_stuck_exceeded`.
+
+When no walk can start - `unstick_after_fails` (2) failed plans (no_path,
+start_off_mesh, unreachable, end_off_mesh) from the same spot - the
+manoeuvre runs on its own (every 4th failure backs off instead), and the
+consumer's next request starts from where that left the character.
+
 ## Rolling horizon (1.6.0)
 
 `c:move_to` no longer walks one long server path. Every walk is a chain of

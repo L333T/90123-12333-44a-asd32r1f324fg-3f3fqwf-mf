@@ -3,7 +3,7 @@
 -- Gathering: herb / ore node scan (port of EP_Herb_Mine Mine_Herb_Find)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.271.0
+-- Version: 2.272.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- The active list is gather/nodes.lua filtered by the current Herbalism and

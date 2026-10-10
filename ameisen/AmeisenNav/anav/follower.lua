@@ -157,8 +157,34 @@ local function configure_walker()
     X.call(walker, "set_look_distance", C.look_distance)
 end
 
+-- UNSTICK MANOEUVRE (1.6.5): strafe, jump, strafe. Forward is held the whole
+-- time, so it is a short zig-zag hop: strafe to one side (MV_SIDE s, a jump
+-- MV_JUMP s in, while still moving sideways), then to the other side for
+-- MV_SIDE s. It frees the character from a lip, a root, a rock edge or a
+-- spot just off the navmesh that a plain jump straight up does not.
+-- The side it starts on alternates. Runs with or without a walk (F.active):
+-- the walker is paused meanwhile and every key is released at the end.
+local MV_SIDE, MV_JUMP = 0.4, 0.2
+local mv = nil                -- { t0, a = "left"|"right", phase, jumped, fwd }
+local mv_side = "left"
+
+local function strafe_key(side, on)
+    local name = "core.input.strafe_" .. side .. (on and "_start" or "_stop")
+    local fn = core.input and core.input["strafe_" .. side .. (on and "_start" or "_stop")]
+    X.call_fn(name, fn)
+end
+
+local function mv_release()
+    if not mv then return end
+    strafe_key("left", false)
+    strafe_key("right", false)
+    if mv.fwd then X.call_fn("core.input.move_forward_stop", core.input.move_forward_stop) end
+    mv = nil
+end
+
 local function release_inputs()
     if F.driver == "walker" then X.call(walker, "strafe", nil) end
+    mv_release()
     forward_stop()
     turn_stop()
     if backing_until then
@@ -400,6 +426,41 @@ end
 
 function F.jump()
     X.call_fn("core.input.jump", core.input.jump)
+end
+
+--- 1.6.5: start the strafe-jump-strafe manoeuvre (`side` "left" / "right",
+--- or nil to alternate). F.manoeuvre_tick() reports "manoeuvred" when done.
+function F.manoeuvre(side)
+    mv_release()
+    side = side or mv_side
+    mv_side = side == "left" and "right" or "left"
+    if F.active then F.set_paused("unstick", true) end
+    X.call_fn("core.input.move_forward_start", core.input.move_forward_start)
+    strafe_key(side, true)
+    mv = { t0 = now(), a = side, phase = 1, jumped = false, fwd = true }
+end
+
+function F.manoeuvring() return mv ~= nil end
+
+--- Drive the manoeuvre; call every frame. Returns "manoeuvred" once it ends.
+function F.manoeuvre_tick()
+    if not mv then return nil end
+    local el = now() - mv.t0
+    if not mv.jumped and el >= MV_JUMP then
+        mv.jumped = true
+        X.call_fn("core.input.jump", core.input.jump)
+    end
+    if mv.phase == 1 and el >= MV_SIDE then
+        strafe_key(mv.a, false)
+        strafe_key(mv.a == "left" and "right" or "left", true)
+        mv.phase = 2
+    elseif mv.phase == 2 and el >= 2 * MV_SIDE then
+        mv_release()
+        if F.active then F.set_paused("unstick", false) end
+        reset_anchor()
+        return "manoeuvred"
+    end
+    return nil
 end
 
 -- 2D distance from (px, py) to segment a-b.

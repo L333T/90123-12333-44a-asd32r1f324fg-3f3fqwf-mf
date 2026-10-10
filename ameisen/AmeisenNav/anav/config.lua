@@ -98,7 +98,8 @@ local C = {
     stuck_window        = 1.5,      -- seconds without progress = stuck
     stuck_min_move      = 0.8,      -- yards that count as progress in the window
     stuck_clear_move    = 3.0,      -- yards of progress that reset the stuck level
-    max_stuck           = 5,        -- recovery attempts before giving up
+    max_stuck           = 6,        -- recovery attempts before giving up (1.6.5: 6 steps)
+    unstick_after_fails = 2,        -- 1.6.5: failed plans from one spot before the manoeuvre
     backoff_time        = 0.6,      -- seconds of backing up in recovery
 
     -- --------------------------------------------------------------- follow

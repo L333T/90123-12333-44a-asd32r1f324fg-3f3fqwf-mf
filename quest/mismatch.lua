@@ -3,7 +3,7 @@
 -- quest/mismatch.lua - guide / character zone mismatch
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.282.0
+-- Version: 2.282.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.281.0). A dwarf in Coldridge Valley with the HUMAN RestedXP guide

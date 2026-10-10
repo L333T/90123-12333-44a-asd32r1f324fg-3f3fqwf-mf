@@ -3,7 +3,7 @@
 -- movement/sentinel_adv.lua - map-change reset (Ameisen build)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.266.0
+-- Version: 2.267.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- In Master Farmer - Grindbot this file drove Sentinel's lower-level services

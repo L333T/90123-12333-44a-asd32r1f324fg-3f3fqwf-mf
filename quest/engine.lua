@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.279.0
+-- Version: 2.280.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2094,6 +2094,9 @@ local function dialog_goal(player, goal, kind, wps, label)
             -- just opened (2.205.0). close_gossip left the merchant up.
             if merchant then pcall(function() core.input.close_merchant() end) end
             if trainer then pcall(function() core.quests.close_trainer() end) end
+            -- 2.280.0: a flight master's map (".fp" - talking learns the
+            -- flight point) is closed too; it used to stay open on screen.
+            if taxi then pcall(function() core.taxi.close() end) end
             g_talk_opened = 0
             return true
         end
@@ -2166,30 +2169,55 @@ local function fly_destination(goal)
     return dest ~= "" and dest or nil
 end
 
+--- The node to fly to for `dest` on the OPEN taxi map: index, node count,
+--- and - when the destination is on the map but cannot be taken - its
+--- node_type. 2.280.0 (Taxi API): only a REACHABLE node is ever returned;
+--- CURRENT is where the character stands, DISTANT is another continent,
+--- NONE is undiscovered - take_node does nothing for those, which used to
+--- look like a failed take-off three times before the step was skipped.
+--- A client that answers "" for the type is trusted (older builds).
 local function taxi_node_for(dest)
     local n = safe(function() return core.taxi.num_nodes() end)
     if type(n) ~= "number" or n <= 0 or not dest then return nil, n end
     local want = dest:lower()
     local first = want:match("^([%a']+)")
-    local partial, loose = nil, nil
+    local exact, partial, loose = nil, nil, nil
+    local blocked = nil            -- node_type of a matching node that cannot be taken
+    local exact_blocked = nil      -- ... of the EXACT match: then no looser match is flown to
     for i = 1, n do
         local name = safe(function() return core.taxi.node_name(i) end)
         if type(name) == "string" and name ~= "" and name ~= "INVALID" then
             local low = name:lower()
             local head = low:match("^([^,]+)") or low
+            local rank = nil
             if low == want or head == want then
-                return i, n
+                rank = 1
+            elseif low:find(want, 1, true) or want:find(head, 1, true) then
+                rank = 2
+            elseif first and #first >= 4 and low:find(first, 1, true) then
+                rank = 3
             end
-            if not partial and (low:find(want, 1, true) or want:find(head, 1, true)) then
-                partial = i
-            end
-            if not loose and first and #first >= 4 and low:find(first, 1, true) then
-                loose = i
+            if rank then
+                local ntype = safe(function() return core.taxi.node_type(i) end)
+                local can = type(ntype) ~= "string" or ntype == "" or ntype == "REACHABLE"
+                if can then
+                    if rank == 1 and not exact then exact = i
+                    elseif rank == 2 and not partial then partial = i
+                    elseif rank == 3 and not loose then loose = i end
+                else
+                    if rank == 1 then exact_blocked = exact_blocked or ntype end
+                    blocked = blocked or ntype
+                end
             end
         end
     end
-    return partial or loose, n
+    -- The named flight point exists but cannot be flown to: never a
+    -- different one that merely shares part of its name.
+    if not exact and exact_blocked then return nil, n, exact_blocked end
+    local idx = exact or partial or loose
+    return idx, n, (not idx) and blocked or nil
 end
+
 
 
 --- Select the taxi option of the open gossip frame. True when one was chosen.
@@ -2198,6 +2226,18 @@ local FM = {
     GOSSIP_TRIES = 3,          -- gossip windows without a flight option before the next NPC
     FLAG = 0x2000,             -- UNIT_NPC_FLAG_FLIGHTMASTER
 }
+
+--- 2.280.0: the names of the nodes the open map can fly to now (for the log).
+function FM.reachable_names(n)
+    local names = {}
+    for i = 1, n do
+        local ntype = safe(function() return core.taxi.node_type(i) end)
+        if type(ntype) ~= "string" or ntype == "" or ntype == "REACHABLE" then
+            names[#names + 1] = tostring(safe(function() return core.taxi.node_name(i) end))
+        end
+    end
+    return names
+end
 
 --- GUIDs as text (2.239.0): on this client get_guid() can be userdata, and
 --- two reads of the same GUID need not compare equal.
@@ -2326,7 +2366,7 @@ local function fly_goal(player, goal, wps, label)
         return true
     end
     -- 1. The flight map is open: pick the destination by name.
-    local idx, n = taxi_node_for(dest)
+    local idx, n, blocked = taxi_node_for(dest)
     if type(n) == "number" and n > 0 then
         g_fly_noopt = 0
         if idx then
@@ -2341,14 +2381,16 @@ local function fly_goal(player, goal, wps, label)
             state.set_note("Quest", "Taking off to " .. tostring(dest))
             return true
         end
-        if not g_fly_warned then
+        -- 2.280.0: why the destination cannot be taken, from its node_type
+        if blocked == "CURRENT" then
+            trail("act", "flight to %s: already at that flight point - step done", tostring(dest))
+        elseif not g_fly_warned then
             g_fly_warned = true
-            local names = {}
-            for i = 1, n do
-                names[#names + 1] = tostring(safe(function() return core.taxi.node_name(i) end))
-            end
-            trail("act", "no flight to '%s' from here (known: %s) - skipping the step",
-                tostring(dest), table.concat(names, ", "))
+            local why = (blocked == "NONE" and "not discovered by this character")
+                or (blocked == "DISTANT" and "on another continent")
+                or "not on this flight master's map"
+            trail("act", "no flight to '%s' from here: %s (can fly to: %s) - skipping the step",
+                tostring(dest), why, table.concat(FM.reachable_names(n), ", "))
         end
         pcall(function() core.taxi.close() end)
         guide.mark_goal_done(guide.step_num(), goal.index)

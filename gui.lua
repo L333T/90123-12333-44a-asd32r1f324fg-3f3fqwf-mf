@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.277.1
+-- Version: 2.278.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -102,8 +102,8 @@ local menu = ui.new({
     version = identity.version,
     header_text = identity.description,
     logo = "mf_assets\\mf_assets\\logo.png",
-    logo_width = 345,
-    logo_height = 79,
+    logo_width = 300,     -- Master Farmer banner (3:1)
+    logo_height = 99,
     font = "mf_assets\\mf_assets\\ManlineSlabs-pgPVy.otf",
     footer = "Contact Us On Discord: 1stblizz",
     header_hints = {

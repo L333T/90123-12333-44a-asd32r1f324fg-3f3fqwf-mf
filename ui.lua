@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.277.1
+-- Version: 2.278.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -602,6 +602,37 @@ local function logo_warn(key, text)
     elog("logo: %s", text)
 end
 
+-- ---------------------------------------------------------------------------
+-- MASTER FARMER BANNER (header logo). Downloaded once from the Master Farmer
+-- artwork repo (the launcher's own source) and cached in scripts_data next to
+-- the launcher's artwork; the mf_assets zip logo is only the fallback.
+-- ---------------------------------------------------------------------------
+local BANNER_URL = "https://raw.githubusercontent.com/L333T/master-farmer-assets/main/gui/logo_master_farmer.png"
+local BANNER_DIR = "master_farmer/gui_v3"
+local BANNER_FILE = BANNER_DIR .. "/logo_master_farmer.png"
+local banner = { bytes = nil, asked = false }
+
+local function banner_bytes()
+    if banner.bytes then return banner.bytes end
+    local cached = safe(function() return core.read_data_file(BANNER_FILE) end)
+    if usable_bytes(cached) and #cached > 1000 then
+        banner.bytes = cached
+        return cached
+    end
+    if not banner.asked and type(core.http_get) == "function" then
+        banner.asked = true
+        pcall(core.http_get, BANNER_URL, function(code, _, data)
+            if tonumber(code) ~= 200 or not usable_bytes(data) then return end
+            banner.bytes = data
+            pcall(core.create_data_folder, "master_farmer")
+            pcall(core.create_data_folder, BANNER_DIR)
+            pcall(core.create_data_file, BANNER_FILE)
+            pcall(core.write_data_file, BANNER_FILE, data)
+        end)
+    end
+    return nil
+end
+
 function Menu:ensure_logo()
     if self._logo_tex and self._logo_tex.id ~= nil then
         return self._logo_tex
@@ -612,7 +643,7 @@ function Menu:ensure_logo()
     end
     self._next_logo_try = (type(now) == "number" and now or 0) + 0.50
 
-    local bytes = load_pack_bytes(resolve_pack_path(self.logo))
+    local bytes = banner_bytes() or load_pack_bytes(resolve_pack_path(self.logo))
     if type(bytes) ~= "string" then
         logo_warn("read", "could not read " .. tostring(resolve_pack_path(self.logo))
             .. " from scripts_data (assets pack not downloaded yet?) - retrying.")

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.260.0
+-- Version: 2.261.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1839,7 +1839,14 @@ function smart.combat(player, target, ctx)
             local el = mod("errorlog")
             if el and type(el.trail) == "function" then
                 pcall(el.trail, "rotation", "nothing cast for %.0f s at %s (%.1f yd, power %s, combo %s, queue %s): %s",
-                    t - no_cast.since, tostring(safe(T.get_name, T)), c.dist() or -1, tostring(safe(P.get_power, P, 3) or c.mana()),
+                    t - no_cast.since, tostring(safe(T.get_name, T)), c.dist() or -1, (function()
+                        -- 2.261.0: mana % for mana users (get_power(3) is energy: 0 on a mage)
+                        local pw = mod("power")
+                        if pw and type(pw.has_mana) == "function" and pw.has_mana(P) then
+                            return string.format("mana %.0f%%", c.mana())
+                        end
+                        return tostring(safe(P.get_power, P, 3))
+                    end)(),
                     tostring(c.cp()), queue_on() and "on" or "off", table.concat(parts, "; "))
             end
         end

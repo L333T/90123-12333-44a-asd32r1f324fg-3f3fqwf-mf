@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.260.0
+-- Version: 2.261.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1123,7 +1123,18 @@ function targeting.start_auto_attack(player, unit)
         -- 2.197.0: priest and warlock wands too, not only the mage's.
         local wand_class = cid == enums.class_id.MAGE or cid == enums.class_id.PRIEST
             or cid == enums.class_id.WARLOCK
-        if not close and wand_class and type(types.WAND) == "number"
+        -- 2.261.0: the wand only below the class's "Wand below mana %" slider
+        -- (sp_wand, the rotation's own wand rule - smart.lua wand_time). Every
+        -- engage started it at any mana, so the mage shot its wand between
+        -- spells with plenty of mana to cast.
+        local low_mana = false
+        if wand_class then
+            local ok_p, pw = pcall(require, "power")
+            local mp = (ok_p and type(pw) == "table" and type(pw.mana_pct) == "function")
+                and pw.mana_pct(player) or 100
+            low_mana = type(mp) == "number" and mp < (tonumber(gui.slider("sp_wand", 20)) or 20)
+        end
+        if not close and wand_class and low_mana and type(types.WAND) == "number"
             and targeting.has_wand_equipped(player) then
             want = types.WAND
             reach = 30

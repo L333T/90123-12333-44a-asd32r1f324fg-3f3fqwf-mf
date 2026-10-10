@@ -3,7 +3,7 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.263.0
+-- Version: 2.264.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS FILE EXISTS
@@ -153,17 +153,66 @@ for i = 1, #WINDOW_EVENTS do
     end
 end
 
+-- QUIET EDGES (2.264.0): recorded, but they do not move ui.seq - the quest
+-- dialog reads seq as "a window changed", and QUEST_LOG_UPDATE fires on
+-- every bag and objective change. quest/guide.lua re-reads RestedXP on the
+-- quest ones at once instead of waiting for its 0.25 s window; the loot and
+-- item-text pair tell an object goal that its click opened something.
+local QUIET_EVENTS = {
+    "QUEST_LOG_UPDATE", "QUEST_ITEM_UPDATE",
+    "LOOT_OPENED", "LOOT_CLOSED", "ITEM_TEXT_BEGIN", "ITEM_TEXT_CLOSED",
+    "PLAYER_INTERACTION_MANAGER_FRAME_HIDE",
+}
+for i = 1, #QUIET_EVENTS do
+    local name = QUIET_EVENTS[i]
+    handlers[name] = function()
+        ui[name] = now()
+    end
+end
+
+-- The quest events after which RestedXP's step / goals may have changed.
+local QUEST_CHANGE = { "QUEST_LOG_UPDATE", "QUEST_ITEM_UPDATE", "QUEST_ACCEPTED", "QUEST_TURNED_IN", "QUEST_FINISHED" }
+
+--- izi.now() time of the latest quest-state event, or nil.
+function events.quest_change_at()
+    local best = nil
+    for i = 1, #QUEST_CHANGE do
+        local t = ui[QUEST_CHANGE[i]]
+        if type(t) == "number" and (best == nil or t > best) then best = t end
+    end
+    return best
+end
+
+-- 2.264.0: the string id is the same on every version and language
+-- (args[3], nil on clients too old to send it); the text is the fallback.
+local TOO_FAR_IDS = {
+    ERR_USE_TOO_FAR = true, ERR_OUT_OF_RANGE = true, ERR_TOO_FAR_TO_INTERACT = true,
+    ERR_LOOT_TOO_FAR = true, ERR_TOO_FAR_TO_ATTACK = true,
+}
+
 function handlers.UI_ERROR_MESSAGE(args)
     ui.UI_ERROR_MESSAGE = now()
     ui.error_id = args and args[3]
     ui.error_text = args and args[2]
     ui.seq = ui.seq + 1
-    -- Full bags (2.160.0): quest/npc.lua sends the bot to a vendor on it.
+    local id = type(ui.error_id) == "string" and ui.error_id or nil
     local text = type(ui.error_text) == "string" and string.lower(ui.error_text) or ""
-    if text:find("inventory is full", 1, true) or text:find("bags are full", 1, true)
+    -- Full bags (2.160.0): quest/npc.lua sends the bot to a vendor on it.
+    if id == "ERR_INV_FULL" or id == "ERR_BAG_FULL"
+        or text:find("inventory is full", 1, true) or text:find("bags are full", 1, true)
         or text:find("inventory full", 1, true) then
         ui.inv_full_at = ui.UI_ERROR_MESSAGE
     end
+    -- Interaction refused for distance: the caller closes in before the next try.
+    if (id and TOO_FAR_IDS[id]) or (not id and text:find("too far", 1, true)) then
+        ui.too_far_at = ui.UI_ERROR_MESSAGE
+    end
+end
+
+--- Did the client refuse something as too far away at or after time `t`?
+function events.too_far_since(t)
+    local at = ui.too_far_at
+    return type(at) == "number" and type(t) == "number" and at >= t
 end
 
 --- Did the client say the bags are full at or after time `t`?

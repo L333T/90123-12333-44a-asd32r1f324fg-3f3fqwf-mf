@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.263.0
+-- Version: 2.264.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -259,6 +259,11 @@ local function plain_goal(raw)
         objective_max = tonumber(get(raw, "objective_max")) or 0,
         reward = tonumber(get(raw, "reward")) or 0,
         money = tonumber(get(raw, "money")) or 0,
+        -- 2.264.0: the rest of rested_xp_goal_info (.money / .itemcount)
+        money_greater_than = as_bool(get(raw, "money_greater_than")),
+        item_total = tonumber(get(raw, "item_total")) or 0,
+        item_operator = tonumber(get(raw, "item_operator")) or 0,
+        item_eq = as_bool(get(raw, "item_eq")),
     }
 end
 
@@ -443,12 +448,33 @@ local function player_in_combat()
     return ok2 and c == true
 end
 
+-- QUEST EVENTS (2.264.0): QUEST_LOG_UPDATE / QUEST_ITEM_UPDATE /
+-- QUEST_ACCEPTED / QUEST_TURNED_IN / QUEST_FINISHED (events.lua) start a new
+-- read at once - RestedXP moves on from those - no sooner than EVENT_GAP
+-- after the last one. The combat rule below still applies.
+local EVENT_GAP = 0.1
+local events_mod = nil
+local ev_seen = nil
+
+local function quest_event_pending(now)
+    if events_mod == nil then
+        local ok, m = pcall(require, "events")
+        events_mod = (ok and type(m) == "table" and type(m.quest_change_at) == "function") and m or false
+    end
+    if not events_mod then return false end
+    local at = events_mod.quest_change_at()
+    if type(at) ~= "number" or (ev_seen and at <= ev_seen) then return false end
+    if snap.t >= 0 and (now - snap.t) < EVENT_GAP then return false end
+    ev_seen = at
+    return true
+end
+
 local function refresh()
     if not reads_ok then
         return                -- render / GUI: the last snapshot stands
     end
     local now = clock()
-    if snap.t >= 0 and now >= snap.t and (now - snap.t) < WINDOW then
+    if snap.t >= 0 and now >= snap.t and (now - snap.t) < WINDOW and not quest_event_pending(now) then
         return
     end
     -- NO ADDON READS IN COMBAT (2.22.0). Both crash logs end within a second
@@ -704,6 +730,10 @@ local function shape_goal(g, index)
         objective_max = g.objective_max,
         reward = g.reward,                   -- RestedXP reward choice (npc.turn_in)
         money = g.money,
+        money_greater_than = g.money_greater_than,
+        item_total = g.item_total,
+        item_operator = g.item_operator,
+        item_eq = g.item_eq,
     }
 end
 
@@ -794,6 +824,13 @@ function guide.invalidate()
     snap.memo = {}
 end
 
+-- CONDITIONS (2.264.0). ".itemcount" and ".money" are not something to do:
+-- they gate the step ("while you hold N of X", "once you have N copper"),
+-- and RestedXP ticks them itself. They fell through to "goto" and the bot
+-- walked to the step's waypoint for them. Now they are passed over like
+-- text_only commentary (still the fallback when nothing else is left).
+local CONDITION_ACTIONS = { itemcount = true, money = true }
+
 local function compute_goal()
     local step = guide.step()
     if not step or step.is_complete == true then
@@ -819,7 +856,7 @@ local function compute_goal()
         if type(g) == "table" and g.is_complete ~= true
             and not skipped(tonumber(g.quest_id))
             and not done_goals[tostring(step.num) .. "|" .. tostring(i)] then
-            if g.text_only ~= true then
+            if g.text_only ~= true and not CONDITION_ACTIONS[g.action] then
                 return shape_goal(g, i)
             end
             fallback = fallback or shape_goal(g, i)
@@ -937,6 +974,12 @@ function guide.goal_objective(goal)
         return nil
     end
     local list = guide.objectives(goal.quest_id)
+    -- 2.264.0: a ".complete" goal names its objective (goal.objective,
+    -- 1-based, 0 = unset) - exact, and independent of the client language.
+    local oi = tonumber(goal.objective) or 0
+    if oi > 0 and type(list[oi]) == "table" and not list[oi].finished then
+        return list[oi]
+    end
     local first = nil
     local want = goal.text and string.lower(goal.text) or nil
     for i = 1, #list do

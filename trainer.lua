@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.263.0
+-- Version: 2.264.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -522,6 +522,21 @@ local function seek_tick(player, now)
     end
     local movement = require("movement")
     local d = safe(function() return player:distance_to(unit) end) or 99
+    -- 2.264.0: an interact refused as too far (UI_ERROR_MESSAGE, events.lua)
+    -- is followed by a walk up to the trainer, not the same click again
+    local ok_ev, ev = pcall(require, "events")
+    if seek.asked_t and ok_ev and type(ev) == "table" and type(ev.too_far_since) == "function"
+        and ev.too_far_since(seek.asked_t) then
+        seek.asked_t = nil
+        seek.close_until = now + 4.0
+    end
+    if seek.close_until and now < seek.close_until and d > 2.5 then
+        local p = safe(function() return unit:get_position() end)
+        if p and movement.nav_to(p) then
+            state.set_note("Trainer", "Too far - closing in on " .. tostring(seek.name))
+            return true
+        end
+    end
     if d > 5 then
         local p = safe(function() return unit:get_position() end)
         if p and movement.nav_to(p) then
@@ -544,6 +559,7 @@ local function seek_tick(player, now)
         return false
     end
     last_act = now
+    seek.asked_t = now
     tried_level, tried_gold = nil, nil     -- a fresh visit: the gossip path may select
     pcall(function() core.input.interact_with_object(unit) end)
     state.set_note("Trainer", "Talking to " .. tostring(seek.name))

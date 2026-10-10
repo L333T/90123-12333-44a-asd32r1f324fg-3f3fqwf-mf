@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.263.0
+-- Version: 2.264.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -50,6 +50,18 @@ local vendor = {}
 local HEARTHSTONE = 6948
 local SELL_GAP = 0.40
 local INTERACT_GAP = 1.20
+
+-- TOO FAR (2.264.0): core.input.interact_with_object only sends the request;
+-- a refusal arrives as UI_ERROR_MESSAGE (events.lua: ERR_USE_TOO_FAR and
+-- friends). A refused interact is not repeated from the same spot - the bot
+-- walks up to the NPC (same floor) first, CLOSE_IN_S at most.
+local CLOSE_IN_S = 4.0
+local CLOSE_IN_YD = 2.5
+local function refused_too_far(t)
+    if type(t) ~= "number" then return false end
+    local ok, ev = pcall(require, "events")
+    return ok and type(ev) == "table" and type(ev.too_far_since) == "function" and ev.too_far_since(t) == true
+end
 local DONE_COOLDOWN = 90.0
 local FULL_RETRY = 60         -- 2.169.0: full bags retry a trip that freed nothing after this
 local RETURN_NEAR = 8         -- 2.169.0: yards from the paused quest spot that count as back
@@ -1284,6 +1296,20 @@ local function supplier_tick(player)
         state.vendor.idle_since = 0
         return true
     end
+    -- 2.264.0: the last interact was refused as too far - walk up first
+    if refused_too_far(state.vendor.interact_t) then
+        state.vendor.interact_t = nil
+        state.vendor.close_in = now + CLOSE_IN_S
+    end
+    if state.vendor.close_in and now < state.vendor.close_in then
+        local dd = safe(function() return player:distance_to(unit) end) or 99
+        local up = safe(function() return unit:get_position() end)
+        if dd > CLOSE_IN_YD and up and nav_place(player, up) then
+            state.set_note("Vendor", "Too far - closing in")
+            return true
+        end
+    end
+    state.vendor.close_in = nil
     movement.nav_stop()
     if idle_check(now) then
         return false
@@ -1297,6 +1323,7 @@ local function supplier_tick(player)
         return false
     end
     state.vendor.interact_until = now + INTERACT_GAP
+    state.vendor.interact_t = now
     targeting.set_current(unit, "vendor")
     pcall(function() core.input.interact_with_object(unit) end)
     if gossip_open() then
@@ -1717,6 +1744,19 @@ function vendor.tick(player)
         state.vendor.idle_since = 0
         return nav_place(player, p) == true
     end
+    -- 2.264.0: the last interact was refused as too far - walk up first
+    if refused_too_far(state.vendor.interact_t) then
+        state.vendor.interact_t = nil
+        state.vendor.close_in = now + CLOSE_IN_S
+    end
+    if state.vendor.close_in and now < state.vendor.close_in and d > CLOSE_IN_YD then
+        local p = safe(function() return unit:get_position() end)
+        if p and nav_place(player, p) then
+            state.set_note("Vendor", "Too far - closing in")
+            return true
+        end
+    end
+    state.vendor.close_in = nil
     movement.nav_stop()
 
     if idle_check(now) then
@@ -1731,6 +1771,7 @@ function vendor.tick(player)
         return false
     end
     state.vendor.interact_until = now + INTERACT_GAP
+    state.vendor.interact_t = now
     targeting.set_current(unit, "vendor")
     pcall(function()
         core.input.interact_with_object(unit)

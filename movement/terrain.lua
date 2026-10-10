@@ -3,7 +3,7 @@
 -- movement/terrain.lua - terrain-aware Sentinel pathing (coords_helper)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.281.0
+-- Version: 2.282.0
 -- ============================================================================
 -- Sentinel plans on its navmesh and knows nothing about the ground the client
 -- has loaded. Three things here read that ground through

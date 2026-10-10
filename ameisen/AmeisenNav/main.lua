@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- Main - wiring and the global API
 -- ============================================================================
--- Version: 1.6.6
+-- Version: 1.6.7
 -- Author: BLIZZ
 -- Folder: AmeisenNav
 -- ============================================================================
@@ -18,7 +18,7 @@
 -- Full reference: AmeisenNav/docs/API.md
 -- ============================================================================
 
-local VERSION = "1.6.6"
+local VERSION = "1.6.7"
 local BOOT_URL = "http://127.0.0.1:47110/log?src=boot"
 
 --- Startup problems go to the server too: console output may not be visible

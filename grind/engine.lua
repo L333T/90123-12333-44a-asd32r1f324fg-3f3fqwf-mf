@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.309.0
+-- Version: 2.310.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -303,6 +303,12 @@ end
 local PATH_KEEP = 5.0
 local DRIFT_MAX = 8.0     -- PATH_KEEP plus slack for the Sentinel line between nodes
 local GRIND_PULL = 50.0
+-- 2.310.0: ROUTE PULL. With a route loaded, only enemies standing within
+-- ROUTE_PULL yards of it (flat distance to its nearest segment) are pulled;
+-- enemies further off the route are left alone. Mobs that attack the
+-- character are still fought wherever they are (the cascade's attacker
+-- handling, not this pull).
+local ROUTE_PULL = 15.0
 local gp = { prev_step = 1, rejoin = true, rx = nil, ry = nil, last_tick = -1e9 }
 -- START ANYWHERE (2.234.0): a gap of RESTART_GAP s between grind ticks is a
 -- Start, a resume or a return from a vendor / rest / death run - the walk-in
@@ -515,6 +521,19 @@ function grind.kill_mobs(player)
     -- valid mob wins. Until then the path is walked.
     local pull = GRIND_PULL
     local enemies = targeting.find_mobs(player, mobs, pull, true)
+    -- 2.310.0: a loaded route - only enemies within ROUTE_PULL yd of it
+    if zone and zone.path and node_count(zone) >= 1 and type(enemies) == "table" and #enemies > 0 then
+        local keep = {}
+        for i = 1, #enemies do
+            local u = enemies[i]
+            local p = safe(function() return u:get_position() end)
+            if p and type(p.x) == "number" then
+                local _, _, _, d = path_nearest(zone, p.x, p.y)
+                if type(d) == "number" and d <= ROUTE_PULL then keep[#keep + 1] = u end
+            end
+        end
+        enemies = keep
+    end
     local unit = targeting.nearest(player, enemies)
     if unit then
         targeting.set_current(unit, "kill")

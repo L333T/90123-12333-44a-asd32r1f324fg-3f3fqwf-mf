@@ -60,7 +60,7 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 - **Targets** (2.226.0): a target being fought (`targeting.engaged`: alive, in combat or wounded) is kept until it dies -
   `combat.acquire`, `targeting.attacker_to_switch` and the quest fight-back never swap it for an add or a closer mob.
 - **Approach / grind path** (2.230.0): `targeting.approach_stuck` drops a target the character cannot get 3 yd closer to in 8 s
-  without line of sight (15 s with it) - marked unreachable, the engine carries on. Grind pulls anything within 50 yd (any
+  without line of sight (15 s with it) - marked unreachable, the engine carries on. Grind pulls anything within 50 yd that stands within 15 yd of the loaded route (2.310.0; any
   class, 2.233.0), walks back to the nearest point of the path (5 yd = on it) after each fight or an 8 yd drift, and loops
   forever (closed loop wraps, open path turns round at its ends).
 - **Cascade** (`main.lua`): death → flight check → enemy scan → loot → conjure →

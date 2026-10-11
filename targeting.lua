@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.292.0
+-- Version: 2.293.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1163,29 +1163,50 @@ local function in_melee(unit)
 end
 
 --- Swing watch for the melee target `unit` (see SWING TIMER).
+-- 2.293.0: HITS ARE SEEN ON THE TARGET. On this client the helper's "last
+-- attack" moves when the Attack command goes out, not on every swing: the
+-- 23:51 warrior session logged "first swing 0.4 s" (the command) and then
+-- "no swing for 2.9 s" in 55 fights whose mobs were dying at a normal pace -
+-- and each of those re-sent Attack while the warrior was already swinging,
+-- which can switch auto attack off. Now a drop in the target's health counts
+-- as a hit too, a warning needs neither for weapon speed + SWING_SLACK s,
+-- and Attack is only re-sent when auto attack has really stopped
+-- (is_auto_attacking false); while it is on, the character only faces.
 local function swing_watch(player, unit, g)
     local t = safe(core.time) or izi.now()
-    if g ~= SW.guid then SW.guid, SW.since, SW.first = g, nil, false end
+    if g ~= SW.guid then SW.guid, SW.since, SW.first, SW.hp, SW.hit_t = g, nil, false, nil, nil end
     if not in_melee(unit) then SW.since = nil return end
     SW.since = SW.since or t
+    -- the target's health: a drop is a hit landing (ours or the pet's - a fight)
+    local hp = tonumber(call(unit.get_health, unit))
+    if hp then
+        if SW.hp and hp < SW.hp then SW.hit_t = t end
+        SW.hp = hp
+    end
     local last = tonumber(safe(function() return auto_attack:get_last_attack_core_time(player) end))
     local swung = last ~= nil and last >= SW.since
-    if swung and not SW.first then
+    local hit_at = SW.hit_t
+    if swung and (not hit_at or last > hit_at) then hit_at = last end
+    if hit_at and hit_at >= SW.since and not SW.first then
         SW.first = true
-        pcall(trail, "swing", "melee: first swing %.1f s after reaching %s", last - SW.since,
+        pcall(trail, "swing", "melee: first hit %.1f s after reaching %s", hit_at - SW.since,
             tostring(call(unit.get_name, unit)))
     end
     local speed = tonumber(call(player.get_attack_speed, player))
     if not speed or speed <= 0 or speed > 10 then speed = 2.6 end
-    local since_swing = t - math.max(swung and last or SW.since, SW.since)
-    if since_swing > speed + SWING_SLACK and (t - SW.warned) > 5 then
+    local since_hit = t - math.max(hit_at or SW.since, SW.since)
+    if since_hit > speed + SWING_SLACK and (t - SW.warned) > 5 then
         SW.warned = t
-        pcall(trail, "swing", "melee: no swing for %.1f s in melee range of %s (weapon %.1f s, attacking %s) - facing it, re-arming",
-            since_swing, tostring(call(unit.get_name, unit)), speed, tostring(auto_attacking(player)))
+        local attacking = auto_attacking(player)
+        pcall(trail, "swing", "melee: no hit for %.1f s in melee range of %s (weapon %.1f s, attacking %s) - %s",
+            since_hit, tostring(call(unit.get_name, unit)), speed, tostring(attacking),
+            attacking and "facing it" or "facing it, re-arming the attack")
         local okm, mv = pcall(require, "movement")
         if okm and type(mv) == "table" and type(mv.face) == "function" then pcall(mv.face, unit) end
-        auto_t = -1e9              -- re-arm on this call
-        return "rearm"
+        if not attacking then
+            auto_t = -1e9          -- re-arm on this call: auto attack is really off
+            return "rearm"
+        end
     end
 end
 

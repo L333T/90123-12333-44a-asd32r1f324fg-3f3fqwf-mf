@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.292.0
+-- Version: 2.293.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -151,6 +151,9 @@ local SELF_ROLES = {
 }
 
 -- Channelled spells hold the walker for the whole channel.
+-- 2.293.0: abilities that replace the next melee swing (see try)
+local NEXT_SWING = { ["Heroic Strike"] = true, ["Cleave"] = true, ["Maul"] = true, ["Raptor Strike"] = true }
+
 local CHANNEL = {
     ["Mind Flay"] = true, ["Drain Life"] = true, ["Drain Soul"] = true,
     ["Arcane Missiles"] = true, ["Evocation"] = true, ["Health Funnel"] = true,
@@ -1270,6 +1273,20 @@ local function try(e, role_cond)
     if not e.self and e.role ~= "heal" and T then
         if target_immune() then why_not[e.name] = "target immune" return false end
         if dies_before(e) then why_not[e.name] = "target dies before the cast lands" return false end
+    end
+    -- 2.293.0: NEXT-SWING ABILITIES (Heroic Strike, Cleave, Maul, Raptor
+    -- Strike) replace the next melee swing; pressed again while queued they
+    -- are UN-queued (the 23:51 warrior session cast Heroic Strike every
+    -- 0.1-0.4 s, toggling it). Not while the game says it is queued
+    -- (is_current_spell), nor within one weapon swing of the last cast.
+    if NEXT_SWING[e.name] then
+        local queued = safe(function() return core.spell_book.is_current_spell(e.id) end) == true
+        local spd = tonumber(safe(P.get_attack_speed, P)) or 2.6
+        if spd <= 0 or spd > 10 then spd = 2.6 end
+        if queued or (izi.now() - (last_cast[e.key] or -1e9)) < spd then
+            why_not[e.name] = "queued on the next swing"
+            return false
+        end
     end
     local rdy, rwhy = ready_now(e)
     if not rdy then why_not[e.name] = rwhy return false end

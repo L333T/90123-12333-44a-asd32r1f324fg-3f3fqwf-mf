@@ -3,7 +3,7 @@
 -- movement/terrain.lua - terrain-aware Sentinel pathing (coords_helper)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- ============================================================================
 -- Sentinel plans on its navmesh and knows nothing about the ground the client
 -- has loaded. Three things here read that ground through
@@ -232,6 +232,10 @@ end
 --- the character's height + 4, as coords_helper does). Only near the player:
 --- the raycast reads terrain the client has loaded.
 function T.height(x, y, zstart)
+    -- 2.311.0: no terrain ray (K.TERRAIN_RAYS): no height known. The height
+    -- retry, the direct-leg check and the wall watch then stand aside, as
+    -- before 2.221.0.
+    if not K.TERRAIN_RAYS then return nil end
     if not finite(x) or not finite(y) then return nil end
     if not finite(zstart) then
         local _, _, hz = here_xyz()
@@ -296,6 +300,7 @@ local function add_floor(out, z)
 end
 
 local function map_floors(out, x, y, z)
+    if not K.TERRAIN_RAYS then return end      -- 2.311.0
     local c = coords()
     if not c or errors.floors >= ERR_MAX then return end
     if type(c.map_to_world) ~= "function" or type(c.get_current_map_id) ~= "function" then return end

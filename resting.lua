@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -119,7 +119,7 @@ local REST_CLEAR_YARDS = 10
 --
 -- The other gates (usable, cooldown, moving, mounted, casting, channelling)
 -- are left on: halt_for_rest has already stopped the bot, and they are real.
-local USE_OPTS = { skip_gcd = true }
+local USE_OPTS = { skip_gcd = true, check_los = false }   -- 2.311.0: no LoS ray
 
 local food_state  = { last = -1e9, uses = 0, pending = false, warned = false }
 local drink_state = { last = -1e9, uses = 0, pending = false, warned = false }

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -854,7 +854,8 @@ local function queue_cast(cq, e, sp, unit, pos)
     -- has already stopped the walk for them).
     local ct = tonumber(safe(function() return cast_seconds(sp) end)) or 0
     local allow_move = ct <= 0 or safe(sp.is_usable_while_moving, sp) == true
-    local opts = { skip_facing = e.self == true, skip_moving = allow_move }
+    -- 2.311.0: check_los = false - izi's two line-of-sight traces are rays
+    local opts = { skip_facing = e.self == true, skip_moving = allow_move, check_los = false }
     if ahead then
         opts.skip_casting, opts.skip_gcd, opts.skip_moving = true, true, true
     end

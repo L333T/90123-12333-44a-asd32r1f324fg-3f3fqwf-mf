@@ -3,7 +3,7 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS FILE EXISTS
@@ -207,6 +207,22 @@ function handlers.UI_ERROR_MESSAGE(args)
     if (id and TOO_FAR_IDS[id]) or (not id and text:find("too far", 1, true)) then
         ui.too_far_at = ui.UI_ERROR_MESSAGE
     end
+    -- 2.311.0: "Target not in line of sight" - line of sight is the game's
+    -- answer now, never a ray (movement/range.lua). The target it was about
+    -- is the player's target at this moment.
+    if (id and id:find("LINE_OF_SIGHT", 1, true)) or text:find("line of sight", 1, true) then
+        ui.los_fail_at = ui.UI_ERROR_MESSAGE
+        ui.los_fail_guid = safe(function()
+            local me = core.object_manager.get_local_player()
+            local t = me and me:get_target()
+            return t and t:get_guid()
+        end)
+    end
+end
+
+--- 2.311.0: the guid the client last refused as out of line of sight, and when.
+function events.los_failed()
+    return ui.los_fail_guid, ui.los_fail_at
 end
 
 --- Did the client refuse something as too far away at or after time `t`?

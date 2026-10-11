@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -769,8 +769,10 @@ function targeting.approach_stuck(player, unit, reach)
     end
     local stalled = now - aw.best_t
     if stalled < APPROACH_STALL then return false end
-    local ok_l, los = pcall(player.los_to, player, unit)
-    local seen = ok_l and los == true
+    -- 2.311.0: no los_to ray - the shared, ray-free answer (movement/range.lua)
+    local ok_m, mv = pcall(require, "movement")
+    local seen = ok_m and type(mv) == "table" and type(mv.has_los) == "function"
+        and mv.has_los(player, unit) == true
     if seen and stalled < APPROACH_STALL_LOS then return false end
     if type(state.mark_unreachable) == "function" then state.mark_unreachable(g) end
     trail_act("no way closer to %s for %.0fs (%.0f yd, %s) - blacklisted, back to the path",

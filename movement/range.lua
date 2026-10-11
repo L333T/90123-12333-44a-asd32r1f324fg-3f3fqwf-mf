@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach
@@ -83,47 +83,29 @@ end
 local LOS_TTL = 0.25
 local los_cache = { guid = nil, t = -1, v = false }
 
--- 2.309.0: MODEL NOT LOADED -> NO RAY. Six game crashes on 2026-10-11 were
--- ASSERT(m_data) in Model2/M2HitTest.cpp, the game's ray test against a
--- model, called from script code - most in the very second the bot engaged
--- an attacker that had just come into view. los_to is the ray test every
--- target, auto attack and spell check goes through. A unit that is not
--- visible, or whose model is not loaded (game_object.lua:
--- get_attachment_name_position "returns a zero vector when the model is not
--- loaded"), gets no ray: no line of sight yet (3 yd and closer: yes), so the
--- cast / swing waits the moment it takes the model to load.
-local function model_ready(unit)
-    local okv, vis = pcall(unit.is_visible, unit)
-    if okv and vis == false then return false end
-    local okp, p = pcall(unit.get_attachment_name_position, unit)
-    if not okp or type(p) ~= "table" and type(p) ~= "userdata" then return true end   -- no answer: as before
-    local okx, x, y, z = pcall(function() return p.x, p.y, p.z end)
-    if not okx then return true end
-    return not (x == 0 and y == 0 and z == 0)
-end
+-- 2.311.0: NO LINE-OF-SIGHT RAY. Every M2HitTest game crash of 2026-10-11
+-- (ASSERT(m_data), the game's ray test against a model) came from this ray
+-- test - player:los_to on the unit the bot engaged. The 2.309.0 model gate
+-- was not enough for the user: line of sight is no ray at all now. A unit is
+-- taken as in sight until the game itself refuses a cast at it with "Target
+-- not in line of sight" (UI_ERROR_MESSAGE, events.lua); for LOS_HOLD seconds
+-- after that it reads as out of sight, so combat movement repositions
+-- (orbit / close in) as it did on a los_to "no". 3 yd and closer: in sight.
+local LOS_HOLD = 2.5
+local ev_mod = nil
 
 local function raw_los(player, unit, range)
-    if not model_ready(unit) then
-        return type(range) == "number" and range <= 3
+    if type(range) == "number" and range <= 3 then return true end
+    if ev_mod == nil then
+        local ok, m = pcall(require, "events")
+        ev_mod = (ok and type(m) == "table" and type(m.los_failed) == "function") and m or false
     end
-    local ok, has_los = pcall(player.los_to, player, unit)
-    has_los = ok and has_los == true
-    if not has_los and FLAG_LOS then
-        local fx, fy, fz = here_xyz()
-        if not fx then fx, fy, fz = unit_xyz(player) end
-        local ux, uy, uz = unit_xyz(unit)
-        if fx and ux then
-            local okh, ph = pcall(player.get_height, player)
-            local okh2, uh = pcall(unit.get_height, unit)
-            ph = (okh and type(ph) == "number" and ph > 0) and ph * 0.8 or EYE_Z
-            uh = (okh2 and type(uh) == "number" and uh > 0) and uh * 0.8 or EYE_Z
-            -- trace() adds EYE_Z itself, so hand it the height minus that
-            has_los = trace(pt(P_HERE, fx, fy, fz + ph - EYE_Z),
-                            pt(P_DEST, ux, uy, uz + uh - EYE_Z), FLAG_LOS) == true
-        end
-    end
-    if type(range) == "number" and range <= 3 then has_los = true end
-    return has_los == true
+    if not ev_mod then return true end
+    local okf, guid, at = pcall(ev_mod.los_failed)
+    if not okf or guid == nil or type(at) ~= "number" then return true end
+    if (izi.now() - at) > LOS_HOLD then return true end
+    local okg, ug = pcall(unit.get_guid, unit)
+    return not (okg and ug ~= nil and ug == guid)
 end
 
 --- Can the player see `unit`? Cached briefly per unit.

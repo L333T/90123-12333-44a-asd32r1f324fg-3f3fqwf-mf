@@ -3,7 +3,7 @@
 -- movement/util.lua - logging, position input, distance, ground and traces
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- ============================================================================
 -- The bottom layer. Depends only on const + rt, so every other movement module
 -- may require it without creating a cycle.
@@ -146,6 +146,8 @@ end
 local GROUND_Q_RANGE = 150
 
 function U.ground_z(x, y, hint_z)
+    -- 2.311.0: no terrain ray (K.TERRAIN_RAYS) - the given height stands
+    if not K.TERRAIN_RAYS then return hint_z end
     local hx, hy = U.here_xyz()
     if not hx or U.dist2(hx, hy, x, y) > GROUND_Q_RANGE then
         return hint_z

@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -168,6 +168,16 @@ K.SN_NEED = { "move_to", "follow_path", "stop", "is_moving", "get_state", "valid
 -- open (the navmesh path already routes round walls), and movement/probe
 -- answers "unknown". Set true to bring them back.
 K.NATIVE_RAYS = false
+-- 2.311.0: NO RAYCASTS AT ALL (user: "Remove ray casting from Master Farmer
+-- Questing and Grinding, use previous methods before crashes"). The terrain
+-- height rays (coords_helper get_terrain_height / map_to_world,
+-- core.get_height_for_position, izi.get_terrain_height) are off as well:
+-- points keep the height they were given (the guide's, the mob's, the
+-- player's) and AmeisenNav finds the ground at that x, y on its own navmesh.
+-- Line of sight is no longer a ray either (movement/range.lua): the game's
+-- own "Target not in line of sight" refusal marks the target. Set true to
+-- bring the terrain rays back.
+K.TERRAIN_RAYS = false
 K.FLAG_COLLISION, K.FLAG_LOS, K.FLAG_OBSTACLE = nil, nil, nil
 do
     local cf = K.NATIVE_RAYS and type(enums) == "table" and enums.collision_flags

@@ -3,7 +3,7 @@
 -- Gathering: profession trainer trips (PORT_PLAYBOOK "Vendor, repair, trainers")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.284.0
+-- Version: 2.285.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- trainer.lua (the class trainer) refuses every profession service on
@@ -64,19 +64,14 @@ end
 
 local function now() return izi.now() or 0 end
 
+-- 2.285.0: professions.lua (skill lines, then the profession tabs) - the
+-- primary slots alone missed a profession the client lists only as a skill line.
+local professions = require("professions")
+
 local function profession_level(skill)
-    local profs = safe(function() return core.spell_book.get_professions() end)
-    if type(profs) ~= "table" then return nil, nil end
-    for _, slot in ipairs({ "prof1", "prof2" }) do
-        local idx = profs[slot]
-        if type(idx) == "number" then
-            local info = safe(function() return core.spell_book.get_profession_info(idx) end)
-            if type(info) == "table" and string.lower(tostring(info.skill_line_name or "")) == skill then
-                return tonumber(info.skill_level) or 0, tonumber(info.max_skill_level) or 0
-            end
-        end
-    end
-    return nil, nil
+    local known, rank, max_rank = professions.known(skill)
+    if not known then return nil, nil end
+    return rank, max_rank
 end
 
 ---The trainer row this character should visit for `skill`, or nil.
@@ -85,6 +80,11 @@ local function due_row(player, skill)
     local cap = route.profession_cap()
     local level, max_level = profession_level(skill)
     local missing = spellbook.family(TRACKING[skill]) == nil
+    -- 2.285.0: an unlearned profession cannot be taken as a third primary
+    if level == nil then
+        local can = professions.can_learn(skill)
+        if not can then return nil end
+    end
     local capped = level ~= nil and max_level ~= nil and max_level > 0 and level >= max_level and max_level < cap
     if not missing and not capped then return nil end
     local high = (level or 0) >= 300

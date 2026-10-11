@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.284.0
+-- Version: 2.285.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -777,6 +777,7 @@ end
 -- One file-level table (2.210.0): quest/engine.lua sits at Lua's limit of
 -- 200 locals in a chunk - 2.209.0 crossed it and the file stopped compiling.
 local IS = { step = { key = nil, t = 0, tries = 0 }, GAP = 1.0, TRIES = 5, NEVER_DESTROY = { [6948] = true } }
+IS.prof = require("professions")   -- 2.285.0: which professions the character has (Profession API)
 
 function IS.equipped_id(player, slot)
     local info = safe(function() return player:get_item_at_inventory_slot(slot) end)
@@ -989,6 +990,7 @@ local NPC_PROF_TRAINER = 0x40
 local PROF_TIMEOUT = 60         -- seconds for the whole profession step
 local PROF_TALK_GAP = 2.5
 local PROF_VERIFY = 1.5
+local PROF_VERIFY_MAX = 5.0     -- 2.285.0: seconds the new skill line may take to show
 local g_prof = { key = nil }
 local g_prof_failed = {}        -- profession -> true: gave up this session, no re-walk on retry
 
@@ -1084,6 +1086,17 @@ local function prof_goal(player, goal, wps, label)
         if g_prof_failed[prof] then
             return prof_done(goal, prof, "no profession trainer earlier this session - skipped")
         end
+        -- 2.285.0 (Profession API): no trip for a profession already known,
+        -- nor for a third primary profession (the trainer refuses it)
+        local known, rank, max_rank = IS.prof.known(prof)
+        if known then
+            return prof_done(goal, prof, string.format("already known (skill %d/%d)", rank or 0, max_rank or 0))
+        end
+        local can, why_not_learn = IS.prof.can_learn(prof)
+        if not can then
+            core.log_warning("[Master Farmer - Grindbot] Cannot learn " .. prof .. ": " .. tostring(why_not_learn) .. ".")
+            return prof_done(goal, prof, tostring(why_not_learn), true)
+        end
         prof_hold(true)
         trail("quest", "profession step: looking for a %s trainer for %s", prof, tostring(label))
     end
@@ -1099,7 +1112,14 @@ local function prof_goal(player, goal, wps, label)
         pcall(function() core.skill.expand_trainer_skill_line(0) end)
         local idx, avail, cost = prof_service(prof)
         if p.pending then
+            -- 2.285.0: learned = the profession's skill line is there now
+            local known, rank, max_rank = IS.prof.known(prof)
+            if known then
+                return prof_done(goal, prof, string.format("learned (skill %d/%d)", rank or 0, max_rank or 0))
+            end
             if (now - p.pending) < PROF_VERIFY then return true end
+            -- no skill line yet: a moment more while the row still offers it
+            if idx and avail and (now - p.pending) < PROF_VERIFY_MAX then return true end
             p.pending = nil
             if not idx or not avail then
                 return prof_done(goal, prof, "learned")

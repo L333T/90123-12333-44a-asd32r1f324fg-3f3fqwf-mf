@@ -286,6 +286,15 @@ function M:_plan(nav, target, tail, reason, route_i)
     if not tail and not nav.z_snapped then
         nav.z_snapped = true
         local okg, gz = pcall(GZ.ground, target.x, target.y, target.z)
+        -- 1.7.1: never more than 8 yd DOWN. The terrain ray ignores buildings,
+        -- docks and platforms: a Zangarmarsh destination at z 16.8 was moved to
+        -- the lake bed at -28.8 and the path failed. Upward (the guess was
+        -- underground) is still taken whatever the distance.
+        if okg and type(gz) == "number" and gz < target.z - 8 then
+            L.debug("ground height: %.1f is %.0f yd below the destination z %.1f - kept (a platform / building)",
+                gz, target.z - gz, target.z)
+            gz = nil
+        end
         if okg and type(gz) == "number" and math.abs(gz - target.z) > 3 then
             L.debug("ground height: destination z %.1f -> %.1f (coords_helper)", target.z, gz)
             if nav.dest and nav.dest ~= target then

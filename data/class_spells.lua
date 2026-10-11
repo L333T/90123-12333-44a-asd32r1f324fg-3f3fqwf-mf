@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.302.0
+-- Version: 2.303.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -79,6 +79,15 @@ local function rage_at_least(r)
     return function(c) return c.rage() >= r end
 end
 
+-- 2.303.0: a rage DUMP - `full` rage while other melee specials want the
+-- rage, `alone` when this is the only one (c.specials() == 0, low level).
+local function rage_dump(full, alone)
+    return function(c)
+        local n = type(c.specials) == "function" and c.specials() or 1
+        return c.rage() >= (n > 0 and full or alone)
+    end
+end
+
 -- ============================================================================
 -- WARRIOR
 -- ============================================================================
@@ -121,7 +130,7 @@ W.WARRIOR = t({
       when = function(c) return c.near(8) >= 2 end },
 
     { "Whirlwind",         "aoe", on = true, center = "self", r = 8, n = 2, form = "berserker" },
-    { "Cleave",            "aoe", on = true, melee = true, n = 2, r = 8, when = rage_at_least(40) },
+    { "Cleave",            "aoe", on = true, melee = true, n = 2, r = 8, when = rage_dump(40, 25) },
 
     { "Overpower",         "damage", on = true, melee = true, form = "battle" },
     { "Revenge",           "damage", on = true, melee = true, form = "defensive" },
@@ -131,8 +140,8 @@ W.WARRIOR = t({
     { "Whirlwind",         "damage", on = true, melee = true, form = "berserker" },
     { "Devastate",         "damage", on = true, melee = true },
     { "Slam",              "damage", on = false, melee = true },
-    { "Heroic Strike",     "damage", on = true, melee = true, when = rage_at_least(50),
-      tip = "Rage dump: only with 50+ rage, so the specials are never starved." },
+    { "Heroic Strike",     "damage", on = true, melee = true, when = rage_dump(50, 20),
+      tip = "Rage dump: with 50+ rage while other specials need the rage; with 20+ when it is the only damage special (low level)." },
     { "Hamstring",         "damage", on = false, melee = true },
 })
 
@@ -556,7 +565,7 @@ W.DRUID = t({
     { "Shred",                  "damage", on = false, melee = true, form = "cat", tip = "Needs to be behind the target." },
     { "Claw",                   "damage", on = true, melee = true, form = "cat" },
     { "Mangle (Bear)",          "damage", on = true, melee = true, form = "bear" },
-    { "Maul",                   "damage", on = true, melee = true, form = "bear", when = rage_at_least(20) },
+    { "Maul",                   "damage", on = true, melee = true, form = "bear", when = rage_dump(30, 15) },
     { "Starfire",               "damage", on = false, form = CASTER },
     { "Wrath",                  "damage", on = true, form = CASTER },
 })

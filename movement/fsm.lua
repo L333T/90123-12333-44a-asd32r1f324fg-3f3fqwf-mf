@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -439,19 +439,34 @@ do
         return ok1 and ok2 and g1 ~= nil and g1 == g2
     end
 
+    -- 2.306.0 (audit CORE-A-7 / LOGIC-5): each izi.on_* returns its
+    -- unsubscribe function (izi_sdk.lua:559-570). A reload of this module
+    -- registered three more handlers every time and never removed the old
+    -- ones; the previous load's are unsubscribed first (kept in the plugin
+    -- namespace, which survives the reload).
+    _G.MasterFarmer_Grindbot = _G.MasterFarmer_Grindbot or {}
+    local NS = _G.MasterFarmer_Grindbot
+    if type(NS.fsm_unsub) == "table" then
+        for i = 1, #NS.fsm_unsub do pcall(NS.fsm_unsub[i]) end
+    end
+    NS.fsm_unsub = {}
+    local function keep_unsub(ok, unsub)
+        if ok and type(unsub) == "function" then NS.fsm_unsub[#NS.fsm_unsub + 1] = unsub end
+    end
+
     if type(izi.on_combat_start) == "function" then
-        pcall(izi.on_combat_start, function(ev)
+        keep_unsub(pcall(izi.on_combat_start, function(ev)
             if is_me(ev) then R.in_combat_flag = true end
-        end)
+        end))
     end
     if type(izi.on_combat_finish) == "function" then
-        pcall(izi.on_combat_finish, function(ev)
+        keep_unsub(pcall(izi.on_combat_finish, function(ev)
             if is_me(ev) then R.in_combat_flag = false end
-        end)
+        end))
     end
     -- the class profile reads these to decide whether a retreat is warranted
     if type(izi.on_spell_success) == "function" then
-        pcall(izi.on_spell_success, function(ev)
+        keep_unsub(pcall(izi.on_spell_success, function(ev)
             if type(ev) ~= "table" then return end
             local caster = ev.caster
             local okp, me = pcall(izi.me)
@@ -462,7 +477,7 @@ do
             R.last_spell_id = ev.spell_id
             R.last_spell_target = ev.target
             R.last_spell_t = izi.now()
-        end)
+        end))
     end
 end
 

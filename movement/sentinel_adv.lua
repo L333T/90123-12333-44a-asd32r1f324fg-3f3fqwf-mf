@@ -3,7 +3,7 @@
 -- movement/sentinel_adv.lua - map-change reset (Ameisen build)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- In Master Farmer - Grindbot this file drove Sentinel's lower-level services
@@ -45,8 +45,13 @@ local function trail(fmt, ...)
 end
 
 local function read_map()
-    local ok, id = pcall(function() return core.get_map_id() end)
-    if ok and type(id) == "number" then return id end
+    -- 2.306.0 (audit CORE-A-4): the CONTINENT (instance map id - core.lua
+    -- get_instance_id: "in the open world, where it is the continent"), not
+    -- core.get_map_id(), which answers the zone's UiMapID (1426 Dun Morogh):
+    -- every zone border cleared all avoid zones and nav caches and halted
+    -- travel. 0 / no answer (a loading screen) is not a change.
+    local ok, id = pcall(function() return core.get_instance_id() end)
+    if ok and type(id) == "number" and id > 0 then return id end
     return nil
 end
 

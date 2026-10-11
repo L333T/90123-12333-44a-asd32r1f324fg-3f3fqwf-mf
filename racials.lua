@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -76,29 +76,19 @@ local function safe(fn)
     return nil
 end
 
-local function as_pct(v)
-    if type(v) ~= "number" then
-        return nil
-    end
-    if v >= 0 and v <= 1.5 then
-        return v * 100
-    end
-    return v
-end
-
 local function health_pct(unit)
-    local p = as_pct(safe(function() return unit:health_pct() end))
-    if p then
-        return p
-    end
-    p = as_pct(safe(function() return unit:get_health_percentage() end))
-    if p then
-        return p
-    end
+    -- 2.306.0 (audit IZI-2): get_health / get_max_health first (game_object.lua,
+    -- exact); then get_health_percentage AS IS - izi_sdk.lua:72 says 1..100, so
+    -- the old "0..1.5 means a fraction, x100" rescale read a unit at 1% as 100%.
+    -- The undeclared health_pct() is no longer read.
     local cur = safe(function() return unit:get_health() end)
     local mx = safe(function() return unit:get_max_health() end)
     if type(cur) == "number" and type(mx) == "number" and mx > 0 then
         return (cur / mx) * 100
+    end
+    local p = safe(function() return unit:get_health_percentage() end)
+    if type(p) == "number" and p == p then
+        return p
     end
     return 100
 end

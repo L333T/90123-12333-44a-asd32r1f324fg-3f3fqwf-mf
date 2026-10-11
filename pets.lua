@@ -3,7 +3,7 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /
@@ -248,17 +248,16 @@ function pets.health_pct(player)
     if not pet then
         return nil
     end
-    local pct = safe(function() return pet:health_pct() end)
-    if type(pct) == "number" then
-        if pct >= 0 and pct <= 1.5 then
-            return pct * 100
-        end
-        return pct
-    end
+    -- 2.306.0 (audit IZI-2): exact first, then get_health_percentage as is
+    -- (1..100); the old x100 rescale read a pet at 1% as 100% (no Mend Pet)
     local cur = safe(function() return pet:get_health() end)
     local mx = safe(function() return pet:get_max_health() end)
     if type(cur) == "number" and type(mx) == "number" and mx > 0 then
         return (cur / mx) * 100
+    end
+    local pct = safe(function() return pet:get_health_percentage() end)
+    if type(pct) == "number" and pct == pct then
+        return pct
     end
     return nil
 end

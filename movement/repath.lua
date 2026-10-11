@@ -3,7 +3,7 @@
 -- movement/repath.lua - adaptive re-pathing and the stuck ladder
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- ============================================================================
 -- Every movement goal - a navigation destination (quest waypoint, NPC,
 -- vendor, corpse, grind node) or the combat target - is watched here, once
@@ -169,6 +169,7 @@ local function escalate(x, y, z, kind, d, t)
     if g.level == 2 then
         trail("still stuck (%.0f yd) - jumping, still moving", d)
         pcall(function() core.input.jump() end)
+        pcall(function() core.input.ascend_stop() end)   -- 2.306.0 (audit CORE-A-5): jump is JumpOrAscendStart - released
         return
     end
     -- rung 3: give up on this goal
@@ -345,6 +346,7 @@ local function avoid_ahead(hx, hy, hz, gx, gy, gz, kind, why)
     g.key, g.level = nil, 0
     aw.acc = 0
     pcall(function() core.input.jump() end)  -- free a wedged character before the new path
+    pcall(function() core.input.ascend_stop() end)   -- 2.306.0 (audit CORE-A-5)
     if kind == "combat" then
         -- Combat movement steers clear of blacklisted ground on its next hop.
         O.halt_all()

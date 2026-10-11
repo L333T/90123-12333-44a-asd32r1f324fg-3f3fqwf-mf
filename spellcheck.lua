@@ -37,7 +37,9 @@ local function now()
     end
     local ok3, ms = pcall(function() return core.game_time() end)
     if ok3 and type(ms) == "number" then return ms / 1000 end
-    return os.clock()
+    -- 2.306.0 (audit LUA-3): os may be absent in the sandbox
+    if type(os) == "table" and type(os.clock) == "function" then return os.clock() end
+    return 0
 end
 
 local function log(fmt, ...)

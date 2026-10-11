@@ -3,7 +3,7 @@
 -- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- ============================================================================
 -- Out-of-combat travel.
 --
@@ -156,7 +156,13 @@ local function navigate(dest, prefer_direct)
     local go, ret = O.may_issue(x, y, z)
     if not go then return ret end
     if Z.blocked_xy(x, y) then
-        W.mark_fail("blacklisted", dest)
+        -- 2.306.0 (audit LOGIC-1): NOT an off-mesh reason. "blacklisted" is in
+        -- K.OFFMESH_WORDS, so each refusal made a new 12 yd zone on the
+        -- destination itself and refreshed it every few seconds: a ghost whose
+        -- corpse lay in a death zone never ran to it (04:05, 30 min, then the
+        -- AFK logout). The destination is in an avoid area; the walker is told
+        -- so without blacklisting it again.
+        W.mark_fail("in an avoid area", dest)
         return false
     end
 
@@ -194,7 +200,7 @@ local function navigate(dest, prefer_direct)
         return false
     end
     if Z.blocked_xy(target.x, target.y) then
-        W.mark_fail("blacklisted", target)
+        W.mark_fail("in an avoid area", target)     -- 2.306.0: see navigate (LOGIC-1)
         return false
     end
     if not prefer_direct and target ~= here and not walk_open(here, target) and L.needs_rejoin() then

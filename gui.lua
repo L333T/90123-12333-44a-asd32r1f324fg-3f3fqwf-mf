@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1717,7 +1717,14 @@ function gui.is_started()
     pcall(function()
         me = izi.me()
     end)
-    local class_id = me and me.get_class and me:get_class() or gui.class_id()
+    -- 2.306.0 (audit LOGIC-9): get_class guarded - this runs every frame, and
+    -- a freed player object (loading screen) threw out of gui.is_started
+    local class_id = nil
+    if me then
+        local okc, cid = pcall(function() return me:get_class() end)
+        if okc then class_id = cid end
+    end
+    class_id = class_id or gui.class_id()
     return rotation.supported(class_id) == true
 end
 

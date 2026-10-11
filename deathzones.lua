@@ -3,7 +3,7 @@
 -- deathzones.lua - areas to avoid after dying there 3 times
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.247.0)
@@ -77,8 +77,16 @@ end
 local function now() return safe(izi.now) or 0 end
 
 local function wall()
-    local ok, t = pcall(os.time)
-    if ok and type(t) == "number" then return t end
+    -- 2.306.0 (audit LUA-3): core.get_server_time - unix seconds like os.time,
+    -- the stub's clock for stored timestamps (0 = no answer). os may not exist
+    -- in the sandbox (core.lua: "os.date() / os.time() are unavailable"), and
+    -- pcall(os.time) read os.time OUTSIDE the pcall.
+    local ok, t = pcall(core.get_server_time)
+    if ok and type(t) == "number" and t > 0 then return t end
+    if type(os) == "table" and type(os.time) == "function" then
+        local ok2, t2 = pcall(os.time)
+        if ok2 and type(t2) == "number" then return t2 end
+    end
     return nil
 end
 
@@ -348,6 +356,11 @@ function M.release()
 end
 
 function M.tick()
+    -- 2.306.0 (audit CORE-A-3): ts_override_helper overrides expire 500 ms
+    -- after the last call and are to be set every frame; refreshed only once a
+    -- second (TICK_GAP), the "no pulls near a death zone" hold was off half
+    -- the time. Re-set every frame while the session exists.
+    if ts_session then pcall(ts_session.set_pull_allowed, ts_session, false) end
     local t = now()
     if t < next_tick then return end
     next_tick = t + TICK_GAP
@@ -357,6 +370,11 @@ function M.tick()
         return
     end
     local map = map_id()
+    -- 2.306.0 (audit LOGIC-1): a ghost's corpse run ignores death zones -
+    -- the body usually lies in one (that is where it died), and the zone kept
+    -- the walk from ever starting. Withdrawn while dead, pushed back after.
+    local st = package.loaded["state"]
+    local dead = type(st) == "table" and type(st.dead) == "table" and st.dead.waiting == true
     local keep, changed = {}, false
     for i = 1, #zones do
         local z = zones[i]
@@ -367,7 +385,11 @@ function M.tick()
         else
             keep[#keep + 1] = z
             local here = z.map == nil or map == nil or z.map == map
-            if here and not z.pushed then push_nav(z) end
+            if dead then
+                if z.pushed then pull_nav(z) end
+            elseif here and not z.pushed then
+                push_nav(z)
+            end
         end
     end
     zones = keep

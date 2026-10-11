@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.296.0
+-- Version: 2.297.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -58,7 +58,7 @@ local quest = {}
 local SCAN_GAP = 0.8          -- seconds between target scans
 local KILL_TIMEOUT = 60.0     -- give up on one mob after this
 local ARRIVE = 3.0            -- yards: standing on a waypoint
-local TALK_REACH = 4.0        -- yards: close enough to interact
+local TALK_REACH = 2.0        -- yards: close enough to interact (2.297.0: 2 yd, was 4)
 local TALK_SEARCH = 12.0      -- yards around the waypoint to look for a giver
 local TALK_SEARCH_FAR = 40.0  -- yards: search from the door of a building
 local TALK_ARRIVE = 8.0       -- yards: at the door is close enough to stop walking
@@ -124,7 +124,7 @@ local g_stall = { t = 0, seen = 0, best = nil, reach = false, npc_seq = nil, log
 local g_force_path = false    -- next walk drops the old path and asks for a new one
 
 -- The NPC refused an interact (a UI error): close in before the next one.
-local CLOSE_REACH = 2.5
+local CLOSE_REACH = 1.5         -- 2.297.0: inside TALK_REACH (was 2.5)
 local g_close_in = false
 
 -- The NPC lists the quest as not complete: wait, then ask once more.
@@ -1296,9 +1296,39 @@ local function npc_id_of_unit(u)
 end
 local g_giver_learned = nil   -- 2.185.0: { kind, qid, npc, text } when the giver came from a learned id
 
+-- 2.297.0: NPC BLACKLIST. An NPC whose interaction still failed after a
+-- retry and a UI reload is left alone for BLACK_FOR seconds (by guid and npc
+-- id). Kept in TK (engine.lua is at Lua's 200-local limit).
+TK.black = {}                  -- "g:<guid>" / "id:<npc id>" -> until
+TK.RELOAD_WAIT = 30
+TK.BLACK_FOR = 1800
+local function blacklisted(unit)
+    if not unit then return false end
+    local now = izi.now()
+    local g = safe(function() return unit:get_guid() end)
+    local id = npc_id_of_unit(unit)
+    for _, k in ipairs({ g and ("g:" .. g) or nil, id and ("id:" .. id) or nil }) do
+        if k and TK.black[k] then
+            if TK.black[k] > now then return true end
+            TK.black[k] = nil
+        end
+    end
+    return false
+end
+
+--- g_bad_givers plus the blacklisted guids, for the guide's searches.
+function TK.excl()
+    local now, set = izi.now(), {}
+    for g, v in pairs(g_bad_givers) do set[g] = v end
+    for k, t in pairs(TK.black) do
+        if t > now and k:sub(1, 2) == "g:" then set[k:sub(3)] = true end
+    end
+    return set
+end
+
 local function bad(unit)
     local g = unit and safe(function() return unit:get_guid() end)
-    return g ~= nil and g_bad_givers[g] == true
+    return (g ~= nil and g_bad_givers[g] == true) or blacklisted(unit)
 end
 
 -- AT THE GOAL (2.215.0). A name, a learned id or the player's target only
@@ -1351,8 +1381,8 @@ local function find_giver(player, goal, kind, wps, qid)
     -- An NPC RestedXP has marked with a raid icon (2.53.0): the guide marks
     -- the giver so it can be found - more certain than the waypoint title
     -- or the nearest unit at the waypoint.
-    local marked = guide.find_marked(player, 80, "friendly", g_bad_givers)
-    if marked then
+    local marked = guide.find_marked(player, 80, "friendly", TK.excl())
+    if marked and not blacklisted(marked) then
         return marked, "raid marker"
     end
     for i = 1, #wps do
@@ -1407,14 +1437,14 @@ local function find_giver(player, goal, kind, wps, qid)
         end
     end
     for i = 1, #wps do
-        local unit = guide.nearest_talkable(player, TALK_SEARCH, wps[i].pos, g_bad_givers, kind == "accept" or kind == "turnin")
-        if unit then
+        local unit = guide.nearest_talkable(player, TALK_SEARCH, wps[i].pos, TK.excl(), kind == "accept" or kind == "turnin")
+        if unit and not blacklisted(unit) then
             return unit, "nearest at waypoint"
         end
     end
     if #wps == 0 then
-        local unit = guide.nearest_talkable(player, TALK_SEARCH, nil, g_bad_givers, kind == "accept" or kind == "turnin")
-        if unit then
+        local unit = guide.nearest_talkable(player, TALK_SEARCH, nil, TK.excl(), kind == "accept" or kind == "turnin")
+        if unit and not blacklisted(unit) then
             return unit, "nearest"
         end
     end
@@ -1508,6 +1538,7 @@ end
 local function stall_reset(now)
     g_stall.t, g_stall.seen, g_stall.best, g_stall.reach = now, now, nil, false
     g_stall.npc_seq, g_stall.log, g_stall.recoveries, g_stall.pos, g_stall.talked = nil, nil, 0, nil, nil
+    g_stall.giver = nil
 end
 
 --- Record this tick's progress. `d` is the distance to what the bot is
@@ -1576,8 +1607,14 @@ local function recover_stall(now, goal, label)
         g_giver_learned = nil
     end
     g_stall.recoveries = g_stall.recoveries + 1
-    trail("act", "%s: no progress for %.0f s - recovery %d of %d", tostring(label),
-        STALL_AFTER, g_stall.recoveries, STALL_MAX)
+    -- 2.297.0: THE LADDER for an NPC that was found: 1st stall - retry the
+    -- interaction; 2nd - reload the UI, wait TK.RELOAD_WAIT s, retry; 3rd -
+    -- blacklist the NPC for 30 minutes and move on.
+    local gv = g_stall.giver
+    local step_txt = ({ "retrying the interaction", "reloading the UI, retry in 30 s", "blacklisting the NPC" })[g_stall.recoveries]
+    trail("act", "%s: no progress for %.0f s - recovery %d of %d%s", tostring(label),
+        STALL_AFTER, g_stall.recoveries, STALL_MAX,
+        (gv and step_txt) and (" (" .. tostring(gv.name) .. ": " .. step_txt .. ")") or "")
     npc.close()
     movement.nav_stop()
     guide.invalidate()
@@ -1592,6 +1629,27 @@ local function recover_stall(now, goal, label)
     TK.gid.tried, TK.gid.refused = nil, nil
     g_force_path = true
     g_stall.t, g_stall.best, g_stall.reach = now, nil, false
+    if gv and g_stall.recoveries == 2 then
+        local me = izi.me()
+        if me and safe(function() return me:is_in_combat() end) ~= true and type(core.reload_game_ui) == "function" then
+            pcall(core.reload_game_ui)
+            TK.reload_hold = now + TK.RELOAD_WAIT
+        end
+    elseif gv and g_stall.recoveries >= STALL_MAX then
+        local until_t = now + TK.BLACK_FOR
+        if gv.guid then TK.black["g:" .. gv.guid] = until_t end
+        if gv.id then TK.black["id:" .. gv.id] = until_t end
+        core.log_warning(string.format(
+            "[Master Farmer - Grindbot] %s: %s did not respond after a retry and a UI reload - blacklisted for 30 minutes.",
+            tostring(label), tostring(gv.name)))
+        g_stall.giver = nil
+        g_stall.recoveries = 0
+        guide.mark_goal_done(guide.step_num(), goal.index)
+        if type(guide.skip_current) == "function" then
+            guide.skip_current(tostring(label) .. " - " .. tostring(gv.name) .. " blacklisted (no response)")
+        end
+        return true
+    end
     -- 2.296.0: GIVEN UP ONCE ALREADY. The goal set aside after STALL_MAX
     -- came back (RestedXP did not move on, "retrying its goals") and stalled
     -- again: the 01:57 session ran "recovery 25 of 3" on Supplies to Tannok
@@ -1743,7 +1801,22 @@ local function dialog_goal(player, goal, kind, wps, label)
         return true
     end
 
+    -- 2.297.0: after the ladder's UI reload, wait before the retry
+    if TK.reload_hold then
+        if now < TK.reload_hold then
+            g_stall.t, g_stall.seen = now, now
+            state.set_note("Quest", string.format("Guide: UI reloaded - retrying %s in %.0f s", tostring(label), TK.reload_hold - now))
+            return true
+        end
+        TK.reload_hold = nil
+        trail("act", "%s: UI reload wait over - retrying the interaction", tostring(label))
+    end
+
     local unit, how = find_giver(player, goal, kind, wps, qid)
+    if unit then
+        g_stall.giver = { guid = safe(function() return unit:get_guid() end), id = npc_id_of_unit(unit),
+            name = safe(function() return unit:get_name() end) or "the NPC" }
+    end
     g_giver_learned = nil
     if unit and type(how) == "string" and how:find("^learned id") then
         g_giver_learned = { kind = kind, qid = goal.quest_id, npc = tonumber(how:match("(%d+)$")), text = goal.text }
@@ -1832,14 +1905,14 @@ local function dialog_goal(player, goal, kind, wps, label)
         end
         if at_door then
             for i = 1, #wps do
-                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, wps[i].pos, g_bad_givers, kind == "accept" or kind == "turnin")
+                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, wps[i].pos, TK.excl(), kind == "accept" or kind == "turnin")
                 if unit then
                     how = "inside the building"
                     break
                 end
             end
             if not unit then
-                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, nil, g_bad_givers, kind == "accept" or kind == "turnin")
+                unit = guide.nearest_talkable(player, TALK_SEARCH_FAR, nil, TK.excl(), kind == "accept" or kind == "turnin")
                 if unit then
                     how = "nearest nearby"
                 end
@@ -2514,7 +2587,7 @@ local function fly_goal(player, goal, wps, label)
     if d > TALK_REACH then
         local p = safe(function() return unit:get_position() end)
         if p then
-            walk_to(p, label, nil, true)
+            walk_to(p, label, TALK_REACH - 0.5, true)   -- 2.297.0: inside the 2 yd reach
             return true
         end
         return false
@@ -2790,7 +2863,7 @@ local function far_travel(player, goal, kind, wps, label)
     local ud = safe(function() return player:distance_to(unit) end) or 99
     if ud > TALK_REACH then
         local p = safe(function() return unit:get_position() end)
-        if p then walk_to(p, "flight master", nil, true) end
+        if p then walk_to(p, "flight master", TALK_REACH - 0.5, true) end
         state.set_note("Travel", "To the flight master")
         return true
     end

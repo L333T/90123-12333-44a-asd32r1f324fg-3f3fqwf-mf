@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.293.0
+-- Version: 2.294.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -579,11 +579,19 @@ menu:checkbox("mfg_hunter_pet_aggro", false, {
         .. "(or attacks you, or 6 s pass). If the mob gets within 5 yd of you, you walk backward for 2.5 s with a jump "
         .. "0.5 s in, then stop (at most once every 4 s).",
 })
+-- 2.294.0: the same for Warriors, in their own box (a menu element is saved
+-- per account: one shared box ticked on a rogue would switch warriors on).
+menu:checkbox("mfg_strafe_combat_warrior", false, {
+    label = "Strafe in Combat",
+    tab = "class",
+    class_id = enums.class_id.WARRIOR,
+    tooltip = "In combat, once in melee range of the target, tap strafe right and left (0.2-0.5 s each, random) so the warrior does not stand still. Stops the moment the target leaves melee range, so the bot can chase it.",
+})
 menu:checkbox("mfg_strafe_combat", false, {
     label = "Strafe Combat",
     tab = "class",
     class_id = enums.class_id.ROGUE,
-    tooltip = "In combat, once in melee range of the target, tap strafe right and left for a fraction of a second each so the rogue does not stand still. Stops the moment the target leaves melee range, so the bot can chase it.",
+    tooltip = "In combat, once in melee range of the target, tap strafe right and left (0.2-0.5 s each, random) so the rogue does not stand still. Stops the moment the target leaves melee range, so the bot can chase it.",
 })
 -- MELEE OR RANGED (2.93.0): only the slider that applies is shown. The same
 -- test that picks the engage distance decides it (rotation.is_melee - the
@@ -762,6 +770,7 @@ local aliases = {
     print_action = "mfg_print_action",
     buff_randoms = "mfg_buff_randoms",
     strafe_combat = "mfg_strafe_combat",
+    strafe_combat_warrior = "mfg_strafe_combat_warrior",   -- 2.294.0
     skip_trivial = "mfg_skip_trivial",
     train = "mfg_train",
     vendor_each_lap = "mfg_vendor_each_lap",

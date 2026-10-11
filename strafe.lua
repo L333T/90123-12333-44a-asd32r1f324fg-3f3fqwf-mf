@@ -1,9 +1,9 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- strafe.lua - Rogue "Strafe Combat": short left / right micro-strafes
+-- strafe.lua - Rogue / Warrior "Strafe Combat": short left / right micro-strafes
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.293.0
+-- Version: 2.294.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT IT DOES (2.212.0)
@@ -19,7 +19,8 @@
 --     right: strafe_right_start, move_forward_start ... move_forward_stop, strafe_right_stop
 --     left:  move_forward_start, strafe_left_start ... move_forward_stop, strafe_left_stop
 --   The forward key keeps the rogue pressed into the target while it side-
---   steps. Taps are 0.10 s longer than before (0.22-0.32 s).
+--   steps. 2.294.0: each tap (each direction) lasts a random 0.20-0.50 s.
+--   Warriors have the same option ("Strafe in Combat", their own box).
 --
 -- IT NEVER MOVES THE PLAYER ANYWHERE
 --   No positions, no walker, no Sentinel: only core.input.strafe_*_start /
@@ -45,10 +46,12 @@ local enums = require("common/enums")
 local strafe = {}
 
 local ROGUE = enums.class_id.ROGUE
+local WARRIOR = enums.class_id.WARRIOR      -- 2.294.0: Warriors too (their own Spells-tab box)
 
--- Short taps: micro-positioning, not travel. 2.232.0: +0.10 s (was 0.12-0.22).
-local STRAFE_MIN = 0.22
-local STRAFE_MAX = 0.32
+-- Short taps: micro-positioning, not travel. 2.294.0: a random length for
+-- EACH tap (each direction) between 0.20 and 0.50 s (was 0.22-0.32).
+local STRAFE_MIN = 0.20
+local STRAFE_MAX = 0.50
 
 local PAUSE_MIN = 0.06
 local PAUSE_MAX = 0.12
@@ -134,8 +137,16 @@ end
 local function gate()
     local gui = get_gui()
     if not gui then return false end
-    if gui.class_id() ~= ROGUE then return false end
-    if gui.is_on("strafe_combat") ~= true then return false end
+    -- 2.294.0: Rogue ("Strafe Combat") or Warrior ("Strafe in Combat"),
+    -- each with its own box - a tick made on one class is not read by the other
+    local cls = gui.class_id()
+    if cls == ROGUE then
+        if gui.is_on("strafe_combat") ~= true then return false end
+    elseif cls == WARRIOR then
+        if gui.is_on("strafe_combat_warrior") ~= true then return false end
+    else
+        return false
+    end
     -- Rotation Only: the player steers, the bot moves nothing.
     if gui.is_on("rotation_only") == true then return false end
     if gui.is_started() ~= true then return false end

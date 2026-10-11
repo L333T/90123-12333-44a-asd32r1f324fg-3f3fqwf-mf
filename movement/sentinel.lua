@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.288.0
+-- Version: 2.289.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -59,7 +59,9 @@ local N = {}
 -- overshoots past a waypoint), the safest of the three next to cliffs.
 -- Passed per request (move_to / find_path opts.flags, AmeisenNav API.md);
 -- the installed 1.8.3.2 server supports these flags.
-local AN_FLAGS = 1 + 16
+-- 2.289.0: NO SMOOTHING (user request): VALIDATE_MAS only. AmeisenNav
+-- 1.6.8 strips the smoothing bits from every request anyway.
+local AN_FLAGS = 16
 local AN_OPTS = { flags = AN_FLAGS }
 local AN_SEAMLESS = { flags = AN_FLAGS, seamless = true }
 

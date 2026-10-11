@@ -22,6 +22,10 @@ local C = {
 
     -- ------------------------------------------------------------------ paths
     path_flags          = 0,        -- server smoothing flags (0 = straight corners)
+    -- 1.6.8: NO SMOOTHING, ever: the smoothing bits (1 Chaikin, 2, 4) are
+    -- stripped from every path request whatever the caller asks for
+    -- (query.lua); VALIDATE_MAS (16) is kept.
+    no_smoothing        = true,
     path_cache_ttl      = 10,       -- seconds a cached path stays valid
     path_cache_grid     = 4,        -- yards; start/end snapped to this grid for the cache key
     path_cache_size     = 64,
@@ -42,14 +46,14 @@ local C = {
     -- ------------------------------------------------------------ avoidance
     avoid               = true,     -- input driver: navmesh wall check + object cache + corner cutting
     avoid_units         = true,     -- treat living NPCs as obstacles too (players never)
-    object_scan_every   = 0.5,      -- seconds between object cache refreshes
+    object_scan_every   = 0.3,      -- seconds between object cache refreshes (1.6.8: was 0.5)
     object_scan_radius  = 30,       -- yards around the player that are cached
     body_radius         = 0.6,      -- yards: the character's own width
     avoid_clearance     = 0.8,      -- extra yards kept from an object when passing it
     avoid_lookahead     = 8,        -- yards ahead that objects are checked
     wall_probe          = 6,        -- yards ahead the navmesh wall check reaches
     wall_short          = 0.75,     -- yards short of the probe point that count as a wall
-    avoid_ask_every     = 0.2,      -- seconds between wall / corner questions to the server
+    avoid_ask_every     = 0.15,     -- seconds between wall / corner questions to the server (1.6.8: 0.2)
     avoid_fresh         = 0.6,      -- seconds a server answer stays usable
     string_pull_range   = 15,       -- yards: skip to the next waypoint when it is this close and in view
     deviation_limit     = 8.0,      -- yards off the path before a repath
@@ -60,7 +64,7 @@ local C = {
     pathcheck           = true,     -- master switch
     waypoint_spacing    = 5.0,      -- yards: no two walked waypoints further apart
     check_ahead         = 3,        -- waypoints ahead of the player that are checked
-    check_gap           = 0.25,     -- seconds: at most one check request this often
+    check_gap           = 0.15,     -- seconds: at most one check request this often (1.6.8: 0.25)
     max_climb           = 1.0,      -- yd up per yd (45 deg): steeper is re-planned
     max_drop            = 1.5,      -- yd down per yd: steeper is a cliff
     cliff_drop          = 6.0,      -- yd down in one leg: a cliff whatever the slope
@@ -74,14 +78,21 @@ local C = {
     -- waypoints, re-planned from the player's position 5 yards before each
     -- window ends. Unsmoothed. Recorded routes (follow_path) keep pathcheck.
     horizon             = true,     -- master switch
-    horizon_length      = 20.0,     -- yards of path per window
-    horizon_refresh     = 5.0,      -- yards before the window end: plan the next one
+    -- 1.6.8: smaller windows, planned earlier - each is checked and ready
+    -- sooner, and the next one is prepared well before the walk reaches the
+    -- end of the current one, so the character keeps moving.
+    horizon_length      = 15.0,     -- yards of path per window (was 20)
+    horizon_refresh     = 8.0,      -- yards before the window end: plan the next one (was 5)
     horizon_clearance   = 2.0,      -- yards kept from walls, ledges, drops (both sides)
     horizon_probes      = { 1.0, 2.0, 3.0 }, -- side probe distances (yards)
     horizon_object_clearance = 1.0, -- extra yards kept from cached objects
     -- 1.6.3 indoors (game_object:is_indoors): doorways and rooms are narrow
-    horizon_clearance_indoors = 1.25,
-    horizon_object_clearance_indoors = 0.4,
+    -- 1.6.8: tighter indoors - closer waypoints, smaller clearances, a
+    -- tighter "waypoint reached"
+    horizon_clearance_indoors = 0.9,         -- was 1.25
+    horizon_object_clearance_indoors = 0.3,  -- was 0.4
+    waypoint_spacing_indoors = 3.0,          -- yards between waypoints indoors (5 outdoors)
+    waypoint_threshold_indoors = 1.5,        -- yards to reach a waypoint indoors (2.5 outdoors)
     horizon_splices     = 3,        -- bad legs re-planned per window
 
     -- ------------------------------------------- indoors / interact (1.6.1)

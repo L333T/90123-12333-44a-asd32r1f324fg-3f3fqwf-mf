@@ -152,7 +152,11 @@ local function configure_walker()
     end
     X.call(walker, "set_use_look_at", want_look_at())
     X.call(walker, "set_smoothing_enabled", false) -- the server returns the corners we want
-    X.call(walker, "set_threshold", C.waypoint_threshold)
+    -- 1.6.8: a tighter "reached" indoors (doorways, stairs, narrow halls)
+    local inside = false
+    pcall(function() inside = X.is_indoors() == true end)
+    X.call(walker, "set_threshold", inside and (C.waypoint_threshold_indoors or C.waypoint_threshold)
+        or C.waypoint_threshold)
     X.call(walker, "set_final_threshold", C.final_threshold)
     X.call(walker, "set_look_distance", C.look_distance)
 end

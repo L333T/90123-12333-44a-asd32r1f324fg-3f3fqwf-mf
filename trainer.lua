@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.291.0
+-- Version: 2.292.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -674,6 +674,7 @@ function trainer.tick(player)
             msg = string.format("Trained %d spell(s)", trained_this_visit)
         end
         state.set_note("Trainer", msg)
+        trainer.last_msg = msg              -- 2.292.0: the quest engine's skip reason
         core.log(string.format("[Master Farmer - Grindbot] %s - next trainer check at level %d.",
             msg, (checked_level or 0) + CHECK_EVERY))
         trail("%s - next check at level %d", msg, (checked_level or 0) + CHECK_EVERY)

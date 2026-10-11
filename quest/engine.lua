@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.291.0
+-- Version: 2.292.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1229,8 +1229,25 @@ local function train_goal(player, goal, wps, label)
         trail("quest", "trainer step done - %s", tostring(label))
         tr.quest_visit(false)
         g_train.key = nil
+        g_train.done_step, g_train.done_t = guide.step_num(), izi.now()
         guide.mark_goal_done(guide.step_num(), goal.index)
         return true
+    end
+    -- 2.292.0: TRAINED ALL WE COULD, RESTEDXP STILL ON THE STEP. A ".train"
+    -- step completes only when the spell is learned; with "1 more need more
+    -- gold" (Train [Battle Shout] at Sten Stoutarm, 23:52 session) the bot
+    -- re-opened the trainer every 30 s for minutes, the trainer NPC's quests
+    -- waiting meanwhile. 3 s after the visit the step is skipped in
+    -- RestedXP, with the trainer's answer; the trainer is visited again by
+    -- the every-3-levels check once there is gold.
+    if g_train.done_step == guide.step_num() and g_train.done_t
+        and (izi.now() - g_train.done_t) >= 3 and type(guide.skip_current) == "function" then
+        g_train.done_step, g_train.done_t = nil, nil
+        local why = (type(tr.last_msg) == "string" and tr.last_msg ~= "") and tr.last_msg or "nothing more to train"
+        if guide.skip_current(tostring(label) .. " - " .. why) then
+            state.set_note("Quest", "Guide: skipped " .. tostring(label) .. " (" .. why .. ")")
+            return true
+        end
     end
     -- trainer.tick runs earlier in the cascade and walks to / talks to a
     -- trainer in sight; while it does, the quest engine waits.
@@ -3306,6 +3323,20 @@ tick_inner = function(player)
         -- marks are forgotten and the goals are tried again.
         local now_c = izi.now()
         if guide.has_local_done() then
+            -- 2.292.0: the step's train goal was all we could do (TRAINED ALL WE
+            -- COULD in train_goal): skip it in RestedXP 3 s after the visit
+            if g_train.done_step == guide.step_num() and g_train.done_t
+                and (now_c - g_train.done_t) >= 3 and type(guide.skip_current) == "function" then
+                g_train.done_step, g_train.done_t = nil, nil
+                local okt, trm = pcall(require, "trainer")
+                local why = (okt and type(trm) == "table" and type(trm.last_msg) == "string" and trm.last_msg ~= "")
+                    and trm.last_msg or "nothing more to train"
+                if guide.skip_current("train step - " .. why) then
+                    g_complete_since = 0
+                    state.set_note("Quest", "Guide: skipped the train step (" .. why .. ")")
+                    return
+                end
+            end
             if g_complete_since == 0 then g_complete_since = now_c end
             if (now_c - g_complete_since) >= STEP_RETRY then
                 g_complete_since = 0

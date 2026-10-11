@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.291.0
+-- Version: 2.292.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -3045,6 +3045,26 @@ function guide.skip_inactive()
         log.trail("quest", "RestedXP step %d is inactive and waits on nothing (requires %q) - skip: %s",
             step.num, tostring(step.requires), err and ("unavailable: " .. tostring(err)) or tostring(res))
     end
+    return res == true
+end
+
+--- 2.292.0: have RestedXP skip the CURRENT step (skip_current_step), once
+--- per step number, with the reason logged. For a step the bot has done all
+--- it can for and RestedXP will not tick off (a ".train" spell the trainer
+--- wants more gold for). Update callback only (ns_call is gated by reads_ok).
+local skip_cur = { num = nil }
+function guide.skip_current(why)
+    if not reads_ok then return false end
+    local step = guide.step()
+    if type(step) ~= "table" or skip_cur.num == step.num then return false end
+    skip_cur.num = step.num
+    local res, err = ns_call("skip_current_step")
+    local log = elog()
+    if log then
+        log.trail("quest", "RestedXP step %d skipped: %s - %s", tonumber(step.num) or -1, tostring(why),
+            err and ("unavailable: " .. tostring(err)) or tostring(res))
+    end
+    guide.invalidate()
     return res == true
 end
 

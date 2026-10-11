@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.298.0
+-- Version: 2.299.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2948,6 +2948,25 @@ local OX = { CLOSER_STALL = 6.0, SIT_NEAR = 4.0, SIT_WAIT = 5.0, SIT_TRIES = 4,
 -- game's SitStandOrDescend). No tick after OX.SIT_WAIT s: jump (stands up), sit
 -- again; OX.SIT_TRIES sits, then the object is skipped like a dead click.
 
+-- 2.299.0: SPELL FOCUS OBJECTS ARE NEVER USED. use_object on a Forge
+-- (02:30, a Rumbleshot's Ammo name match) and on a Basic Campfire (02:39,
+-- "Gain the Boosted Rest buff" right after the sit) was followed within 3 s
+-- by the player object gone and map 0, and the game crashed. A forge, anvil
+-- or fire has no use of its own: a rest / buff / sit goal sits near it,
+-- anything else skips it.
+OX.FOCUS = { "forge", "anvil", "campfire", "camp fire", "cooking fire", "bonfire", "brazier" }
+function OX.is_focus(obj)
+    local n = string.lower(tostring(safe(function() return obj:get_name() end) or ""))
+    for i = 1, #OX.FOCUS do
+        if n:find(OX.FOCUS[i], 1, true) then return true end
+    end
+    return false
+end
+function OX.is_rest_goal(label)
+    local l = " " .. tostring(label):lower() .. " "
+    return l:find("[^%a]rest[^%a]") ~= nil or l:find("[^%a]buff[^%a]") ~= nil or l:find("[^%a]warm") ~= nil
+end
+
 function OX.is_sit_goal(label)
     return (" " .. tostring(label):lower() .. " "):find("[^%a]sit[^%a]") ~= nil
 end
@@ -3052,6 +3071,16 @@ local function object_goal(player, goal, label)
     end
     if OX.is_sit_goal(label) then
         return OX.sit_near(player, obj, guid, odist, label)
+    end
+    if OX.is_focus(obj) then
+        if OX.is_rest_goal(label) then
+            return OX.sit_near(player, obj, guid, odist, label)
+        end
+        if guid then g_obj_skip[guid] = izi.now() + OBJECT_SKIP * 10 end
+        trail("act", "quest object %s is a crafting / cooking spot (no use action) - not used, skipped for %s",
+            tostring(safe(function() return obj:get_name() end)), tostring(label))
+        g_obj.guid, g_obj.uses = nil, 0
+        return true
     end
     local standing = not movement.is_moving()
     -- 2.264.0: the use was refused as too far (UI_ERROR_MESSAGE) - it does

@@ -3,7 +3,7 @@
 -- Gathering mode: patrol a route, gather herb / ore nodes, fight back
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.311.0
+-- Version: 2.312.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine (MainThread + Gather_Process), PORT_PLAYBOOK.md.
@@ -551,7 +551,8 @@ local function keep_tracking(player)
     if not fam or not fam.id then return end
     if safe(function() return player:has_buff(fam.ranks or { fam.id }) end) == true then return end
     local sp = izi.spell(fam.id)
-    if sp then pcall(function() sp:cast_safe(player, "MF gather " .. name, { check_los = false }) end) end
+    -- 2.312.0: core API cast (spellcheck), not izi
+    if sp then pcall(function() require("spellcheck").cast_safe(sp, player, "MF gather " .. name) end) end
 end
 
 -- ----------------------------------------------------------------------------

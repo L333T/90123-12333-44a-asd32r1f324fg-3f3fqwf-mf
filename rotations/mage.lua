@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.311.0
+-- Version: 2.312.0
 -- Folder: Master_Farmer_Grindbot
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -15,8 +15,7 @@ local izi = require("common/izi_sdk")
 ---@type enums
 local enums = require("common/enums")
 
----@type spell_queue
-local spell_queue = require("common/modules/spell_queue")
+-- 2.312.0: common/modules/spell_queue no longer loaded (unused; core API casts)
 
 ---@type spell_helper
 local spell_helper = require("common/utility/spell_helper")

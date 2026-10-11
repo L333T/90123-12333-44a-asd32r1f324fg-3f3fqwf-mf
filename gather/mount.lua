@@ -3,7 +3,7 @@
 -- Gathering: mount up for travel (PORT_PLAYBOOK "Mount and dismount")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.311.0
+-- Version: 2.312.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Called by gather/engine.lua while travelling when the next point is more
@@ -110,7 +110,8 @@ function mount.tick(player, enabled)
     if travel_form then
         if has_aura_named(player, "Travel Form") or (t - last_shift) < 1 then return false end
         local sp = izi.spell(travel_form.id)
-        if sp and safe(function() return sp:cast_safe(player, "MF gather travel form", { check_los = false }) end) == true then
+        -- 2.312.0: core API cast (spellcheck), not izi
+        if sp and safe(function() return require("spellcheck").cast_safe(sp, player, "MF gather travel form") end) == true then
             last_shift = t
         end
         return false

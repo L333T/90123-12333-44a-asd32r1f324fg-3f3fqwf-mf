@@ -239,6 +239,89 @@ end
 
 local REFUSED = { reason = "spell_helper" }
 
+-- ----------------------------------------------------------------------------
+-- 2.312.0: CORE API CASTS AND ITEM USES (the Slave Pens correction). Slave
+-- Pens stopped crashing once its izi spell / item / spell-queue calls were
+-- replaced by the core API ("Use Core API and not IZI"); the drink crashes
+-- were inside an izi item use, the step-37 crashes inside an izi cast. The
+-- same is done here: a cast is checked with core.spell_book and sent with
+-- core.input.cast_target_spell / cast_position_spell, an item with
+-- core.input.use_item. No line-of-sight ray anywhere; the game refuses what
+-- it will not cast and says why (UI_ERROR_MESSAGE, events.lua).
+-- ----------------------------------------------------------------------------
+local function call(fn, ...)
+    if type(fn) ~= "function" then return nil end
+    local ok, r = pcall(fn, ...)
+    if ok then return r end
+    return nil
+end
+
+local function busy(p)
+    return call(p.is_casting_spell, p) == true or call(p.is_channelling_spell, p) == true
+end
+
+local CORE_REFUSED = { reason = "core" }
+local CORE_SENT = { reason = "core_sent" }
+
+--- Learned (either core answer), usable, off cooldown, not casting, and in
+--- range of `target` when it is not the player. Returns ok, why.
+function M.core_castable(id, target, opts)
+    local me = local_player()
+    if not id or not me then return false, "no player" end
+    local o = type(opts) == "table" and opts or {}
+    local sb = core.spell_book
+    if type(sb) ~= "table" then return false, "no spell_book" end
+    if call(sb.is_spell_learned, id) == false and call(sb.has_spell, id) == false then
+        return false, "not learned"
+    end
+    if call(sb.is_usable_spell, id) == false then return false, "not usable" end
+    local cd = tonumber(call(sb.get_spell_cooldown, id)) or 0
+    if cd > 0.05 and o.skip_gcd ~= true then return false, "cooldown" end
+    if o.skip_casting ~= true and busy(me) then return false, "casting" end
+    if target and not same(target, me) and o.skip_range ~= true
+        and call(sb.is_spell_in_range, id, target, me) == false then
+        return false, "out of range"
+    end
+    return true, nil
+end
+
+--- Cast `sp` (izi spell or id) at `target` (the player when nil) - core API.
+function M.core_cast(sp, target, opts)
+    local id = M.id_of(sp)
+    local me = local_player()
+    local t = target or me
+    if not id or not t then return false, CORE_REFUSED end
+    local ok, why = M.core_castable(id, t, opts)
+    if not ok then return false, { reason = "core: " .. tostring(why) } end
+    if call(core.input.cast_target_spell, id, t) == true then return true, CORE_SENT end
+    return false, CORE_REFUSED
+end
+
+--- Cast a ground spell at `pos` - core API.
+function M.core_cast_position(sp, pos, opts)
+    local id = M.id_of(sp)
+    if not id or not pos then return false, CORE_REFUSED end
+    local ok, why = M.core_castable(id, nil, opts)
+    if not ok then return false, { reason = "core: " .. tostring(why) } end
+    if call(core.input.cast_position_spell, id, pos) == true then return true, CORE_SENT end
+    return false, CORE_REFUSED
+end
+
+--- Use item `item` (izi item or id) on the player - core API. Not while
+--- casting, and not while moving unless opts.skip_moving (food and drink
+--- cannot be used on the move), as Slave Pens' coreapi.lua.
+function M.use_item(item, opts)
+    local id = M.id_of(item)
+    local me = local_player()
+    if not id or not me then return false end
+    local o = type(opts) == "table" and opts or {}
+    if busy(me) then return false end
+    if o.skip_moving ~= true and call(me.is_moving, me) == true then return false end
+    local okc, cd = pcall(me.get_item_cooldown, me, id)
+    if okc and type(cd) == "number" and cd > 0 then return false end
+    return call(core.input.use_item, id) == true
+end
+
 --- 2.311.0: NO LINE-OF-SIGHT RAYS ON A CAST. izi unit / position casts run
 --- two line-of-sight traces by default (izi_sdk.lua unit_cast_opts
 --- check_los: "Omitted or true: both traces run"); check_los = false runs
@@ -253,14 +336,14 @@ end
 
 function M.cast_safe(sp, target, msg, opts)
     if not gate_unit(sp, target, opts) then return false, REFUSED end
-    local ok, meta = sp:cast_safe(target, msg, M.no_los(opts))
+    local ok, meta = M.core_cast(sp, target, opts)       -- 2.312.0: core API, not izi
     if ok == true then M.cast_done(sp) end
     return ok, meta
 end
 
 function M.cast(sp, target, msg, opts)
     if not gate_unit(sp, target, opts) then return false, REFUSED end
-    local ok, meta = sp:cast(target, msg, M.no_los(opts))
+    local ok, meta = M.core_cast(sp, target, opts)       -- 2.312.0: core API, not izi
     if ok == true then M.cast_done(sp) end
     return ok, meta
 end
@@ -273,7 +356,7 @@ function M.cast_position(sp, pos, msg, opts)
             return false, REFUSED
         end
     end
-    local ok, meta = sp:cast_position(pos, msg, M.no_los(opts))
+    local ok, meta = M.core_cast_position(sp, pos, opts) -- 2.312.0: core API, not izi
     if ok == true then M.cast_done(sp) end
     return ok, meta
 end

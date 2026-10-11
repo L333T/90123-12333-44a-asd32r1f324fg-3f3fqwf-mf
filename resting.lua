@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.311.0
+-- Version: 2.312.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -458,16 +458,11 @@ local function use_first(ids)
             if count > 0 and ready then
                 held = held + 1
                 rprobe("rest:use " .. tostring(ids[i]))
+                -- 2.312.0: core.input.use_item (the Slave Pens drink-crash
+                -- correction), not izi's use_self_safe / use_self
                 local ok = safe(function()
-                    return item:use_self_safe("Consume", USE_OPTS)
+                    return require("spellcheck").use_item(ids[i])
                 end)
-                if ok ~= true then
-                    -- The guarded call still said no. By this point the bot is
-                    -- stationary, unmounted, out of combat and not swimming, so
-                    -- the remaining guards have nothing left to protect - try
-                    -- the plain use rather than stall the whole rest.
-                    ok = safe(function() return item:use_self("Consume") end)
-                end
                 rprobe("rest:used")
                 if ok == true then
                     present_reset()          -- the last one may just have gone

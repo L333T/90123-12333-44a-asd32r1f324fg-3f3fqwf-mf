@@ -3,7 +3,7 @@
 -- NPC-stuck watchdog
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.311.0
+-- Version: 2.312.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY NOT A GAME RELOAD
@@ -213,10 +213,8 @@ local function use_hearthstone(player)
     if movement and type(movement.nav_stop) == "function" then
         movement.nav_stop()
     end
-    local ok = safe(function() return item:use_self("Hearthstone - stuck travelling") end) == true
-    if not ok then
-        ok = safe(function() return item:use_self_safe("Hearthstone - stuck travelling", { check_los = false }) end) == true
-    end
+    -- 2.312.0: core.input.use_item, not izi's use_self
+    local ok = safe(function() return require("spellcheck").use_item(HEARTHSTONE) end) == true
     return ok, ok and nil or "Hearthstone use was refused"
 end
 

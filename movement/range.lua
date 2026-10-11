@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.308.0
+-- Version: 2.309.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach
@@ -83,7 +83,29 @@ end
 local LOS_TTL = 0.25
 local los_cache = { guid = nil, t = -1, v = false }
 
+-- 2.309.0: MODEL NOT LOADED -> NO RAY. Six game crashes on 2026-10-11 were
+-- ASSERT(m_data) in Model2/M2HitTest.cpp, the game's ray test against a
+-- model, called from script code - most in the very second the bot engaged
+-- an attacker that had just come into view. los_to is the ray test every
+-- target, auto attack and spell check goes through. A unit that is not
+-- visible, or whose model is not loaded (game_object.lua:
+-- get_attachment_name_position "returns a zero vector when the model is not
+-- loaded"), gets no ray: no line of sight yet (3 yd and closer: yes), so the
+-- cast / swing waits the moment it takes the model to load.
+local function model_ready(unit)
+    local okv, vis = pcall(unit.is_visible, unit)
+    if okv and vis == false then return false end
+    local okp, p = pcall(unit.get_attachment_name_position, unit)
+    if not okp or type(p) ~= "table" and type(p) ~= "userdata" then return true end   -- no answer: as before
+    local okx, x, y, z = pcall(function() return p.x, p.y, p.z end)
+    if not okx then return true end
+    return not (x == 0 and y == 0 and z == 0)
+end
+
 local function raw_los(player, unit, range)
+    if not model_ready(unit) then
+        return type(range) == "number" and range <= 3
+    end
     local ok, has_los = pcall(player.los_to, player, unit)
     has_los = ok and has_los == true
     if not has_los and FLAG_LOS then

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.294.0
+-- Version: 2.295.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -2211,6 +2211,10 @@ function smart.combat(player, target, ctx)
                         local pw = mod("power")
                         if pw and type(pw.has_mana) == "function" and pw.has_mana(P) then
                             return string.format("mana %.0f%%", c.mana())
+                        end
+                        -- 2.295.0: rage for warriors (power 3 is energy: always 0 on one)
+                        if safe(P.get_class, P) == 1 then
+                            return "rage " .. tostring(safe(P.get_power, P, 1))
                         end
                         return tostring(safe(P.get_power, P, 3))
                     end)(),

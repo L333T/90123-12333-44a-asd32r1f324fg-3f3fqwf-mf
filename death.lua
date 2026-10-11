@@ -3,7 +3,7 @@
 -- Death run — release, path graveyard to corpse, retrieve
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.304.0
+-- Version: 2.305.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -94,10 +94,13 @@ local function resume_path()
 end
 
 local function as_vec3(pos)
-    if type(pos) ~= "table" then
+    -- 2.305.0: a vec3 may be userdata, not a table - read the fields guarded
+    local tp = type(pos)
+    if tp ~= "table" and tp ~= "userdata" then
         return nil
     end
-    local x, y, z = pos.x, pos.y, pos.z
+    local okf, x, y, z = pcall(function() return pos.x, pos.y, pos.z end)
+    if not okf then return nil end
     if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then
         return nil
     end
@@ -120,21 +123,65 @@ end
 -- right, z is the ground below the corpse or - terrain not loaded yet - our
 -- own height. So distances to the corpse are measured flat (dist_corpse)
 -- and the position is read again every tick, z settling on the way in.
+-- 2.305.0: the raw answer, logged every RAW_LOG s while the corpse is not
+-- known - the 13:42 daaa22 ghost waited "for corpse position" with no clue
+-- what the call returned.
+local RAW_LOG = 10
+local raw_logged = -1e9
+
+-- 2.305.0: WHERE THE BODY FELL survives a reload (saved with the settings).
+-- A ghost after a reload had no died-at position: nothing to run to.
+local saved_died = nil
+do
+    local ok_s, settings = pcall(require, "settings")
+    if ok_s and type(settings) == "table" and type(settings.register) == "function" then
+        settings.register("died_at", function()
+            local d = saved_died
+            return d and string.format("%.1f:%.1f:%.1f", d.x, d.y, d.z) or nil
+        end, function(v)
+            if type(v) ~= "string" then return end
+            local x, y, z = v:match("([%-%d%.]+):([%-%d%.]+):([%-%d%.]+)")
+            if x then saved_died = { x = tonumber(x), y = tonumber(y), z = tonumber(z) } end
+        end)
+    end
+end
+local function save_died(p)
+    saved_died = p and { x = p.x, y = p.y, z = p.z } or nil
+    local ok_s, settings = pcall(require, "settings")
+    if ok_s and type(settings) == "table" and type(settings.mark_dirty) == "function" then
+        pcall(settings.mark_dirty)
+    end
+end
+
 local function corpse_position()
     local raw = safe(function()
         return core.game_ui.get_corpse_position()
     end)
-    if type(raw) == "table" and raw.x == 0 and raw.y == 0 then
-        raw = nil                          -- no corpse (the API's zero vector)
+    local okz, zero = pcall(function() return raw.x == 0 and raw.y == 0 end)
+    local got = raw
+    if okz and zero then
+        got = nil                          -- no corpse (the API's zero vector)
     end
-    local vec = as_vec3(raw)
+    local vec = as_vec3(got)
     if vec then
         state.dead.corpse = vec
         return vec
     end
+    local now = izi.now()
+    if now - raw_logged >= RAW_LOG then
+        raw_logged = now
+        local okr, rx, ry, rz = pcall(function() return raw.x, raw.y, raw.z end)
+        local el_ok, el = pcall(require, "errorlog")
+        if el_ok and type(el) == "table" and type(el.trail) == "function" then
+            pcall(el.trail, "death", "get_corpse_position: %s (%s, %s, %s) - %s", type(raw),
+                tostring(okr and rx), tostring(okr and ry), tostring(okr and rz),
+                (state.dead.corpse or state.dead.died_pos or saved_died) and "using the last known / died-at position"
+                    or "no fallback position")
+        end
+    end
     -- The client gave nothing usable (inf, 0,0,0): the last known corpse,
     -- else where the character died (2.201.0) - the body stays where it fell.
-    return as_vec3(state.dead.corpse) or as_vec3(state.dead.died_pos)
+    return as_vec3(state.dead.corpse) or as_vec3(state.dead.died_pos) or as_vec3(saved_died)
 end
 
 local function dist_to(pos)
@@ -308,6 +355,7 @@ local function begin_death()
         local p = safe(function() return me:get_position() end)
         if as_vec3(p) then
             state.dead.died_pos = { x = p.x, y = p.y, z = p.z }
+            save_died(state.dead.died_pos)          -- 2.305.0: kept across a reload
         end
     end
     -- DEATH ZONES (2.247.0): 3 deaths to the same enemy in one area -> that
@@ -338,6 +386,7 @@ local function end_death()
     state.dead.waiting = false
     state.dead.corpse = nil
     state.dead.died_pos = nil
+    save_died(nil)                                  -- 2.305.0: alive again
     resume_path()
 end
 

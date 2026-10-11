@@ -62,6 +62,8 @@ local fmt = string.format
 -- doorway and pushed the walk off furniture it only had to pass.
 local cur_clear, cur_oclear = nil, nil
 local cur_spacing = nil          -- 1.6.8: waypoint spacing of the window being built (indoors: tighter)
+local cur_refresh = nil          -- 1.7.0: re-plan distance of the current environment profile
+local last_kind = nil            -- 1.7.0: environment of the last window (logged on change)
 
 H.stats = { windows = 0, lifted = 0, shifted = 0, narrow = 0, objects = 0, spliced = 0, bad_legs = 0 }
 
@@ -103,6 +105,9 @@ function H.densify(points, spacing)
     return out
 end
 
+--- 1.7.0: the re-plan distance of the environment the last window was built in.
+function H.current_refresh() return cur_refresh or C.horizon_refresh end
+
 --- The first `length` yards of `path` (densified), starting at `from`.
 --- Returns points, is_final (the window reaches the path's end).
 function H.cut(from, path, length, spacing)
@@ -121,7 +126,7 @@ function H.cut(from, path, length, spacing)
             -- the rest is short: take the whole path now (no 2-yard window)
             local rest = 0
             for j = k + 1, #dense do rest = rest + d2(dense[j - 1], dense[j]) end
-            if rest > C.horizon_refresh then return out, false end
+            if rest > (cur_refresh or C.horizon_refresh) then return out, false end
         end
     end
     return out, true
@@ -301,12 +306,33 @@ end
 --- `want` = the destination asked for (the server may snap it to another floor).
 function H.build(from, path, cb, want)
     if type(path) ~= "table" or #path == 0 then cb(false, nil, { why = "empty path" }); return end
-    local indoors = false
-    pcall(function() indoors = X.is_indoors() end)
-    cur_clear = indoors and C.horizon_clearance_indoors or C.horizon_clearance
-    cur_oclear = indoors and C.horizon_object_clearance_indoors or C.horizon_object_clearance
-    cur_spacing = indoors and (C.waypoint_spacing_indoors or C.waypoint_spacing) or C.waypoint_spacing
-    local win, final = H.cut(from, path, C.horizon_length, cur_spacing)
+    -- 1.7.0: the window is cut and checked with the profile of the place the
+    -- player is in (open / indoor / cave - anav/coords.lua G.profile)
+    local P, kind = nil, "open"
+    local okg, GZ = pcall(require, "anav/coords")
+    if okg and type(GZ) == "table" and type(GZ.profile) == "function" then
+        local okp, p, k = pcall(GZ.profile)
+        if okp and type(p) == "table" then P, kind = p, k end
+    end
+    if not P then
+        local indoors = false
+        pcall(function() indoors = X.is_indoors() end)
+        P = indoors and { length = C.horizon_length, refresh = C.horizon_refresh,
+            spacing = C.waypoint_spacing_indoors or C.waypoint_spacing,
+            clearance = C.horizon_clearance_indoors, object_clearance = C.horizon_object_clearance_indoors }
+            or { length = C.horizon_length, refresh = C.horizon_refresh, spacing = C.waypoint_spacing,
+                clearance = C.horizon_clearance, object_clearance = C.horizon_object_clearance }
+    end
+    cur_clear = P.clearance or C.horizon_clearance
+    cur_oclear = P.object_clearance or C.horizon_object_clearance
+    cur_spacing = P.spacing or C.waypoint_spacing
+    cur_refresh = P.refresh or C.horizon_refresh
+    if kind ~= last_kind then
+        last_kind = kind
+        L.debug("environment: %s - windows %.0f yd, waypoints every %.0f yd, clearance %.1f yd",
+            tostring(kind), P.length or C.horizon_length, cur_spacing, cur_clear)
+    end
+    local win, final = H.cut(from, path, P.length or C.horizon_length, cur_spacing)
     if #win < 2 then
         cb(true, { vec3.new(from.x, from.y, from.z) }, { final = true })
         return

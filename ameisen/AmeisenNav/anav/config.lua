@@ -101,6 +101,29 @@ local C = {
     waypoint_threshold_indoors = 1.5,        -- yards to reach a waypoint indoors (2.5 outdoors)
     horizon_splices     = 3,        -- bad legs re-planned per window
 
+    -- ------------------------------------- environment profiles (1.7.0)
+    -- Window length, waypoint spacing, "reached" radius and clearances per
+    -- kind of place (anav/coords.lua G.environment):
+    --   open    outdoors, sky above
+    --   indoor  is_indoors and no rock above: buildings, inns, crypts
+    --   cave    the terrain surface is env_cave_cover+ yd ABOVE the character
+    --           (it is under the ground), indoors flag or not
+    -- Every "reached" radius is at least 2.0 yd: running at about 7 yd/s and
+    -- turning 180 deg/s, the character's turning circle is about 2.2 yd, and a
+    -- smaller radius approached off-axis is orbited instead of reached.
+    -- Windows are re-planned with about 40% of the window still ahead, so the
+    -- next one is checked and ready before the walk gets there.
+    env_profiles = {
+        open   = { length = 20.0, refresh = 8.0, spacing = 5.0, threshold = 2.5,
+                   clearance = 2.0, object_clearance = 1.0 },
+        indoor = { length = 12.0, refresh = 5.0, spacing = 3.0, threshold = 2.0,
+                   clearance = 0.9, object_clearance = 0.3 },
+        cave   = { length = 15.0, refresh = 6.0, spacing = 4.0, threshold = 2.0,
+                   clearance = 1.2, object_clearance = 0.5 },
+    },
+    env_cave_cover      = 8.0,      -- yards of terrain above the character that make it a cave
+    env_check_every     = 1.0,      -- seconds between environment reads
+
     -- ------------------------------------------- indoors / interact (1.6.1)
     arrive_dz           = 2.5,      -- yards of height: more is another floor, not arrived
     interact_pad        = 0.5,      -- yards kept from an object / NPC standing on the destination

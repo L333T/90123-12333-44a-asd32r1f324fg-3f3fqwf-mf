@@ -152,11 +152,19 @@ local function configure_walker()
     end
     X.call(walker, "set_use_look_at", want_look_at())
     X.call(walker, "set_smoothing_enabled", false) -- the server returns the corners we want
-    -- 1.6.8: a tighter "reached" indoors (doorways, stairs, narrow halls)
-    local inside = false
-    pcall(function() inside = X.is_indoors() == true end)
-    X.call(walker, "set_threshold", inside and (C.waypoint_threshold_indoors or C.waypoint_threshold)
-        or C.waypoint_threshold)
+    -- 1.7.0: "reached" radius from the environment profile (open 2.5 yd,
+    -- indoor / cave 2.0 - never under the ~2.2 yd turning circle by much)
+    local th = C.waypoint_threshold
+    local okg, GZ = pcall(require, "anav/coords")
+    if okg and type(GZ) == "table" and type(GZ.profile) == "function" then
+        local okp, P = pcall(GZ.profile)
+        if okp and type(P) == "table" and type(P.threshold) == "number" then th = P.threshold end
+    else
+        local inside = false
+        pcall(function() inside = X.is_indoors() == true end)
+        if inside then th = C.waypoint_threshold_indoors or th end
+    end
+    X.call(walker, "set_threshold", th)
     X.call(walker, "set_final_threshold", C.final_threshold)
     -- 1.6.9: direct_path - aim at the waypoint itself (simple_movement's
     -- set_look_distance accepts 5-50 yd; 5 is the closest it allows)

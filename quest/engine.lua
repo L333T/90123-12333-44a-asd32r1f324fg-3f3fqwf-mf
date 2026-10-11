@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.286.0
+-- Version: 2.287.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2977,6 +2977,10 @@ local function kill_goal(player, goal, kind, wps, label)
         unit = marked
         trail("act", "raid-marked target %s", tostring(safe(function() return unit:get_name() end)))
     end
+    -- 2.287.0: the fallback is no longer the step's generic RestedXP target
+    -- lines within 25 yd (a Young Wolf was always that close in Northshire,
+    -- so a "Kobold Vermin" step kept fighting wolves) but the mobs of the
+    -- step's OTHER unfinished kill goals - still RestedXP's quests.
     -- 2.286.0: THE GOAL'S OWN MOB FIRST. The target set mixed the goal's mob
     -- with every other RestedXP target line of the step and the stickies,
     -- and the closest of them won and was remembered as the goal's npc: a
@@ -2989,8 +2993,12 @@ local function kill_goal(player, goal, kind, wps, label)
         unit = guide.find_mob(player, MOB_RANGE, goal, true)
         if unit and npc_id_of(unit) then g_goal_npc[gkey] = npc_id_of(unit) end
     end
-    if not unit then
-        unit = guide.find_mob(player, 25, goal)
+    if not unit and type(guide.find_other_goal_mob) == "function" then
+        unit = guide.find_other_goal_mob(player, MOB_RANGE, goal)
+        if unit then
+            trail("act", "%s: none in sight - %s for another goal of this step",
+                tostring(label), tostring(safe(function() return unit:get_name() end)))
+        end
     end
     if not unit and kind == "collect" then
         -- RestedXP names the item, not what drops it. First choice: a mob

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.286.0
+-- Version: 2.287.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1845,11 +1845,21 @@ function gui.clear_quest_skips()
     state.set_note("Quest", "Cleared skipped quests")
 end
 
+local function off_log(why)
+    if is_on("enable") then
+        local ok_e, el = pcall(require, "errorlog")
+        if ok_e and type(el) == "table" and type(el.info) == "function" then pcall(el.info, "Stop: %s", why) end
+        pcall(core.log, "[Master Farmer - Grindbot] Stopped: " .. tostring(why))
+    end
+end
+
 local function pause_bot()
+    off_log("Pause")
     set_on("enable", false)
 end
 
-local function stop_bot()
+local function stop_bot(why)
+    off_log(type(why) == "string" and why or "Stop")
     set_on("enable", false)
     local ok, movement = pcall(require, "movement")
     if ok and movement and type(movement.nav_stop) == "function" then
@@ -1866,8 +1876,8 @@ local function stop_bot()
 end
 
 --- Stop the bot, as the Stop button does. Used by the NPC-stuck watchdog.
-function gui.stop()
-    stop_bot()
+function gui.stop(why)
+    stop_bot(type(why) == "string" and why or "stopped by the bot (watchdog)")
 end
 
 local function toggle_gui()
@@ -1952,6 +1962,7 @@ function gui.sync_activity()
     if a then
         if last_activity ~= "gather" then
             last_activity = "gather"
+            off_log("mode changed to gather")
             set_on("enable", false)
             loader.unload_grind()
             loader.unload_quest()
@@ -1964,6 +1975,7 @@ function gui.sync_activity()
     if g then
         if last_activity ~= "grind" then
             last_activity = "grind"
+            off_log("mode changed to grind")
             set_on("enable", false)
             loader.unload_quest()
             loader.unload_gather()
@@ -1978,6 +1990,7 @@ function gui.sync_activity()
     if q then
         if last_activity ~= "quest" then
             last_activity = "quest"
+            off_log("mode changed to quest")
             set_on("enable", false)
             loader.unload_grind()
             loader.unload_gather()
@@ -1990,6 +2003,7 @@ function gui.sync_activity()
     end
     if last_activity ~= nil then
         last_activity = nil
+        off_log("no mode selected (Grinding / Quest / Gathering all off)")
         set_on("enable", false)
         loader.unload_grind()
         loader.unload_quest()

@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.312.0
+-- Version: 2.313.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -662,6 +662,19 @@ function C.combat_engage(player, unit, yards)
         end
     end
 
+    -- 2.313.0: is the straight line really open? The game ray behind
+    -- walk_open is gone (2.311.0); the navmesh says "around" when the walk to
+    -- the target bends round something - then the planned path (4b) is
+    -- walked instead of running at the wall.
+    local line_clear = true
+    do
+        local ok_s, Sg = pcall(require, "movement/sight")
+        if ok_s and type(Sg) == "table" then
+            local okv, v = pcall(Sg.verdict, player, unit)
+            line_clear = not (okv and v == "around")
+        end
+    end
+
     -- 4a. DIRECT CHASE (2.37.0). When the straight line to the target is
     -- clear, walk straight at it in ONE move - to melee contact, or to the
     -- class's range - and only re-aim when the target has shifted more than
@@ -697,7 +710,7 @@ function C.combat_engage(player, unit, yards)
                     local here = pt(P_HERE, hx, hy, hz)
                     local goal = pt(P_DEST, ux, uy, ground_z(ux, uy, uz))
                     local dest = pt(P_ALT, dx, dy, hz + (goal.z - hz) * s)
-                    if L.allows(here, dest) and walk_open(here, goal) and W.ensure()
+                    if L.allows(here, dest) and line_clear and walk_open(here, goal) and W.ensure()
                         and W.move(dest, "chase_direct") then
                         R.chase_fail_key, R.chase_fail_t = nil, 0
                         return false
@@ -725,7 +738,7 @@ function C.combat_engage(player, unit, yards)
     -- (2.59.0). Sentinel's own move would be deferred while the rotation
     -- casts; the walker is not. Steering below is the fallback while the
     -- path is pending or there is no server.
-    if O.nav_gap_ok() and not walk_open(here, goal) then
+    if O.nav_gap_ok() and (not line_clear or not walk_open(here, goal)) then
         local pts = N.chase_path(here, goal, R.combat_guid)
         if pts and #pts >= 2 and W.ensure() and W.navigate_path(pts) then
             R.chase_fail_key, R.chase_fail_t = nil, 0

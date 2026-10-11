@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, range, line of sight, reachability
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.312.0
+-- Version: 2.313.0
 -- ============================================================================
 -- Read-only questions about the world plus the one fire-and-forget command
 -- (facing). Split out from combat so navigation callers can ask "can I reach
@@ -94,8 +94,21 @@ local los_cache = { guid = nil, t = -1, v = false }
 local LOS_HOLD = 2.5
 local ev_mod = nil
 
+local sight_mod = nil
+
 local function raw_los(player, unit, range)
     if type(range) == "number" and range <= 3 then return true end
+    -- 2.313.0: the navmesh (movement/sight.lua, AmeisenNav find_path - no
+    -- game ray): a walk round a wall, an enemy under the ground or out of
+    -- reach is not in sight. No answer yet: the refusal check below decides.
+    if sight_mod == nil then
+        local ok, m = pcall(require, "movement/sight")
+        sight_mod = (ok and type(m) == "table") and m or false
+    end
+    if sight_mod then
+        local okv, v = pcall(sight_mod.verdict, player, unit)
+        if okv and (v == "around" or v == "underground" or v == "unreachable") then return false end
+    end
     if ev_mod == nil then
         local ok, m = pcall(require, "events")
         ev_mod = (ok and type(m) == "table" and type(m.los_failed) == "function") and m or false

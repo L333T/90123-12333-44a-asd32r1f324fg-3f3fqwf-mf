@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.312.0
+-- Version: 2.313.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -1618,6 +1618,33 @@ function N.chase_path(from, to, key)
     end)
     if not ok then chase.pending = false end
     return have and chase.pts or nil
+end
+
+--- 2.313.0: one find_path for movement/sight.lua (reachable / underground /
+--- line of sight from the navmesh, no game raycast). cb(points|nil, ok, info).
+--- false when there is no AmeisenNav client to ask.
+function N.path_probe(from, to, cb)
+    local fx, fy, fz = xyz(from)
+    local tx, ty, tz = xyz(to)
+    if not fx or not tx then return false end
+    local nav = nav_service()
+    if not nav or type(nav.find_path) ~= "function" then return false end
+    local ok = an_find(nav, vec3.new(fx, fy, fz), vec3.new(tx, ty, tz), function(...)
+        local ok_arg, info = select(1, ...), select(3, ...)
+        local pts = nil
+        for i = 1, select("#", ...) do
+            pts = as_points((select(i, ...)))
+            if pts then break end
+        end
+        pcall(cb, pts, ok_arg, info)
+    end)
+    return ok == true
+end
+
+--- 2.313.0: is there an AmeisenNav client to ask?
+function N.nav_ready()
+    local nav = nav_service()
+    return nav ~= nil and type(nav.find_path) == "function"
 end
 
 -- ----------------------------------------------------------------------------

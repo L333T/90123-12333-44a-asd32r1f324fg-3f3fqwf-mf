@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.312.0
+-- Version: 2.313.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -184,6 +184,23 @@ function targeting.can_see(player, unit)
         local flat = math.sqrt(dx * dx + dy * dy)
         if dz > VERT_MAX and flat < dz * VERT_RATIO then
             v = false
+        end
+    end
+    -- 2.313.0: REACHABLE, ABOVE GROUND, IN SIGHT - asked of the navmesh
+    -- (movement/sight.lua, an AmeisenNav find_path; no game raycast). Only a
+    -- "clear" answer makes a new target; an unreachable / underground one is
+    -- also marked unreachable (skipped by every target pick for a while). No
+    -- answer yet: not picked this second (the question is out). No
+    -- AmeisenNav: as before.
+    if v then
+        local ok_s, Sg = pcall(require, "movement/sight")
+        if ok_s and type(Sg) == "table" and Sg.available() then
+            local verdict = Sg.verdict(player, unit)
+            if verdict ~= "clear" then v = false end
+            if (verdict == "unreachable" or verdict == "underground") and g
+                and type(state.mark_unreachable) == "function" then
+                state.mark_unreachable(g)
+            end
         end
     end
     if v then

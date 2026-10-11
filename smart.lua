@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.302.0
+-- Version: 2.303.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -195,9 +195,42 @@ local OTHER_SKIP = { ["Attack"] = true, ["Auto Shot"] = true, ["Shoot"] = true,
 -- ...and every spell whose name starts with one of these (item makers,
 -- travel, gathering trackers, rituals).
 local OTHER_SKIP_PREFIX = { "Conjure ", "Teleport", "Portal", "Create ", "Find ", "Ritual of ", "Track " }
+-- 2.303.0: USABLE SPELLS ONLY. WoW Forever answers is_usable_spell true for
+-- passives, so the daaa22 13:19 scan listed Armor Proficiency, Block, Dodge,
+-- Parry, Languages, Engineering Specialization, Expansive Mind, Mining and
+-- Smelting. Passives, weapon / armor skills, languages and professions (a
+-- crafting window, not a fight spell) are never listed.
+local NOT_A_SPELL = {
+    ["Block"] = true, ["Dodge"] = true, ["Parry"] = true, ["Languages"] = true, ["Dual Wield"] = true,
+    ["Expansive Mind"] = true, ["Eureka!"] = false, ["Defense"] = true, ["Unarmed"] = true,
+    ["Plate Mail"] = true, ["Mail"] = true, ["Leather"] = true, ["Cloth"] = true, ["Shield"] = true,
+    ["Wands"] = true, ["Bows"] = true, ["Guns"] = true, ["Crossbows"] = true, ["Thrown"] = true,
+    ["Daggers"] = true, ["Fist Weapons"] = true, ["Staves"] = true, ["Polearms"] = true,
+    ["One-Handed Swords"] = true, ["Two-Handed Swords"] = true, ["One-Handed Axes"] = true,
+    ["Two-Handed Axes"] = true, ["One-Handed Maces"] = true, ["Two-Handed Maces"] = true,
+    ["Swords"] = true, ["Axes"] = true, ["Maces"] = true,
+    ["Mining"] = true, ["Smelting"] = true, ["Herbalism"] = true, ["Skinning"] = true, ["Fishing"] = true,
+    ["Cooking"] = true, ["First Aid"] = true, ["Tailoring"] = true, ["Leatherworking"] = true,
+    ["Blacksmithing"] = true, ["Alchemy"] = true, ["Enchanting"] = true, ["Engineering"] = true,
+    ["Jewelcrafting"] = true, ["Inscription"] = true, ["Disenchant"] = true, ["Prospecting"] = true,
+    ["Milling"] = true, ["Basic Campfire"] = true, ["Survey"] = true, ["Archaeology"] = true,
+    ["Diplomacy"] = true, ["The Human Spirit"] = true, ["Every Man for Himself"] = false,
+}
+local NOT_A_SPELL_SUFFIX = { " Proficiency", " Specialization", " Specialisation", " Mastery", " Resistance" }
+local NOT_A_SPELL_PREFIX = { "Language", "Apprentice ", "Journeyman ", "Expert ", "Artisan ", "Master " }
+
 local function other_skipped(name)
     if type(name) ~= "string" then return true end
     if OTHER_SKIP[name] then return true end
+    if NOT_A_SPELL[name] then return true end
+    for i = 1, #NOT_A_SPELL_SUFFIX do
+        local x = NOT_A_SPELL_SUFFIX[i]
+        if #name > #x and name:sub(-#x) == x then return true end
+    end
+    for i = 1, #NOT_A_SPELL_PREFIX do
+        local x = NOT_A_SPELL_PREFIX[i]
+        if name:sub(1, #x) == x then return true end
+    end
     for i = 1, #OTHER_SKIP_PREFIX do
         local p = OTHER_SKIP_PREFIX[i]
         if name:sub(1, #p) == p then return true end
@@ -511,6 +544,28 @@ function c.rage()
         memo.rage = type(r) == "number" and r or 0
     end
     return memo.rage
+end
+
+--- 2.303.0: how many OTHER ticked, known melee / damage specials this
+--- character has (Overpower, Mortal Strike, Shield Slam, Sinister Strike...).
+--- A resource dump (Heroic Strike, Cleave, Maul) keeps its high threshold
+--- only when there is something to save the resource for; at level 6 a
+--- warrior has none, rage never reached 50, and Heroic Strike - the only
+--- damage special - was never cast (daaa22 13:19 session, 30+ fights).
+local DUMP_NAMES = { ["Heroic Strike"] = true, ["Cleave"] = true, ["Maul"] = true, ["Slam"] = true }
+function c.specials()
+    if memo.specials == nil then
+        local n = 0
+        local list = built.by_role.damage or {}
+        for i = 1, #list do
+            local e = list[i]
+            if not DUMP_NAMES[e.name] and e.def.either ~= true and e.def.melee == true and usable(e) then
+                n = n + 1
+            end
+        end
+        memo.specials = n
+    end
+    return memo.specials
 end
 
 function c.cp()
@@ -1144,7 +1199,9 @@ function COND.finisher(e)
     if e.def.thp and c.thp() < e.def.thp then return false end
     local cp = c.cp()
     local need = e.def.cp or 4
-    return cp >= need or (cp >= 2 and c.thp() < 25)
+    -- 2.303.0: low-level mobs die before 4 points - finish earlier on a
+    -- dying target instead of losing the points with the kill
+    return cp >= need or (cp >= 2 and c.thp() < 35) or (cp >= 1 and c.thp() < 12)
 end
 
 --- Low on mana with a ticked wand: spells wait, the wand fires.

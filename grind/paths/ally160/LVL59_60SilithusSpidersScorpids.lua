@@ -3,7 +3,7 @@
 -- Silithus 59-60 Spiders/Scorpids
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.292.0
+-- Version: 2.293.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

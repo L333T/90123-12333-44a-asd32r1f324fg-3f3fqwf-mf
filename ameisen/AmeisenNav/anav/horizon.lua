@@ -61,6 +61,7 @@ local fmt = string.format
 -- while the player is indoors (is_indoors): a 2-yard clearance centred every
 -- doorway and pushed the walk off furniture it only had to pass.
 local cur_clear, cur_oclear = nil, nil
+local cur_spacing = nil          -- 1.6.8: waypoint spacing of the window being built (indoors: tighter)
 
 H.stats = { windows = 0, lifted = 0, shifted = 0, narrow = 0, objects = 0, spliced = 0, bad_legs = 0 }
 
@@ -104,8 +105,8 @@ end
 
 --- The first `length` yards of `path` (densified), starting at `from`.
 --- Returns points, is_final (the window reaches the path's end).
-function H.cut(from, path, length)
-    local dense = H.densify(path, C.waypoint_spacing)
+function H.cut(from, path, length, spacing)
+    local dense = H.densify(path, spacing or C.waypoint_spacing)
     local out = { pt(from.x, from.y, from.z) }
     -- skip server points that are already behind / under the player
     local start = 1
@@ -300,16 +301,17 @@ end
 --- `want` = the destination asked for (the server may snap it to another floor).
 function H.build(from, path, cb, want)
     if type(path) ~= "table" or #path == 0 then cb(false, nil, { why = "empty path" }); return end
-    local win, final = H.cut(from, path, C.horizon_length)
+    local indoors = false
+    pcall(function() indoors = X.is_indoors() end)
+    cur_clear = indoors and C.horizon_clearance_indoors or C.horizon_clearance
+    cur_oclear = indoors and C.horizon_object_clearance_indoors or C.horizon_object_clearance
+    cur_spacing = indoors and (C.waypoint_spacing_indoors or C.waypoint_spacing) or C.waypoint_spacing
+    local win, final = H.cut(from, path, C.horizon_length, cur_spacing)
     if #win < 2 then
         cb(true, { vec3.new(from.x, from.y, from.z) }, { final = true })
         return
     end
     pcall(AV.refresh, from.x, from.y, from.z)
-    local indoors = false
-    pcall(function() indoors = X.is_indoors() end)
-    cur_clear = indoors and C.horizon_clearance_indoors or C.horizon_clearance
-    cur_oclear = indoors and C.horizon_object_clearance_indoors or C.horizon_object_clearance
     local splices = 0
     local exact = false
     if final then
@@ -383,7 +385,7 @@ function H.build(from, path, cb, want)
                     L.debug("horizon: %s at waypoint %d - no unsmoothed re-plan, walking it", bad.why, bad.k)
                     return widths()
                 end
-                local dense = H.densify(piece, C.waypoint_spacing)
+                local dense = H.densify(piece, cur_spacing or C.waypoint_spacing)
                 if #dense > 0 and same(dense[1], a) then table.remove(dense, 1) end
                 local new = {}
                 for k = 1, bad.k - 1 do new[#new + 1] = win[k] end

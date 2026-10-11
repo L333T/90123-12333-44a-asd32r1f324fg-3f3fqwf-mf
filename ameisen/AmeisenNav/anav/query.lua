@@ -40,6 +40,14 @@ local X = require("anav/context")
 
 local Q = {}
 
+--- 1.6.8: `flags` without the server's smoothing bits (1 Chaikin, 2, 4);
+--- VALIDATE_MAS (16) and anything else is kept.
+function Q.unsmoothed(flags)
+    flags = tonumber(flags) or 0
+    local smooth = flags % 8
+    return flags - smooth
+end
+
 local floor, sqrt = math.floor, math.sqrt
 local fmt = string.format
 
@@ -176,6 +184,7 @@ function Q.find_path(from, to, opts, cb)
         return
     end
     local flags = (opts and opts.flags) or C.path_flags
+    if C.no_smoothing then flags = Q.unsmoothed(flags) end    -- 1.6.8
     local as_vec3 = opts and opts.vec3
     local target = { x = ex, y = ey, z = ez }
     local key = cache_key(map, state, flags, sx, sy, sz, ex, ey, ez)
@@ -247,6 +256,7 @@ function Q.find_paths(pairs_list, opts, cb)
         return
     end
     local flags = (opts and opts.flags) or C.path_flags
+    if C.no_smoothing then flags = Q.unsmoothed(flags) end    -- 1.6.8
     local body = {}
     for i = 1, #pairs_list do
         local sx, sy, sz = xyz(pairs_list[i][1])

@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.301.0
+-- Version: 2.302.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -390,7 +390,19 @@ end
 --      already refused us - another class's trainer offers no training, is
 --      marked `rejected`, and the next one is tried.
 local NPC_CLASS_TRAINER = 0x20
-local rejected = {}          -- guid -> true: a class trainer that did not train us
+local rejected = {}          -- guid -> until: a class trainer that did not train us
+-- 2.302.0: a rejection lasts REJECT_FOR s and applies to EVERY trainer, the
+-- name-matched ones too. The 03:21 session: Granis Swiftaxe (the warrior
+-- trainer, matched by name) "did not train us - trying another trainer",
+-- was picked again at once and asked every 10 s, the quest walk interrupted.
+local REJECT_FOR = 1800
+local function is_rejected(guid)
+    local t = guid and rejected[guid]
+    if not t then return false end
+    if t == true or izi.now() < t then return true end
+    rejected[guid] = nil
+    return false
+end
 
 local function has_flag(value, bit)
     return type(value) == "number" and value > 0 and math.floor(value / bit) % 2 == 1
@@ -417,13 +429,14 @@ local function trainer_in_sight(player)
                 rank = 1
             elseif type(name) == "string" and names[name] then
                 rank = 2
-            elseif quest_wanted and not (guid and rejected[guid])
+            elseif quest_wanted and not is_rejected(guid)
                 and has_flag(safe(function() return u:get_npc_flags() end), NPC_CLASS_TRAINER) then
                 -- Any flagged class trainer only for a quest ".train" step
                 -- (2.161.0): the bot's own level-up visits walked to other
                 -- classes' trainers - one of them the 12:15 turn-in NPC.
                 rank = 3
             end
+            if rank and is_rejected(guid) then rank = nil end   -- 2.302.0: every rank
             if rank and safe(function() return player:can_attack(u) end) ~= true then
                 local d = safe(function() return player:distance_to(u) end)
                 if type(d) == "number" and d <= SEEK_RANGE
@@ -439,8 +452,9 @@ end
 --- The trainer being walked to did not train us: skip it and try another.
 local function reject_seek(why)
     if seek and seek.guid then
-        rejected[seek.guid] = true
-        trail("%s did not train us (%s) - trying another trainer", tostring(seek.name), tostring(why))
+        rejected[seek.guid] = izi.now() + REJECT_FOR
+        trail("%s did not train us (%s) - not asked again for 30 minutes, trying another trainer",
+            tostring(seek.name), tostring(why))
     end
     seek = nil
 end
@@ -730,8 +744,12 @@ function trainer.tick(player)
     if select_tries >= SELECT_MAX then
         if select_tries == SELECT_MAX then
             select_tries = select_tries + 1
-            trail("'%s' selected %d times - no trainer window opened", tostring(label), SELECT_MAX)
+            trail("'%s' selected %d times - no trainer window opened (nothing to train?) - done for this level",
+                tostring(label), SELECT_MAX)
             mark_tried(player)
+            -- 2.302.0: the check is over for this level - not re-asked via seek
+            seek_skip_level = safe(function() return player:get_level() end)
+            if seek then reject_seek("training option gave no window") end
         end
         return false
     end

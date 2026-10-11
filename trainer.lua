@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.285.0
+-- Version: 2.286.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -692,6 +692,12 @@ function trainer.tick(player)
         return seek_tick(player, now)
     end
     if already_tried(player) then
+        return false
+    end
+    -- 2.286.0: a vendor trip's gossip is the vendor's (a trainer who also
+    -- sells) - never "Train me." in the middle of it
+    local vmod = package.loaded["vendor"]
+    if type(vmod) == "table" and type(vmod.is_busy) == "function" and vmod.is_busy() then
         return false
     end
     -- A quest giver / turn-in NPC who also trains (2.161.0): the quest goes

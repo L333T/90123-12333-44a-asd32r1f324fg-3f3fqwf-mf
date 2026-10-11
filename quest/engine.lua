@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.285.0
+-- Version: 2.286.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1454,7 +1454,8 @@ local function resolve_quest(goal, kind)
     local skipped = type(state.quest.skipped) == "table" and state.quest.skipped or {}
     for i = 1, #ids do
         local id = ids[i]
-        local on = safe(function() return core.quests.is_on_quest(id) end)
+        -- 2.286.0: the quest log by id list and title too (npc.in_log)
+        local on = npc.in_log(id, quest_title(goal, kind, id))
         local done = safe(function() return core.quests.is_quest_flagged_completed(id) end) == true
         if kind == "accept" then
             if on ~= true and not done and not skipped[id] then
@@ -2976,9 +2977,20 @@ local function kill_goal(player, goal, kind, wps, label)
         unit = marked
         trail("act", "raid-marked target %s", tostring(safe(function() return unit:get_name() end)))
     end
+    -- 2.286.0: THE GOAL'S OWN MOB FIRST. The target set mixed the goal's mob
+    -- with every other RestedXP target line of the step and the stickies,
+    -- and the closest of them won and was remembered as the goal's npc: a
+    -- 20:09 session killed Young Wolf after Young Wolf for "0/10 Kobold Vermin
+    -- slain" (step targets: Brother Danil, Kobold Vermin, Timber Wolf, Wolf,
+    -- Young Wolf). Now the goal's own targets are searched first and only
+    -- they are remembered; the step's other targets are fought only within
+    -- 25 yd while none of the goal's own is in sight, and never remembered.
     if not unit then
-        unit = guide.find_mob(player, MOB_RANGE, goal)
+        unit = guide.find_mob(player, MOB_RANGE, goal, true)
         if unit and npc_id_of(unit) then g_goal_npc[gkey] = npc_id_of(unit) end
+    end
+    if not unit then
+        unit = guide.find_mob(player, 25, goal)
     end
     if not unit and kind == "collect" then
         -- RestedXP names the item, not what drops it. First choice: a mob

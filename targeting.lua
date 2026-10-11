@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.294.0
+-- Version: 2.295.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1141,6 +1141,14 @@ local auto_guid, auto_t, auto_type = nil, -1e9, nil
 --     faces the target (the usual cause: facing away) and re-arms the attack.
 local MELEE_ARM = 8
 local SWING_SLACK = 1.0
+-- 2.295.0: STACKED TARGET. A mob standing inside the character (00:34 warrior
+-- session: a Troll Whelp at 0.2-0.5 yd for 14 s, auto attack on, not one
+-- hit - the warrior took damage the whole time) cannot be faced: turning
+-- toward a point inside the model does nothing. No hit for weapon speed +
+-- SWING_SLACK with the target closer than STACKED_YD: a short back-step
+-- (no jump) puts it in front again; combat movement closes back in.
+local STACKED_YD = 1.0
+local UNSTACK_BACK = 0.5
 local SW = { guid = nil, since = nil, first = false, warned = -1e9 }
 
 local function trail(cat, fmt, ...)
@@ -1202,6 +1210,13 @@ local function swing_watch(player, unit, g)
             since_hit, tostring(call(unit.get_name, unit)), speed, tostring(attacking),
             attacking and "facing it" or "facing it, re-arming the attack")
         local okm, mv = pcall(require, "movement")
+        local d = tonumber(call(player.distance_to, player, unit))
+        if d and d < STACKED_YD and okm and type(mv) == "table" and type(mv.backpedal) == "function" then
+            -- jump_at past the end of the walk: a plain step back, no jump
+            local stepped = select(2, pcall(mv.backpedal, UNSTACK_BACK, UNSTACK_BACK + 10)) == true
+            pcall(trail, "swing", "melee: %s stacked on the character (%.1f yd) - %s",
+                tostring(call(unit.get_name, unit)), d, stepped and "stepping back 0.5 s" or "step back busy")
+        end
         if okm and type(mv) == "table" and type(mv.face) == "function" then pcall(mv.face, unit) end
         if not attacking then
             auto_t = -1e9          -- re-arm on this call: auto attack is really off

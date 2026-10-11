@@ -3,7 +3,7 @@
 -- Death run — release, path graveyard to corpse, retrieve
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.289.0
+-- Version: 2.290.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

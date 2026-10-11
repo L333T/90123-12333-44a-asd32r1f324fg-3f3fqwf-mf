@@ -3,7 +3,7 @@
 -- Death run — release, path graveyard to corpse, retrieve
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -421,9 +421,13 @@ function death.tick(player)
     end
 
     local my_level = safe(function() return player:get_level() end)
-    local dest = safe_retrieve_pos(corpse, my_level)
+    -- 2.306.0 (audit PERF-1): the safe-revive-spot search scans enemies up
+    -- to 5 times; measured 0.72 ms/frame for a ghost 273 yd out. Only within
+    -- SAFE_SEARCH yd of the corpse - before that the corpse is the goal.
+    local d0 = dist2d(state.cached_pos, corpse)
+    local dest = (d0 == nil or d0 <= 60) and safe_retrieve_pos(corpse, my_level) or corpse
     -- 2.304.0: flat - the corpse z is approximate until the area is loaded
-    local d = dist2d(state.cached_pos, corpse) or dist_to(corpse) or dist_to(dest)
+    local d = d0 or dist_to(corpse) or dist_to(dest)
     if type(d) ~= "number" then
         run_to(dest)
         state.set_note("Death", "Running to corpse")

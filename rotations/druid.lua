@@ -3,7 +3,7 @@
 -- Druid grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and
@@ -71,34 +71,19 @@ local function safe(fn)
     return nil
 end
 
-local function as_pct(value)
-    if type(value) ~= "number" then
-        return nil
-    end
-    if value >= 0 and value <= 1.5 then
-        return value * 100
-    end
-    return value
-end
-
 local function health_pct(unit)
-    local pct = as_pct(safe(function() return unit:health_pct() end))
-    if pct then
-        return pct
-    end
-    -- unit:health_current() does not exist on this API. The working names are
-    -- get_health_percentage (which health_pct above aliases) and the
-    -- get_health / get_max_health pair, so the fallback uses those. Before
-    -- 1.6.3 every step of this fallback threw, and a health_pct that ever
-    -- failed would have left the unit looking permanently at full health.
-    local pct = as_pct(safe(function() return unit:get_health_percentage() end))
-    if pct then
-        return pct
-    end
+    -- 2.306.0 (audit IZI-2): get_health / get_max_health first (game_object.lua,
+    -- exact); then get_health_percentage AS IS - izi_sdk.lua:72 says 1..100, so
+    -- the old "0..1.5 means a fraction, x100" rescale read a unit at 1% as 100%.
+    -- The undeclared health_pct() is no longer read.
     local cur = safe(function() return unit:get_health() end)
     local mx = safe(function() return unit:get_max_health() end)
     if type(cur) == "number" and type(mx) == "number" and mx > 0 then
         return (cur / mx) * 100
+    end
+    local p = safe(function() return unit:get_health_percentage() end)
+    if type(p) == "number" and p == p then
+        return p
     end
     return 100
 end

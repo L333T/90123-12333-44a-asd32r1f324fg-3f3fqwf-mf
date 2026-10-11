@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -47,14 +47,15 @@ local function safe(fn)
 end
 
 local function as_percent(value, current, maximum)
-    if type(value) == "number" then
-        if value >= 0 and value <= 1.5 then
-            return value * 100
-        end
-        return value
-    end
+    -- 2.306.0 (audit CORE-B-3): health / max first (exact); then
+    -- get_health_percentage as is - it is 1..100 (izi_sdk.lua:72), and the old
+    -- "0..1.5 is a fraction, x100" read the player at 1% HP as 100% (no potion,
+    -- no meal before the next pull)
     if type(current) == "number" and type(maximum) == "number" and maximum > 0 then
         return (current / maximum) * 100
+    end
+    if type(value) == "number" and value == value then
+        return value
     end
     return 100
 end

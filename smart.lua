@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -503,12 +503,15 @@ end
 
 local function health_of(u)
     if not u then return 100 end
-    local v = pct(safe(u.health_pct, u)) or pct(safe(u.get_health_percentage, u))
-    if v then return v end
+    -- 2.306.0 (audit IZI-2): get_health / get_max_health first (exact); then
+    -- get_health_percentage as is (1..100, izi_sdk.lua:72). pct()'s 0..1.5
+    -- rescale read a unit at 1% as 100% - no execute, no emergency heal.
     local cur, mx = safe(u.get_health, u), safe(u.get_max_health, u)
     if type(cur) == "number" and type(mx) == "number" and mx > 0 then
         return cur / mx * 100
     end
+    local v = safe(u.get_health_percentage, u)
+    if type(v) == "number" and v == v then return v end
     return 100
 end
 
@@ -1840,13 +1843,20 @@ local function pack_interrupt()
     for i = 1, #PACK do
         local u = PACK[i]
         if u and safe(u.is_channeling_or_casting, u) == true then
+            -- 2.306.0 (audit IZI-3): the per-tick memo (distance, target HP,
+            -- immunity...) belongs to T - cleared when T is swapped and back,
+            -- or the add's values were used for the real target
             T = u
+            for k0 in pairs(memo) do memo[k0] = nil end
             for k = 1, #bucket do
                 if try(bucket[k], nil) then
                     T = keep
+                    for k0 in pairs(memo) do memo[k0] = nil end
                     return true
                 end
             end
+            T = keep
+            for k0 in pairs(memo) do memo[k0] = nil end
         end
     end
     T = keep

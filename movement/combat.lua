@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -161,13 +161,6 @@ local function safe(fn)
     return nil
 end
 
-local function pct_of(v)
-    v = tonumber(v)
-    if not v then return nil end
-    if v >= 0 and v <= 1.5 then return v * 100 end
-    return v
-end
-
 local function retreat_trail(fmt, ...)
     local ok, el = pcall(require, "errorlog")
     if ok and type(el) == "table" and type(el.trail) == "function" then pcall(el.trail, "retreat", fmt, ...) end
@@ -177,8 +170,21 @@ end
 local function retreat_allowed(player, target)
     local g = target and safe(function() return target:get_guid() end)
     if g ~= nil and g == RG.block_guid and izi.now() < RG.block_until then return false, "blocked" end
-    local hp = pct_of(safe(function() return player:get_health_percent() end))
-        or pct_of(safe(function() return player:health_pct() end))
+    -- 2.306.0 (audit CORE-A-1): get_health_percent / health_pct are not
+    -- declared - both read nil, so the 40% retreat guard never applied.
+    -- get_health / get_max_health (game_object.lua), else
+    -- get_health_percentage as is (1..100, izi_sdk.lua:72; no pct_of rescale).
+    local hp = nil
+    do
+        local cur = safe(function() return player:get_health() end)
+        local mx = safe(function() return player:get_max_health() end)
+        if type(cur) == "number" and type(mx) == "number" and mx > 0 then
+            hp = cur / mx * 100
+        else
+            local v = safe(function() return player:get_health_percentage() end)
+            if type(v) == "number" and v == v then hp = v end
+        end
+    end
     if hp and hp < RETREAT_MIN_HP then return false, string.format("health %d%%", hp) end
     local ok_p, pw = pcall(require, "power")
     if ok_p and type(pw) == "table" and type(pw.has_mana) == "function" and pw.has_mana(player) then
@@ -785,7 +791,11 @@ function C.in_position()
 end
 
 function C.combat_unit()
-    return R.combat_target
+    -- 2.306.0 (audit CORE-A-6): never hand out a freed unit (death.lua,
+    -- deathzones.lua read the killer through this)
+    local u = R.combat_target
+    if u and U.unit_valid(u) then return u end
+    return nil
 end
 
 -- ============================================================================

@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.305.0
+-- Version: 2.306.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -611,7 +611,6 @@ local function walk_to(pos, note, arrive, exact)
         -- A short road hop is not "closing on the NPC". Wall checks still run.
         -- The last yards use the real destination, so the NPC approach returns.
         local approach = approach_kind()
-        if hop then approach = nil end
         movement.set_approach(approach)
     end
     if movement.is_moving() then
@@ -1650,18 +1649,18 @@ local function recover_stall(now, goal, label)
         end
         return true
     end
-    -- 2.296.0: GIVEN UP ONCE ALREADY. The goal set aside after STALL_MAX
-    -- came back (RestedXP did not move on, "retrying its goals") and stalled
-    -- again: the 01:57 session ran "recovery 25 of 3" on Supplies to Tannok
-    -- for 23 minutes. A second give-up skips the step in RestedXP.
-    if g_stall.recoveries > STALL_MAX and type(guide.skip_current) == "function" then
-        if guide.skip_current(tostring(label) .. " - no progress after " .. STALL_MAX .. " recoveries, twice") then
-            state.set_note("Quest", "Guide: skipped " .. tostring(label) .. " (no progress)")
-            g_stall.recoveries = 0
-            return true
-        end
-    end
     if g_stall.recoveries >= STALL_MAX then
+        -- 2.296.0 / 2.306.0 (audit LOGIC-3): GIVEN UP ONCE ALREADY on this
+        -- goal -> RestedXP skips the step. The counter is reset on every
+        -- give-up, so it never reads "recovery 25 of 3" again (it grew while
+        -- skip_current, once per step, kept answering false).
+        local key = tostring(guide.step_num()) .. "|" .. tostring(goal.index)
+        if TK.gave_up == key and type(guide.skip_current) == "function"
+            and guide.skip_current(tostring(label) .. " - no progress after " .. STALL_MAX .. " recoveries, twice") then
+            state.set_note("Quest", "Guide: skipped " .. tostring(label) .. " (no progress)")
+        end
+        TK.gave_up = key
+        g_stall.recoveries = 0
         core.log_warning(string.format(
             "[Master Farmer - Grindbot] Quest goal '%s': no progress after %d recoveries - skipping it.",
             tostring(label), STALL_MAX))
@@ -3016,6 +3015,7 @@ function OX.sit_near(player, obj, guid, odist, label)
         end
         if OX.sit.tries > 0 then
             pcall(core.input.jump)             -- stand up first: the sit key toggles
+            pcall(core.input.ascend_stop)      -- 2.306.0 (audit CORE-A-5): jump is JumpOrAscendStart
             OX.sit.sit_at = now + 1.5
         else
             OX.sit.sit_at = now

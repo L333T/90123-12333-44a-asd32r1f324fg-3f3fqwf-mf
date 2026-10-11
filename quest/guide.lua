@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.285.0
+-- Version: 2.286.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1264,11 +1264,15 @@ local TARGET_KINDS = { kill = true, collect = true, object = true, item = true }
 --- current step walks somewhere else.
 ---
 --- Returns two sets: ids keyed by number, names keyed by string.
-function guide.targets(goal)
+---
+--- `primary` (2.286.0): the goal's OWN targets only - its ids, its text, its
+--- quest's objectives and guide-file mobs - without the step's other target
+--- lines and the stickies.
+function guide.targets(goal, primary)
     goal = goal or guide.goal()
-    local key = "targets:" .. tostring(goal and goal.index or 0)
+    local key = "targets:" .. tostring(goal and goal.index or 0) .. (primary and ":own" or "")
     local pair = memo(key, function()
-        local i, n = compute_targets(goal)
+        local i, n = compute_targets(goal, primary)
         return { i, n }
     end)
     return pair[1], pair[2]
@@ -1440,7 +1444,7 @@ function guide.step_target_names()
     end)
 end
 
-compute_targets = function(goal)
+compute_targets = function(goal, primary)
     local ids, names = {}, {}
 
     local function take(g, with_objectives)
@@ -1470,7 +1474,12 @@ compute_targets = function(goal)
             -- The guide's own target mobs for this quest (2.200.0,
             -- data/rxp_targets.lua, generated from the RestedXP guide files):
             -- what RXPTargetFrame lists, which the API does not expose.
-            local rxp = rxp_data()
+            -- 2.286.0: for the goal's OWN targets only when RestedXP's goal
+            -- line and objectives name nothing - the file lists every target
+            -- of the step under the quest (quest 7: Brother Danil, Kobold
+            -- Vermin, Timber Wolf, Wolf, Young Wolf), not the goal's mob.
+            local named = (text ~= nil and text ~= "") or #from > 0
+            local rxp = (not (primary and named)) and rxp_data() or nil
             if rxp then
                 local qids = guide.goal_quest_ids(g)
                 for k = 1, #qids do
@@ -1488,6 +1497,7 @@ compute_targets = function(goal)
     end
 
     take(goal, true)
+    if primary then return ids, names end
 
     -- The step's own RestedXP target lines (2.199.0), for a fight goal.
     if goal and TARGET_KINDS[guide.classify(goal)] then
@@ -1689,13 +1699,13 @@ end
 --- Name-matched against RestedXP's objective names, because its mob and
 --- target steps carry names rather than creature ids. An id is used when the
 --- guide happens to supply one.
-function guide.find_mob(player, range, goal)
+function guide.find_mob(player, range, goal, primary)
     if not player then
         return nil, nil
     end
     range = math.min(tonumber(range) or 40, MAX_RANGE)
 
-    local ids, names = guide.targets(goal)
+    local ids, names = guide.targets(goal, primary)
     if next(ids) == nil and next(names) == nil then
         return nil, nil
     end

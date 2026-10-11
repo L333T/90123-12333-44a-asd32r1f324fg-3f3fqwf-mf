@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.285.0
+-- Version: 2.286.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -1312,6 +1312,20 @@ local function supplier_tick(player)
         return false
     end
     if now < (state.vendor.interact_until or 0) then
+        -- 2.286.0: the NPC answered with a GOSSIP window (a trainer who also
+        -- sells: Riley Peltskinner, 20:10 session) - take its vendor option
+        -- now. It was only looked for in the frame of the interact itself,
+        -- before any window can open, so the class trainer took the gossip
+        -- ("Train me.") and the merchant never opened (8 tries, trip lost).
+        if gossip_open() then
+            if select_vendor_gossip() then
+                state.set_note("Vendor", "Opening the shop")
+            else
+                trail("vendor: %s offers no vendor option - next merchant", tostring(state.vendor.supplier_name))
+                close_vendor()
+                state.vendor.tries = 99
+            end
+        end
         return true
     end
     state.vendor.tries = (state.vendor.tries or 0) + 1

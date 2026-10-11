@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.285.0
+-- Version: 2.286.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -372,8 +372,59 @@ function npc.quest_ready(quest_id)
     return nil
 end
 
-local function on_quest(quest_id)
-    return safe(function() return core.quests.is_on_quest(quest_id) end)
+--- IN THE QUEST LOG (2.286.0). is_on_quest alone answered "no" for quests
+--- that were in the log (a 20:08 Northshire session on WoW Forever: Book
+--- Inventory 92124 and Rascally Rodents 91743 were accepted - RestedXP moved
+--- on - while the bot read "still not on the quest", gave up as "bags_full"
+--- and later skipped the turn-in as "never taken"). Now, in order:
+--- is_on_quest, the quest log's id list (get_quest_log_quest_ids), then
+--- every log entry by quest id or by title. Returns true / false (the log
+--- answered and does not have it) / nil (nothing answered), and how it knew.
+function npc.in_log(quest_id, title)
+    quest_id = tonumber(quest_id)
+    local v = safe(function() return core.quests.is_on_quest(quest_id) end)
+    if v == true then return true, "is_on_quest" end
+    local answered = v ~= nil
+    if type(core.quests.get_quest_log_quest_ids) == "function" then
+        local ids = safe(function() return core.quests.get_quest_log_quest_ids() end)
+        if type(ids) == "table" then
+            answered = true
+            for i = 1, #ids do
+                if tonumber(ids[i]) == quest_id then return true, "quest log ids" end
+            end
+        end
+    end
+    local want = type(title) == "string" and title ~= "" and string.lower(title) or nil
+    local n = tonumber(safe(function() return core.quests.get_num_quest_log_entries() end)) or 0
+    for i = 1, math.min(n, 80) do
+        local e = safe(function() return core.quests.get_quest_log_title(i) end)
+        if type(e) == "table" and e.is_header ~= true then
+            answered = true
+            if quest_id and tonumber(e.quest_id) == quest_id then return true, "quest log entry" end
+            if want and type(e.title) == "string" and string.lower(e.title) == want then
+                return true, "quest log title"
+            end
+        end
+    end
+    if answered then return false end
+    return nil
+end
+
+--- The quest log's quest titles, for a log line.
+function npc.log_titles()
+    local out = {}
+    local n = tonumber(safe(function() return core.quests.get_num_quest_log_entries() end)) or 0
+    for i = 1, math.min(n, 80) do
+        local e = safe(function() return core.quests.get_quest_log_title(i) end)
+        if type(e) == "table" and e.is_header ~= true and type(e.title) == "string" then
+            out[#out + 1] = string.format("%s (%s)", e.title, tostring(e.quest_id))
+        end
+    end
+    return out
+end
+
+local function on_quest(quest_id, title)
+    return (npc.in_log(quest_id, title))
 end
 
 local function flagged_done(quest_id)
@@ -965,7 +1016,7 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
     if dlg.stage == "interact" then
         -- Already in the log (accepted by hand, or the guide lagging): there
         -- is nothing to do at this NPC (2.63.0).
-        if on_quest(quest_id) == true then
+        if on_quest(quest_id, dlg.label) == true then
             return dlg_finish("done")
         end
         if flagged_done(quest_id) then
@@ -1053,8 +1104,11 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
     end
 
     if dlg.stage == "verify" then
-        local on = on_quest(quest_id)
+        local on, how = npc.in_log(quest_id, dlg.label)
         if on == true then
+            if how ~= "is_on_quest" then
+                trail("accept %s: in the quest log (%s) - is_on_quest said no", dlg.label, tostring(how))
+            end
             return dlg_finish("done")
         end
         if on == nil and ev_since("QUEST_ACCEPTED", dlg.t_interact) then
@@ -1075,8 +1129,17 @@ function npc.accept(player, quest_id, quest_name, npc_id, unit)
             local full = ok_ev and type(ev) == "table" and type(ev.inventory_full_since) == "function"
                 and ev.inventory_full_since(dlg.t_interact)
             dlg.refusals = (dlg.refusals or 0) + 1
-            if full or dlg.refusals >= 2 then
+            -- 2.286.0: "bags_full" only when the client SAID the bags are full
+            -- (two misses used to be called that too, with free bag slots)
+            if full then
                 return dlg_finish("bags_full")
+            end
+            if dlg.refusals >= 2 then
+                local titles = npc.log_titles()
+                trail("accept %s: not in the quest log after %d tries (is_on_quest=%s, %d quest(s) in the log: %s)",
+                    dlg.label, dlg.refusals, tostring(safe(function() return core.quests.is_on_quest(quest_id) end)),
+                    #titles, #titles > 0 and table.concat(titles, ", ") or "-")
+                return dlg_finish("gave_up")
             end
             return dlg_retry(now, "still not on the quest")
         end
@@ -1097,7 +1160,7 @@ local function turnin_landed(quest_id)
     if flagged_done(quest_id) then
         return "flagged completed"
     end
-    if dlg.was_on == true and on_quest(quest_id) == false then
+    if dlg.was_on == true and on_quest(quest_id, dlg.label) == false then
         return "left the quest log"
     end
     -- The quest log itself (2.187.0): no longer listed, where the log can be
@@ -1130,7 +1193,7 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit, reward)
 
     if dlg.stage == "interact" then
         -- Handed in already (2.63.0), including earlier this session.
-        if turned_in[quest_id] or (on_quest(quest_id) ~= true and flagged_done(quest_id)) then
+        if turned_in[quest_id] or (on_quest(quest_id, dlg.label) ~= true and flagged_done(quest_id)) then
             return dlg_finish("done")
         end
         if dlg.tries >= MAX_TRIES or dlg.no_unit >= MAX_NO_UNIT then
@@ -1139,7 +1202,7 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit, reward)
                 tostring(quest_name or quest_id), MAX_TRIES)
             return dlg_finish("gave_up")
         end
-        dlg.was_on = on_quest(quest_id)
+        dlg.was_on = on_quest(quest_id, dlg.label)
         dlg_interact(player, npc_id, unit, now)
         return
     end
@@ -1301,7 +1364,7 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit, reward)
         if (now - dlg.t) >= VERIFY_WAIT then
             -- No proof either way. Without an event pump and without a log
             -- flag, "gone from the log" is the only signal the build has.
-            if not ev_live() and on_quest(quest_id) == false then
+            if not ev_live() and on_quest(quest_id, dlg.label) == false then
                 turned_in[quest_id] = now
                 trail("turn in %s: confirmed (no longer on the quest)", dlg.label)
                 return dlg_finish("done")

@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.290.0
+-- Version: 2.291.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -138,9 +138,67 @@ end
 --- Should we back out of melee? Only the class profile decides the "why"
 --- (frozen, snared, cooldown up...); the core decides the "when" via the
 --- hysteresis band and the prediction.
+-- RETREAT GUARDS (2.291.0). A Warlock without a pet, out of mana and at
+-- low health kept retreating from a whelp in melee (20:54 Coldridge
+-- session): the mob followed, hit the turned back, the hop ran into a wall
+-- and the character died. A retreat only buys time to CAST from range, so:
+--   * not below RETREAT_MIN_HP % health - fight back instead of giving
+--     free hits while running,
+--   * not below RETREAT_MIN_MANA % mana (a mana user) - nothing to cast,
+--   * a retreat that gains less than RETREAT_PROGRESS yd in RETREAT_CHECK s
+--     (a wall, a slope, a corner) is called off, and no retreat is tried
+--     from that target for RETREAT_BLOCK s: fight in place.
+local RETREAT_MIN_HP = 40
+local RETREAT_MIN_MANA = 10
+local RETREAT_CHECK = 1.0
+local RETREAT_PROGRESS = 1.0
+local RETREAT_BLOCK = 8.0
+local RG = { block_guid = nil, block_until = 0, chk_t = nil, chk_x = nil, chk_y = nil }
+
+local function safe(fn)
+    local ok, v = pcall(fn)
+    if ok then return v end
+    return nil
+end
+
+local function pct_of(v)
+    v = tonumber(v)
+    if not v then return nil end
+    if v >= 0 and v <= 1.5 then return v * 100 end
+    return v
+end
+
+local function retreat_trail(fmt, ...)
+    local ok, el = pcall(require, "errorlog")
+    if ok and type(el) == "table" and type(el.trail) == "function" then pcall(el.trail, "retreat", fmt, ...) end
+end
+
+--- false + why when a retreat would only hurt (see RETREAT GUARDS).
+local function retreat_allowed(player, target)
+    local g = target and safe(function() return target:get_guid() end)
+    if g ~= nil and g == RG.block_guid and izi.now() < RG.block_until then return false, "blocked" end
+    local hp = pct_of(safe(function() return player:get_health_percent() end))
+        or pct_of(safe(function() return player:health_pct() end))
+    if hp and hp < RETREAT_MIN_HP then return false, string.format("health %d%%", hp) end
+    local ok_p, pw = pcall(require, "power")
+    if ok_p and type(pw) == "table" and type(pw.has_mana) == "function" and pw.has_mana(player) then
+        local mp = type(pw.mana_pct) == "function" and pw.mana_pct(player) or nil
+        if type(mp) == "number" and mp < RETREAT_MIN_MANA then return false, string.format("mana %d%%", mp) end
+    end
+    return true
+end
+
 local function want_retreat(player, target, distance)
     local profile = R.profile
     if not profile or type(profile.should_retreat) ~= "function" then return false end
+    local allowed, why_not = retreat_allowed(player, target)
+    if not allowed then
+        if izi.now() < R.retreat_until then
+            R.retreat_until = 0
+            retreat_trail("retreat called off: %s - fighting in place", tostring(why_not))
+        end
+        return false
+    end
     local danger = melee_danger()
 
     -- already retreating: keep going until we are past melee_safe (hysteresis)
@@ -402,6 +460,7 @@ function C.combat_engage(player, unit, yards)
         -- old one, so carrying them over would mis-band the first approach.
         R.combat_stopped = false
         R.retreat_until = 0
+        RG.chk_t = nil                         -- 2.291.0
         R.chase_fail_key, R.chase_fail_t = nil, 0
         R.combat_ok_since = 0
     end
@@ -451,12 +510,33 @@ function C.combat_engage(player, unit, yards)
     if want_retreat(player, unit, range) then
         R.combat_stopped = false
         R.chase_fail_key, R.chase_fail_t = nil, 0
+        -- 2.291.0: a retreat that does not get away (a wall) is called off
+        local hx, hy = here_xyz()
+        if hx then
+            if not RG.chk_t then
+                RG.chk_t, RG.chk_x, RG.chk_y = t, hx, hy
+            elseif t - RG.chk_t >= RETREAT_CHECK then
+                local moved = dist2(hx, hy, RG.chk_x, RG.chk_y)
+                if moved < RETREAT_PROGRESS then
+                    RG.block_guid, RG.block_until = guid, t + RETREAT_BLOCK
+                    RG.chk_t = nil
+                    R.retreat_until = 0
+                    if O.is_moving() then O.halt_all() end
+                    retreat_trail("retreat from %s blocked (%.1f yd in %.0f s - a wall?) - fighting in place for %.0f s",
+                        tostring(safe(function() return unit:get_name() end)), moved, RETREAT_CHECK, RETREAT_BLOCK)
+                    Rg.face(unit)
+                    return ready
+                end
+                RG.chk_t, RG.chk_x, RG.chk_y = t, hx, hy
+            end
+        end
         if not O.is_moving() and O.nav_gap_ok() then
             retreat_from(player, unit)
         end
         Rg.face(unit)
         return ready
     end
+    RG.chk_t = nil
     if R.retreat_until > 0 then
         -- edge: the profile has stopped asking, so drop the latch once and stop
         -- the retreat hop. Leaving it set would cancel the next approach.

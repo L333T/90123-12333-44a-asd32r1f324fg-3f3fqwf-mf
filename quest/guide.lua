@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.286.0
+-- Version: 2.287.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1733,6 +1733,30 @@ function guide.find_mob(player, range, goal, primary)
                     best, best_d = u, d
                 end
             end
+        end
+    end
+    return best, best_d
+end
+
+--- 2.287.0: the nearest mob named by ANOTHER unfinished kill goal of the
+--- current RestedXP step (each by its own targets: line + objectives), or
+--- nil. Replaces the step's generic target lines as the kill fallback: in
+--- Northshire they listed Young Wolf for a Kobold Vermin step and a wolf was
+--- always within reach, so the bot fought wolves instead of the quest.
+function guide.find_other_goal_mob(player, range, goal)
+    local step = guide.step()
+    if not step or type(step.goals) ~= "table" then return nil end
+    local best, best_d = nil, nil
+    for i = 1, #step.goals do
+        local g = shape_goal(step.goals[i], i)
+        -- .target / .unitscan lines only set RestedXP's target macro: not a
+        -- kill directive (.mob / .rare and quest objectives are)
+        local act = string.lower(tostring(g and g.action or ""))
+        if g and g.is_complete ~= true and (not goal or g.index ~= goal.index)
+            and act ~= "target" and act ~= "unitscan"
+            and guide.classify(g) == "kill" then
+            local u, d = guide.find_mob(player, range, g, true)
+            if u and (best_d == nil or (d or 1e9) < best_d) then best, best_d = u, d or 1e9 end
         end
     end
     return best, best_d

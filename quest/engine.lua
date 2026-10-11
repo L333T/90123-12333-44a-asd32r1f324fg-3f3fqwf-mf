@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.307.0
+-- Version: 2.308.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2757,10 +2757,29 @@ IS.fix_z = function(pts)
             local key = string.format("%d|%d", math.floor(p.x / 4), math.floor(p.y / 4))
             local e = zf.cache[key]
             if not e or (now - e.t) > zf.TTL then
-                local okh, h = pcall(Tr.height, p.x, p.y, math.max(p.z, me.z or p.z) + 20)
-                if not okh then h = nil end
-                if type(h) ~= "number" or h == 0 then h = nil end
-                e = { z = (h and math.abs(h - p.z) > 3) and h or false, t = now }
+                -- 2.308.0: every floor at the point, not only the top surface.
+                -- The guide's height is kept when it is one of them (a cave, a
+                -- building: the 15:22 Frostmane cave points at z 384 were moved
+                -- to the surface above, 405, and AmeisenNav found no path);
+                -- otherwise the floor nearest to it (Rumbleshot's Ammo: 396 -> 366).
+                local floors = nil
+                if type(Tr.floors) == "function" then
+                    local okf, fl = pcall(Tr.floors, p.x, p.y, p.z)
+                    if okf and type(fl) == "table" then floors = fl end
+                end
+                if not floors then
+                    local okh, h = pcall(Tr.height, p.x, p.y, math.max(p.z, me.z or p.z) + 20)
+                    floors = (okh and type(h) == "number" and h ~= 0) and { h } or {}
+                end
+                local best_z, best_dz = nil, nil
+                for k = 1, #floors do
+                    local f = floors[k]
+                    if type(f) == "number" and f == f and f ~= 0 then
+                        local dz = math.abs(f - p.z)
+                        if not best_dz or dz < best_dz then best_z, best_dz = f, dz end
+                    end
+                end
+                e = { z = (best_z and best_dz > 3) and best_z or false, t = now }
                 if zf.n > 256 then zf.cache, zf.n = {}, 0 end
                 zf.cache[key] = e
                 zf.n = zf.n + 1
@@ -2859,6 +2878,14 @@ IS.walk_route = function(player, goal, kind, wps, label)
             for i = 1, #pts do
                 local d = geometry.distance_flat(me, pts[i].pos)
                 if type(d) == "number" and (not best_d or d < best_d) then best, best_d = i, d end
+            end
+            -- 2.308.0: standing on the nearest point (within CHAIN_WP) means it
+            -- is done - resume at the NEXT one. Resuming at it undid the chain
+            -- step every time a tick was missed: the 15:22 session flipped
+            -- between point 8 (7 yd) and point 1 (148 yd) once a second, and
+            -- the character ran in circles until it was stopped.
+            if best_d and best_d <= CHAIN_WP then
+                best = best % #pts + 1
             end
             if best ~= g_move then
                 trail("route", "resume at point %d of %d (%.0f yd) for %s", best, #pts, best_d or -1, tostring(label))

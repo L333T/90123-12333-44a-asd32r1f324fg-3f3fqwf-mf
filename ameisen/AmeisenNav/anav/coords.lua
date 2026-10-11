@@ -25,6 +25,13 @@ local X = require("anav/context")
 local G = {}
 
 local RANGE = 150
+-- 1.7.2: NO TERRAIN RAYS (user: "Remove ray casting from Master Farmer
+-- Questing and Grinding, use previous methods before crashes"). ground()
+-- answers nothing - the destination keeps its own height and the client's
+-- height search (1.6.2) finds the ground on the server's navmesh, as before
+-- 1.6.6. environment() tells indoor from open by is_indoors alone (no cave
+-- ray, as before 1.7.0: a cave reads indoor). Set true to bring them back.
+local RAYS = false
 local LIMIT = 20000
 
 local helper, tried = nil, false
@@ -67,6 +74,7 @@ end
 
 --- Ground height under (x, y) near `guess_z`, or nil.
 function G.ground(x, y, guess_z)
+    if not RAYS then return nil end
     local c = coords()
     if not c or type(c.get_terrain_height) ~= "function" then return nil end
     if not finite(x) or not finite(y) or not finite(guess_z) then return nil end
@@ -97,7 +105,7 @@ function G.environment()
     local inside = indoors()
     local kind = inside and "indoor" or "open"
     local cover = nil
-    local c = coords()
+    local c = RAYS and coords() or nil
     local px, py, pz = X.position()
     if c and type(c.get_terrain_height) == "function" and finite(px) and finite(pz) then
         local ok, h = pcall(c.get_terrain_height, c, px, py, 60)

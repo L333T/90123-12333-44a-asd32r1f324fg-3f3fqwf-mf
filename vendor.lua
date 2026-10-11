@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.311.0
+-- Version: 2.312.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -1115,7 +1115,7 @@ local function hearth_tick(player)
             return false
         end
         movement.nav_stop()
-        local ok = safe(function() return item:use_self("Hearthstone - bags full") end) == true
+        local ok = safe(function() return require("spellcheck").use_item(HEARTH_ID) end) == true   -- 2.312.0: core API
         local why = ht.want_repair and "gear needs repair" or "bags full and no merchant known here"
         core.log("[Master Farmer - Grindbot] " .. why .. " - Hearthstone to the inn.")
         ht.stage, ht.t = "casting", now

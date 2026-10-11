@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.311.0
+-- Version: 2.312.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -831,6 +831,10 @@ end
 --- SPELL QUEUE CASTING (2.249.0, castq.lua). On unless "Spell Queue Casting"
 --- (Spells tab) is unticked, and only when common/modules/spell_queue loads.
 local function queue_on()
+    -- 2.312.0: OFF - the Slave Pens correction. Its crashes stopped once the
+    -- izi spell queue (common/modules/spell_queue) was replaced by core
+    -- casts; every cast now goes the direct way (spellcheck core casts).
+    if true then return nil end
     local g = mod("gui")
     if g and type(g.is_on) == "function" and g.is_on("spell_queue") == false then return nil end
     local cq = mod("castq")

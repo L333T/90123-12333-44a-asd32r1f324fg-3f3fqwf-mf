@@ -3,7 +3,7 @@
 -- Gathering: herb and ore node table (port of EP_Herb_Mine Mine_Herb_Find)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.301.0
+-- Version: 2.302.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

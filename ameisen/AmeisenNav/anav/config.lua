@@ -34,7 +34,13 @@ local C = {
     -- --------------------------------------------------------------- follower
     waypoint_threshold  = 2.5,      -- yards to count a waypoint as reached
     final_threshold     = 1.5,      -- yards to count the destination as reached
-    look_distance       = 8,
+    look_distance       = 8,        -- walker look-ahead; with direct_path the stub minimum (5) is used
+    -- 1.6.9: DIRECT MOVEMENT ALONG THE PATH. The path is walked straight from
+    -- waypoint to waypoint, unsmoothed: the walker aims at its own waypoint
+    -- (look-ahead at the simple_movement minimum, 5 yd, instead of 8 - an 8 yd
+    -- look-ahead rounds every corner), and the input driver no longer cuts to
+    -- the next waypoint early. Server smoothing stays off (no_smoothing).
+    direct_path         = true,
     pause_while_casting = true,
     driver              = "auto",   -- walker (simple_movement) | input (built-in) | auto
     use_look_at         = "auto",   -- walker steering: auto | look_at | turns
@@ -81,7 +87,7 @@ local C = {
     -- 1.6.8: smaller windows, planned earlier - each is checked and ready
     -- sooner, and the next one is prepared well before the walk reaches the
     -- end of the current one, so the character keeps moving.
-    horizon_length      = 15.0,     -- yards of path per window (was 20)
+    horizon_length      = 20.0,     -- yards of path per window (1.6.9: 20 again; 1.6.8 had 15)
     horizon_refresh     = 8.0,      -- yards before the window end: plan the next one (was 5)
     horizon_clearance   = 2.0,      -- yards kept from walls, ledges, drops (both sides)
     horizon_probes      = { 1.0, 2.0, 3.0 }, -- side probe distances (yards)

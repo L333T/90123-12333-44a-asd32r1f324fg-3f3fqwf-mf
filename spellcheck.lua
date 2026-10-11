@@ -102,10 +102,7 @@ function M.in_range(spell, target, src, dst) return ask("is_spell_in_range", M.i
 function M.within_angle(spell, caster, target, cpos, tpos)
     return ask("is_spell_within_angle", M.id_of(spell), caster, target, cpos, tpos)
 end
-function M.in_los(spell, caster, target) return ask("is_spell_in_line_of_sight", M.id_of(spell), caster, target) end
-function M.in_los_position(spell, caster, pos)
-    return ask("is_spell_in_line_of_sight_position", M.id_of(spell), caster, pos)
-end
+-- 2.311.0: in_los / in_los_position removed - spell_helper traces a ray for them
 function M.cost(spell) return ask("get_spell_cost", M.id_of(spell)) end
 function M.can_afford(unit, spell)
     local id = M.id_of(spell)
@@ -129,11 +126,7 @@ function M.why(spell, caster, target, pos)
     if target and target ~= caster then
         local cp, tp = pos_of(caster), pos or pos_of(target)
         if cp and tp and M.in_range(spell, target, cp, tp) == false then return "out of range" end
-        if pos then
-            if M.in_los_position(spell, caster, pos) == false then return "no line of sight" end
-        elseif M.in_los(spell, caster, target) == false then
-            return "no line of sight"
-        end
+        -- 2.311.0: no line-of-sight query here (spell_helper traces a ray)
         if cp and tp and not pos and M.within_angle(spell, caster, target, cp, tp) == false then
             return "not facing"
         end
@@ -191,8 +184,9 @@ function M.can_cast(spell, caster, target, opts)
     local self_cast = opts.self == true or target == caster
     local skip_facing = opts.skip_facing == true or self_cast
     local skip_range = opts.skip_range == true or self_cast
+    -- 2.311.0: never the helper's line-of-sight trace (skip_los always)
     local answer = ask("is_spell_castable", id, caster, target, skip_facing, skip_range,
-        nil, nil, nil, opts.skip_los == true)
+        nil, nil, nil, true)
     return verdict(id, answer, function() return M.why(id, caster, target) end)
 end
 
@@ -202,7 +196,7 @@ function M.can_cast_at(spell, caster, target, pos, opts)
     if not id or not caster or not pos then return true, nil end
     opts = opts or {}
     local answer = ask("is_spell_castable_position", id, caster, target or caster, pos,
-        opts.skip_facing ~= false, opts.skip_range == true, nil, nil, nil, nil, opts.skip_los == true)
+        opts.skip_facing ~= false, opts.skip_range == true, nil, nil, nil, nil, true)
     return verdict(id, answer, function() return M.why(id, caster, target, pos) end)
 end
 
@@ -245,16 +239,28 @@ end
 
 local REFUSED = { reason = "spell_helper" }
 
+--- 2.311.0: NO LINE-OF-SIGHT RAYS ON A CAST. izi unit / position casts run
+--- two line-of-sight traces by default (izi_sdk.lua unit_cast_opts
+--- check_los: "Omitted or true: both traces run"); check_los = false runs
+--- neither. The game still refuses a cast it considers out of sight, and
+--- that refusal is what movement/range.lua reads. Returns a copy of opts.
+function M.no_los(opts)
+    local o = {}
+    if type(opts) == "table" then for k, v in pairs(opts) do o[k] = v end end
+    o.check_los = false
+    return o
+end
+
 function M.cast_safe(sp, target, msg, opts)
     if not gate_unit(sp, target, opts) then return false, REFUSED end
-    local ok, meta = sp:cast_safe(target, msg, opts)
+    local ok, meta = sp:cast_safe(target, msg, M.no_los(opts))
     if ok == true then M.cast_done(sp) end
     return ok, meta
 end
 
 function M.cast(sp, target, msg, opts)
     if not gate_unit(sp, target, opts) then return false, REFUSED end
-    local ok, meta = sp:cast(target, msg, opts)
+    local ok, meta = sp:cast(target, msg, M.no_los(opts))
     if ok == true then M.cast_done(sp) end
     return ok, meta
 end
@@ -267,7 +273,7 @@ function M.cast_position(sp, pos, msg, opts)
             return false, REFUSED
         end
     end
-    local ok, meta = sp:cast_position(pos, msg, opts)
+    local ok, meta = sp:cast_position(pos, msg, M.no_los(opts))
     if ok == true then M.cast_done(sp) end
     return ok, meta
 end

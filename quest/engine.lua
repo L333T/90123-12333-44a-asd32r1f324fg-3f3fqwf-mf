@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2736,69 +2736,9 @@ IS.rt = { t = 0, GAP = 1.0 }
 -- fresh path (and the next point on a route), logged with the movement state.
 IS.still = { x = nil, y = nil, t = 0, seen = 0, S = 10.0, YD = 2.0 }
 
--- 2.300.0: ROUTE POINTS AT THE GROUND HEIGHT. A goal with one waypoint
--- gets a ring of patrol points that copy its height; RestedXP gives x, y
--- only, so that height is a guess. Rumbleshot's Ammo (02:42): all 7 points at
--- z 396, the ground at z 366 - AmeisenNav "no height at that spot" for every
--- one, all 7 marked unreachable, the goal skipped every 30 s for minutes.
--- A point within ZFIX_RANGE yd (terrain loaded) takes the terrain height
--- under it when that is more than 3 yd off; read once per point per 5 min.
-IS.zfix = { cache = {}, n = 0, RANGE = 150, TTL = 300 }
-IS.fix_z = function(pts)
-    local okt, Tr = pcall(require, "movement/terrain")
-    if not okt or type(Tr) ~= "table" or type(Tr.height) ~= "function" then return pts end
-    local me = safe(function() return izi.me():get_position() end)
-    if not me then return pts end
-    local now, zf, out = izi.now(), IS.zfix, nil
-    for i = 1, #pts do
-        local p = pts[i].pos
-        local d = p and geometry.distance_flat(me, p)
-        if type(d) == "number" and d <= zf.RANGE and type(p.z) == "number" then
-            local key = string.format("%d|%d", math.floor(p.x / 4), math.floor(p.y / 4))
-            local e = zf.cache[key]
-            if not e or (now - e.t) > zf.TTL then
-                -- 2.308.0: every floor at the point, not only the top surface.
-                -- The guide's height is kept when it is one of them (a cave, a
-                -- building: the 15:22 Frostmane cave points at z 384 were moved
-                -- to the surface above, 405, and AmeisenNav found no path);
-                -- otherwise the floor nearest to it (Rumbleshot's Ammo: 396 -> 366).
-                local floors = nil
-                if type(Tr.floors) == "function" then
-                    local okf, fl = pcall(Tr.floors, p.x, p.y, p.z)
-                    if okf and type(fl) == "table" then floors = fl end
-                end
-                if not floors then
-                    local okh, h = pcall(Tr.height, p.x, p.y, math.max(p.z, me.z or p.z) + 20)
-                    floors = (okh and type(h) == "number" and h ~= 0) and { h } or {}
-                end
-                local best_z, best_dz = nil, nil
-                for k = 1, #floors do
-                    local f = floors[k]
-                    if type(f) == "number" and f == f and f ~= 0 then
-                        local dz = math.abs(f - p.z)
-                        if not best_dz or dz < best_dz then best_z, best_dz = f, dz end
-                    end
-                end
-                e = { z = (best_z and best_dz > 3) and best_z or false, t = now }
-                if zf.n > 256 then zf.cache, zf.n = {}, 0 end
-                zf.cache[key] = e
-                zf.n = zf.n + 1
-                if e.z then
-                    trail("route", "point (%.0f, %.0f): z %.1f -> ground %.1f", p.x, p.y, p.z, e.z)
-                    if type(movement.reach_forget) == "function" then pcall(movement.reach_forget, p) end
-                end
-            end
-            if e.z then
-                out = out or {}
-                out[i] = { pos = require("common/geometry/vector_3").new(p.x, p.y, e.z), title = pts[i].title, patrol = pts[i].patrol }
-            end
-        end
-    end
-    if not out then return pts end
-    local res = {}
-    for i = 1, #pts do res[i] = out[i] or pts[i] end
-    return res
-end
+-- 2.311.0: route points are no longer moved to a terrain height (2.300.0 /
+-- 2.308.0 IS.fix_z, a terrain ray per point) - they keep the guide's height
+-- and AmeisenNav finds the ground there.
 
 IS.watch_still = function(pts, must_do, label)
     local now = izi.now()
@@ -2865,7 +2805,6 @@ IS.walk_route = function(player, goal, kind, wps, label)
     if not must_do and type(guide.route) == "function" then
         pts = guide.route(goal, kind, wps) or wps
     end
-    pts = IS.fix_z(pts)
     if g_move > #pts then
         g_move = 1
     end

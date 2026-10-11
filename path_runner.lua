@@ -8,7 +8,7 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -354,7 +354,7 @@ local function run_action(player, act)
             movement.nav_stop()
         end)
         local ok = safe(function()
-            return spell:cast_safe(player, "path:" .. tostring(id))
+            return spell:cast_safe(player, "path:" .. tostring(id), { check_los = false })
         end)
         if ok then
             state.last_action = "Path spell " .. tostring(id)

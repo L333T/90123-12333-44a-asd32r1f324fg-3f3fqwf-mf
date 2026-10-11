@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2526,6 +2526,11 @@ end
 ---   * map_to_world remains as a fallback only when the pure conversion is
 ---     missing, and then at most once per waypoint.
 local HEIGHT_RANGE = 120      -- yards
+-- 2.311.0: terrain rays off (map_to_world fallback, waypoint floors)
+local TERRAIN_RAYS = (function()
+    local ok, K = pcall(require, "movement/const")
+    return ok and type(K) == "table" and K.TERRAIN_RAYS == true
+end)()
 local WORLD_LIMIT = 20000     -- no WoW coordinate is larger than this
 local CONV_MAX = 400          -- cached waypoints before the cache is dropped
 
@@ -2574,8 +2579,9 @@ local function convert(map_id, x, y)
             end
         end
     end
-    -- Fallback: the raycasting helper, once for this waypoint.
-    local helper = coords()
+    -- Fallback: the raycasting helper, once for this waypoint. 2.311.0: off
+    -- with the terrain rays (movement/const K.TERRAIN_RAYS).
+    local helper = TERRAIN_RAYS and coords() or nil
     if helper and type(helper.map_to_world) == "function" then
         local ok, w = pcall(helper.map_to_world, helper, map_id, mp, 0)
         if ok and w ~= nil then
@@ -2632,6 +2638,9 @@ local FLOOR_SAME = 1.5
 
 local function waypoint_floors(x, y, mz, indoors)
     local out = {}
+    -- 2.311.0: no terrain ray - no floor is read; the waypoint keeps the
+    -- player's height and AmeisenNav finds the ground at its x, y
+    if not TERRAIN_RAYS then return out end
     local starts = indoors and FLOOR_STARTS_IN or FLOOR_STARTS_OUT
     for i = 1, #starts do
         local ok, h = pcall(izi.get_terrain_height, x, y, starts[i])

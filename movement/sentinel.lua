@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.310.0
+-- Version: 2.311.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -217,15 +217,10 @@ function N.far_hop(x, y, z)
     if d <= FAR_HOP_MIN then return nil end
     local f = FAR_HOP / d
     local px, py = hx + (x - hx) * f, hy + (y - hy) * f
-    local pz = nil
-    local ok_t, Tr = pcall(require, "movement/terrain")
-    if ok_t and type(Tr) == "table" and type(Tr.height) == "function" then
-        pz = Tr.height(px, py, (hz or 0) + 80)
-    end
-    -- 2.267.0: no terrain height (WoW Forever: coords_helper answers 0) -
-    -- the player's own height; AmeisenNav 1.6.2 searches the real ground
-    -- around it (Z_SEARCH) when the server has no path at that height.
-    if type(pz) ~= "number" or pz == 0 then pz = hz end
+    -- 2.311.0: no terrain ray - the player's own height; AmeisenNav 1.6.2
+    -- searches the real ground around it (Z_SEARCH) when the server has no
+    -- path at that height (as 2.267.0 did when no terrain height came back).
+    local pz = hz
     if type(pz) ~= "number" then return nil end
     return { x = px, y = py, z = pz, d = d }
 end
@@ -1367,15 +1362,7 @@ function N.reachable(pos)
     e = { ok = nil, t = now }
     reach[key] = e
     reach_n = reach_n + 1
-    -- 2.301.0: asked at the ground height, not a guessed one (RestedXP gives
-    -- x, y only): a point 30 yd above the ground read "unreachable" and the
-    -- whole goal was skipped (Rumbleshot's Ammo, 02:42 / 02:49)
-    local okt, Tr = pcall(require, "movement/terrain")
-    if okt and type(Tr) == "table" and type(Tr.height) == "function" and hx0
-        and dist2(hx0, hy0, x, y) <= REACH_TRUST_FAR then
-        local okh, h = pcall(Tr.height, x, y, z + 20)
-        if okh and type(h) == "number" and h ~= 0 and math.abs(h - z) > 3 then z = h end
-    end
+    -- 2.311.0: asked at the given height again (the 2.301.0 terrain ray is gone)
     local ok = pcall(c.validate_destination, c, vec3.new(x, y, z), function(reachable)
         e.ok = reachable == true
         e.t = izi.now()

@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.295.0
+-- Version: 2.296.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1592,6 +1592,17 @@ local function recover_stall(now, goal, label)
     TK.gid.tried, TK.gid.refused = nil, nil
     g_force_path = true
     g_stall.t, g_stall.best, g_stall.reach = now, nil, false
+    -- 2.296.0: GIVEN UP ONCE ALREADY. The goal set aside after STALL_MAX
+    -- came back (RestedXP did not move on, "retrying its goals") and stalled
+    -- again: the 01:57 session ran "recovery 25 of 3" on Supplies to Tannok
+    -- for 23 minutes. A second give-up skips the step in RestedXP.
+    if g_stall.recoveries > STALL_MAX and type(guide.skip_current) == "function" then
+        if guide.skip_current(tostring(label) .. " - no progress after " .. STALL_MAX .. " recoveries, twice") then
+            state.set_note("Quest", "Guide: skipped " .. tostring(label) .. " (no progress)")
+            g_stall.recoveries = 0
+            return true
+        end
+    end
     if g_stall.recoveries >= STALL_MAX then
         core.log_warning(string.format(
             "[Master Farmer - Grindbot] Quest goal '%s': no progress after %d recoveries - skipping it.",
@@ -1874,6 +1885,22 @@ local function dialog_goal(player, goal, kind, wps, label)
         local d3 = mp and np and geometry.distance(mp, np)
         if type(d3) == "number" then d = d3 end
     end
+    -- 2.296.0: AN NPC BEHIND A COUNTER. Tannok Frosthammer (Supplies to
+    -- Tannok, 01:57 session) stands behind the bar: the character cannot get
+    -- within the 4 yd 3D reach, kept walking at the counter and never spoke
+    -- to him (23 minutes). No yard gained for GIVER_STALL s within
+    -- GIVER_COUNTER yd (inside the game's own interact range): interact from
+    -- where the character stands. A refusal closes in as before.
+    local GIVER_STALL, GIVER_COUNTER = 3.0, 6.0
+    if d > reach and g_giver_walk and not g_close_in and d <= GIVER_COUNTER
+        and g_giver_walk.t and (now - g_giver_walk.t) >= GIVER_STALL then
+        if not g_giver_walk.forced then
+            g_giver_walk.forced = true
+            trail("act", "%s: %s %.1f yd away, no closer in %.0f s (a counter?) - interacting from here",
+                kind, tostring(safe(function() return unit:get_name() end)), d, GIVER_STALL)
+        end
+        d = 0
+    end
     if d > reach then
         local p = safe(function() return unit:get_position() end)
         if p then
@@ -1882,8 +1909,16 @@ local function dialog_goal(player, goal, kind, wps, label)
             -- walk begun toward the waypoint carried on to it before turning
             -- to an NPC standing somewhere else - or one walking a patrol.
             if g_giver_walk == nil or geometry.distance(g_giver_walk, p) > 5 then
-                g_giver_walk = { x = p.x, y = p.y, z = p.z }
+                g_giver_walk = { x = p.x, y = p.y, z = p.z, best = d, t = now }
                 movement.nav_stop()
+                -- 2.296.0: logged - the 01:57 Tannok stall left no trace of it
+                local mp = safe(function() return player:get_position() end)
+                trail("act", "%s: walking to %s (%.1f yd flat, %.1f yd 3D, its z %.1f, ours %.1f, via %s)",
+                    kind, tostring(safe(function() return unit:get_name() end)),
+                    mp and geometry.distance_flat(mp, p) or -1, d, p.z or -1, mp and mp.z or -1, tostring(how))
+            end
+            if d < (g_giver_walk.best or 1e9) - 0.3 then
+                g_giver_walk.best, g_giver_walk.t = d, now
             end
             walk_to(p, label, math.max(reach - 1.0, 1.5), true)
             return true
@@ -2825,6 +2860,81 @@ local OBJECT_SKIP = 60
 local g_obj = { guid = nil, uses = 0 }
 local g_obj_skip = {}          -- guid -> until
 
+-- 2.296.0: CLOSING IN GIVES UP. The 01:21 warrior session asked for 2 yd of a
+-- Basic Campfire from 3.3 yd and never got there (the fire's centre is not
+-- walkable): "closer to" for 5 minutes, then the travel watchdog used the
+-- Hearthstone and the bot walked 1019 yd back. No yard gained for
+-- CLOSER_STALL s: the object is used from where the character stands.
+local OX = { CLOSER_STALL = 6.0, SIT_NEAR = 4.0, SIT_WAIT = 5.0, SIT_TRIES = 4,
+    sit = { guid = nil, tries = 0, next_t = 0, sit_at = nil } }   -- one local: engine.lua is at Lua's 200
+
+-- 2.296.0: "SIT NEAR THE CAMPFIRE" (The Great Outdoors): an emote objective,
+-- not a click - the bot used the campfire 4 times a minute for 35 minutes.
+-- A goal whose text has the word "sit": walk within OX.SIT_NEAR yd of the
+-- object, stop, and sit (core.input.descend_start: on the ground it is the
+-- game's SitStandOrDescend). No tick after OX.SIT_WAIT s: jump (stands up), sit
+-- again; OX.SIT_TRIES sits, then the object is skipped like a dead click.
+
+function OX.is_sit_goal(label)
+    return (" " .. tostring(label):lower() .. " "):find("[^%a]sit[^%a]") ~= nil
+end
+
+--- Walk to within `arrive` of `pos`, unless that has stalled (OX.CLOSER_STALL).
+--- true while walking; false once there or given up.
+function OX.close_in(obj, odist, label, arrive)
+    if g_obj.no_closer or type(odist) ~= "number" then return false end
+    local now = izi.now()
+    if not g_obj.closer_t or odist < (g_obj.closer_best or 1e9) - 0.5 then
+        g_obj.closer_t, g_obj.closer_best = now, odist
+    elseif now - g_obj.closer_t > OX.CLOSER_STALL then
+        g_obj.no_closer = true
+        trail("act", "quest object %s: no closer than %.1f yd in %.0f s - using it from here",
+            tostring(safe(function() return obj:get_name() end)), odist, OX.CLOSER_STALL)
+        return false
+    end
+    local cp = safe(function() return obj:get_position() end)
+    if cp and not movement.is_blocked(cp) and walk_to(cp, label, arrive, true) then
+        state.set_note("Quest", "Guide: closer to " .. label)
+        return true
+    end
+    return false
+end
+
+function OX.sit_near(player, obj, guid, odist, label)
+    if OX.sit.guid ~= guid then OX.sit.guid, OX.sit.tries, OX.sit.next_t, OX.sit.sit_at = guid, 0, 0, nil end
+    if type(odist) == "number" and odist > OX.SIT_NEAR and OX.close_in(obj, odist, label, OX.SIT_NEAR - 1.0) then
+        return true
+    end
+    movement.nav_stop()
+    if movement.is_moving() then return true end
+    local now = izi.now()
+    if OX.sit.sit_at and now >= OX.sit.sit_at then
+        OX.sit.sit_at = nil
+        pcall(core.input.descend_start)
+        pcall(core.input.descend_stop)
+        trail("act", "sit near %s (%.1f yd, try %d)",
+            tostring(safe(function() return obj:get_name() end)), tonumber(odist) or -1, OX.sit.tries)
+    elseif not OX.sit.sit_at and now >= OX.sit.next_t then
+        if OX.sit.tries >= OX.SIT_TRIES then
+            if guid then g_obj_skip[guid] = now + OBJECT_SKIP end
+            trail("act", "sat near %s %d times, objective not ticked - trying another",
+                tostring(safe(function() return obj:get_name() end)), OX.sit.tries)
+            OX.sit.guid = nil
+            return true
+        end
+        if OX.sit.tries > 0 then
+            pcall(core.input.jump)             -- stand up first: the sit key toggles
+            OX.sit.sit_at = now + 1.5
+        else
+            OX.sit.sit_at = now
+        end
+        OX.sit.tries = OX.sit.tries + 1
+        OX.sit.next_t = now + OX.SIT_WAIT + 1.5
+    end
+    state.set_note("Quest", "Guide: sitting - " .. label)
+    return true
+end
+
 local function loot_window_open()
     local n = safe(function() return core.game_ui.get_loot_item_count() end)
     return type(n) == "number" and n > 0, n
@@ -2865,6 +2975,10 @@ local function object_goal(player, goal, label)
     local guid = safe(function() return obj:get_guid() end)
     if guid ~= g_obj.guid then
         g_obj.guid, g_obj.uses, g_obj.used_t, g_obj.need = guid, 0, nil, nil
+        g_obj.closer_t, g_obj.closer_best, g_obj.no_closer = nil, nil, nil
+    end
+    if OX.is_sit_goal(label) then
+        return OX.sit_near(player, obj, guid, odist, label)
     end
     local standing = not movement.is_moving()
     -- 2.264.0: the use was refused as too far (UI_ERROR_MESSAGE) - it does
@@ -2879,13 +2993,12 @@ local function object_goal(player, goal, label)
     end
     -- 2.263.0: a use that brought nothing is retried from closer
     if (g_obj.uses >= 1 or g_obj.need) and type(odist) == "number" and odist > (g_obj.need or OBJECT_CLOSE) then
-        local cp = safe(function() return obj:get_position() end)
-        if cp and not movement.is_blocked(cp) and walk_to(cp, label, OBJECT_CLOSE - 1.0, true) then
-            state.set_note("Quest", "Guide: closer to " .. label)
+        if OX.close_in(obj, odist, label, OBJECT_CLOSE - 1.0) then
             return true
         end
     end
-    if type(odist) == "number" and (odist <= OBJECT_REACH or (standing and odist <= OBJECT_CLICK)) then
+    if type(odist) == "number" and (odist <= OBJECT_REACH or (standing and odist <= OBJECT_CLICK)
+        or (g_obj.no_closer and odist <= OBJECT_CLICK + 2)) then
         movement.nav_stop()
         local now = izi.now()
         if now >= g_act_until then

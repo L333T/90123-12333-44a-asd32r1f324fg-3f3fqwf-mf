@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.295.0
+-- Version: 2.296.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -169,8 +169,11 @@ local FORM_OF = {
     ["Travel Form"] = "travel", ["Aquatic Form"] = "travel",
     ["Flight Form"] = "travel", ["Swift Flight Form"] = "travel",
 }
-local STANCE_BY_INDEX = { "battle", "defensive", "berserker" }
 local STANCE_OF = { ["Battle Stance"] = "battle", ["Defensive Stance"] = "defensive", ["Berserker Stance"] = "berserker" }
+-- 2.296.0: the stance by spell id (bar info on modern clients, the aura) and
+-- by the class-global form id get_shapeshift_form_id answers (17/18/19).
+local STANCE_BY_SPELL = { [2457] = "battle", [71] = "defensive", [2458] = "berserker" }
+local STANCE_BY_FORM_ID = { [17] = "battle", [18] = "defensive", [19] = "berserker" }
 
 local built = { scan = -1, class = nil, race = nil, list = {}, by_role = {}, rows = {}, groups = {} }
 local spell_cache = {}         -- best-rank id -> izi spell
@@ -664,10 +667,30 @@ function c.form()
     if memo.form ~= nil then return memo.form end
     local f = nil
     if built.class == enums.class_id.WARRIOR then
-        local idx = safe(core.spell_book.get_shapeshift_form_id)
-        if type(idx) == "number" and STANCE_BY_INDEX[idx] then
-            f = STANCE_BY_INDEX[idx]
-        else
+        -- 2.296.0: STANCE READ FIXED. get_shapeshift_form_id is a class-global
+        -- form id (Battle Stance 17), not the bar index 1-3 this read it as,
+        -- and the aura fallback found nothing: the stance was "unknown" and
+        -- every stance-gated ability refused (the 01:04 warrior session: Rend
+        -- and Charge "wrong form / stance" in every fight). Now: the active
+        -- bar index -> that entry's name / spell id, then the form id, then
+        -- the stance auras by spell id.
+        local idx = safe(core.spell_book.get_shapeshift_form)
+        if type(idx) == "number" and idx > 0 then
+            local info = safe(core.spell_book.get_shapeshift_form_info, idx)
+            if type(info) == "table" then
+                f = STANCE_OF[info.name] or STANCE_BY_SPELL[tonumber(info.spell_id) or -1]
+            end
+        end
+        if not f then
+            local fid = safe(core.spell_book.get_shapeshift_form_id)
+            f = type(fid) == "number" and STANCE_BY_FORM_ID[fid] or nil
+        end
+        if not f then
+            for id, st in pairs(STANCE_BY_SPELL) do
+                if auras.buff_up(P, { id }) == true then f = st break end
+            end
+        end
+        if not f then
             for name, st in pairs(STANCE_OF) do
                 if c.buff(name) then f = st break end
             end

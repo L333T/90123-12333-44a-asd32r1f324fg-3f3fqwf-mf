@@ -18,7 +18,7 @@ Rules applied to every change:
 | A3 | LOGIC-3: recovery counter overflow | quest/engine.lua `recover_stall` | Reset on every give-up; on the second give-up of the same goal, call `skip_current` (`TK.gave_up` key). | `skip_current_step` declared | test_npc_ladder | Low | **Done 2.306.0** |
 | A4 | CORE-B-1: bag slot range | bags.lua:87 | Extend to `capacity + 1` **only if** the in-game check confirms the +1 numbering | stub contradicts itself (core.lua:1092 vs 1172/6835) | in-game print of a full backpack | High if wrong (selling, eating) | **Blocked: Missing API #1** |
 | A5 | LOGIC-2 / LOGIC-7: no cap on the corpse run or revives | death.lua | Progress watchdog: no yard gained for 60 s means trail plus re-path; after N revive refusals, step to the next reach and stop at a cap. | n/a (logic) | offline death harness (test_corpse_position) | Low | Deferred: the root cause (A1) is fixed; to do next |
-| A6 | LUA-5 / LUA-6: quest/engine at 200/200 locals and 56/60 upvalues | quest/engine.lua | Move constants and state into the existing `TK` / `IS` / `OX` tables, or split goal handlers into `quest/goals_*.lua` | n/a (Lua limits) | make_local (5.1, 5.4, LuaJIT) plus test_questing_fixes, test_npc_ladder, test_route_ground | Medium: a large mechanical change | Deferred: schedule before the next questing feature |
+| A6 | LUA-5 / LUA-6: quest/engine at 200/200 locals and 56/60 upvalues | quest/engine.lua | Move constants and state into the existing `TK` / `IS` / `OX` tables, or split goal handlers into `quest/goals_*.lua` | n/a (Lua limits) | make_local (5.1, 5.4, LuaJIT) plus test_questing_fixes, test_npc_ladder, test_route_ground | Medium: a large mechanical change | **Done 2.307.0**: the FLIGHT / far-travel section moved verbatim to `quest/travel.lua` (proven identical apart from 5 mechanical renames); engine 200 → 167 locals, `tick_inner` 56 → 52 upvalues; `test_quest_split` loads the module and checks the shared timer |
 
 ## Group B: Logic and reliability
 
@@ -70,7 +70,7 @@ Rules applied to every change:
 |---|---|---|
 | E1 | AGENTS.md: skip-step sentence corrected (CORE-B-16) | **Done** |
 | E2 | AGENTS.md: the stub root `3cf70445e7` no longer exists. The current installs are `daaa22`, `664322289a264b` and `ebe5e7d15a44b2aa650e7e27` (stubs identical). | Open: confirm which install is the "active" one |
-| E3 | Split quest/engine.lua (see A6) | Deferred |
+| E3 | Split quest/engine.lua (see A6) | **Done 2.307.0** |
 | E4 | Profiler blind spot: post-cascade tail (PERF-8) | Open |
 
 ## Testing requirements for the open items

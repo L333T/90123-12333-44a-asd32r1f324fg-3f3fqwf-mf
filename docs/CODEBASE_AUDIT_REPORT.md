@@ -105,8 +105,8 @@ Status values:
 | PERF-1 | Medium | Performance | death.lua | Ghost ran up to 5 enemy scans per tick at any distance (measured 0.72 ms/frame at 273 yd); now only within 60 yd of the corpse. | Fixed |
 | LUA-3 / CORE-A-10 | Medium | Lua runtime | deathzones.lua, spellcheck.lua | `pcall(os.time)` reads `os.time` outside the pcall; `os.clock()` unguarded. core.lua:846 says `os.time` is unavailable in the sandbox. Now `core.get_server_time()` (core.lua:340-350, same unix-seconds unit). | Fixed |
 | IZI-1 | Medium | IZI API | smart.lua:966-970, 2129; racials.lua:183 | Ungated `spell:cast` fallback after `cast_safe` refuses; its `true` (= queued) is counted as cast. | Deferred (intentional since 2.252.0; needs in-game evidence) |
-| LUA-5 | High | Lua limits | quest/engine.lua | Exactly 200 top-level locals: any new `local` breaks the quest pack. | Deferred (refactor) |
-| LUA-6 | Medium | Lua limits | quest/engine.lua `tick_inner` | 56 of 60 upvalues. | Deferred |
+| LUA-5 | High | Lua limits | quest/engine.lua | Exactly 200 top-level locals: any new `local` breaks the quest pack. | Fixed 2.307.0: flight / far-travel moved to `quest/travel.lua`, engine at 167 (test_quest_split) |
+| LUA-6 | Medium | Lua limits | quest/engine.lua `tick_inner` | 56 of 60 upvalues. | Fixed 2.307.0: 52 |
 | DUP-5 | Medium | Duplication | 49 files | Two contracts under one name: `safe(fn)` drops args (45 files), `safe(fn, ...)` passes them (4). Caused the 2.300.0 route-height bug. No current call passes extra args to a dropping `safe` (scope-aware scan). | Deferred |
 | CORE-B-2 | Medium | Core API | quest/guide.lua:2440-2467 | `use_bag_item` passes an item object where `use_item` takes an id; the boolean result is ignored. | Open |
 | CORE-B-4 | Medium | API Verification Required | vendor, equip, trainer, quest/engine | Merchant / trainer window "open" inferred from item counts > 0; the stub defines open/closed by events. | Blocked: Missing API |

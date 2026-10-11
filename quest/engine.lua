@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.297.0
+-- Version: 2.298.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -3289,6 +3289,44 @@ end
 -- Kept on IS, outside tick_inner: tick_inner sits at the 60-upvalue limit.
 IS.rt = { t = 0, GAP = 1.0 }
 
+-- 2.298.0: NOT MOVING WHILE WALKING. The 02:31 and 02:32 sessions asked
+-- AmeisenNav for a Rumbleshot's Ammo route point 153 yd away, got
+-- "no_path (no height at that spot)" once, and then stood still with
+-- "Guide: 0/1 Rumbleshot's Ammo" - no new request, no next point, until the
+-- 5-minute watchdog. Two nets: a route point whose path failed (any reason,
+-- not only off-mesh) is skipped for the next one; and STILL_S seconds
+-- without STILL_YD yards of movement while the bot means to walk forces a
+-- fresh path (and the next point on a route), logged with the movement state.
+IS.still = { x = nil, y = nil, t = 0, seen = 0, S = 10.0, YD = 2.0 }
+
+IS.watch_still = function(pts, must_do, label)
+    local now = izi.now()
+    local me = safe(function() return izi.me():get_position() end)
+    local w = IS.still
+    if not me then return end
+    -- ticks spent fighting / resting / looting are not this walk's time
+    if not w.x or (now - w.seen) > 2.0
+        or geometry.distance_flat(me, { x = w.x, y = w.y, z = me.z }) > w.YD then
+        w.x, w.y, w.t = me.x, me.y, now
+    end
+    w.seen = now
+    local target = pts[math.min(g_move, #pts)].pos
+    local d = geometry.distance_flat(me, target)
+    if type(d) ~= "number" or d <= (must_do and TALK_ARRIVE or ARRIVE) + 2 then
+        w.t = now                    -- there: standing is fine
+        return
+    end
+    if (now - w.t) < w.S then return end
+    w.t = now
+    trail("route", "no movement for %.0f s toward point %d of %d (%.0f yd) for %s - moving %s, owner %s, state %s, last fail %s - fresh path%s",
+        w.S, g_move, #pts, d, tostring(label), tostring(movement.is_moving()),
+        tostring(safe(movement.owner)), tostring(safe(movement.state)),
+        tostring(movement.last_fail_reason()), (#pts > 1 and not must_do) and ", next point" or "")
+    movement.clear_fail()
+    g_force_path = true
+    if #pts > 1 and not must_do then IS.next_wp(#pts) end
+end
+
 IS.next_wp = function(n)
     g_move = g_move + 1
     if g_move > n then
@@ -3387,9 +3425,12 @@ IS.walk_route = function(player, goal, kind, wps, label)
     end
     if #pts > 1 and not must_do then
         -- A route point the path could not reach: the next one, not a stand.
-        if movement.is_blocked(pts[g_move].pos) or movement.last_fail_offmesh() then
+        -- 2.298.0: any failed path (a "no height at that spot" no_path too),
+        -- not only off-mesh, moves on to the next point
+        local why = movement.last_fail_reason()
+        if movement.is_blocked(pts[g_move].pos) or why then
             movement.clear_fail()
-            trail("route", "point %d of %d unreachable - next point", g_move, #pts)
+            trail("route", "point %d of %d unreachable (%s) - next point", g_move, #pts, tostring(why or "blocked"))
             IS.next_wp(#pts)
         end
         -- Chain ahead: the next point before this one is reached.
@@ -3401,6 +3442,7 @@ IS.walk_route = function(player, goal, kind, wps, label)
     end
     local arrive = must_do and TALK_ARRIVE or ARRIVE
     if walk_to(pts[g_move].pos, label, arrive) then
+        IS.watch_still(pts, must_do, label)
         return
     end
     -- Standing on this waypoint with nothing to do. A kill, collect or xp

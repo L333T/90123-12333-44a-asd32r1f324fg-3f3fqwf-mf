@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.283.0
+-- Version: 2.284.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -569,6 +569,16 @@ menu:checkbox("mfg_buff_randoms", false, {
 -- the Spells-tab sliders use, so no other class ever sees the row. strafe.lua
 -- checks the class again at run time, because a menu element is saved per
 -- account and a tick made on a rogue is still set when a mage logs in.
+-- 2.284.0: Hunter - the pet takes the aggro first, back-jump at 5 yd
+-- (smart.lua HUNTER PET AGGRO). Hunters only, off by default.
+menu:checkbox("mfg_hunter_pet_aggro", false, {
+    label = "Pet Takes Aggro",
+    tab = "class",
+    class_id = enums.class_id.HUNTER,
+    tooltip = "With a pet out: the pet is sent in and you hold your own attacks (Auto Shot too) until the mob is on the pet "
+        .. "(or attacks you, or 6 s pass). If the mob gets within 5 yd of you, you walk backward for 1.5 s with a jump "
+        .. "0.5 s in, then stop (at most once every 4 s).",
+})
 menu:checkbox("mfg_strafe_combat", false, {
     label = "Strafe Combat",
     tab = "class",
@@ -767,6 +777,7 @@ local aliases = {
     sell_green = "mfg_sell_green",
     delete_junk = "mfg_delete_junk",
     spell_queue = "mfg_spell_queue",
+    hunter_pet_aggro = "mfg_hunter_pet_aggro",  -- 2.284.0
     adaptive = "mfg_adaptive",                 -- 2.274.0
     path_loop = "mfg_path_loop",
     learn_terrain = "mfg_learn_terrain",

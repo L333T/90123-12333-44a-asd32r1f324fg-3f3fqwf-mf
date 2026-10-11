@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.283.0
+-- Version: 2.284.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -156,6 +156,7 @@ local CHANNEL = {
     ["Arcane Missiles"] = true, ["Evocation"] = true, ["Health Funnel"] = true,
     ["Blizzard"] = true, ["Rain of Fire"] = true, ["Hurricane"] = true,
     ["Starshards"] = true,
+    ["Mend Pet"] = true,          -- 2.284.0: 5 s channel (was cast on the move)
 }
 
 -- Forms and stances, for "which one am I in" and for the spells that need one.
@@ -1346,6 +1347,125 @@ local HUNTER_PET = {
     cast = function(x) return cast(x, P) == true end,
 }
 
+-- ============================================================================
+-- MEND PET HOLD (2.284.0)
+-- ============================================================================
+-- Once Mend Pet is cast (out of combat), the Hunter does not move until the
+-- pet is at MEND_TO % health: the channel lock holds it while it channels,
+-- and Mend Pet is cast again when a channel ends with the pet still below.
+-- Let go when the pet is healed, dies or is gone, a fight starts, a recast
+-- fails (no mana), or after MEND_MAX s.
+local MEND = { active = false, deadline = 0, MEND_TO = 90, MEND_MAX = 40 }
+
+local function mend_trail(fmt, ...)
+    local el = mod("errorlog")
+    if el and type(el.trail) == "function" then pcall(el.trail, "pet", fmt, ...) end
+end
+
+local function mend_hold(pets, heal)
+    if not MEND.active then return nil end
+    local now = izi.now()
+    local hp = pets.health_pct(P)
+    local mv = mod("movement")
+    local done = nil
+    if not pets.alive(P) or hp == nil then done = "no pet"
+    elseif hp >= MEND.MEND_TO then done = string.format("pet at %.0f%%", hp)
+    elseif now > MEND.deadline then done = "time limit"
+    elseif safe(P.is_in_combat, P) == true then done = "combat" end
+    if done then
+        MEND.active = false
+        mend_trail("Mend Pet hold over: %s", done)
+        if mv and type(mv.release) == "function" then pcall(mv.release) end
+        return nil
+    end
+    if mv and type(mv.nav_stop) == "function" then pcall(mv.nav_stop) end
+    state.set_note("Pet", string.format("Mend Pet - pet %.0f%% (to %d%%)", hp, MEND.MEND_TO))
+    if safe(P.is_channeling_or_casting, P) == true then
+        if mv and type(mv.prepare_channel) == "function" then pcall(mv.prepare_channel, P, 1.0) end
+        return true
+    end
+    if heal and cast(heal, P) then
+        MEND.deadline = math.max(MEND.deadline, now + 6)
+        return true
+    end
+    if heal and (fail_until[heal.key] or 0) > now then
+        MEND.active = false
+        mend_trail("Mend Pet hold over: the recast failed (pet %.0f%%)", hp)
+        return nil
+    end
+    return true                    -- waiting on the GCD
+end
+
+-- ============================================================================
+-- HUNTER PET AGGRO (2.284.0, GUI "Pet Takes Aggro", Hunters only)
+-- ============================================================================
+-- With a living pet: the pet is sent in and the Hunter holds every attack of
+-- its own - spells here, Auto Shot in targeting.start_auto_attack - until the
+-- mob targets the pet, or targets the Hunter, or HPA.WAIT s pass. Then, while
+-- the option is on, a mob within HPA.CLOSE yd of the Hunter starts the
+-- back-jump: backward for HPA.BACK s, a jump HPA.JUMP_AT s in (still moving
+-- backward), then stop - the Mage's Frost Nova back-off (movement.backpedal)
+-- with its own timing; at most once every HPA.GAP s.
+local HPA = { guid = nil, since = 0, released = false, bp_t = -1e9,
+    WAIT = 6.0, CLOSE = 5, BACK = 1.5, JUMP_AT = 0.5, GAP = 4.0 }
+
+local function hpa_on(player)
+    if built.class ~= enums.class_id.HUNTER then return false end
+    local g = mod("gui")
+    if not (g and type(g.is_on) == "function" and g.is_on("hunter_pet_aggro") == true) then return false end
+    local pets = mod("pets")
+    return pets ~= nil and pets.alive(player or P) == true
+end
+
+--- True while the Hunter holds its own attacks so the pet takes the aggro.
+function smart.hunter_pet_hold(player, target)
+    if not player or not target or not spellbook.ready() then return false end
+    build(player)
+    if not hpa_on(player) then return false end
+    local now = izi.now()
+    local g = safe(target.get_guid, target)
+    if g == nil then return false end
+    if g ~= HPA.guid then HPA.guid, HPA.since, HPA.released = g, now, false end
+    if HPA.released then return false end
+    local tt = safe(target.get_target, target)
+    local tg = (type(tt) == "table" or type(tt) == "userdata") and safe(tt.get_guid, tt) or nil
+    local pets = mod("pets")
+    local pet = pets and pets.get(player)
+    local pg = pet and safe(pet.get_guid, pet) or nil
+    local me = safe(player.get_guid, player)
+    local why = nil
+    if tg ~= nil and pg ~= nil and tg == pg then why = "the pet has the aggro"
+    elseif tg ~= nil and me ~= nil and tg == me then why = "it attacks the hunter"
+    elseif now - HPA.since >= HPA.WAIT then why = "waited " .. HPA.WAIT .. " s" end
+    if why then
+        HPA.released = true
+        mend_trail("pet aggro on %s: %s after %.1f s - attacking", tostring(safe(target.get_name, target)),
+            why, now - HPA.since)
+        return false
+    end
+    return true
+end
+
+--- The back-jump: a mob within HPA.CLOSE yd. True when it started one.
+local function hunter_back_jump()
+    if not T or not hpa_on(P) or rotation_only() then return false end
+    local now = izi.now()
+    if now - HPA.bp_t < HPA.GAP then return false end
+    if safe(T.is_dead_or_ghost, T) == true then return false end
+    local d = c.dist()
+    if type(d) ~= "number" or d > HPA.CLOSE then return false end
+    local mv = mod("movement")
+    if not (mv and type(mv.backpedal) == "function") then return false end
+    if type(mv.backpedaling) == "function" and mv.backpedaling() then return false end
+    HPA.bp_t = now
+    if mv.backpedal(HPA.BACK, HPA.JUMP_AT) then
+        mend_trail("back-jump: %s at %.1f yd", tostring(safe(T.get_name, T)), d)
+        state.set_note("Hunter", "Back-jump")
+        return true
+    end
+    return false
+end
+
 local function pet_upkeep()
     local pets = mod("pets")
     if not pets then return false end
@@ -1378,9 +1498,20 @@ local function pet_upkeep()
             ids = ranks_of("Revive Pet"), self = true, key = "Revive Pet|pet", def = {} }
     end
     local function learned(x) return x ~= nil end
+    -- 2.284.0: a Mend Pet under way holds the Hunter until the pet is healed
+    if built.class == enums.class_id.HUNTER and heal then
+        local held = mend_hold(pets, heal)
+        if held ~= nil then return held end
+    end
     -- pets.maintain calls cast_self(spell, player, label).
     local function cast_self(x)
-        if cast(x, P) then return true end
+        if cast(x, P) then
+            if built.class == enums.class_id.HUNTER and heal and x == heal then
+                MEND.active, MEND.deadline = true, izi.now() + MEND.MEND_MAX
+                mend_trail("Mend Pet: holding still until the pet is at %d%%", MEND.MEND_TO)
+            end
+            return true
+        end
         pet_fail_until = izi.now() + 15
         return false
     end
@@ -1976,6 +2107,20 @@ function smart.combat(player, target, ctx)
         return true
     end
     begin(player, target, ctx and ctx.enemies or nil)
+
+    -- 2.284.0: a fight ends a Mend Pet hold (pet upkeep runs out of combat only)
+    if MEND.active and c.in_combat() then
+        MEND.active = false
+        mend_trail("Mend Pet hold over: combat")
+        local mvh = mod("movement")
+        if mvh and type(mvh.release) == "function" then pcall(mvh.release) end
+    end
+    -- 2.284.0: Hunter "Pet Takes Aggro" - hold for the pet, then back-jump
+    if target and smart.hunter_pet_hold(player, target) then
+        state.set_note("Hunter", "Pet taking aggro")
+        return true
+    end
+    if hunter_back_jump() then return true end
 
     -- Rogue Stealth opener (2.228.0), else the throw pull (2.224.0).
     if rogue_stealth() then return true end

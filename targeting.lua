@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.283.0
+-- Version: 2.284.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1211,6 +1211,13 @@ function targeting.start_auto_attack(player, unit)
     end
     local types = auto_attack.ATTACK_TYPE
     if type(types) ~= "table" or type(types.MELEE) ~= "number" then
+        return false
+    end
+    -- 2.284.0: Hunter "Pet Takes Aggro" - no Auto Shot / swing while the
+    -- pet is taking the aggro (smart.hunter_pet_hold)
+    local sm = package.loaded["smart"]
+    if type(sm) == "table" and type(sm.hunter_pet_hold) == "function" and sm.hunter_pet_hold(player, unit) then
+        targeting.ensure_target(player, unit)
         return false
     end
     -- Focus the enemy first. The swing, shot or wand starts on the next

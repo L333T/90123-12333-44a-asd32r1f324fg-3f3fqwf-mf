@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest lock and cast / channel / loot locks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.283.0
+-- Version: 2.284.0
 -- ============================================================================
 -- Locks pause the walker by reason, so a cast finishing can never un-pause a
 -- stun or a food break. Releasing a cast lock touches only the cast and loot
@@ -69,13 +69,15 @@ function Lk.is_resting() return R.rest_lock end
 local BACKPEDAL_JUMP_AT = 0.75
 local JUMP_RELEASE = 0.15
 
-function Lk.backpedal(seconds)
+--- `jump_at` (2.284.0): seconds into the walk for the jump - the Hunter's
+--- back-jump uses 0.5; the Mage's Frost Nova keeps BACKPEDAL_JUMP_AT.
+function Lk.backpedal(seconds, jump_at)
     local t = izi.now()
     if R.backpedal_until then return false end
     O.halt_all()
     W.set_pause("backpedal", true)
     R.backpedal_until = t + (tonumber(seconds) or 3)
-    R.backpedal_jump_at = t + BACKPEDAL_JUMP_AT
+    R.backpedal_jump_at = t + (tonumber(jump_at) or BACKPEDAL_JUMP_AT)
     R.backpedal_jump_release = nil
     pcall(core.input.move_backward_start)
     dlog("backpedal", string.format("backing off for %.1fs", tonumber(seconds) or 3))

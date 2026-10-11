@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.299.0
+-- Version: 2.300.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -3328,6 +3328,50 @@ IS.rt = { t = 0, GAP = 1.0 }
 -- fresh path (and the next point on a route), logged with the movement state.
 IS.still = { x = nil, y = nil, t = 0, seen = 0, S = 10.0, YD = 2.0 }
 
+-- 2.300.0: ROUTE POINTS AT THE GROUND HEIGHT. A goal with one waypoint
+-- gets a ring of patrol points that copy its height; RestedXP gives x, y
+-- only, so that height is a guess. Rumbleshot's Ammo (02:42): all 7 points at
+-- z 396, the ground at z 366 - AmeisenNav "no height at that spot" for every
+-- one, all 7 marked unreachable, the goal skipped every 30 s for minutes.
+-- A point within ZFIX_RANGE yd (terrain loaded) takes the terrain height
+-- under it when that is more than 3 yd off; read once per point per 5 min.
+IS.zfix = { cache = {}, n = 0, RANGE = 150, TTL = 300 }
+IS.fix_z = function(pts)
+    local okt, Tr = pcall(require, "movement/terrain")
+    if not okt or type(Tr) ~= "table" or type(Tr.height) ~= "function" then return pts end
+    local me = safe(function() return izi.me():get_position() end)
+    if not me then return pts end
+    local now, zf, out = izi.now(), IS.zfix, nil
+    for i = 1, #pts do
+        local p = pts[i].pos
+        local d = p and geometry.distance_flat(me, p)
+        if type(d) == "number" and d <= zf.RANGE and type(p.z) == "number" then
+            local key = string.format("%d|%d", math.floor(p.x / 4), math.floor(p.y / 4))
+            local e = zf.cache[key]
+            if not e or (now - e.t) > zf.TTL then
+                local h = safe(Tr.height, p.x, p.y, math.max(p.z, me.z or p.z) + 20)
+                if type(h) ~= "number" or h == 0 then h = nil end
+                e = { z = (h and math.abs(h - p.z) > 3) and h or false, t = now }
+                if zf.n > 256 then zf.cache, zf.n = {}, 0 end
+                zf.cache[key] = e
+                zf.n = zf.n + 1
+                if e.z then
+                    trail("route", "point (%.0f, %.0f): z %.1f -> ground %.1f", p.x, p.y, p.z, e.z)
+                    if type(movement.reach_forget) == "function" then pcall(movement.reach_forget, p) end
+                end
+            end
+            if e.z then
+                out = out or {}
+                out[i] = { pos = require("common/geometry/vector_3").new(p.x, p.y, e.z), title = pts[i].title, patrol = pts[i].patrol }
+            end
+        end
+    end
+    if not out then return pts end
+    local res = {}
+    for i = 1, #pts do res[i] = out[i] or pts[i] end
+    return res
+end
+
 IS.watch_still = function(pts, must_do, label)
     local now = izi.now()
     local me = safe(function() return izi.me():get_position() end)
@@ -3393,6 +3437,7 @@ IS.walk_route = function(player, goal, kind, wps, label)
     if not must_do and type(guide.route) == "function" then
         pts = guide.route(goal, kind, wps) or wps
     end
+    pts = IS.fix_z(pts)
     if g_move > #pts then
         g_move = 1
     end
@@ -3427,6 +3472,15 @@ IS.walk_route = function(player, goal, kind, wps, label)
             tried = tried + 1
         end
         if tried >= #pts then
+            -- 2.300.0: the second time on the same step, RestedXP skips the step
+            -- (it did not move on: "retrying its goals" every 30 s, forever)
+            local sk = tostring(guide.step_num()) .. "|" .. tostring(goal.index)
+            if IS.unreach_key == sk and type(guide.skip_current) == "function"
+                and guide.skip_current(tostring(label) .. " - every waypoint unreachable, twice") then
+                IS.unreach_key = nil
+                return
+            end
+            IS.unreach_key = sk
             trail("quest", "every waypoint of goal %d is unreachable - skipping it", goal.index or 0)
             core.log_warning("[Master Farmer - Grindbot] Quest goal '" .. tostring(label)
                 .. "': Sentinel reports every waypoint unreachable - skipping it.")
@@ -3457,7 +3511,14 @@ IS.walk_route = function(player, goal, kind, wps, label)
         -- 2.298.0: any failed path (a "no height at that spot" no_path too),
         -- not only off-mesh, moves on to the next point
         local why = movement.last_fail_reason()
-        if movement.is_blocked(pts[g_move].pos) or why then
+        local cp = pts[g_move].pos
+        local okt, Tr = pcall(require, "movement/terrain")
+        if why and okt and type(Tr) == "table" and type(Tr.goal_z) == "function"
+            and math.abs((Tr.goal_z(cp.x, cp.y, cp.z) or cp.z) - cp.z) > 1 then
+            why = nil                -- 2.300.0: a new height is being asked for this point
+            movement.clear_fail()
+        end
+        if movement.is_blocked(cp) or why then
             movement.clear_fail()
             trail("route", "point %d of %d unreachable (%s) - next point", g_move, #pts, tostring(why or "blocked"))
             IS.next_wp(#pts)

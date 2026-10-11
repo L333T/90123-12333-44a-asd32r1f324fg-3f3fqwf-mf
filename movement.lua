@@ -3,7 +3,7 @@
 -- Intelligent Movement & Navigation System - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.299.0
+-- Version: 2.300.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- SINGLE-OWNER MOVEMENT STATE MACHINE
@@ -240,6 +240,7 @@ movement.plan_grind_route = N.plan_grind_route
 movement.grind_visit_order = N.grind_visit_order
 movement.node_reachable   = N.node_reachable
 movement.reachable        = N.reachable        -- 2.59.0: validate_destination, cached
+movement.reach_forget     = N.reach_forget     -- 2.300.0
 
 -- ============================================================================
 -- DIAGNOSTICS

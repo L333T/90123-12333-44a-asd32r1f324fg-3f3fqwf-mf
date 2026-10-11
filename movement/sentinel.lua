@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.299.0
+-- Version: 2.300.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -1373,6 +1373,14 @@ function N.reachable(pos)
     end)
     if not ok then e.ok = true end
     return true
+end
+
+--- 2.300.0: forget the cached answer for (x, y) - its height was corrected.
+function N.reach_forget(pos)
+    local x, y = xyz(pos)
+    if not x then return end
+    local key = reach_key(x, y)
+    if reach[key] then reach[key] = nil end
 end
 
 -- ----------------------------------------------------------------------------

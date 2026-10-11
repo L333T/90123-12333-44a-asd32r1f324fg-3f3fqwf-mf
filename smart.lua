@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.287.0
+-- Version: 2.288.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1407,7 +1407,7 @@ end
 -- backward), then stop - the Mage's Frost Nova back-off (movement.backpedal)
 -- with its own timing; at most once every HPA.GAP s.
 local HPA = { guid = nil, since = 0, released = false, bp_t = -1e9,
-    WAIT = 6.0, CLOSE = 5, BACK = 1.5, JUMP_AT = 0.5, GAP = 4.0 }
+    WAIT = 6.0, CLOSE = 5, BACK = 2.5, JUMP_AT = 0.5, GAP = 4.0 }   -- 2.288.0: BACK 1.5 -> 2.5 s
 
 local function hpa_on(player)
     if built.class ~= enums.class_id.HUNTER then return false end

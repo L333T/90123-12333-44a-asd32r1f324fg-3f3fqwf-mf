@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.287.0
+-- Version: 2.288.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -576,7 +576,7 @@ menu:checkbox("mfg_hunter_pet_aggro", false, {
     tab = "class",
     class_id = enums.class_id.HUNTER,
     tooltip = "With a pet out: the pet is sent in and you hold your own attacks (Auto Shot too) until the mob is on the pet "
-        .. "(or attacks you, or 6 s pass). If the mob gets within 5 yd of you, you walk backward for 1.5 s with a jump "
+        .. "(or attacks you, or 6 s pass). If the mob gets within 5 yd of you, you walk backward for 2.5 s with a jump "
         .. "0.5 s in, then stop (at most once every 4 s).",
 })
 menu:checkbox("mfg_strafe_combat", false, {

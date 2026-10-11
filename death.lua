@@ -3,7 +3,7 @@
 -- Death run — release, path graveyard to corpse, retrieve
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.303.0
+-- Version: 2.304.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -113,10 +113,20 @@ local function as_vec3(pos)
     return vec3.new(x, y, z)
 end
 
+-- CORPSE POSITION (2.304.0): core.game_ui.get_corpse_position() -> vec3.
+-- (0, 0, z) is "no corpse" - the API's own test is x == 0 and y == 0.
+-- Since the 2026-10-10 core update it reads the world map's corpse marker
+-- where the direct read fails (WoW Forever used to answer inf): x, y are
+-- right, z is the ground below the corpse or - terrain not loaded yet - our
+-- own height. So distances to the corpse are measured flat (dist_corpse)
+-- and the position is read again every tick, z settling on the way in.
 local function corpse_position()
     local raw = safe(function()
         return core.game_ui.get_corpse_position()
     end)
+    if type(raw) == "table" and raw.x == 0 and raw.y == 0 then
+        raw = nil                          -- no corpse (the API's zero vector)
+    end
     local vec = as_vec3(raw)
     if vec then
         state.dead.corpse = vec
@@ -363,7 +373,8 @@ function death.tick(player)
 
     local my_level = safe(function() return player:get_level() end)
     local dest = safe_retrieve_pos(corpse, my_level)
-    local d = dist_to(corpse) or dist_to(dest)
+    -- 2.304.0: flat - the corpse z is approximate until the area is loaded
+    local d = dist2d(state.cached_pos, corpse) or dist_to(corpse) or dist_to(dest)
     if type(d) ~= "number" then
         run_to(dest)
         state.set_note("Death", "Running to corpse")

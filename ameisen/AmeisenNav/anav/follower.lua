@@ -158,7 +158,9 @@ local function configure_walker()
     X.call(walker, "set_threshold", inside and (C.waypoint_threshold_indoors or C.waypoint_threshold)
         or C.waypoint_threshold)
     X.call(walker, "set_final_threshold", C.final_threshold)
-    X.call(walker, "set_look_distance", C.look_distance)
+    -- 1.6.9: direct_path - aim at the waypoint itself (simple_movement's
+    -- set_look_distance accepts 5-50 yd; 5 is the closest it allows)
+    X.call(walker, "set_look_distance", C.direct_path and 5 or C.look_distance)
 end
 
 -- UNSTICK MANOEUVRE (1.6.5): strafe, jump, strafe. Forward is held the whole
@@ -546,7 +548,8 @@ local function steer_target(t, px, py, pz)
     -- 1.5.0: off while the path check runs - skipping ahead would bypass the
     -- checked / shifted 5-yard waypoints, and its server /raycast took 3.5 s
     -- and then killed AmeisenNavigationServer (2026-10-08).
-    if idx < n and t >= next_pull and not C.pathcheck then
+    -- 1.6.9: never with direct_path - each waypoint is walked to, in order
+    if idx < n and t >= next_pull and not C.pathcheck and not C.direct_path then
         next_pull = t + PULL_EVERY
         if AV.can_skip_to(px, py, pz, pts[idx + 1], pts[idx + 1]) then
             idx = idx + 1

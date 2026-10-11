@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.300.0
+-- Version: 2.301.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -1367,6 +1367,15 @@ function N.reachable(pos)
     e = { ok = nil, t = now }
     reach[key] = e
     reach_n = reach_n + 1
+    -- 2.301.0: asked at the ground height, not a guessed one (RestedXP gives
+    -- x, y only): a point 30 yd above the ground read "unreachable" and the
+    -- whole goal was skipped (Rumbleshot's Ammo, 02:42 / 02:49)
+    local okt, Tr = pcall(require, "movement/terrain")
+    if okt and type(Tr) == "table" and type(Tr.height) == "function" and hx0
+        and dist2(hx0, hy0, x, y) <= REACH_TRUST_FAR then
+        local okh, h = pcall(Tr.height, x, y, z + 20)
+        if okh and type(h) == "number" and h ~= 0 and math.abs(h - z) > 3 then z = h end
+    end
     local ok = pcall(c.validate_destination, c, vec3.new(x, y, z), function(reachable)
         e.ok = reachable == true
         e.t = izi.now()

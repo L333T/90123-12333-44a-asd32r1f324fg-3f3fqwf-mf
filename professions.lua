@@ -3,7 +3,7 @@
 -- professions.lua - which professions the character has (Profession API)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.300.0
+-- Version: 2.301.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One place that answers "does this character know <profession>, at what

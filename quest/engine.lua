@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.300.0
+-- Version: 2.301.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -3349,7 +3349,8 @@ IS.fix_z = function(pts)
             local key = string.format("%d|%d", math.floor(p.x / 4), math.floor(p.y / 4))
             local e = zf.cache[key]
             if not e or (now - e.t) > zf.TTL then
-                local h = safe(Tr.height, p.x, p.y, math.max(p.z, me.z or p.z) + 20)
+                local okh, h = pcall(Tr.height, p.x, p.y, math.max(p.z, me.z or p.z) + 20)
+                if not okh then h = nil end
                 if type(h) ~= "number" or h == 0 then h = nil end
                 e = { z = (h and math.abs(h - p.z) > 3) and h or false, t = now }
                 if zf.n > 256 then zf.cache, zf.n = {}, 0 end

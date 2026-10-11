@@ -628,7 +628,8 @@ function M:update()
         if here then
             local dx, dy = nav.window_end.x - here.x, nav.window_end.y - here.y
             local d2 = dx * dx + dy * dy
-            if d2 <= C.horizon_refresh * C.horizon_refresh then
+            local rf = H.current_refresh()       -- 1.7.0: per environment profile
+            if d2 <= rf * rf then
                 -- 1.6.4: the window prepared while walking; else, late, from the player
                 if not (nav.prefetch and self:_take_prefetch(nav))
                     and (nav.prefetch == nil and (nav.pf_id == nil or d2 <= PREFETCH_LATE * PREFETCH_LATE)) then

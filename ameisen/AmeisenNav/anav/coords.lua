@@ -80,6 +80,49 @@ function G.ground(x, y, guess_z)
     return h
 end
 
+-- ENVIRONMENT (1.7.0): "open" | "indoor" | "cave" for the place the player
+-- is in, read at most every C.env_check_every s. A cave is told from a
+-- building by the terrain ABOVE the character: get_terrain_height casts down
+-- from the player's z + extra_height (coords_helper stub), so a ray started
+-- 60 yd up that lands env_cave_cover+ yd above the character hit the ground
+-- over its head. Buildings keep is_indoors without that rock cover.
+local C = require("anav/config")
+local env = { t = -1e9, kind = "open", cover = nil }
+
+function G.environment()
+    local okt, t = pcall(core.time)
+    t = okt and type(t) == "number" and t or 0
+    if t - env.t < (C.env_check_every or 1.0) then return env.kind, env.cover end
+    env.t = t
+    local inside = indoors()
+    local kind = inside and "indoor" or "open"
+    local cover = nil
+    local c = coords()
+    local px, py, pz = X.position()
+    if c and type(c.get_terrain_height) == "function" and finite(px) and finite(pz) then
+        local ok, h = pcall(c.get_terrain_height, c, px, py, 60)
+        if ok and finite(h) and not (h == 0 and math.abs(pz) > 5) and h <= pz + 60.5 then
+            cover = h - pz
+            if cover >= (C.env_cave_cover or 8.0) then kind = "cave" end
+        end
+    end
+    env.kind, env.cover = kind, cover
+    return kind, cover
+end
+
+--- The navigation profile for the place the player is in (C.env_profiles),
+--- plus its name. Falls back to the flat settings when a profile is missing.
+function G.profile()
+    local kind = G.environment()
+    local P = C.env_profiles and C.env_profiles[kind]
+    if type(P) == "table" then return P, kind end
+    return {
+        length = C.horizon_length, refresh = C.horizon_refresh, spacing = C.waypoint_spacing,
+        threshold = C.waypoint_threshold, clearance = C.horizon_clearance,
+        object_clearance = C.horizon_object_clearance,
+    }, kind
+end
+
 --- The world point under the cursor on the minimap, or nil (+ why).
 function G.cursor_point()
     local c = coords()

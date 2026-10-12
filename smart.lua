@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.314.0
+-- Version: 2.315.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1344,9 +1344,9 @@ local function dies_before(e)
     -- 2.274.0: health_prediction's incoming damage kills it first (adapt.lua)
     local ad = mod("adapt")
     if ad and ad.dies_first(T, ct) == true then return true end
-    if ct <= 0 then return false end
-    local ttd = safe(T.time_to_die, T)
-    return type(ttd) == "number" and ttd > 0 and ttd < 1e6 and ttd < ct
+    -- 2.315.0: IZI's time_to_die is fed by izi.on_update (no longer called);
+    -- the health_prediction answer above stands alone
+    return false
 end
 
 local function try(e, role_cond)

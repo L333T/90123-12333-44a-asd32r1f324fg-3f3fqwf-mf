@@ -1,9 +1,9 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- callbacks.lua - IZI callbacks: combat finished, spell cancelled
+-- callbacks.lua - combat finished, spell cancelled (core API polling, 2.315.0)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.314.0
+-- Version: 2.315.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.271.0)
@@ -100,41 +100,78 @@ end
 cb.handlers = handlers
 
 -- ----------------------------------------------------------------------------
--- REGISTRATION
+-- POLLING (2.315.0) - the core API, the player only, no IZI callbacks
 -- ----------------------------------------------------------------------------
+-- izi.on_combat_finish / izi.on_spell_cancel are fired by izi.on_update, IZI's
+-- per-frame engine, which is no longer called (main.lua). The same two edges
+-- are read here once per frame from the local player:
+--   combat finished  is_in_combat() true -> false
+--   cast cancelled   the cast / channel being watched ends more than
+--                    CANCEL_EARLY ms before its own end time (core.game_time)
 _G.MasterFarmer_Grindbot = _G.MasterFarmer_Grindbot or {}
 local NS = _G.MasterFarmer_Grindbot
 
-local function dispatch(name)
-    return function(ev)
-        local live = NS.izi_cb_handlers
-        local h = type(live) == "table" and live[name] or nil
-        if not h then return end
-        local ok, err = pcall(h, ev)
-        if not ok then
-            pcall(core.log_error, "[Master Farmer - Grindbot] izi callback " .. name .. ": " .. tostring(err))
-        end
+local CANCEL_EARLY = 200
+local watch = { in_combat = false, id = nil, ends = nil }
+
+local function local_player()
+    local ok, p = pcall(function() return core.object_manager.get_local_player() end)
+    if ok and p and safe(function() return p:is_valid() end) == true then return p end
+    return nil
+end
+
+local function call(h, ev)
+    local live = NS.izi_cb_handlers
+    local f = type(live) == "table" and live[h] or nil
+    if not f then return end
+    local ok, err = pcall(f, ev)
+    if not ok then
+        pcall(core.log_error, "[Master Farmer - Grindbot] callback " .. h .. ": " .. tostring(err))
     end
 end
 
---- Register once per session; later loads only swap the handler table.
+--- Once per frame (main.lua on_update).
+function cb.tick()
+    local me = local_player()
+    if not me then
+        watch.id, watch.ends = nil, nil
+        return
+    end
+    local in_c = safe(function() return me:is_in_combat() end) == true
+    if watch.in_combat and not in_c then call("combat_finish", { unit = me }) end
+    watch.in_combat = in_c
+
+    local id, ends = nil, nil
+    if safe(function() return me:is_casting_spell() end) == true then
+        id = tonumber(safe(function() return me:get_active_spell_id() end))
+        ends = tonumber(safe(function() return me:get_active_spell_cast_end_time() end))
+    elseif safe(function() return me:is_channelling_spell() end) == true then
+        id = tonumber(safe(function() return me:get_active_channel_spell_id() end))
+        ends = tonumber(safe(function() return me:get_active_channel_cast_end_time() end))
+    end
+    if id and id <= 0 then id = nil end
+    if watch.id and watch.id ~= id then
+        local now = tonumber(safe(core.game_time))
+        if now and watch.ends and now < watch.ends - CANCEL_EARLY then
+            call("spell_cancel", { caster = me, spell_id = watch.id })
+        end
+    end
+    watch.id, watch.ends = id, id and ends or nil
+end
+
+--- Swap in this load's handlers; drop any IZI subscriptions an earlier
+--- version registered (2.271.0 - 2.314.0).
 function cb.install()
     NS.izi_cb_handlers = handlers
-    if NS.izi_cb_unsub then return false end
-    if not ok_izi or type(izi) ~= "table"
-        or type(izi.on_combat_finish) ~= "function" or type(izi.on_spell_cancel) ~= "function" then
-        return false
+    local old = NS.izi_cb_unsub
+    NS.izi_cb_unsub = nil
+    if type(old) == "table" then
+        for i = 1, #old do pcall(old[i]) end
     end
-    local unsub = {}
-    local ok1, u1 = pcall(izi.on_combat_finish, dispatch("combat_finish"))
-    if ok1 and type(u1) == "function" then unsub[#unsub + 1] = u1 end
-    local ok2, u2 = pcall(izi.on_spell_cancel, dispatch("spell_cancel"))
-    if ok2 and type(u2) == "function" then unsub[#unsub + 1] = u2 end
-    NS.izi_cb_unsub = unsub
     return true
 end
 
---- Unsubscribe (main.lua on_unload).
+--- main.lua on_unload: nothing is registered any more; kept for the caller.
 function cb.uninstall()
     local list = NS.izi_cb_unsub
     NS.izi_cb_unsub = nil

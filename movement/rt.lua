@@ -3,7 +3,7 @@
 -- movement/rt.lua - shared mutable runtime state
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.314.0
+-- Version: 2.315.0
 -- ============================================================================
 -- Upvalues cannot cross a chunk boundary, so every piece of state that more
 -- than one movement module touches lives here as a field of R. Values that only
@@ -73,7 +73,7 @@ R.retreat_until  = 0
 R.retreat_x, R.retreat_y, R.retreat_z = 0, 0, 0
 R.last_face_t    = 0
 R.chase_fail_key, R.chase_fail_t = nil, 0
-R.in_combat_flag = false    -- maintained by izi.on_combat_start / on_combat_finish
+R.in_combat_flag = false    -- 2.315.0: read from the player each movement pulse (fsm.lua)
 R.profile        = nil      -- class combat profile (see set_combat_profile)
 R.last_spell_id, R.last_spell_target, R.last_spell_t = nil, nil, 0
 

@@ -3,7 +3,7 @@
 -- Adaptive rotation - learns what kills fastest, per character
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.314.0
+-- Version: 2.315.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT (2.274.0, GUI "Adaptive Rotation", Spells tab, on by default)
@@ -428,8 +428,7 @@ end
 --- combat_forecast single-target forecast, else the learned kill time.
 function adapt.fight_left(target)
     if target then
-        local ttd = tonumber(safe(target.time_to_die, target))
-        if ttd and ttd > 0 and ttd < 1e5 then return ttd end
+        -- 2.315.0: no IZI time_to_die (fed by izi.on_update, no longer called)
         if forecast then
             local f = tonumber(safe(function() return forecast:get_forecast_single(target) end))
             if f and f > 0 and f < 1e5 then return f end

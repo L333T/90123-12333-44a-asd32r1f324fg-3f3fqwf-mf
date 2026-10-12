@@ -3,7 +3,7 @@
 -- movement/fsm.lua - stuck watch, arbitration, per-frame pulse, events
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.314.0
+-- Version: 2.315.0
 -- ============================================================================
 -- The top of the movement stack. Nothing requires this module except the
 -- facade, so it is free to depend on every layer below it.
@@ -360,6 +360,7 @@ function F.pulse()
     Adv.tick(t)              -- 2.219.0: continent reset, path check, probe, zone mirror
     Tr.tick(t)               -- 2.221.0: stalled at a mountain / cliff -> blacklist its width, re-path
     Hz.tick(t)               -- 2.235.0: keep learned hazards near the character in the zone list
+    Lk_mod.timer_tick(t)     -- 2.315.0: cast-lock timers (were izi.after)
     -- Backpedalling (2.97.0): nothing else may steer until it ends.
     if Lk_mod.backpedal_tick(t) then
         return
@@ -368,6 +369,11 @@ function F.pulse()
     local player = nil
     local okp, me = pcall(izi.me)
     if okp then player = me end
+    -- 2.315.0: the combat flag from the player (was izi.on_combat_start / finish)
+    if player then
+        local okc, inc = pcall(player.is_in_combat, player)
+        if okc then R.in_combat_flag = inc == true end
+    end
 
     -- Sentinel owns the tick while it is driving: the walker must stay silent.
     if R.sn_active then
@@ -454,31 +460,17 @@ do
         if ok and type(unsub) == "function" then NS.fsm_unsub[#NS.fsm_unsub + 1] = unsub end
     end
 
-    if type(izi.on_combat_start) == "function" then
-        keep_unsub(pcall(izi.on_combat_start, function(ev)
-            if is_me(ev) then R.in_combat_flag = true end
-        end))
-    end
-    if type(izi.on_combat_finish) == "function" then
-        keep_unsub(pcall(izi.on_combat_finish, function(ev)
-            if is_me(ev) then R.in_combat_flag = false end
-        end))
-    end
-    -- the class profile reads these to decide whether a retreat is warranted
-    if type(izi.on_spell_success) == "function" then
-        keep_unsub(pcall(izi.on_spell_success, function(ev)
-            if type(ev) ~= "table" then return end
-            local caster = ev.caster
-            local okp, me = pcall(izi.me)
-            if not okp or not me or not caster then return end
-            local ok1, g1 = pcall(caster.get_guid, caster)
-            local ok2, g2 = pcall(me.get_guid, me)
-            if not (ok1 and ok2) or g1 == nil or g1 ~= g2 then return end
-            R.last_spell_id = ev.spell_id
-            R.last_spell_target = ev.target
-            R.last_spell_t = izi.now()
-        end))
-    end
+    -- 2.315.0: no izi.on_combat_start / finish / spell_success any more
+    -- (izi.on_update is not called - main.lua). The combat flag is read from
+    -- the player in F.pulse; the last spell is recorded by the bot's own core
+    -- casts (spellcheck.cast_done -> F.note_spell).
+    local _ = keep_unsub
+    local _ = is_me
+end
+
+--- 2.315.0: a cast the bot sent (spellcheck.cast_done).
+function F.note_spell(id, target)
+    R.last_spell_id, R.last_spell_target, R.last_spell_t = id, target, izi.now()
 end
 
 function F.last_player_spell()

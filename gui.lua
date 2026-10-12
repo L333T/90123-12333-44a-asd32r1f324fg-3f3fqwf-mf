@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.314.0
+-- Version: 2.315.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1908,14 +1908,14 @@ local function toggle_gui()
     set_on("show_gui", not is_on("show_gui"))
 end
 
+-- 2.315.0: no izi.on_key_release (fired by izi.on_update, which is no longer
+-- called). Every hotkey is read with core.input.is_key_pressed in
+-- gui.process_keybinds (KEY_CODES below); earlier loads' IZI watchers are
+-- unbound once here.
 local unsubs = {}
 local function watch_key(code, fn)
-    local ok, unsub = pcall(function()
-        return izi.on_key_release(code, fn)
-    end)
-    if ok and type(unsub) == "function" then
-        unsubs[#unsubs + 1] = unsub
-    end
+    local _ = code
+    local _ = fn
 end
 
 if type(NS.unbind_hotkeys) == "function" then
@@ -1941,10 +1941,11 @@ NS.unbind_hotkeys = function()
 end
 
 local KEY_CODES = {
-    enable = { 0x60 },
-    pause = { 0x61 },
-    stop = { 0x62 },
-    show_gui = { 0x64, 0x25 },
+    -- 2.315.0: the extra codes the IZI watchers listened for are polled here too
+    enable = { 0x60, 996, 1006 },
+    pause = { 0x61, 997 },
+    stop = { 0x62, 998 },
+    show_gui = { 0x64, 0x25, 1000 },
 }
 local key_was_down = { enable = false, pause = false, stop = false, show_gui = false }
 

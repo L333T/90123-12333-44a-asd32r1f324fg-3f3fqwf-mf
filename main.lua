@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.314.0
+-- Version: 2.315.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -501,10 +501,19 @@ local function on_update()
     if errorlog then
         errorlog.tick(safe(function() return izi.now() end))
     end
-    probe("u:izi.on_update")
-    pcall(function()
-        izi.on_update()
-    end)
+    -- 2.315.0: NO izi.on_update. IZI's per-frame engine ran every frame, the
+    -- bot started or not, to serve five subscriptions: two hotkey watchers,
+    -- combat start / finish, spell success / cancel and izi.after timers -
+    -- each one reading the player's (and IZI's tracked units') combat and
+    -- cast state through IZI every frame. Three of six crashed sessions on
+    -- 2026-10-11 ended with the bot stopped, when nothing but this, the menu
+    -- and the idle movement pulse ran. Replaced by core-API polling of the
+    -- player only (callbacks.tick), core key polling (gui.process_keybinds)
+    -- and the movement pulse's own timers (movement/locks.lua).
+    probe("u:callbacks")
+    if izi_callbacks and type(izi_callbacks.tick) == "function" then
+        pcall(izi_callbacks.tick)
+    end
     if not gui then
         return
     end

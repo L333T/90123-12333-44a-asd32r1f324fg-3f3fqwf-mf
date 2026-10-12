@@ -3,7 +3,7 @@
 -- movement/combat.lua - closing on a target and standing in range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.0
+-- Version: 3.0.1
 -- ============================================================================
 -- combat_engage(player, unit, yards) is called every tick of a fight.
 --   * OWNERSHIP: each call holds travel off for COMBAT_HOLD s
@@ -32,6 +32,11 @@ local COMBAT_HOLD = 1.0
 local MELEE_YARDS = 5
 local CHASE_BAND = 3
 local CHASE_GAIN, CHASE_STALL = 2.0, 10.0
+-- 3.0.0.1: the chase re-paths only when the target moved CHASE_REPATH yd
+-- from the walk's goal, at most every CHASE_GAP s. AmeisenNav's walker
+-- driver restarts on every new path, and a re-path every 0.25 s made the
+-- chase stutter and fall behind (log 01:44, 48 -> 53 yd while "Closing").
+local CHASE_REPATH, CHASE_GAP = 4.0, 0.75
 local RETREAT_TIME = 2.5
 local DEFAULT_MELEE_DANGER = 8
 
@@ -123,7 +128,10 @@ function C.combat_engage(player, unit, yards)
     end
 
     if los and (range <= reach or (st.latched and range <= hold)) then
-        if N.mode() == "combat" then N.stop("in range") end
+        -- 3.0.0.1: ANY running walk stops here, not only the chase - the
+        -- route walk kept going through a fight and carried the player out
+        -- of range, unable to face the target (log 01:44, 14 -> 48 yd)
+        if N.busy() then N.stop("in range") end
         st.latched = true
         st.best, st.best_t = range, t
         Rg.face(unit)
@@ -143,7 +151,16 @@ function C.combat_engage(player, unit, yards)
         return false
     end
     local okp, pos = pcall(unit.get_position, unit)
-    if okp and pos then N.nav_to(pos, true, "combat") end
+    if okp and pos then
+        local tx, ty = R.xyz(pos)
+        local gx, gy = N.destination()
+        local chasing = N.mode() == "combat" and N.busy()
+        local moved = (not gx or not tx) or R.dist2(gx, gy, tx, ty) > CHASE_REPATH
+        if not chasing or (moved and (t - (st.chase_t or 0)) >= CHASE_GAP) then
+            st.chase_t = t
+            N.nav_to(pos, true, "combat")
+        end
+    end
     return false
 end
 

@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.0
+-- Version: 3.0.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -615,7 +615,10 @@ function trainer.tick(player)
     end
     if (now - last_act) < ACT_GAP then
         -- Mid-purchase: hold the cascade so nothing else grabs the window.
-        return open
+        -- 3.0.0.1: also right after "train me" was selected, while the window
+        -- is still opening - releasing then let the grind walk back to its
+        -- route and the window closed as it opened (log 01:46, x6).
+        return open or select_tries > 0
     end
 
     -- 1. A trainer window is open: spend.

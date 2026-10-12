@@ -62,6 +62,7 @@ local next_forward = 0     -- re-assert move forward (the game can drop it)
 local FORWARD_REFRESH = 1.0
 local turn_dir = 0         -- 1 = turning left, -1 = right, 0 = not turning
 local turn_until = 0
+local pivot = false        -- 2.0.2: a sharp turn is made standing (forward released)
 local sample_x, sample_y = nil, nil  -- where the current heading measurement started
 local MIN_MOVE_FOR_HEADING = 0.8     -- yards run before the heading is trusted
 local last_turn = nil      -- { err = signed deg, dur = s, idx = n } for turn-rate calibration
@@ -149,7 +150,8 @@ local function configure_walker()
     X.call(walker, "set_smoothing_enabled", false) -- the server returns the corners we want
     X.call(walker, "set_threshold", P.get("waypoint_threshold"))
     X.call(walker, "set_final_threshold", P.get("final_threshold"))
-    X.call(walker, "set_look_distance", P.get("look_distance"))
+    X.call(walker, "set_look_distance", math.max(5, P.get("look_distance") or 8))
+    X.call(walker, "set_turn_speed", C.walker_turn_speed or 0.5)   -- 2.0.2: turn fast
     walker_profile = P.env.profile
 end
 
@@ -168,6 +170,7 @@ local function release_inputs()
     if F.driver == "walker" then X.call(walker, "strafe", nil) end
     forward_stop()
     turn_stop()
+    pivot = false
     if backing_until then backing_stop() end
     -- a back-off interrupted by stop()/follow() must not leave the walk paused
     pause_reasons.backoff = nil
@@ -466,6 +469,7 @@ local function steer_by_facing(t, px, py, target)
     if not f then return false end
     local err_deg = math.deg(wrap(math.atan2(target.y - py, target.x - px) - f))
     local dir = err_deg > 0 and 1 or -1
+    pivot = math.abs(err_deg) >= (C.sharp_turn_deg or 60)
     if turn_dir ~= 0 then
         -- lined up, overshot, or the safety cap ran out
         if math.abs(err_deg) <= FACING_DONE_DEG or dir ~= turn_dir or t >= turn_until then
@@ -534,7 +538,7 @@ local function drive_input(t, px, py, pz)
         return false
     end
 
-    forward_start(t)
+    if pivot then forward_stop() else forward_start(t) end
     local target = steer_target(t, px, py, pz)
 
     if F.facing_trusted and steer_by_facing(t, px, py, target) then
@@ -542,10 +546,14 @@ local function drive_input(t, px, py, pz)
         return false
     end
 
+    -- measured steering pivots only inside a timed turn (the heading is
+    -- measured from movement, so standing still would never measure it)
+    if turn_dir == 0 then pivot = false end
     -- finish a timed turn, then measure afresh
     if turn_dir ~= 0 then
         if t < turn_until then return false end
         turn_stop()
+        pivot = false
         sample_x, sample_y = px, py
         return false
     end
@@ -566,6 +574,8 @@ local function drive_input(t, px, py, pz)
     if target == pts[idx] then calibrate(err_deg) else last_turn = nil end
     if math.abs(err_deg) > C.heading_tolerance then
         local dur = math.abs(err_deg) / rate()
+        pivot = math.abs(err_deg) >= (C.sharp_turn_deg or 60)
+        if pivot then forward_stop() end
         turn_start(err > 0 and 1 or -1)
         turn_until = t + dur
         last_turn = (target == pts[idx]) and { err = err_deg, dur = dur, idx = idx } or nil

@@ -3,7 +3,7 @@
 -- movement/zones.lua - blacklisted areas
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.4
+-- Version: 3.0.5
 -- ============================================================================
 -- Pure bookkeeping, no game calls. An area blacklisted (a destination that
 -- failed twice, a death zone - deathzones.lua) is never chosen as a walk

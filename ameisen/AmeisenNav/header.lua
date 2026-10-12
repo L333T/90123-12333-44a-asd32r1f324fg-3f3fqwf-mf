@@ -23,7 +23,7 @@
 local plugin = {}
 plugin["name"]      = "AmeisenNav"
 plugin["short_tag"] = "ANAV"
-plugin["version"]   = "2.0.1"
+plugin["version"]   = "2.0.2"
 plugin["author"]    = "BLIZZ"
 plugin["load"]      = true
 

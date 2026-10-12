@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/config.lua - defaults for every tunable
 -- ============================================================================
--- Version: 1.5.0
+-- Version: 1.7.3
 -- Author: BLIZZ
 -- ============================================================================
 -- One shared table. The menu (anav/ui.lua) writes the user-facing values into
@@ -48,6 +48,19 @@ local C = {
                                     -- where core.input.look_at does not turn the character
     turn_rate           = 180,      -- input driver: degrees per second the turn keys rotate
     heading_tolerance   = 12,       -- input driver: degrees off course before steering
+    -- 1.7.3: TIGHTER TURNS, NO ORBITING (user: "use tighter turns so
+    -- waypoints aren't circled"). simple_movement's turn speed (0.05-0.5,
+    -- higher = faster) was never set - the library default turned slowly, so
+    -- a corner was taken wide and a waypoint met off-axis was circled. It is
+    -- set to the maximum for every walk (restored after, like the thresholds).
+    -- Orbit guard: still within orbit_radius of the same waypoint after
+    -- orbit_time s without reaching it -> that waypoint is skipped
+    -- (simple_movement:skip_waypoint), never circled again. Not the last one.
+    walker_turn_speed   = 0.5,
+    orbit_radius        = 5.0,      -- yards around the waypoint being approached
+    orbit_time          = 1.2,      -- seconds there without reaching it
+    sharp_turn          = 60,       -- input driver: degrees off course that stop
+                                    -- forward and turn in place (zero turning circle)
 
     -- ------------------------------------------------------------ avoidance
     avoid               = true,     -- input driver: navmesh wall check + object cache + corner cutting

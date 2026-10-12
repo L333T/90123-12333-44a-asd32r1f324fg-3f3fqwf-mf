@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/follower.lua - walks a waypoint list
 -- ============================================================================
--- Version: 1.5.0
+-- Version: 1.7.3
 -- Author: BLIZZ
 -- ============================================================================
 -- Pure execution: it walks, watches and reports. Deciding what to do about a
@@ -74,6 +74,8 @@ local next_pull = 0
 local ADVICE_EVERY, AIM_HOLD, PULL_EVERY = 0.1, 0.4, 0.3
 
 local anchor_x, anchor_y, anchor_t = nil, nil, 0
+-- 1.7.3: orbit guard (walker driver) - { i = waypoint index, t = first time near it }
+local orbit = { i = nil, t = 0 }
 local next_sample = 0
 local next_deviation_check = 0
 local backing_until = nil
@@ -142,14 +144,18 @@ local function restore_walker()
     saved_thresholds = nil
     if type(sv.threshold) == "number" then X.call(walker, "set_threshold", sv.threshold) end
     if type(sv.final) == "number" then X.call(walker, "set_final_threshold", sv.final) end
+    if type(sv.turn) == "number" then X.call(walker, "set_turn_speed", sv.turn) end
 end
 
 local function configure_walker()
     if not saved_thresholds then
         local _, th = X.call(walker, "get_threshold")
         local _, fi = X.call(walker, "get_final_threshold")
-        saved_thresholds = { threshold = th, final = fi }
+        local _, tu = X.call(walker, "get_turn_speed")
+        saved_thresholds = { threshold = th, final = fi, turn = tu }
     end
+    -- 1.7.3: the fastest turn simple_movement allows - tight corners
+    X.call(walker, "set_turn_speed", C.walker_turn_speed or 0.5)
     X.call(walker, "set_use_look_at", want_look_at())
     X.call(walker, "set_smoothing_enabled", false) -- the server returns the corners we want
     -- 1.7.0: "reached" radius from the environment profile (open 2.5 yd,
@@ -611,6 +617,7 @@ local function drive_input(t, px, py, pz)
     if turn_dir ~= 0 then
         if t < turn_until then return false end
         turn_stop()
+        forward_start(t)          -- 1.7.3: after a turn in place
         sample_x, sample_y = px, py
         return false
     end
@@ -630,6 +637,9 @@ local function drive_input(t, px, py, pz)
     if target == pts[idx] then calibrate(err_deg) else last_turn = nil end
     if math.abs(err_deg) > C.heading_tolerance then
         local dur = math.abs(err_deg) / rate()
+        -- 1.7.3: a sharp corner is turned in place (forward released for the
+        -- turn): no turning circle, the waypoint is not run past and circled
+        if math.abs(err_deg) >= (C.sharp_turn or 60) then forward_stop() end
         turn_start(err > 0 and 1 or -1)
         turn_until = t + dur
         last_turn = (target == pts[idx]) and { err = err_deg, dur = dur, idx = idx } or nil
@@ -667,6 +677,31 @@ function F.tick()
     else
         local ok, r = X.call(walker, "process")
         reached = ok and r == true
+        -- 1.7.3: ORBIT GUARD. Near the same waypoint for orbit_time without
+        -- reaching it = circling it: skip it and run on to the next.
+        if not reached and px and not F.paused then
+            local oki, wi = X.call(walker, "get_current_index")
+            local okc, wn = X.call(walker, "get_waypoint_count")
+            local okt, tg = X.call(walker, "get_target")
+            if oki and okc and type(wi) == "number" and type(wn) == "number" and wi < wn
+                and okt and tg ~= nil then
+                local okx, tx, ty = pcall(function() return tg.x, tg.y end)
+                local near = okx and type(tx) == "number"
+                    and (tx - px) ^ 2 + (ty - py) ^ 2 <= (C.orbit_radius or 5) ^ 2
+                if near then
+                    if orbit.i ~= wi then
+                        orbit.i, orbit.t = wi, t
+                    elseif t - orbit.t >= (C.orbit_time or 1.2) then
+                        L.debug("orbit: waypoint %d/%d not reached in %.1fs within %.0f yd - skipped",
+                            wi, wn, t - orbit.t, C.orbit_radius or 5)
+                        X.call(walker, "skip_waypoint")
+                        orbit.i = nil
+                    end
+                elseif orbit.i == wi then
+                    orbit.i = nil
+                end
+            end
+        end
     end
     local last = F.points[#F.points]
 

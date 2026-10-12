@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.315.0
+-- Version: 2.316.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -321,8 +321,13 @@ local function fight_unit(player, unit, note)
             if type(movement.set_approach_target) == "function" then
                 movement.set_approach_target(guid_a)
             end
+            -- 2.316.0: only a walk headed at the target counts as approaching.
+            -- 19:37 log: a route leg to the guide point (started 0.4 s before
+            -- the engage) counted, and the character walked AWAY from a
+            -- Young Nightsaber - 50 -> 110 yd - until that leg ended.
             local walking = movement.is_moving()
                 and not (type(movement.in_combat_movement) == "function" and movement.in_combat_movement())
+                and (type(movement.headed_to) ~= "function" or movement.headed_to(up, 15))
             if walking or movement.nav_to(up) then
                 if not walking then
                     trail("act", "approach %s on a path (%.0f yd)",

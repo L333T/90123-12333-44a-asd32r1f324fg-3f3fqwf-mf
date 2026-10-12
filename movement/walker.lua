@@ -3,7 +3,7 @@
 -- movement/walker.lua - actuator: simple_movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.315.0
+-- Version: 2.316.0
 -- ============================================================================
 -- The only thing that actually moves the player, plus the bookkeeping that
 -- wraps every issued move (destination latch, quiet windows, failure marking)
@@ -53,6 +53,9 @@ function W.ensure()
     pcall(walker.set_threshold, walker, 2.0)
     pcall(walker.set_final_threshold, walker, 1.0)
     pcall(walker.set_look_distance, walker, 8)
+    -- 2.316.0: the fastest turn simple_movement allows (0.05-0.5) - tight
+    -- corners instead of wide arcs that circle a waypoint
+    pcall(walker.set_turn_speed, walker, 0.5)
     pcall(walker.set_debug, walker, false)
     R.walker_ready = true
     return true

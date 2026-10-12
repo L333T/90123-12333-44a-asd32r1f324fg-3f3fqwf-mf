@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.0
+-- Version: 3.0.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -127,6 +127,12 @@ end
 --- nil or empty list as "any npc", and the level band, tap rules and
 --- reachability checks still apply - so a route with no mob list is not
 --- unfiltered, it is just not restricted to a hand-listed set.
+-- 3.0.0.1: the zone table is built once per path and reused. A new table
+-- every tick made smooth_walk see "another route" each tick and hand
+-- AmeisenNav the whole lap again every frame (log 01:47: "walking 400
+-- points (route, 2801 yd)" ten times a second, the player stalled on a node).
+local zone_cache = setmetatable({}, { __mode = "k" })
+
 local function path_to_zone(path)
     -- coords is the path's own flat x,y,z array. Handing the same table over
     -- every tick matters: movement.plan_grind_route caches its route plan on
@@ -134,7 +140,11 @@ local function path_to_zone(path)
     if type(path) ~= "table" or path_format.count(path) < 1 then
         return nil
     end
-    return {
+    local z = zone_cache[path]
+    if z and z.coords == path.coords and z.mobs == path.mobs and z.merchant == path.merchant then
+        return z
+    end
+    z = {
         coords = path.coords,
         flat = true,
         path = path,
@@ -144,6 +154,8 @@ local function path_to_zone(path)
         map_id = path.map_id,
         name = path.name,
     }
+    zone_cache[path] = z
+    return z
 end
 
 local function current_zone(player)
@@ -435,7 +447,9 @@ local function smooth_walk(zone, n)
     if type(movement.follow_route) ~= "function" or n < 2 then return false end
     local here = state.cached_pos
     if not here or type(here.x) ~= "number" then return false end
-    if gc.zone ~= zone then gc.list, gc.zone = nil, zone end
+    -- 3.0.0.1: the route is identified by its path (or zone) table
+    local zkey = zone.path or zone
+    if gc.zone ~= zkey then gc.list, gc.zone = nil, zkey end
     if movement.is_quiet() or movement.in_combat_movement() then
         state.set_note("Grind", "Nav settle")
         return true

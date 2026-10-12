@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.313.0
+-- Version: 2.314.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -2411,10 +2411,10 @@ menu:on_tab("grinding", function(win, x, y, w, h)
 
     -- 3. what that route is
     if entry then
-        text(mute, string.format("Levels %s-%s   %d waypoints   %s",
+        -- 2.314.0: every grind route loops (grind/engine.lua open_route)
+        text(mute, string.format("Levels %s-%s   %d waypoints   loops",
             tostring(entry.min or "?"), tostring(entry.max or "?"),
-            tonumber(entry.count) or 0,
-            (entry.loop == true) and "loops" or "point to point"))
+            tonumber(entry.count) or 0))
         local vendors = entry.vendors
         if type(vendors) == "table" and #vendors > 0 then
             local ids = {}

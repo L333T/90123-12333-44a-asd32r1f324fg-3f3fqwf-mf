@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.3
+-- Version: 3.0.4
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -249,7 +249,13 @@ end
 function N.nav_to(dest, direct, mode)
     local x, y, z = R.xyz(dest)
     if not x then return false end
-    if N.refusal() and mode ~= "combat" then stats.refused = stats.refused + 1 return false end
+    local why = N.refusal()
+    -- combat walks always go; an NPC approach (movement.interact) goes
+    -- through its own NPC hold
+    if why and mode ~= "combat" and not (mode == "npc" and why == "npc") then
+        stats.refused = stats.refused + 1
+        return false
+    end
     if zfix[key_of(x, y)] then z = zfix[key_of(x, y)] end
     local hx, hy, hz = R.here()
     if hx and R.dist2(hx, hy, x, y) <= UNDERFOOT and math.abs(hz - z) < 3 then

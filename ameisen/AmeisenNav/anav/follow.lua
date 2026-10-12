@@ -13,7 +13,7 @@
 --   * only re-path when the unit moved C.follow_repath_move yards from the
 --     last goal, and always seamlessly (client:move_to{ seamless = true }):
 --     on WoW Forever a stop + restart of move forward may not resume
---   * name mode: the object manager is scanned at most every
+--   * name mode: the object manager (X.objects) is scanned at most every
 --     C.follow_scan_every seconds; the found object is reused meanwhile
 --
 -- Differences from the example, for WoW Forever:
@@ -48,7 +48,10 @@ local function alive(obj)
     local okv, valid = X.call(obj, "is_valid")
     if okv and valid == false then return false end
     local okd, dead = X.call(obj, "is_dead")
-    return not (okd and dead == true)
+    if not (okd and dead == true) then return true end
+    -- Feign Death reads as dead: keep following the hunter
+    local okf, feign = X.call(obj, "is_feign_death")
+    return okf and feign == true
 end
 
 local function focus_obj()
@@ -59,22 +62,29 @@ local function focus_obj()
     return nil
 end
 
+--- `object` is the living unit called `wanted` (not a bag item, which has a
+--- name too in the get_all_objects fallback). No goto: Lua 5.1 encoder.
+local function named(object, wanted)
+    if object == nil then return false end
+    local okn, name = X.call(object, "get_name")
+    if not okn or name ~= wanted then return false end
+    local oki, item = X.call(object, "is_item")
+    if oki and item == true then return false end
+    return alive(object)
+end
+
 local function find_by_name(wanted)
     local t = now()
     if name_obj and alive(name_obj) and t < next_scan then return name_obj end
     next_scan = t + C.follow_scan_every
     name_obj = nil
-    local list_fn = core.object_manager and core.object_manager.get_visible_objects
-    local ok, objects = X.call_fn("get_visible_objects", list_fn)
-    if not ok or type(objects) ~= "table" then return nil end
+    local objects = X.objects()
+    if type(objects) ~= "table" then return nil end
     for i = 1, #objects do
         local object = objects[i]
-        if object ~= nil then
-            local okn, name = X.call(object, "get_name")
-            if okn and name == wanted and alive(object) then
-                name_obj = object
-                return object
-            end
+        if named(object, wanted) then
+            name_obj = object
+            return object
         end
     end
     return nil
@@ -123,6 +133,13 @@ function FW.update(client)
     if not FW.active or FW.paused then return end
     local px, py = X.position()
     if not px then return end
+    -- a corpse cannot walk (a released ghost can): wait, keep following after
+    local me = X.player()
+    local okd, dead = X.call(me, "is_dead")
+    if okd and dead == true then
+        local okg, ghost = X.call(me, "is_ghost")
+        if not (okg and ghost == true) then return end
+    end
 
     local unit = FW.resolve()
     if not alive(unit) then

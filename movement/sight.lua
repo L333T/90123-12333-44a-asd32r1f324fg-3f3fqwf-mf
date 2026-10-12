@@ -4,7 +4,7 @@
 -- sight? Answered by AmeisenNav's navmesh, never by a game raycast.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- ============================================================================
 -- The user (2.313.0): "ensure enemy target is in LoS and not underground or
 -- unreachable" - after 2.311.0 removed every game raycast (los_to, trace_line,
@@ -62,7 +62,7 @@ local function xyz(p)
 end
 
 local function nav()
-    local ok, N = pcall(require, "movement/sentinel")
+    local ok, N = pcall(require, "movement/nav")
     if ok and type(N) == "table" and type(N.path_probe) == "function" then return N end
     return nil
 end

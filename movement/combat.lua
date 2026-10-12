@@ -1,903 +1,175 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- movement/combat.lua - combat movement
+-- movement/combat.lua - closing on a target and standing in range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- ============================================================================
--- Approach, retreat and the hysteresis that keeps the player off the range
--- edge. The class profile decides the "why" of a retreat; this module decides
--- the "when" through the band and the prediction, so no class code lives here.
+-- combat_engage(player, unit, yards) is called every tick of a fight.
+--   * OWNERSHIP: each call holds travel off for COMBAT_HOLD s
+--     (R.combat_until); combat_release() hands the player back at once.
+--   * IN POSITION: in sight and within the band - melee (yards <= 5): the
+--     GUI melee distance, held to +1 yd; ranged: CHASE_BAND inside the range,
+--     held to the full range. The walk stops, the player faces the target,
+--     and true is returned (the caller attacks).
+--   * CLOSING: AmeisenNav walks to the target (seamless re-paths as it
+--     moves; a unit standing on the goal is never an obstacle there), and
+--     false is returned. Out of sight closes in until it is in sight.
+--   * NO WAY CLOSER: no CHASE_GAIN yd of progress for CHASE_STALL s while
+--     out of position - the target is marked unreachable
+--     (state.mark_unreachable), which grind / quest check to drop it.
+--   * RETREAT: a class profile's should_retreat(ctx) (mage, priest) sends
+--     the player to AmeisenNav's kite point (client:kite) for RETREAT_TIME s.
 -- ============================================================================
 
----@type izi_api
-local izi = require("common/izi_sdk")
-
-local state = require("state")
-
-local K  = require("movement/const")
-local R  = require("movement/rt")
-local U  = require("movement/util")
-local G  = require("movement/geom")
-local L  = require("movement/leash")
-local S  = require("movement/steer")
-local W  = require("movement/walker")
-local N  = require("movement/sentinel")
--- Sentinel "pull" legs toward a target - off, see the pull-in below (2.76.0).
-local SENTINEL_PULL = false
-local O  = require("movement/own")
+local R = require("movement/core")
+local N = require("movement/nav")
 local Rg = require("movement/range")
-local Z  = require("movement/zones")
-
-local STATE                = K.STATE
-local OWNER                = K.OWNER
-local RESTRICT             = K.RESTRICT
-local MIN_NAV              = K.MIN_NAV
-local STEER_HOP            = K.STEER_HOP
-local QUIET_STOP           = K.QUIET_STOP
-local CHASE_BAND           = K.CHASE_BAND
-local STEER_BACKOFF        = K.STEER_BACKOFF
-local RETREAT_BAND         = K.RETREAT_BAND
-local CHASE_GIVE_UP        = K.CHASE_GIVE_UP
-local COMBAT_OFFSET        = K.COMBAT_OFFSET
-local PREDICT_AHEAD        = K.PREDICT_AHEAD
-local PREDICT_MARGIN       = K.PREDICT_MARGIN
-local DEFAULT_MELEE_DANGER = K.DEFAULT_MELEE_DANGER
-local PULL_RETRY           = K.PULL_RETRY
-local MELEE_YARDS          = K.MELEE_YARDS
-local MELEE_REACH          = K.MELEE_REACH
-local MELEE_HOLD           = K.MELEE_HOLD
-local MELEE_STANDOFF       = K.MELEE_STANDOFF
-local MELEE_MIN_HOP        = K.MELEE_MIN_HOP
-local CHASE_REISSUE        = K.CHASE_REISSUE
-local PULL_MAX_TRIES       = K.PULL_MAX_TRIES
-
-local pt = R.pt
-local xyz, here_xyz, dist2, dist3 = U.xyz, U.here_xyz, U.dist2, U.dist3
-local unit_xyz, unit_valid, unit_alive = U.unit_xyz, U.unit_valid, U.unit_alive
-local log, dlog, ground_z, walk_open = U.log, U.dlog, U.ground_z, U.walk_open
-
-local P_HERE, P_DEST, P_ALT, P_TMP = R.P_HERE, R.P_DEST, R.P_ALT, R.P_TMP
-
-local sqrt = math.sqrt
 
 local C = {}
 
--- ============================================================================
--- COMBAT PROFILE  (class rules without class code in the core)
--- ============================================================================
---- Register the active class's combat-movement rules. Every field is optional.
----   melee_danger   number  back away when a relevant enemy is inside this
----   melee_safe     number  stop backing away once this far out
----   should_retreat fun(ctx):boolean  ctx = {
----       player, target, distance, melee_count, enemies,
----       last_spell_id, last_spell_target, last_spell_age }
---- Returning false (or omitting should_retreat) disables retreating entirely.
+local COMBAT_HOLD = 1.0
+local MELEE_YARDS = 5
+local CHASE_BAND = 3
+local CHASE_GAIN, CHASE_STALL = 2.0, 10.0
+local RETREAT_TIME = 2.5
+local DEFAULT_MELEE_DANGER = 8
+
+local st = {
+    guid = nil, unit = nil, yards = nil,
+    latched = false,
+    best = nil, best_t = 0,
+    retreat_until = 0, kite_pending = false,
+    profile = nil,
+}
+
 function C.set_combat_profile(p)
-    R.profile = type(p) == "table" and p or nil
-    if R.profile then dlog("profile", "combat profile: " .. tostring(R.profile.name or "?")) end
+    st.profile = type(p) == "table" and p or nil
 end
 
 function C.clear_combat_profile()
-    R.profile = nil
+    st.profile = nil
 end
 
-local function melee_danger()
-    local n = R.profile and tonumber(R.profile.melee_danger)
-    if type(n) == "number" and n > 0 then return n end
-    return DEFAULT_MELEE_DANGER
-end
-
-local function melee_safe()
-    local n = R.profile and tonumber(R.profile.melee_safe)
-    if type(n) == "number" and n > melee_danger() then return n end
-    return melee_danger() + RETREAT_BAND
-end
-
--- ============================================================================
--- ENEMY QUERIES
--- ============================================================================
---- Enemies within `yards` of the player that are still worth positioning for.
-local function live_enemies(player, yards)
-    local ok, list = pcall(player.get_enemies_in_range, player, yards, false)
-    if not ok or type(list) ~= "table" then return nil, 0 end
-    return list, #list
-end
-
-local function melee_count(player)
-    local ok, list = pcall(player.get_enemies_in_melee_range, player, melee_danger(), false)
-    if not ok or type(list) ~= "table" then return 0, nil end
-    return #list, list
-end
-
---- Predicted distance from the player's current spot to where `unit` will be in
---- PREDICT_AHEAD seconds. nil when prediction is unavailable.
-local function predicted_distance(player, unit)
-    -- 2.245.0: the documented future position first (geometry.future_position:
-    -- position + normalized direction * movement speed * t), izi's
-    -- predict_position only when that cannot be read.
-    local okg, geo = pcall(require, "geometry")
-    local p = okg and type(geo) == "table" and type(geo.future_position) == "function"
-        and geo.future_position(unit, PREDICT_AHEAD) or nil
-    if not p then
-        local ok, ip = pcall(unit.predict_position, unit, PREDICT_AHEAD)
-        if not ok then return nil end
-        p = ip
-    end
-    local px, py, pz = xyz(p)
-    if not px then return nil end
-    local hx, hy, hz = here_xyz()
-    if not hx then hx, hy, hz = unit_xyz(player) end
-    if not hx then return nil end
-    return dist3(hx, hy, hz, px, py, pz)
-end
-
--- ============================================================================
--- RETREAT
--- ============================================================================
---- Should we back out of melee? Only the class profile decides the "why"
---- (frozen, snared, cooldown up...); the core decides the "when" via the
---- hysteresis band and the prediction.
--- RETREAT GUARDS (2.291.0). A Warlock without a pet, out of mana and at
--- low health kept retreating from a whelp in melee (20:54 Coldridge
--- session): the mob followed, hit the turned back, the hop ran into a wall
--- and the character died. A retreat only buys time to CAST from range, so:
---   * not below RETREAT_MIN_HP % health - fight back instead of giving
---     free hits while running,
---   * not below RETREAT_MIN_MANA % mana (a mana user) - nothing to cast,
---   * a retreat that gains less than RETREAT_PROGRESS yd in RETREAT_CHECK s
---     (a wall, a slope, a corner) is called off, and no retreat is tried
---     from that target for RETREAT_BLOCK s: fight in place.
-local RETREAT_MIN_HP = 40
-local RETREAT_MIN_MANA = 10
-local RETREAT_CHECK = 1.0
-local RETREAT_PROGRESS = 1.0
-local RETREAT_BLOCK = 8.0
-local RG = { block_guid = nil, block_until = 0, chk_t = nil, chk_x = nil, chk_y = nil }
-
-local function safe(fn)
-    local ok, v = pcall(fn)
-    if ok then return v end
+local function state_mod()
+    local ok, s = pcall(require, "state")
+    if ok and type(s) == "table" then return s end
     return nil
 end
 
-local function retreat_trail(fmt, ...)
-    local ok, el = pcall(require, "errorlog")
-    if ok and type(el) == "table" and type(el.trail) == "function" then pcall(el.trail, "retreat", fmt, ...) end
+local function want_retreat(player, unit, range)
+    local p = st.profile
+    if not p or type(p.should_retreat) ~= "function" then return false end
+    local enemies = {}
+    local oke, list = pcall(player.get_enemies_in_range, player, tonumber(p.melee_danger) or DEFAULT_MELEE_DANGER, false)
+    if oke and type(list) == "table" then enemies = list end
+    local ctx = {
+        player = player, target = unit, distance = range, melee_count = #enemies, enemies = enemies,
+        last_spell_id = R.last_spell_id, last_spell_target = R.last_spell_target,
+        last_spell_age = R.now() - (R.last_spell_t or 0),
+    }
+    local ok, v = pcall(p.should_retreat, ctx)
+    return ok and v == true
 end
 
---- false + why when a retreat would only hurt (see RETREAT GUARDS).
-local function retreat_allowed(player, target)
-    local g = target and safe(function() return target:get_guid() end)
-    if g ~= nil and g == RG.block_guid and izi.now() < RG.block_until then return false, "blocked" end
-    -- 2.306.0 (audit CORE-A-1): get_health_percent / health_pct are not
-    -- declared - both read nil, so the 40% retreat guard never applied.
-    -- get_health / get_max_health (game_object.lua), else
-    -- get_health_percentage as is (1..100, izi_sdk.lua:72; no pct_of rescale).
-    local hp = nil
-    do
-        local cur = safe(function() return player:get_health() end)
-        local mx = safe(function() return player:get_max_health() end)
-        if type(cur) == "number" and type(mx) == "number" and mx > 0 then
-            hp = cur / mx * 100
-        else
-            local v = safe(function() return player:get_health_percentage() end)
-            if type(v) == "number" and v == v then hp = v end
+local function start_retreat(player, unit)
+    if st.kite_pending then return end
+    local c = N.client()
+    if not c or type(c.kite) ~= "function" then return end
+    local okp, pp = pcall(player.get_position, player)
+    local oku, up = pcall(unit.get_position, unit)
+    if not okp or not oku or not pp or not up then return end
+    st.kite_pending = true
+    local ok = pcall(c.kite, c, R.point(pp), R.point(up), function(point)
+        st.kite_pending = false
+        if point and N.nav_to(point, true, "combat") then
+            st.retreat_until = R.now() + RETREAT_TIME
+            R.trail("move", "retreat to the kite point (%.0f, %.0f)", point.x or 0, point.y or 0)
         end
-    end
-    if hp and hp < RETREAT_MIN_HP then return false, string.format("health %d%%", hp) end
-    local ok_p, pw = pcall(require, "power")
-    if ok_p and type(pw) == "table" and type(pw.has_mana) == "function" and pw.has_mana(player) then
-        local mp = type(pw.mana_pct) == "function" and pw.mana_pct(player) or nil
-        if type(mp) == "number" and mp < RETREAT_MIN_MANA then return false, string.format("mana %d%%", mp) end
-    end
-    return true
+    end)
+    if not ok then st.kite_pending = false end
 end
 
-local function want_retreat(player, target, distance)
-    local profile = R.profile
-    if not profile or type(profile.should_retreat) ~= "function" then return false end
-    local allowed, why_not = retreat_allowed(player, target)
-    if not allowed then
-        if izi.now() < R.retreat_until then
-            R.retreat_until = 0
-            retreat_trail("retreat called off: %s - fighting in place", tostring(why_not))
-        end
-        return false
-    end
-    local danger = melee_danger()
-
-    -- already retreating: keep going until we are past melee_safe (hysteresis)
-    if izi.now() < R.retreat_until then
-        return distance < melee_safe()
-    end
-
-    local close = distance <= danger
-    if not close then
-        -- not close yet, but closing fast enough to be inside the band shortly
-        local pd = predicted_distance(player, target)
-        if not pd or pd > (danger - PREDICT_MARGIN) then return false end
-    end
-
-    local mc, mlist = melee_count(player)
-    local ok, want = pcall(profile.should_retreat, {
-        player            = player,
-        target            = target,
-        distance          = distance,
-        melee_count       = mc,
-        enemies           = mlist,
-        last_spell_id     = R.last_spell_id,
-        last_spell_target = R.last_spell_target,
-        last_spell_age    = R.last_spell_t > 0 and (izi.now() - R.last_spell_t) or nil,
-    })
-    return ok and want == true
-end
-
---- Issue a retreat hop directly away from `target` (and away from the melee
---- pack when there is one). Simple Movement is the actuator; the combat
---- controller owns it exclusively while COMBAT is the movement owner.
-local function retreat_from(player, target)
-    if not O.owns(OWNER.COMBAT) then return false end
-    local hx, hy, hz = here_xyz()
-    if not hx then hx, hy, hz = unit_xyz(player) end
-    local ux, uy, uz = unit_xyz(target)
-    if not hx or not ux then return false end
-
-    local here = pt(P_HERE, hx, hy, hz)
-    -- retreat away from the centroid of the melee pack when several are on us
-    local mc, mlist = melee_count(player)
-    local tx, ty, tz = ux, uy, uz
-    if mc > 1 and type(mlist) == "table" then
-        local sx, sy, sz, n = 0, 0, 0, 0
-        for i = 1, #mlist do
-            local ex, ey, ez = unit_xyz(mlist[i])
-            if ex then sx, sy, sz, n = sx + ex, sy + ey, sz + ez, n + 1 end
-        end
-        if n > 0 then tx, ty, tz = sx / n, sy / n, sz / n end
-    end
-
-    local threat = pt(P_DEST, tx, ty, tz)
-    local need = melee_safe() - dist2(hx, hy, tx, ty)
-    if need < MIN_NAV then need = MIN_NAV end
-    if need > STEER_HOP * 2 then need = STEER_HOP * 2 end
-
-    -- A mesh-aware spot from Sentinel first (2.59.0): flee from the pack when
-    -- several are on us, kite a single target otherwise. The geometric
-    -- away-vector is the fallback while no answer is fresh.
-    local spot = nil
-    local sn_spot
-    if mc > 1 and type(mlist) == "table" then
-        local threats = {}
-        for i = 1, #mlist do
-            local ex, ey, ez = unit_xyz(mlist[i])
-            if ex then threats[#threats + 1] = { x = ex, y = ey, z = ez } end
-        end
-        sn_spot = N.flee_point(here, threats)
-    else
-        sn_spot = N.kite_point(here, { x = ux, y = uy, z = uz })
-    end
-    if sn_spot then
-        spot = pt(P_TMP, sn_spot.x, sn_spot.y, sn_spot.z)
-    else
-        spot = G.away_from(P_TMP, here, threat, need)
-    end
-    if spot and S.cand_ok(here, spot, nil, false) then
-        R.retreat_x, R.retreat_y, R.retreat_z = spot.x, spot.y, spot.z
-        R.retreat_until = izi.now() + 2.0
-        return W.move(spot, "retreat")
-    end
-
-    -- straight back is blocked: peel off to the side instead of hugging a wall
-    if not spot then
-        dlog("retreat", "no retreat vector (on top of threat)")
-        return false
-    end
-    for i = 1, #COMBAT_OFFSET do
-        local alt = G.rotate(P_ALT, spot, here, COMBAT_OFFSET[i])
-        if S.cand_ok(here, alt, nil, false) then
-            R.retreat_x, R.retreat_y, R.retreat_z = alt.x, alt.y, alt.z
-            R.retreat_until = izi.now() + 2.0
-            return W.move(alt, "retreat_side")
-        end
-    end
-    dlog("retreat", "no retreat lane")
-    return false
-end
-
--- ============================================================================
--- APPROACH
--- ============================================================================
---- Issue a combat approach hop toward a computed point.
-local function combat_hop(p, min_hop)
-    min_hop = min_hop or MIN_NAV
-    if not O.owns(OWNER.COMBAT) or R.rest_lock then return false end
-    -- Only a live walk blocks a new hop. Stale pending (a dest issued but
-    -- the body never moved) is what left the 22:51 log standing at 43 yd.
-    if R.walker_moving or R.sn_active then return true end
-    if not O.nav_gap_ok() then return true end
-    local hx, hy, hz = here_xyz()
-    if not hx then return false end
-    local here = pt(P_HERE, hx, hy, hz)
-    local target = pt(P_TMP, p.x, p.y, p.z)      -- own copy: steering reuses p's slot
-    if L.needs_rejoin() or not L.allows(here, target) then
-        target = S.rejoin_hop(here)
-        if not target then return false end
-    end
-    if not walk_open(here, target) then
-        local hop = dist2(hx, hy, target.x, target.y)
-        if hop > STEER_HOP then hop = STEER_HOP end
-        target = S.pick_steer(here, target, hop, false, true)
-        if not target or not walk_open(here, target) then return false end
-    end
-    if not W.ensure() then return false end
-    if dist3(hx, hy, hz, target.x, target.y, target.z) < min_hop then return false end
-    return W.move(target, "chase")
-end
-
---- Remember an unreachable mob so the target selector stops offering it.
-local function note_chase_failure(unit, t)
-    local okg, guid = pcall(unit.get_guid, unit)
-    local key = (okg and guid ~= nil) and guid or "?"
-    if R.chase_fail_key ~= key then
-        R.chase_fail_key, R.chase_fail_t = key, t
-    elseif (t - R.chase_fail_t) >= CHASE_GIVE_UP then
-        if type(state.mark_unreachable) == "function" then state.mark_unreachable(guid) end
-        R.chase_fail_key, R.chase_fail_t = nil, 0
-        log("Blacklist unreachable mob after " .. tostring(CHASE_GIVE_UP) .. "s")
-    end
-end
-
--- ============================================================================
--- ENGAGE
--- ============================================================================
---- Drive combat movement for one tick. Returns true when the player is in
---- position to fight (in range, LoS, not repositioning).
----
---- This is the only entry point that takes combat ownership. Callers invoke it
---- every tick while they want to fight `unit`; when they stop calling it, the
---- state machine notices and releases combat movement on its own terms.
--- ============================================================================
--- GET BEHIND THE TARGET (2.228.0)
--- ============================================================================
--- A profile may ask for the rear arc: want_behind(player, unit) -> true (the
--- rogue's Stealth opener, for Backstab). Melee only. The spot is BEHIND_YD
--- behind the target along its facing (get_direction); when the straight
--- line there passes within FRONT_CLEAR yards of the target's centre, the
--- walk goes by its flank first, so the character does not cut across the
--- front. Returns false while walking there, nil when there is nothing to do
--- (no request, already behind, no facing, path blocked) - the normal
--- approach then runs.
-local BEHIND_YD = 2.0
-local FLANK_YD = 3.5
-local FRONT_CLEAR = 2.5
-local BEHIND_REISSUE = 1.5
-
-local function behind_step(player, unit)
-    local prof = R.profile
-    if not prof or type(prof.want_behind) ~= "function" then return nil end
-    local okw, want = pcall(prof.want_behind, player, unit)
-    if not okw or want ~= true then return nil end
-    local okb, behind = pcall(player.is_behind_unit, player, unit)
-    if okb and behind == true then return nil end
-    local okd, dir = pcall(unit.get_direction, unit)
-    if not okd or dir == nil then return nil end
-    local okx, fx, fy = pcall(function() return dir.x, dir.y end)
-    if not okx or type(fx) ~= "number" or type(fy) ~= "number" then return nil end
-    local flen = sqrt(fx * fx + fy * fy)
-    if flen < 0.01 then return nil end
-    fx, fy = fx / flen, fy / flen
-    local ux, uy, uz = unit_xyz(unit)
-    local hx, hy, hz = here_xyz()
-    if not ux or not hx then return nil end
-    local bx, by = ux - fx * BEHIND_YD, uy - fy * BEHIND_YD
-    -- Does the straight line from here to the spot pass the target's front?
-    local tx, ty = bx, by
-    local lx, ly = bx - hx, by - hy
-    local llen2 = lx * lx + ly * ly
-    if llen2 > 0.01 then
-        local k = ((ux - hx) * lx + (uy - hy) * ly) / llen2
-        if k > 0 and k < 1 then
-            local cx, cy = hx + lx * k, hy + ly * k
-            -- Only a pass through the FRONT half needs the flank detour.
-            if dist2(cx, cy, ux, uy) < FRONT_CLEAR and ((cx - ux) * fx + (cy - uy) * fy) > -0.5 then
-                -- Flank on our side of the target first.
-                local nx, ny = -fy, fx
-                if (hx - ux) * nx + (hy - uy) * ny < 0 then nx, ny = -nx, -ny end
-                tx, ty = ux + nx * FLANK_YD, uy + ny * FLANK_YD
-            end
-        end
-    end
-    if dist2(hx, hy, tx, ty) < 0.75 then return nil end
-    if R.has_dest and (R.walker_moving or R.pending)
-        and dist2(R.dest_x, R.dest_y, tx, ty) <= BEHIND_REISSUE then
-        Rg.face(unit)
-        return false                         -- already walking there
-    end
-    if not O.nav_gap_ok() then return false end
-    local here = pt(P_HERE, hx, hy, hz)
-    local dest = pt(P_ALT, tx, ty, ground_z(tx, ty, uz or hz))
-    if not walk_open(here, dest) or not W.ensure() then return nil end
-    if W.move(dest, "behind") then
-        R.combat_stopped = false
-        dlog("combat", string.format("stepping behind the target (%.1f, %.1f)", tx, ty))
-        return false
-    end
-    return nil
-end
-
+--- True when in position to attack `unit` from `yards`; false while closing.
 function C.combat_engage(player, unit, yards)
-    if not player or not unit or R.rest_lock then return false end
-    -- Backpedalling after Frost Nova owns movement (2.97.0): no chase, no hop.
-    if R.backpedal_until then return false end
-    if not unit_valid(unit) then return false end
+    if not player or not unit then return false end
+    if R.resting or R.backpedal_until then return false end
+    if not R.alive(unit) then return false end
     yards = tonumber(yards) or 20
-    if yards < 1 then yards = 5 end
-    -- MELEE (2.26.0): every melee rotation reports a 5-yard combat range.
-    -- Stopping at 5 yards from the target's centre left melee out of swing
-    -- range of anything small, so melee closes to MELEE_REACH instead.
+    if yards < 1 then yards = MELEE_YARDS end
+    local t = R.now()
+    R.combat_until = t + COMBAT_HOLD
+
+    local guid = R.guid(unit)
+    if guid == nil or guid ~= st.guid then
+        st.guid, st.latched, st.best, st.best_t = guid, false, nil, t
+        st.retreat_until, st.kite_pending = 0, false
+    end
+    st.unit, st.yards = unit, yards
+
+    local okd, range = pcall(player.distance_to, player, unit)
+    if not okd or type(range) ~= "number" then return false end
+    local los = Rg.has_los(player, unit)
     local melee = yards <= MELEE_YARDS
-    -- Melee distance from the GUI: stand at the slider, in position at the
-    -- slider, chase again 1 yd past it. 2.90.0 arrived 1-2 yd outside the
-    -- setting; the 00:52 warrior then stopped well short of it.
-    local m_stand, m_reach, m_hold = MELEE_STANDOFF, MELEE_REACH, MELEE_HOLD
-    if melee then
-        m_stand = yards
-        m_reach = yards
-        m_hold = yards + 1
-    end
+    local reach = melee and yards or math.max(MELEE_YARDS, yards - CHASE_BAND)
+    local hold = melee and (yards + 1) or yards
+    local ready = los and range <= hold
 
-    R.combat_req, R.combat_req_t = true, izi.now()
-    -- By GUID, never `R.combat_target ~= unit` (2.47.0): comparing two game
-    -- objects runs the native __eq, which THROWS "Invalid game object!" once
-    -- the stored one has been freed - it aborted combat movement every tick
-    -- (150+ times in the 22:54 log) until the target changed.
-    local ok_g, guid = pcall(unit.get_guid, unit)
-    if not ok_g then guid = nil end
-    if guid == nil or R.combat_guid ~= guid then
-        -- Light crash capture over the first moments of the approach (2.87.0).
-        local ok_gui, gui_m = pcall(require, "gui")
-        if ok_gui and gui_m and type(gui_m.is_on) == "function" and gui_m.is_on("crash_capture") then
-            local ok_e, el = pcall(require, "errorlog")
-            if ok_e and type(el) == "table" and type(el.arm_light) == "function" then
-                el.arm_light(1.5, "approach a new target")
-            end
-        end
-        -- new target: the hysteresis latch and the retreat latch describe the
-        -- old one, so carrying them over would mis-band the first approach.
-        R.combat_stopped = false
-        R.retreat_until = 0
-        RG.chk_t = nil                         -- 2.291.0
-        R.chase_fail_key, R.chase_fail_t = nil, 0
-        R.combat_ok_since = 0
-    end
-    R.combat_target, R.combat_yards, R.combat_guid = unit, yards, guid
-    if R.cur_state == STATE.RESTRICTED then
-        -- rooted: we cannot reposition, but we can still turn and cast
-        if R.restrict_why ~= RESTRICT.ROOT then return false end
-        Rg.face(unit)
-        return Rg.in_fight_range(player, unit, yards)
-    end
-
-    -- Sentinel is still landing an out-of-combat PULL-IN - combat's own leg
-    -- toward this target. Taking COMBAT here would halt it, and we would
-    -- re-issue it next frame forever. Let it finish.
-    --
-    -- Any OTHER Sentinel leg is halted (2.54.0). A waypoint walk is a
-    -- Sentinel leg too, and this used to wait for it: a mob engaged on the
-    -- way to a quest waypoint was "fought" while the character kept walking
-    -- to the waypoint - "closing" with the distance growing 4 -> 14 yd, the
-    -- mob hitting its back, nothing ever killed (22:xx log).
-    if R.sn_active then
-        if R.sn_why == "pull" then
-            R.chase_fail_key, R.chase_fail_t = nil, 0
-            Rg.face(unit)
-            return false
-        end
-        -- 2.262.0: hand the walker over (no key release) when AmeisenNav can
-        local why = R.sn_why
-        if type(N.handoff) == "function" and N.handoff("simple") then
-            dlog("combat", "Ameisen leg '" .. tostring(why) .. "' handed to combat movement")
-        else
-            O.halt_all()
-            dlog("combat", "halted Ameisen leg '" .. tostring(why) .. "' to fight")
-        end
-    end
-
-    O.take(OWNER.COMBAT)
-
-    local ready, range, has_los = Rg.in_fight_range(player, unit, yards)
-    if melee then
-        -- Swinging range: m_hold (5 yd) once in position.
-        ready = has_los and type(range) == "number" and range <= m_hold
-    end
-    local t = izi.now()
-
-    -- 1. retreat has priority over everything else while it is latched
+    -- retreating: the kite walk runs, the caller casts what it can
+    if t < st.retreat_until then return ready end
     if want_retreat(player, unit, range) then
-        R.combat_stopped = false
-        R.chase_fail_key, R.chase_fail_t = nil, 0
-        -- 2.291.0: a retreat that does not get away (a wall) is called off
-        local hx, hy = here_xyz()
-        if hx then
-            if not RG.chk_t then
-                RG.chk_t, RG.chk_x, RG.chk_y = t, hx, hy
-            elseif t - RG.chk_t >= RETREAT_CHECK then
-                local moved = dist2(hx, hy, RG.chk_x, RG.chk_y)
-                if moved < RETREAT_PROGRESS then
-                    RG.block_guid, RG.block_until = guid, t + RETREAT_BLOCK
-                    RG.chk_t = nil
-                    R.retreat_until = 0
-                    if O.is_moving() then O.halt_all() end
-                    retreat_trail("retreat from %s blocked (%.1f yd in %.0f s - a wall?) - fighting in place for %.0f s",
-                        tostring(safe(function() return unit:get_name() end)), moved, RETREAT_CHECK, RETREAT_BLOCK)
-                    Rg.face(unit)
-                    return ready
-                end
-                RG.chk_t, RG.chk_x, RG.chk_y = t, hx, hy
-            end
-        end
-        if not O.is_moving() and O.nav_gap_ok() then
-            retreat_from(player, unit)
-        end
-        Rg.face(unit)
-        return ready
-    end
-    RG.chk_t = nil
-    if R.retreat_until > 0 then
-        -- edge: the profile has stopped asking, so drop the latch once and stop
-        -- the retreat hop. Leaving it set would cancel the next approach.
-        R.retreat_until = 0
-        if O.is_moving() then O.halt_all() end
-        dlog("retreat", string.format("clear at %.1f yd", range))
+        start_retreat(player, unit)
+        if t < st.retreat_until or st.kite_pending then return ready end
     end
 
-    -- 1b. the rear arc, when the profile asks for it (2.228.0)
-    if melee and type(range) == "number" and range <= 10 then
-        local bh = behind_step(player, unit)
-        if bh ~= nil then return bh end
-    end
-
-    -- 2. in position, with hysteresis: we must close to CHASE_BAND inside max
-    --    range before we call it "in position", but once we are there we hold
-    --    until we fall all the way back outside max range. Without the two
-    --    thresholds the player oscillates on the range edge.
-    local hold_in = yards - CHASE_BAND
-    if hold_in < 5 then hold_in = yards end
-    local in_band
-    if melee then
-        -- Arrive at the GUI slider; once there, hold until 1 yd past it.
-        if R.combat_stopped then
-            in_band = range <= m_hold
-        else
-            in_band = range <= m_reach
-        end
-    elseif R.combat_stopped then
-        in_band = range <= yards            -- holding: leave only past max range
-    else
-        in_band = range <= hold_in          -- closing: arrive well inside it
-    end
-    if has_los and in_band then
-        R.chase_fail_key, R.chase_fail_t = nil, 0
-        if not R.combat_stopped then
-            R.combat_stopped = true
-            if R.pending or O.is_moving() then O.halt_all() end
-            dlog("combat", string.format("in position at %.1f yd (band %.1f/%.1f)",
-                range, hold_in, yards))
-        end
+    if los and (range <= reach or (st.latched and range <= hold)) then
+        if N.mode() == "combat" then N.stop("in range") end
+        st.latched = true
+        st.best, st.best_t = range, t
         Rg.face(unit)
         return true
     end
-    if R.combat_stopped then
-        dlog("combat", string.format("left band at %.1f yd - chasing", range))
-    end
-    R.combat_stopped = false
+    st.latched = false
 
-    -- 3. long out-of-combat pull-in: one Sentinel leg to just inside range when
-    --    the mob is far and the straight line is blocked.
-    --
-    --    THROTTLED (2.23.0). This bypassed every gate navigation has - move gap,
-    --    failure cooldown, blacklisted areas - so when Sentinel answered at once
-    --    (off-mesh, unreachable, or already there) the next frame asked again,
-    --    and the frame after: a navmesh request per frame for as long as the
-    --    bot travelled to the mob. Now: the move gap applies, a failed leg waits
-    --    PULL_RETRY before the same mob is tried again, a blacklisted spot is
-    --    never asked for, and after PULL_MAX_TRIES legs the mob is marked
-    --    unreachable like any other chase that goes nowhere.
-    local okc, in_cbt = pcall(player.is_in_combat, player)
-    local pull_key = nil
-    do
-        local okg, g = pcall(unit.get_guid, unit)
-        pull_key = (okg and g ~= nil) and g or unit
-    end
-    if R.pull_key ~= pull_key then
-        R.pull_key, R.pull_next_t, R.pull_tries = pull_key, 0, 0
-    end
-    -- SENTINEL PULL-IN OFF (2.76.0). Every game crash of 2026-09-27 whose
-    -- log reaches the moment (11:49:55, 12:45:04, 13:31:22) came within about
-    -- a second of a Sentinel "pull" leg starting toward a fresh target 44-50
-    -- yd away - out in the open and inside the Echo Ridge mine alike - and
-    -- pull legs had also been seen hanging (2.70.0). While such a leg runs this
-    -- plugin does almost nothing per frame; Sentinel drives. Closing on a
-    -- target is left to the local walker (direct chase, steering, and the
-    -- find_path-planned chase below), which is how every in-combat approach
-    -- already works. Sentinel keeps long-distance travel.
-    if SENTINEL_PULL and not (okc and in_cbt == true) and type(range) == "number" and range > 30
-        and t >= R.pull_next_t and O.nav_gap_ok() then
-        local ux, uy, uz = unit_xyz(unit)
-        local hx, hy, hz = here_xyz()
-        if ux and hx then
-            local here, goal = pt(P_HERE, hx, hy, hz), pt(P_DEST, ux, uy, ground_z(ux, uy, uz))
-            if not walk_open(here, goal) then
-                local pull = yards - 5
-                if pull < MIN_NAV then pull = yards end
-                local dx, dy, dz = hx - ux, hy - uy, hz - uz
-                local len = sqrt(dx * dx + dy * dy)
-                if len > pull then
-                    local s = pull / len
-                    local dest = pt(P_TMP, ux + dx * s, uy + dy * s,
-                                   ground_z(ux + dx * s, uy + dy * s, uz + dz * s))
-                    if R.pull_tries >= PULL_MAX_TRIES then
-                        -- Every leg so far has ended without closing the gap.
-                        local okg, guid = pcall(unit.get_guid, unit)
-                        if okg and guid ~= nil and type(state.mark_unreachable) == "function" then
-                            state.mark_unreachable(guid)
-                        end
-                        log("Pull-in gave up after " .. tostring(PULL_MAX_TRIES) .. " legs")
-                        R.pull_next_t = t + PULL_RETRY * 10
-                    elseif not Z.blocked_xy(dest.x, dest.y) then
-                        R.pull_tries = R.pull_tries + 1
-                        R.pull_next_t = t + PULL_RETRY
-                        -- A Sentinel leg is out-of-combat navigation, so hand the
-                        -- player to NAV for the pull-in. combat_engage retakes
-                        -- COMBAT once the leg lands and sn_active goes false.
-                        O.take(OWNER.NAV)
-                        if N.move(dest, "pull") then
-                            R.chase_fail_key, R.chase_fail_t = nil, 0
-                            return false
-                        end
-                        O.take(OWNER.COMBAT)
-                    end
-                end
-            end
-        end
-    end
-
-    -- 2.313.0: is the straight line really open? The game ray behind
-    -- walk_open is gone (2.311.0); the navmesh says "around" when the walk to
-    -- the target bends round something - then the planned path (4b) is
-    -- walked instead of running at the wall.
-    local line_clear = true
-    do
-        local ok_s, Sg = pcall(require, "movement/sight")
-        if ok_s and type(Sg) == "table" then
-            local okv, v = pcall(Sg.verdict, player, unit)
-            line_clear = not (okv and v == "around")
-        end
-    end
-
-    -- 4a. DIRECT CHASE (2.37.0). When the straight line to the target is
-    -- clear, walk straight at it in ONE move - to melee contact, or to the
-    -- class's range - and only re-aim when the target has shifted more than
-    -- CHASE_REISSUE from where that move is headed.
-    --
-    -- The steering search below hands out STEER_HOP (5 yd) hops chosen from
-    -- angled offsets and side-steps, re-planned about every half second from
-    -- wherever the last one ended; a chain of slightly angled hops is the S
-    -- the character weaved in on a mob in open ground. Steering is kept for
-    -- when something is actually in the way. The path leash still applies.
-    do
-        local ux, uy, uz = unit_xyz(unit)
-        local hx, hy, hz = here_xyz()
-        if not hx then hx, hy, hz = unit_xyz(player) end
-        if ux and hx and O.owns(OWNER.COMBAT) and not R.rest_lock then
-            local stand = m_stand
-            if not melee then
-                stand = yards - CHASE_BAND
-                if stand < 5 then stand = yards end
-            end
-            local remain = dist2(hx, hy, ux, uy)
-            if remain > 0 and (remain - stand) >= MELEE_MIN_HOP then
-                local s = (remain - stand) / remain
-                local dx, dy = hx + (ux - hx) * s, hy + (uy - hy) * s
-                local moving = R.walker_moving or R.sn_active
-                local shifted = not R.has_dest or dist2(R.dest_x, R.dest_y, dx, dy) > CHASE_REISSUE
-                if moving and not shifted then
-                    -- Already walking the straight line: keep going.
-                    R.chase_fail_key, R.chase_fail_t = nil, 0
-                    return false
-                end
-                if O.nav_gap_ok() and not L.needs_rejoin() then
-                    local here = pt(P_HERE, hx, hy, hz)
-                    local goal = pt(P_DEST, ux, uy, ground_z(ux, uy, uz))
-                    local dest = pt(P_ALT, dx, dy, hz + (goal.z - hz) * s)
-                    if L.allows(here, dest) and line_clear and walk_open(here, goal) and W.ensure()
-                        and W.move(dest, "chase_direct") then
-                        R.chase_fail_key, R.chase_fail_t = nil, 0
-                        return false
-                    end
-                    -- 2.319.0: an OBJECT on the straight line: step round it
-                    -- (movement/objects.lua detour - tangent point, clear and
-                    -- safe) instead of the whole path / steering search
-                    if line_clear and L.allows(here, dest) then
-                        local ok_o, Ob = pcall(require, "movement/objects")
-                        local det = ok_o and type(Ob) == "table" and type(Ob.detour) == "function"
-                            and Ob.detour(here, goal) or nil
-                        if det and W.ensure() and W.move(pt(P_TMP, det.x, det.y, det.z), "object_detour") then
-                            dlog("combat", string.format("object in the way - detour via (%.1f, %.1f)", det.x, det.y))
-                            R.chase_fail_key, R.chase_fail_t = nil, 0
-                            return false
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    if R.walker_moving or R.sn_active then
-        R.chase_fail_key, R.chase_fail_t = nil, 0
-        Rg.face(unit)
+    -- closing
+    if st.best == nil or range < st.best - CHASE_GAIN then
+        st.best, st.best_t = range, t
+    elseif (t - st.best_t) >= CHASE_STALL then
+        local s = state_mod()
+        if s and guid and type(s.mark_unreachable) == "function" then s.mark_unreachable(guid) end
+        R.trail("move", "no way closer to %s for %.0f s (%.0f yd%s) - marked unreachable",
+            tostring(select(2, pcall(unit.get_name, unit))), t - st.best_t, range, los and "" or ", out of sight")
+        st.best, st.best_t = range, t
         return false
     end
-
-    -- 4. close the gap (line blocked: steer around it)
-    local ux, uy, uz = unit_xyz(unit)
-    if not ux then return false end
-    local hx, hy, hz = here_xyz()
-    if not hx then hx, hy, hz = unit_xyz(player) end
-    if not hx then return false end
-    local here, goal = pt(P_HERE, hx, hy, hz), pt(P_DEST, ux, uy, ground_z(ux, uy, uz))
-
-    -- 4b. BLOCKED LINE: a Sentinel-planned path, walked by the local walker
-    -- (2.59.0). Sentinel's own move would be deferred while the rotation
-    -- casts; the walker is not. Steering below is the fallback while the
-    -- path is pending or there is no server.
-    if O.nav_gap_ok() and (not line_clear or not walk_open(here, goal)) then
-        local pts = N.chase_path(here, goal, R.combat_guid)
-        if pts and #pts >= 2 and W.ensure() and W.navigate_path(pts) then
-            R.chase_fail_key, R.chase_fail_t = nil, 0
-            Rg.face(unit)
-            return false
-        end
-    end
-
-    -- steering only when a move could actually be issued; a failed search backs
-    -- off for STEER_BACKOFF so the trace budget is not burnt every frame
-    local dest
-    if O.nav_gap_ok() and t >= R.steer_backoff_until then
-        -- aim for CHASE_BAND inside max range so we do not stop on the edge;
-        -- melee aims for m_stand from the target
-        local hold = yards - CHASE_BAND
-        if hold < 5 then hold = yards end
-        if melee then
-            hold = m_stand
-            -- Close enough for one hop and nothing in the way: step straight
-            -- in to m_stand on the line to the target. The steering
-            -- search would otherwise hand back a point short of it.
-            local remain = dist2(hx, hy, ux, uy)
-            if remain > 0 and remain <= STEER_HOP + m_stand and walk_open(here, goal) then
-                local s = (remain - m_stand) / remain
-                dest = pt(P_ALT, hx + (ux - hx) * s, hy + (uy - hy) * s,
-                          hz + (goal.z - hz) * s)
-            end
-        end
-        if not dest then
-            dest = S.approach_unit(here, goal, hold)
-            if not dest and not has_los then dest = S.orbit_for_los(here, goal, hold) end
-        end
-        if not dest then R.steer_backoff_until = t + STEER_BACKOFF end
-    end
-    local issued = dest ~= nil and combat_hop(dest, melee and MELEE_MIN_HOP or nil)
-    Rg.face(unit)
-    if issued or not O.nav_gap_ok() then
-        R.chase_fail_key, R.chase_fail_t = nil, 0
-        return false
-    end
-
-    note_chase_failure(unit, t)
+    local okp, pos = pcall(unit.get_position, unit)
+    if okp and pos then N.nav_to(pos, true, "combat") end
     return false
 end
 
 function C.in_combat_movement()
-    return O.owns(OWNER.COMBAT)
+    return (R.combat_until or 0) > R.now()
 end
 
---- In position against a live combat target (2.212.0). Read-only: the
---- latch step 2 of combat_engage sets (with its hysteresis band), and only
---- while a caller is still asking for combat movement. strafe.lua micro-
---- strafes while this holds, so it lets go of its key on the same frame the
---- band is left and the chase in combat_engage takes over.
-function C.in_position()
-    if not R.combat_stopped or not R.combat_req or R.rest_lock or R.backpedal_until then
-        return false
-    end
-    if R.retreat_until > 0 or R.cur_state == STATE.RESTRICTED then return false end
-    if not O.owns(OWNER.COMBAT) then return false end
-    local u = R.combat_target
-    return unit_valid(u) and unit_alive(u)
-end
-
+--- The unit being fought, never a freed one.
 function C.combat_unit()
-    -- 2.306.0 (audit CORE-A-6): never hand out a freed unit (death.lua,
-    -- deathzones.lua read the killer through this)
-    local u = R.combat_target
-    if u and U.unit_valid(u) then return u end
+    if st.unit and R.alive(st.unit) then return st.unit end
     return nil
 end
 
--- ============================================================================
--- COMBAT END CONDITIONS
--- ============================================================================
---- Every condition that must hold before combat movement may hand the player
---- back to navigation. Returns true plus nil, or false plus the blocking reason.
-function C.may_release(player)
-    if not player then return true end
-    if R.rest_lock then return false, "resting" end
-    if izi.now() < R.retreat_until then return false, "retreating" end
-
-    local ok, v = pcall(player.is_in_combat, player)
-    if ok and v == true then return false, "in combat" end
-    -- The combat callbacks are a fast-path hint, not the truth. A poll that says
-    -- we are out of combat wins and clears a stale flag, so a missed or
-    -- mis-scoped on_combat_finish cannot strand us in COMBAT forever.
-    if ok and v == false then
-        R.in_combat_flag = false
-    elseif R.in_combat_flag then
-        return false, "combat flag"
-    end
-
-    ok, v = pcall(player.is_channeling_or_casting, player)
-    if ok and v == true then return false, "casting" end
-
-    if R.combat_target and unit_valid(R.combat_target) and unit_alive(R.combat_target) then
-        local ready = Rg.in_fight_range(player, R.combat_target, R.combat_yards)
-        if ready then return false, "target alive in range" end
-    end
-
-    -- anything else still worth positioning for?
-    local list = live_enemies(player, R.combat_yards)
-    if type(list) == "table" then
-        for i = 1, #list do
-            local e = list[i]
-            if unit_valid(e) and unit_alive(e) then
-                local okv, valid_enemy = pcall(e.is_valid_enemy, e)
-                if okv and valid_enemy == true then
-                    local oke, e_cbt = pcall(e.is_in_combat, e)
-                    if oke and e_cbt == true then return false, "enemy engaged" end
-                end
-            end
-        end
-    end
-
-    local mc = melee_count(player)
-    if mc > 0 then return false, "enemy in melee" end
-
-    return true
+--- Latched in position against a live target while combat is asked for.
+function C.in_position()
+    if not st.latched or not C.in_combat_movement() then return false end
+    if R.resting or R.backpedal_until or R.now() < st.retreat_until then return false end
+    return C.combat_unit() ~= nil
 end
 
---- Release combat movement and hand the player back. Callers use this when they
---- abandon a fight; the state machine also calls it once every end condition
---- has held for COMBAT_EXIT_HOLD.
+--- Give the player back (loot, quest approach, fight over).
 function C.combat_release()
-    -- The fight is over: a leg issued to close on its target has nothing
-    -- left to do (2.70.0). Left running, it held Sentinel "active" and
-    -- blocked every move after the fight.
-    if R.sn_active and R.sn_why == "pull" then
-        N.stop()
-        W.clear_dest()
-    end
-    R.combat_req = false
-    R.combat_target = nil
-    R.combat_guid = nil
-    R.combat_stopped = false
-    R.retreat_until = 0
-    R.combat_ok_since = 0
-    R.chase_fail_key, R.chase_fail_t = nil, 0
-    if not O.owns(OWNER.COMBAT) then return false end
-    O.halt_all()
-    R.cur_owner = OWNER.NONE
-    W.set_quiet(QUIET_STOP)
-    dlog("combat", "released")
-    return true
+    R.combat_until = 0
+    st.latched = false
+    st.retreat_until = 0
+    if N.mode() == "combat" then N.stop("combat over") end
 end
 
 return C

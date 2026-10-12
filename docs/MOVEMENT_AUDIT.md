@@ -1,3 +1,5 @@
+> SUPERSEDED by docs/MOVEMENT.md (3.0.0): the movement subsystem this audit describes (Sentinel, walker, steering, terrain rays) was replaced by the AmeisenNav 2.0.0 movement layer.
+
 # Master Farmer — Player Movement Audit (v2.216.0, 2026-10-03)
 
 **Status:** Phase 1 shipped in 2.217.0 (PR #236 merged; H1, H2, H3, H4, H5 done; Path

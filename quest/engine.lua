@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -880,7 +880,7 @@ local function buy_goal(player, goal, wps, label)
         local idx, info = vendor_find(b.name)
         if not idx then
             local u = state.target and state.target.unit
-            local g = u and safe(function() return u:get_guid() end)
+            local g = u and safe(function() return u:is_valid() and u:get_guid() or nil end)
             if g then b.bad[g] = true end
             trail("act", "buy step: this vendor does not sell %s - trying another", b.name)
             pcall(function() core.input.close_merchant() end)
@@ -1136,7 +1136,7 @@ local function prof_goal(player, goal, wps, label)
             -- or rows still loading): give it a moment, then try another NPC.
             if (now - p.opened) < 2 then return true end
             local u = state.target and state.target.unit
-            local g = u and safe(function() return u:get_guid() end)
+            local g = u and safe(function() return u:is_valid() and u:get_guid() or nil end)
             if g then p.bad[g] = true end
             trail("quest", "profession step: this trainer does not teach %s - trying another", prof)
             pcall(function() core.quests.close_trainer() end)
@@ -2979,12 +2979,6 @@ IS.walk_route = function(player, goal, kind, wps, label)
         -- not only off-mesh, moves on to the next point
         local why = movement.last_fail_reason()
         local cp = pts[g_move].pos
-        local okt, Tr = pcall(require, "movement/terrain")
-        if why and okt and type(Tr) == "table" and type(Tr.goal_z) == "function"
-            and math.abs((Tr.goal_z(cp.x, cp.y, cp.z) or cp.z) - cp.z) > 1 then
-            why = nil                -- 2.300.0: a new height is being asked for this point
-            movement.clear_fail()
-        end
         if movement.is_blocked(cp) or why then
             movement.clear_fail()
             trail("route", "point %d of %d unreachable (%s) - next point", g_move, #pts, tostring(why or "blocked"))

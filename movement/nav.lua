@@ -1,406 +1,450 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- movement/nav.lua - navigation (Simple Movement primary, Sentinel fallback)
+-- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- ============================================================================
--- Out-of-combat travel.
+-- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
+--   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
+--   follow_path(waypoints, cb)                         a recorded route
+--   stop(reason) / pause(reason) / resume(reason)
+--   get_height(pos, cb, { probe_up })                  ground under a point
+--   validate_destination(target, cb) / plan_route(nodes, cb) / find_path
+-- cb(ok, reason, detail) is called once; detail.code says why it ended.
 --
--- SENTINEL FOR ALL TRAVEL (2.109.0): out of combat every move - waypoints,
--- NPCs, corpses, grind nodes, recorded routes - is a Sentinel path. No short
--- walker legs, no leash hops, no walker fallback while Sentinel is only rate
--- limited: the move waits for the next request slot instead. The walker
--- (Simple Movement / movement handler) moves the character out of combat
--- only when Sentinel is unavailable. In combat nothing here runs: combat
--- movement (movement/combat.lua) owns the player and uses the walker.
+-- SEAMLESS RETARGET: a new destination while a walk runs is handed over with
+-- { seamless = true } - the running walk takes the new path without
+-- releasing a key (no stop / start stutter). The same destination (within
+-- SAME_DEST yd) while walking is a no-op, so callers can ask every tick.
+--
+-- GUESSED HEIGHTS (RestedXP waypoints are x, y only): a no-path answer for a
+-- point within HEIGHT_RANGE yd asks AmeisenNav for the ground there
+-- (client:get_height, probe from 60 yd up) and walks again at that height,
+-- once per destination. The height found is kept (N.reach_z) for the route.
+--
+-- FAILURES: the code of the last failed walk is kept (last_fail_reason /
+-- last_fail_offmesh). The same destination failing FAIL_BLACKLIST times in
+-- FAIL_WINDOW s is blacklisted (movement/zones), so callers move on.
+--
+-- NO AMEISENNAV: the bot still moves - straight walks with simple_movement,
+-- driven here every frame - and warns once.
 -- ============================================================================
 
----@type izi_api
-local izi = require("common/izi_sdk")
+local R = require("movement/core")
+local Z = require("movement/zones")
 
----@type vec3
-local vec3 = require("common/geometry/vector_3")
+local N = {}
 
-local K  = require("movement/const")
-local R  = require("movement/rt")
-local U  = require("movement/util")
-local Z  = require("movement/zones")
-local L  = require("movement/leash")
-local S  = require("movement/steer")
-local W  = require("movement/walker")
-local N  = require("movement/sentinel")
-local O  = require("movement/own")
-local Lk = require("movement/locks")
-local Tr = require("movement/terrain")     -- 2.221.0: waypoint height retry
+local SAME_DEST = 2.0          -- yd: the same destination
+local RETARGET_GAP = 0.25      -- s between two seamless retargets
+local UNDERFOOT = 1.0          -- yd: a destination this close is reached
+local QUIET_STOP = 0.3         -- s callers wait after a real stop (is_quiet)
+local HEIGHT_RANGE = 150       -- yd: the ground under nearer points can be read
+local HEIGHT_PROBE_UP = 60
+local FAIL_WINDOW, FAIL_BLACKLIST = 120, 2
+local REACH_TTL, REACH_TTL_BAD, REACH_GAP = 120, 45, 0.25
+local REACH_TRUST_FAR = 150    -- yd: farther answers are guesses, never "unreachable"
 
-local STATE         = K.STATE
-local OWNER         = K.OWNER
-local PATROL_HOP    = K.PATROL_HOP
-local STEER_BACKOFF = K.STEER_BACKOFF
-local QUIET_STOP    = K.QUIET_STOP
+local OFFMESH = { start_off_mesh = true, end_off_mesh = true, no_path = true, unreachable = true,
+    map_not_loaded = true }
+local HEIGHT_RETRY = { no_path = true, end_off_mesh = true, unreachable = true }
 
-local pt = R.pt
-local xyz, here_xyz, dist3, dlog, ground_z, walk_open =
-      U.xyz, U.here_xyz, U.dist3, U.dlog, U.ground_z, U.walk_open
-local travel_near = U.travel_near
+-- the walk this layer asked for
+local cur = { id = 0, x = nil, y = nil, z = nil, mode = nil, t = 0, route = nil }
+local fail = { reason = nil, offmesh = false, t = 0 }
+local fails_at = {}            -- dest key -> { n, t }
+local zfix = {}                -- dest key -> corrected z
+local stats = { issued = 0, refused = 0 }
+N.stats = stats
 
-local P_HERE, P_DEST = R.P_HERE, R.P_DEST
-
-local Nv = {}
-
--- ============================================================================
--- SENTINEL-ONLY TRAVEL (2.109.0)
--- ============================================================================
-local function player_in_combat()
-    local ok, v = pcall(function() return izi.me():is_in_combat() end)
-    return ok and v == true
+-- 3.0.0: fails_at / zfix are keyed per destination and would grow for a
+-- whole session; past CACHE_MAX keys each is emptied (both are re-learnt).
+local CACHE_MAX = 256
+local cache_n = { fails = 0, zfix = 0 }
+local function cache_put(tbl, which, k, v)
+    if tbl[k] == nil then
+        cache_n[which] = cache_n[which] + 1
+        if cache_n[which] > CACHE_MAX then
+            for key in pairs(tbl) do tbl[key] = nil end
+            cache_n[which] = 1
+        end
+    end
+    tbl[k] = v
 end
 
---- Out of combat with Sentinel available: travel goes through Sentinel only.
-local function sentinel_travel()
-    if not K.SENTINEL_TRAVEL then return false end
-    if O.owns(OWNER.COMBAT) or player_in_combat() then return false end
-    return N.client() ~= nil
-end
-Nv.sentinel_travel = sentinel_travel
+local warned_no_nav = false
+local fallback_walker = nil
 
---- Did Sentinel just fail this destination? (Not re-requested for SN_FAIL_HOLD.)
-local function recently_failed(x, y)
-    local f = R.sn_fail
-    if not f or (izi.now() - f.t) > (K.SN_FAIL_HOLD or 3) then return false end
-    local dx, dy = x - f.x, y - f.y
-    return dx * dx + dy * dy < 25
-end
-
---- A Sentinel move for travel. True = moving or waiting for the next request
---- slot (never a walker leg); false = Sentinel failed this destination.
-local function sentinel_go(goal, why)
-    if recently_failed(goal.x, goal.y) then return false end
-    -- A floor height found after Sentinel called this spot unreachable (2.221.0).
-    goal.z = Tr.goal_z(goal.x, goal.y, goal.z)
-    if N.move(goal, why) then return true end
-    -- Refused by the rate limit: wait for the next slot, do not walk it.
-    R.goal_x, R.goal_y, R.goal_z = nil, nil, nil
-    return true
+-- ----------------------------------------------------------------------------
+-- the client
+-- ----------------------------------------------------------------------------
+function N.client()
+    local g = rawget(_G, "AmeisenNav")
+    local c = type(g) == "table" and g.client or nil
+    if c == nil and not warned_no_nav then
+        warned_no_nav = true
+        R.log("AmeisenNav not loaded - walking straight lines without the navmesh "
+            .. "(install scripts\\AmeisenNav, start the nav server, reload)")
+    end
+    if c ~= nil then warned_no_nav = false end
+    return c
 end
 
--- ============================================================================
--- OWNERSHIP REQUEST
--- ============================================================================
---- Ask for navigation ownership. Refused while combat movement owns the player
---- or while a restriction is active.
-local function want_nav()
-    if R.cur_state == STATE.RESTRICTED then return false end
-    if O.owns(OWNER.COMBAT) then return false end
-    return O.take(OWNER.NAV)
+local function call(c, name, ...)
+    local f = c and c[name]
+    if type(f) ~= "function" then return false end
+    return pcall(f, c, ...)
 end
 
--- ============================================================================
--- CORE
--- ============================================================================
-local MAX_LEG = K.MAX_LEG
-
---- A destination more than MAX_LEG yards away, pulled in to MAX_LEG along the
---- straight line. Height is interpolated; ground_z settles it once the point
---- is close. The leg is re-planned every time the last one lands, so a far
---- target is still reached - in legs no path request has to span in one go.
-local function clamp_leg(x, y, z)
-    local hx, hy, hz = here_xyz()
-    if not hx then return x, y, z end
-    local dx, dy = x - hx, y - hy
-    local d = math.sqrt(dx * dx + dy * dy)
-    if d <= MAX_LEG then return x, y, z end
-    local s = MAX_LEG / d
-    return hx + dx * s, hy + dy * s, hz + (z - hz) * s
+local function walker()
+    if fallback_walker == nil then
+        local ok, w = pcall(require, "common/utility/simple_movement")
+        fallback_walker = (ok and w) and w or false
+    end
+    return fallback_walker or nil
 end
-Nv.clamp_leg = clamp_leg
 
-local function navigate(dest, prefer_direct)
-    local x, y, z = xyz(dest)
-    if not x then return false end
-    -- The real destination, for Sentinel (2.59.0): it plans the whole path.
-    -- MAX_LEG only limits the WALKER's straight-line legs.
-    local sn_goal = { x = x, y = y, z = z }
-    x, y, z = clamp_leg(x, y, z)
-    dest = pt(P_DEST, x, y, z)
-    -- A dest under the player is not a walk. Sentinel's 1-yard densify
-    -- points were issued as dests and the character orbited them.
-    if travel_near(x, y) then
-        -- A hop that landed: keep_path still has a far RestedXP goal.
-        -- A close dest with no far goal is arrival, not a walk.
-        if R.keep_path and R.goal_x and not travel_near(R.goal_x, R.goal_y) then
-            x, y, z = R.goal_x, R.goal_y, R.goal_z
-            dest = pt(P_DEST, x, y, z)
-            sn_goal = { x = x, y = y, z = z }
+local function key_of(x, y)
+    return string.format("%d|%d", math.floor(x / 4), math.floor(y / 4))
+end
+
+local function vec(x, y, z)
+    local ok, v = pcall(require, "common/geometry/vector_3")
+    if ok and type(v) == "table" and type(v.new) == "function" then return v.new(x, y, z) end
+    return { x = x, y = y, z = z }
+end
+
+-- ----------------------------------------------------------------------------
+-- gates: who may start a walk now
+-- ----------------------------------------------------------------------------
+--- Why travel is refused now, or nil. Combat owns the player while a fight
+--- asks for it every tick (movement/combat sets R.combat_until); a rest or a
+--- backpedal holds everything.
+function N.refusal()
+    if R.resting then return "resting" end
+    if R.backpedal_until then return "backpedal" end
+    if (R.combat_until or 0) > R.now() then return "combat" end
+    return nil
+end
+
+-- ----------------------------------------------------------------------------
+-- state
+-- ----------------------------------------------------------------------------
+function N.busy()
+    local c = N.client()
+    if c then
+        local ok, b = call(c, "is_busy")
+        return ok and b == true
+    end
+    local w = walker()
+    if w then
+        local ok, m = pcall(w.is_moving, w)
+        return ok and m == true
+    end
+    return false
+end
+
+function N.destination()
+    if cur.x and N.busy() then return cur.x, cur.y, cur.z end
+    return nil
+end
+
+function N.mode() return N.busy() and cur.mode or nil end
+
+local function record_fail(code, x, y, z)
+    fail.reason, fail.offmesh, fail.t = tostring(code or "failed"), OFFMESH[code] == true, R.now()
+    if not x then return end
+    local k = key_of(x, y)
+    local e = fails_at[k]
+    local t = R.now()
+    if not e or (t - e.t) > FAIL_WINDOW then e = { n = 0, t = t } cache_put(fails_at, "fails", k, e) end
+    e.n, e.t = e.n + 1, t
+    if e.n >= FAIL_BLACKLIST and fail.offmesh then
+        Z.blacklist_area({ x = x, y = y, z = z }, 6, "no path there (" .. fail.reason .. ")")
+        fails_at[k] = nil
+    end
+end
+
+-- ----------------------------------------------------------------------------
+-- issuing walks
+-- ----------------------------------------------------------------------------
+local issue_move
+
+--- AmeisenNav found no path to (x, y, z): read the ground there and walk again
+--- at that height, once per destination.
+local function retry_at_ground(c, id, x, y, z, code, opts)
+    local hx, hy = R.here()
+    if not hx or R.dist2(hx, hy, x, y) > HEIGHT_RANGE then return false end
+    local k = key_of(x, y)
+    if zfix[k] ~= nil then return false end
+    cache_put(zfix, "zfix", k, false)             -- asked once
+    local ok = call(c, "get_height", { x = x, y = y, z = z }, function(okh, hz)
+        if cur.id ~= id then return end           -- superseded meanwhile
+        if okh and R.finite(hz) and math.abs(hz - z) > 2 then
+            zfix[k] = hz
+            R.trail("nav", "(%.0f, %.0f): no path at z %.1f (%s) - walking again at the ground, z %.1f",
+                x, y, z, tostring(code), hz)
+            issue_move(c, x, y, hz, opts)
         else
-            if R.sn_active then N.stop() end
-            W.clear_dest()
-            W.halt()
-            return true
+            record_fail(code, x, y, z)
         end
-    end
-    if not want_nav() then return false end
-    -- A goal that has moved away from the move in flight re-aims it
-    -- (2.84.0, movement/repath): distance-scaled rate, 3 yd dead zone.
-    local ok_rp, RP = pcall(require, "movement/repath")
-    if ok_rp and RP and RP.reaim(x, y) then
-        if R.sn_active then
-            -- Sentinel leg: prefetch a path and switch with follow_path.
-            -- Refused by the rate limit: keep the current leg.
-            N.retarget(sn_goal, "reaim")
-            return true
+    end, { probe_up = HEIGHT_PROBE_UP })
+    return ok == true
+end
+
+issue_move = function(c, x, y, z, opts)
+    cur.id = cur.id + 1
+    local id = cur.id
+    cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route = x, y, z, R.now(), opts.mode or "move", nil
+    stats.issued = stats.issued + 1
+    local ok = call(c, "move_to", { x = x, y = y, z = z }, function(arrived, _, detail)
+        if cur.id ~= id then return end
+        local code = type(detail) == "table" and detail.code or nil
+        if arrived then
+            fail.reason, fail.offmesh = nil, false
+            return
         end
-        R.force_reissue = true
-    end
-    local go, ret = O.may_issue(x, y, z)
-    if not go then return ret end
-    if Z.blocked_xy(x, y) then
-        -- 2.306.0 (audit LOGIC-1): NOT an off-mesh reason. "blacklisted" is in
-        -- K.OFFMESH_WORDS, so each refusal made a new 12 yd zone on the
-        -- destination itself and refreshed it every few seconds: a ghost whose
-        -- corpse lay in a death zone never ran to it (04:05, 30 min, then the
-        -- AFK logout). The destination is in an avoid area; the walker is told
-        -- so without blacklisting it again.
-        W.mark_fail("in an avoid area", dest)
-        return false
-    end
-
-    -- Sentinel for all travel (2.109.0): the real destination, whole path.
-    if sentinel_travel() then
-        return sentinel_go(sn_goal, "travel")
-    end
-
-    local hx, hy, hz = here_xyz()
-    local here = pt(P_HERE, hx, hy, hz)
-    z = ground_z(x, y, z)
-    local goal = pt(P_DEST, x, y, z)
-
-    -- Without Sentinel travel (unavailable, or K.SENTINEL_TRAVEL off):
-    -- Simple Movement owns clear, short legs. Sentinel is the fallback for long
-    -- legs and blocked straight lines, where a smoothed straight walk would
-    -- fail. Without Sentinel we fall through to walker steering.
-    local dist = dist3(hx, hy, hz, x, y, z)
-    if dist > PATROL_HOP or not walk_open(here, goal) then
-        if N.move(sn_goal, "travel") then return true end
-    end
-
-    local target
-    if L.needs_rejoin() then
-        target = S.rejoin_hop(here)
-    else
-        target = S.steer(here, goal, PATROL_HOP)
-        if target and not L.allows(here, target) then
-            target = S.rejoin_hop(here)
-        end
-    end
-    if not target then
-        R.steer_backoff_until = izi.now() + STEER_BACKOFF
-        dlog("steer", "no clear hop - backing off")
-        return false
-    end
-    if Z.blocked_xy(target.x, target.y) then
-        W.mark_fail("in an avoid area", target)     -- 2.306.0: see navigate (LOGIC-1)
-        return false
-    end
-    if not prefer_direct and target ~= here and not walk_open(here, target) and L.needs_rejoin() then
-        return false
-    end
-    -- The leg's real end, for hop chaining in the pulse (2.85.0): the next
-    -- hop is planned while this one is walked and issued before it ends.
-    R.goal_x, R.goal_y, R.goal_z = goal.x, goal.y, goal.z
-    return W.move(target, "nav_to")
+        if code == "cancelled" then return end
+        if HEIGHT_RETRY[code] and retry_at_ground(c, id, x, y, z, code, opts) then return end
+        R.trail("nav", "walk to (%.0f, %.0f, %.0f) ended: %s", x, y, z, tostring(code))
+        record_fail(code, x, y, z)
+    end, { allow_partial = opts.allow_partial ~= false, seamless = opts.seamless == true })
+    return ok == true
 end
 
-Nv.navigate = navigate
-
--- ============================================================================
--- PUBLIC API
--- ============================================================================
---- Navigate to a destination. `direct` skips the "steer around it" guard for
---- callers that already know the line is walkable (grind nodes, corpse runs).
-function Nv.nav_to(dest, direct)
-    return navigate(dest, direct == true)
-end
-
---- RestedXP travel is in progress. Course changes must not stop the walk.
-function Nv.keep_path(on)
-    R.keep_path = on == true
-    if not R.keep_path then R.approach = nil end
-end
-
---- "npc" or "enemy" while closing on that kind of target; otherwise clear.
-function Nv.set_approach(kind)
-    if kind == "npc" or kind == "enemy" then
-        R.approach = kind
-    else
-        R.approach = nil
+-- AmeisenNav's "When combat starts" (C.combat_mode, its Movement page) must
+-- be Continue: Pause holds and Stop ends the walk the bot uses to close on
+-- its target. The menu owns the key, so it is not changed here - a warning
+-- once a minute says what to set.
+local mode_warned_t = -1e9
+local function check_combat_mode(c)
+    local t = R.now()
+    if t - mode_warned_t < 60 then return end
+    local ok, cfg = call(c, "get_config")
+    local m = ok and type(cfg) == "table" and cfg.combat_mode or nil
+    if m and m ~= "continue" then
+        mode_warned_t = t
+        R.log("AmeisenNav 'When combat starts' is '" .. tostring(m) .. "' - set it to Continue "
+            .. "(AmeisenNav > Ameisen Movement), or the bot cannot close on its targets")
     end
 end
 
---- Point the running path at `dest` without stopping. A cold start uses nav_to.
-function Nv.nudge(dest)
-    local x, y, z = xyz(dest)
+--- Walk to `dest`. True when a walk there is running or was started (also
+--- when `dest` is underfoot); false when refused (combat / rest / backpedal,
+--- a blacklisted area, the same spot just failed). Safe to call every tick.
+function N.nav_to(dest, direct, mode)
+    local x, y, z = R.xyz(dest)
     if not x then return false end
-    if R.sn_active then
-        return N.retarget({ x = x, y = y, z = z }, "chain")
-    end
-    return navigate(dest, true)
-end
-
---- Follow a caller-owned list of points (vec3s or { x, y, z } arrays).
---- The list is snapped and copied once per distinct table; passing the same
---- table every frame while the walker is busy costs nothing.
-function Nv.nav_path(points)
-    if R.rest_lock then return false end
-    if type(points) ~= "table" or #points == 0 then return false end
-    local lx, ly, lz = xyz(points[#points])
-    if not lx then return false end
-    if not want_nav() then return false end
-    if points == R.path_src and O.is_moving() then return true end
-
-    local go, ret = O.may_issue(lx, ly, lz)
-    if not go then return ret end
-
-    -- Sentinel for all travel (2.109.0): the route is followed by Sentinel;
-    -- rate limited = wait for the slot.
-    if sentinel_travel() and #points >= 2 then
-        local pts = {}
-        for i = 1, #points do
-            local x, y, z = xyz(points[i])
-            if x and not Z.blocked_xy(x, y) then pts[#pts + 1] = vec3.new(x, y, z) end
-        end
-        if #pts >= 2 then
-            local trimmed = N.skip_near_pts(pts)
-            if not trimmed then
-                if R.sn_active then N.stop() end
-                W.clear_dest()
-                W.halt()
-                return true
-            end
-            if #trimmed == 1 then return navigate(trimmed[1], true) end
-            if N.follow(trimmed, "route") then return true end
-            return true
-        end
-    end
-
-    local hx, hy, hz = here_xyz()
-    local here = pt(P_HERE, hx, hy, hz)
-    if L.needs_rejoin() then
-        local hop = S.rejoin_hop(here)
-        if not hop then
-            R.steer_backoff_until = izi.now() + STEER_BACKOFF
-            return false
-        end
-        return W.move(hop, "rejoin")
-    end
-
-    -- snap + filter once per list
-    if points ~= R.path_src or not R.path_pts then
-        local pts = {}
-        for i = 1, #points do
-            local x, y, z = xyz(points[i])
-            if x and not Z.blocked_xy(x, y) then
-                pts[#pts + 1] = vec3.new(x, y, ground_z(x, y, z))
-            end
-        end
-        R.path_src, R.path_pts = points, pts
-    end
-    local pts = N.skip_near_pts(R.path_pts)
-    if not pts then
-        if R.sn_active then N.stop() end
-        W.clear_dest()
-        W.halt()
+    if N.refusal() and mode ~= "combat" then stats.refused = stats.refused + 1 return false end
+    if zfix[key_of(x, y)] then z = zfix[key_of(x, y)] end
+    local hx, hy, hz = R.here()
+    if hx and R.dist2(hx, hy, x, y) <= UNDERFOOT and math.abs(hz - z) < 3 then
         return true
     end
-    if #pts == 0 then return false end
-    if #pts == 1 then return navigate(pts[1], true) end
-    -- A recorded route goes to Sentinel's follow_path (2.59.0) for its stuck
-    -- recovery and repathing; the walker is the fallback (no server, rate
-    -- limit, combat owning the player).
-    if N.follow(pts, "route") then return true end
-    if not walk_open(here, pts[1]) then
-        return navigate(pts[1], false)              -- steer to the first point
+    if not direct and mode ~= "combat" and Z.blocked_xy(x, y) then
+        record_fail("blacklisted")
+        return false
     end
-    return W.navigate_path(pts)
+    local k = key_of(x, y)
+    local fe = fails_at[k]
+    if fe and fe.n > 0 and (R.now() - fe.t) < 5 and fail.offmesh then return false end
+    local c = N.client()
+    local busy = N.busy()
+    if busy and cur.x and R.dist2(cur.x, cur.y, x, y) <= SAME_DEST and cur.mode ~= "route" then
+        return true
+    end
+    if not c then
+        local w = walker()
+        if not w then return false end
+        cur.x, cur.y, cur.z, cur.mode, cur.t = x, y, z, mode or "move", R.now()
+        local ok, r = pcall(w.move_to_position, w, vec(x, y, z))
+        return ok and r ~= false
+    end
+    if busy and (R.now() - cur.t) < RETARGET_GAP then return true end
+    if mode == "combat" then check_combat_mode(c) end
+    return issue_move(c, x, y, z, { seamless = busy, mode = mode })
 end
 
---- Walk a list of points as ONE route (2.235.2-ameisen, the grind path).
---- `replace` = the route being walked is handed over to this one (a refill
---- before the old one ends, so the walk never stops at its last point).
-function Nv.follow_route(points, replace)
-    if replace then R.force_reissue = true end
-    return Nv.nav_path(points)
+--- Walk a recorded route (array of {x,y,z}). The same table while it runs is a
+--- no-op unless `replace`. True when accepted.
+function N.follow_route(list, replace)
+    if type(list) ~= "table" or #list < 1 then return false end
+    if N.refusal() then return false end
+    local c = N.client()
+    if not c then
+        local p = list[#list]
+        return N.nav_to(p, true)
+    end
+    if not replace and cur.route == list and N.busy() then return true end
+    local pts = {}
+    for i = 1, #list do
+        local x, y, z = R.xyz(list[i])
+        if not x then return false end
+        pts[i] = { x = x, y = y, z = z }
+    end
+    cur.id = cur.id + 1
+    local id = cur.id
+    local last = pts[#pts]
+    cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route = last.x, last.y, last.z, R.now(), "route", list
+    stats.issued = stats.issued + 1
+    local ok = call(c, "follow_path", pts, function(arrived, _, detail)
+        if cur.id ~= id or arrived then return end
+        local code = type(detail) == "table" and detail.code or nil
+        if code ~= "cancelled" then
+            R.trail("nav", "route walk ended: %s", tostring(code))
+            record_fail(code)
+        end
+    end)
+    return ok == true
 end
 
---- The travel leg in flight is an approach to this mob (2.140.0), or nil.
---- A stalled approach gives up on the mob (unreachable), never blacklists the
---- ground it was standing on.
---- 2.148.0: renamed from set_approach, which silently replaced the older
---- Nv.set_approach(kind) above - quest walks then stored "npc" / "enemy" as a
---- mob guid and lost the NPC / enemy approach shape.
-function Nv.set_approach_target(guid)
-    R.approach_guid = guid
+--- Stop the walk this layer started. Cheap when idle.
+function N.stop(reason)
+    local c = N.client()
+    local was = N.busy()
+    if c then
+        if was then call(c, "stop", reason or "Master Farmer") end
+    else
+        local w = walker()
+        if w and was then pcall(w.stop, w) end
+    end
+    cur.id = cur.id + 1                     -- late callbacks of the stopped walk are ignored
+    cur.x, cur.mode, cur.route = nil, nil, nil
+    if was then R.quiet_until = R.now() + QUIET_STOP end
 end
 
---- Stop navigation and release ownership. Returns true when something stopped.
-function Nv.nav_stop()
-    R.approach_guid = nil
-    local stopped = O.halt_all()
-    if stopped then W.set_quiet(QUIET_STOP) end
-    if O.owns(OWNER.NAV) then R.cur_owner = OWNER.NONE end
-    return stopped
+function N.pause(reason)
+    local c = N.client()
+    if c then call(c, "pause", reason) end
 end
 
---- Full stop: drop every actuator, every lock and all ownership. Used when the
---- bot is switched off, changes mode, or dies - not on the per-frame path.
-function Nv.halt()
-    R.approach_guid = nil
-    pcall(function() require("movement/locks").backpedal_stop() end)
-    R.combat_req = false
-    R.combat_target = nil
-    R.combat_stopped = false
-    R.combat_ok_since = 0
-    R.retreat_until = 0
-    R.chase_fail_key, R.chase_fail_t = nil, 0
-    O.halt_all()
-    R.cur_owner = OWNER.NONE
-    O.set_state(STATE.IDLE, "halted")
-    Lk.release()
-    W.set_quiet(QUIET_STOP)
+function N.resume(reason)
+    local c = N.client()
+    if c then call(c, "resume", reason) end
+end
+
+--- Per frame: drive the fallback walker when AmeisenNav is missing.
+function N.pulse()
+    if rawget(_G, "AmeisenNav") ~= nil then return end
+    local w = walker()
+    if w and cur.x then
+        local ok, reached = pcall(w.process, w)
+        if ok and reached == true then cur.x, cur.mode = nil, nil end
+    end
+end
+
+-- ----------------------------------------------------------------------------
+-- failures
+-- ----------------------------------------------------------------------------
+function N.last_fail_reason() return fail.reason end
+function N.last_fail_offmesh() return fail.offmesh == true end
+function N.clear_fail() fail.reason, fail.offmesh = nil, false end
+
+-- ----------------------------------------------------------------------------
+-- reachability (validate_destination, cached; never blocks the caller)
+-- ----------------------------------------------------------------------------
+local reach, reach_n, reach_next = {}, 0, 0
+
+--- false only once AmeisenNav said "unreachable" (also at the ground height);
+--- true while pending, unknown, far, or with no server.
+function N.reachable(pos)
+    local x, y, z = R.xyz(pos)
+    if not x then return true end
+    local hx, hy = R.here()
+    local far = not hx or R.dist2(hx, hy, x, y) > REACH_TRUST_FAR
+    local k = key_of(x, y)
+    local t = R.now()
+    local e = reach[k]
+    if e and (t - e.t) < ((e.ok == false) and REACH_TTL_BAD or REACH_TTL) then
+        return e.ok ~= false or far
+    end
+    local c = N.client()
+    if not c or t < reach_next then return true end
+    reach_next = t + REACH_GAP
+    if reach_n > 300 then reach, reach_n = {}, 0 end
+    if not e then reach_n = reach_n + 1 end
+    e = { ok = nil, t = t, z = nil }
+    reach[k] = e
+    call(c, "validate_destination", { x = x, y = y, z = z }, function(ok)
+        e.t = R.now()
+        if ok == true then e.ok = true return end
+        if far then e.ok = true return end
+        -- the height may be the guess: ask at the ground before saying no
+        local okh = call(c, "get_height", { x = x, y = y, z = z }, function(okg, gz)
+            if not okg or not R.finite(gz) or math.abs(gz - z) <= 2 then e.ok, e.t = false, R.now() return end
+            call(c, "validate_destination", { x = x, y = y, z = gz }, function(ok2)
+                e.ok, e.t = ok2 == true, R.now()
+                if ok2 == true then e.z = gz zfix[k] = gz end
+            end)
+        end, { probe_up = HEIGHT_PROBE_UP })
+        if not okh then e.ok = false end
+    end)
     return true
 end
 
-function Nv.nav_pause()
-    if R.sn_active then N.stop() end
-    W.set_pause("nav", true)
+function N.node_reachable(pos) return N.reachable(pos) end
+
+--- The ground height found at (x, y) when the given one was wrong, or nil.
+function N.reach_z(pos)
+    local x, y = R.xyz(pos)
+    if not x then return nil end
+    local z = zfix[key_of(x, y)]
+    if R.finite(z) then return z end
+    return nil
 end
 
-function Nv.nav_resume()
-    W.set_pause("nav", false)
+function N.reach_forget(pos)
+    local x, y = R.xyz(pos)
+    if not x then return end
+    local k = key_of(x, y)
+    if reach[k] then reach[k] = nil end
 end
 
-function Nv.is_navigating()
-    return O.owns(OWNER.NAV) and O.is_moving()
+--- One find_path for movement/sight: cb(points|nil, ok, info). False when
+--- there is no client to ask.
+function N.path_probe(from, to, cb)
+    local c = N.client()
+    if not c then return false end
+    local ok = call(c, "find_path", R.point(from), R.point(to), function(okp, pts, info)
+        pcall(cb, type(pts) == "table" and #pts >= 2 and pts or nil, okp, info)
+    end)
+    return ok == true
 end
 
---- True when navigation is allowed to start right now. Callers use this instead
---- of poking at combat / quiet state themselves.
-function Nv.can_navigate()
-    if R.cur_state == STATE.RESTRICTED then return false end
-    if O.owns(OWNER.COMBAT) then return false end
-    return not O.is_quiet()
+function N.nav_ready()
+    local c = N.client()
+    if not c then return false end
+    local ok, up = call(c, "is_server_available")
+    return ok and up == true
 end
 
---- Steer back inside the path leash.
-function Nv.rejoin_path()
-    if R.rest_lock or izi.now() < R.stuck_grace_until then return false end
-    if not want_nav() then return false end
-    local hx, hy, hz = here_xyz()
-    if not hx then return false end
-    local hop = S.rejoin_hop(pt(P_HERE, hx, hy, hz))
-    if not hop then return false end
-    return navigate(hop, walk_open(R.POOL[P_HERE], hop))
+-- ----------------------------------------------------------------------------
+-- built-in grind zones (not recorded paths): a short visiting order
+-- ----------------------------------------------------------------------------
+local plan = { src = nil, order = nil, pending = false }
+
+function N.plan_grind_route(coords)
+    if type(coords) ~= "table" or coords == plan.src or plan.pending then return end
+    local c = N.client()
+    if not c then return end
+    local nodes = {}
+    if type(coords[1]) == "number" then
+        for i = 1, math.floor(#coords / 3) do
+            local k = (i - 1) * 3
+            nodes[i] = { x = coords[k + 1], y = coords[k + 2], z = coords[k + 3] }
+        end
+    else
+        for i = 1, #coords do nodes[i] = R.point(coords[i]) or { x = 0, y = 0, z = 0 } end
+    end
+    plan.src, plan.order, plan.pending = coords, nil, true
+    local ok = call(c, "plan_route", nodes, function(okp, res)
+        plan.pending = false
+        if okp and type(res) == "table" and type(res.visit_order) == "table" then plan.order = res.visit_order end
+    end)
+    if not ok then plan.pending = false end
 end
 
-return Nv
+function N.grind_visit_order() return plan.order end
+
+return N

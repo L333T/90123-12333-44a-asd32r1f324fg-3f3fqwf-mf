@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -40,6 +40,9 @@ local PLUGIN_MODULES = {
     "gui",
     "targeting",
     "movement",
+    -- 3.0.0: the movement layer modules (fresh code on a reload)
+    "movement/core", "movement/zones", "movement/nav", "movement/locks",
+    "movement/range", "movement/combat", "movement/leash", "movement/sight",
     "loot",
     "path_runner",
     "rotations/mage",
@@ -495,6 +498,10 @@ local function on_update()
         return
     end
     probe("u:begin")
+    -- 3.0.0: menu clicks queued while drawing run here, never in the render pass
+    if gui and type(gui.run_deferred) == "function" then
+        pcall(gui.run_deferred)
+    end
     if errorlog then
         errorlog.frame()
     end
@@ -553,6 +560,12 @@ local function on_update()
         return
     end
     gui.sync_player(player)
+    -- 3.0.0: what the windows show is read here, not while drawing
+    pcall(gui.refresh_view, player)
+    -- 3.0.0: pet_handler's delayed-command queue (moved off the render pass)
+    if pets and type(pets.on_render) == "function" then
+        pcall(pets.on_render)
+    end
     -- Load once for this character, then flush changes on a debounce. Runs
     -- before the cascade so a restored route is in place for the first tick
     -- that could use it.
@@ -793,9 +806,8 @@ local function on_render()
     -- when it is pumped. A delay that silently never fires is a bad thing to
     -- leave lying around, so this runs whether or not anything uses one yet.
     -- No-op on a build without the handler.
-    if pets and type(pets.on_render) == "function" then
-        pcall(pets.on_render)
-    end
+    -- 3.0.0: the pet handler's delayed commands are pumped on the update
+    -- tick (main on_update), never here: they send game commands.
     -- Debug lines are buffered and written on a debounce: each flush empties
     -- the file (create_data_file) and writes the whole capped buffer, because
     -- write_data_file appends. Without this they never reach scripts_data.
@@ -838,17 +850,17 @@ if errorlog then
     end)
 end
 
--- Sentinel navmesh requests since the last MEM line: the one allocation
--- source outside this plugin's own code that it can drive.
+-- AmeisenNav walks asked for since the last MEM line (movement/nav stats).
 if errorlog then
     errorlog.set_mem_extra(function()
-        local ok, R = pcall(require, "movement/rt")
-        if not ok or type(R) ~= "table" then
+        local okm, mv = pcall(require, "movement")
+        if not okm or type(mv) ~= "table" or type(mv.nav_stats) ~= "function" then
             return nil
         end
-        local text = string.format("ameisen requests %d issued, %d rate-limited",
-            R.sn_issued or 0, R.sn_refused or 0)
-        R.sn_issued, R.sn_refused = 0, 0
+        local s = mv.nav_stats()
+        if type(s) ~= "table" then return nil end
+        local text = string.format("ameisen walks %d issued, %d refused", s.issued or 0, s.refused or 0)
+        s.issued, s.refused = 0, 0
         return text
     end)
 end

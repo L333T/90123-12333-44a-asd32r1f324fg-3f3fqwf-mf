@@ -41,7 +41,12 @@ local PENDING = GUARD_DIR .. "/pending.txt"
 local BLOCKED_FILE = GUARD_DIR .. "/blocked.txt"
 
 -- Known to crash WoW Forever: blocked from the start, whatever the files say.
-local ALWAYS_BLOCKED = { ["core.graphics.trace_line"] = true }
+-- core.graphics.trace_line was here until 2026-10-12: the Graphics docs now say a
+-- collision mask with bits at or above EntityRender (0x200000) is what
+-- crashed the Classic clients. X.trace_clear refuses those masks itself and
+-- runs under its own guard label, so a "core.graphics.trace_line" entry left
+-- in blocked.txt by the 2026-09-28 crash does not apply to it.
+local ALWAYS_BLOCKED = {}
 
 -- core.write_data_file APPENDS on this loader. The File I/O docs only promise
 -- "in most systems, this overwrites", and this one does not, so the guard file
@@ -241,6 +246,51 @@ local function scan_for_player()
     return nil
 end
 
+-- ----------------------------------------------------------------------------
+-- object lists
+-- ----------------------------------------------------------------------------
+-- The Object Manager docs mark get_visible_objects "not currently
+-- implemented", while Master_Farmer_Bot uses it on the same loader. So it is
+-- used while it answers, and get_all_objects takes over for the session after
+-- VISIBLE_STRIKES scans in a row where it was missing, failed or came back
+-- empty (the player itself is visible, so an empty list is not an answer)
+-- while get_all_objects had objects. get_all_objects includes bag items and
+-- other non-world objects: callers filter.
+local VISIBLE_STRIKES = 3
+local objects_source = "visible"   -- "visible" | "all"
+local visible_strikes = 0
+
+local function all_objects()
+    local om = core.object_manager
+    local ok, list = X.call_fn("get_all_objects", om and om.get_all_objects)
+    if ok and type(list) == "table" then return list end
+    return nil
+end
+
+--- Objects around the player (a fresh table per call: callers rate-limit).
+function X.objects()
+    if objects_source == "all" then return all_objects() end
+    local om = core.object_manager
+    local ok, list = X.call_fn("get_visible_objects", om and om.get_visible_objects)
+    if ok and type(list) == "table" and #list > 0 then
+        visible_strikes = 0
+        return list
+    end
+    local all = all_objects()
+    if all and #all > 0 then
+        visible_strikes = visible_strikes + 1
+        if visible_strikes >= VISIBLE_STRIKES then
+            objects_source = "all"
+            L.info("objects: get_visible_objects gave nothing %d times in a row (%s) - using get_all_objects",
+                VISIBLE_STRIKES, ok and "empty list" or tostring(list))
+        end
+        return all
+    end
+    return ok and type(list) == "table" and list or all
+end
+
+function X.objects_source() return objects_source end
+
 local frame_t, frame_player = nil, nil
 
 function X.player()
@@ -338,20 +388,29 @@ function X.map_info()
 end
 
 --- x, y, z of the player or nil.
---- 1.6.3: is the player inside a building / cave (game_object:is_indoors)?
-function X.is_indoors()
-    local p = X.player()
-    if not p then return false end
-    local ok, v = X.call(p, "is_indoors")
-    return ok and v == true
-end
-
 function X.position()
     local p = X.player()
     if not p then return nil end
     local ok, pos = X.call(p, "get_position")
     if not ok or not pos then return nil end
     return pos.x, pos.y, pos.z
+end
+
+--- The player's facing in radians (WoW angle: 0 = +x, counter-clockwise), or
+--- nil. get_direction() first: a vector has no unit to get wrong. Whether the
+--- answer matches where the character really runs is checked by the follower
+--- before it is trusted.
+function X.facing()
+    local p = X.player()
+    if not p then return nil end
+    local okd, d = X.call(p, "get_direction")
+    if okd and d and type(d.x) == "number" and type(d.y) == "number"
+        and (d.x * d.x + d.y * d.y) > 0.01 then
+        return math.atan2(d.y, d.x)
+    end
+    local okr, r = X.call(p, "get_rotation")
+    if okr and type(r) == "number" and r == r then return r end
+    return nil
 end
 
 local cached_faction = nil
@@ -383,6 +442,101 @@ function X.filter_state()
         end
     end
     return cached_faction or "normal"
+end
+
+local okE, enums = pcall(require, "common/enums")
+local LOC = okE and type(enums) == "table" and enums.loss_of_control_type or {}
+
+-- ----------------------------------------------------------------------------
+-- client collision trace
+-- ----------------------------------------------------------------------------
+local CF = okE and type(enums) == "table" and enums.collision_flags or nil
+if type(CF) ~= "table" then CF = {} end
+local function cflag(name, fallback)
+    local ok, v = pcall(function() return CF[name] end)
+    if ok and type(v) == "number" then return v end
+    return fallback
+end
+
+--- Bits at or above this crashed the Classic clients (Graphics docs).
+X.TRACE_MASK_LIMIT = 0x200000
+
+--- What the character collides with, without terrain: doodads (rocks,
+--- fences, crates, trees), buildings and entities. Terrain would make every
+--- uphill slope a wall, and the navmesh already knows where the ground is
+--- walkable. The render flags are left out: they include decoration the
+--- character walks through. Master_Farmer_Bot's knee / shoulder rays use the
+--- same set (movement/const.lua FLAG_OBSTACLE). Distinct bits, so + is a bitwise or.
+X.TRACE_OBSTACLES = cflag("DoodadCollision", 0x1) + cflag("WmoCollision", 0x10)
+    + cflag("EntityCollision", 0x100000)
+
+local TRACE_LABEL = "core.graphics.trace_line (mask < 0x200000)"
+local trace_vec = nil
+
+--- Client collision trace from a to b ({x, y, z}).
+--- true = clear, false = something in the way, nil = could not trace
+--- (unsafe mask, call blocked by the crash guard, or an error).
+function X.trace_clear(a, b, mask)
+    mask = mask or X.TRACE_OBSTACLES
+    if type(mask) ~= "number" or mask <= 0 or mask >= X.TRACE_MASK_LIMIT then return nil end
+    local fn = core.graphics and core.graphics.trace_line
+    if type(fn) ~= "function" then return nil end
+    if not trace_vec then
+        local okv, v = pcall(require, "common/geometry/vector_3")
+        if not okv then return nil end
+        trace_vec = v
+    end
+    local ok, clear = X.call_fn(TRACE_LABEL, fn, trace_vec.new(a.x, a.y, a.z), trace_vec.new(b.x, b.y, b.z), mask)
+    if not ok or type(clear) ~= "boolean" then return nil end
+    return clear -- trace_line is true for a CLEAR line
+end
+
+--- Height of the first surface below (x, y, z) from the client
+--- (core.get_height_for_position): terrain, buildings, docks, doodads.
+--- The ray starts probe_up yards above z (game default 2), so a surface
+--- higher than that is missed. Water is ignored: over a lake this is the bed.
+--- nil on a miss (the game answers 0, which cannot be told from a real 0)
+--- or when the call is unavailable. probe_up needs a core from 2026-10-06 on;
+--- without it the call has the one-argument form every core accepts.
+function X.ground_height(x, y, z, probe_up)
+    local fn = core.get_height_for_position
+    if type(fn) ~= "function" then return nil end
+    if not trace_vec then
+        local okv, v = pcall(require, "common/geometry/vector_3")
+        if not okv then return nil end
+        trace_vec = v
+    end
+    local p = trace_vec.new(x, y, z)
+    local ok, h
+    if probe_up then
+        ok, h = X.call_fn("core.get_height_for_position(opts)", fn, p, { probe_up = probe_up })
+    else
+        ok, h = X.call_fn("core.get_height_for_position", fn, p)
+    end
+    if not ok or type(h) ~= "number" or h ~= h or h == 0 then return nil end
+    return h
+end
+
+--- False once the trace is known not to work this session (blocked by the guard).
+function X.trace_available()
+    return not blocked[TRACE_LABEL] and type(core.graphics and core.graphics.trace_line) == "function"
+end
+-- loss-of-control types that stop or take over movement (pacify, silence,
+-- disarm and school lockouts do not)
+local LOC_MOVEMENT = {}
+for name, fallback in pairs({ POSSES = 1, CONFUSE = 2, CHARM = 3, FEAR = 4, STUN = 5,
+                              ROOT = 7, STUN_MECHANIC = 12, FEAR_MECHANIC = 13 }) do
+    LOC_MOVEMENT[type(LOC[name]) == "number" and LOC[name] or fallback] = name
+end
+
+--- Name of the loss-of-control effect that stops the player walking
+--- ("STUN", "ROOT", "FEAR" ...), or nil.
+function X.movement_lost()
+    local p = X.player()
+    if not p then return nil end
+    local ok, info = X.call(p, "get_loss_of_control_info")
+    if not ok or type(info) ~= "table" or not info.valid then return nil end
+    return LOC_MOVEMENT[info.type]
 end
 
 function X.is_casting()

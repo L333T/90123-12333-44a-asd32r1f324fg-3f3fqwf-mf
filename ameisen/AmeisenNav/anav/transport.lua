@@ -44,6 +44,8 @@ local function now()
     return core.time()
 end
 
+local CURL_COULDNT_CONNECT = 7
+
 function T.on_server_change(fn)
     listeners[#listeners + 1] = fn
 end
@@ -98,11 +100,27 @@ local function send(req)
     T.sent = T.sent + 1
 
     local url = C.base_url .. req.path
-    local function answer(code, body)
+    local function answer(code, ctype, body)
         if req.done then return end -- timed out already
         local dt = now() - req.sent_at
         T.last_latency = dt
         T.avg_latency = T.avg_latency == 0 and dt or (T.avg_latency * 0.9 + dt * 0.1)
+        -- On a network failure the game passes curl's error code as the
+        -- status and "error" as the content type (Core docs, http_get).
+        -- Treating that as an answer marked the server up while it was down
+        -- and reported "unexpected HTTP 7" (bad_request) instead of server_down.
+        if ctype == "error" or (type(code) == "number" and code > 0 and code < 100) then
+            if code == CURL_COULDNT_CONNECT then
+                -- nothing listening: down now, not after C.down_after_failures
+                fail_streak = math.max(fail_streak, C.down_after_failures - 1)
+                note_transport_failure("connection refused (curl 7)")
+                finish(req, false, "server_down", "")
+            else
+                note_transport_failure("curl error " .. tostring(code))
+                finish(req, false, "error", "")
+            end
+            return
+        end
         -- A missing status or a body that is not a string is not an answer:
         -- callers do string work on it (body:sub, body:match).
         if type(code) ~= "number" or code == 0 or type(body) ~= "string" then
@@ -117,8 +135,8 @@ local function send(req)
 
     -- The game's HTTP layer calls this, so it must never raise: an error here
     -- would leave the request in flight and surface inside the host.
-    local function on_answer(code, _ctype, body)
-        local ok, err = xpcall(function() answer(code, body) end, L.traceback)
+    local function on_answer(code, ctype, body)
+        local ok, err = xpcall(function() answer(code, ctype, body) end, L.traceback)
         if not ok then
             L.error("http answer for %s failed: %s", req.path, tostring(err))
             finish(req, false, "error", "")

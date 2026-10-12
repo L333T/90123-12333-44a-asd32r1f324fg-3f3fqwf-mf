@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/follower.lua - walks a waypoint list
 -- ============================================================================
--- Version: 1.7.3
+-- Version: 1.1.0
 -- Author: BLIZZ
 -- ============================================================================
 -- Pure execution: it walks, watches and reports. Deciding what to do about a
@@ -10,8 +10,9 @@
 --
 -- F.tick() returns one event per frame at most:
 --   "arrived"   the last waypoint is reached
---   "stuck"     no progress for C.stuck_window seconds while not paused
---   "deviated"  the player is more than C.deviation_limit from the path
+--   "stuck"     no progress for stuck_window seconds while not paused
+--   "deviated"  the player is more than deviation_limit from the path
+--   (distances and windows come from anav/profile.lua: indoor, outdoor, swim)
 --   "backed"    a timed back-off (F.back_off) has finished
 --
 -- DRIVERS (C.driver)
@@ -37,6 +38,7 @@ local C = require("anav/config")
 local L = require("anav/log")
 local X = require("anav/context")
 local AV = require("anav/avoid")
+local P = require("anav/profile")
 
 local F = {}
 
@@ -48,8 +50,7 @@ F.paused = false
 F.driver = nil             -- driver of the active walk: "walker" | "input"
 
 local walker_refused = false  -- auto: simple_movement refused once this session
-local walker_offset = 0       -- walker driver: F.points index = walker index + offset (1.5.0)
-local last_replace = -1e9
+local loc_effect = nil        -- loss-of-control effect pausing the walk ("STUN", ...)
 
 local pause_reasons = {}   -- reason -> true
 local walker_paused = false
@@ -65,6 +66,13 @@ local sample_x, sample_y = nil, nil  -- where the current heading measurement st
 local MIN_MOVE_FOR_HEADING = 0.8     -- yards run before the heading is trusted
 local last_turn = nil      -- { err = signed deg, dur = s, idx = n } for turn-rate calibration
 F.turn_rate = nil          -- calibrated degrees / second (nil = use C.turn_rate)
+-- facing (X.facing): nil = still checking, true = matches the running
+-- direction (steer by it), false = does not (measure from positions)
+F.facing_trusted = nil
+local facing_agree, facing_disagree = 0, 0
+local FACING_MATCH_DEG = 15  -- facing vs measured running direction
+local FACING_VOTES = 3       -- samples needed to decide
+local FACING_DONE_DEG = 3    -- closed-loop turn: stop this close to the bearing
 -- avoidance
 local aim = { x = 0, y = 0, z = 0 }
 local aim_until = 0        -- use `aim` instead of the waypoint until then
@@ -74,11 +82,11 @@ local next_pull = 0
 local ADVICE_EVERY, AIM_HOLD, PULL_EVERY = 0.1, 0.4, 0.3
 
 local anchor_x, anchor_y, anchor_t = nil, nil, 0
--- 1.7.3: orbit guard (walker driver) - { i = waypoint index, t = first time near it }
-local orbit = { i = nil, t = 0 }
 local next_sample = 0
 local next_deviation_check = 0
 local backing_until = nil
+local backing_strafe = nil -- "left" | "right" while a back-off strafes
+local last_strafe = nil    -- 1 / -1: side of the last back-off strafe
 
 local function now() return core.time() end
 
@@ -132,85 +140,30 @@ local function want_look_at()
     return not X.is_forever()
 end
 
--- 1.5.2: the walker (simple_movement) is shared by every plugin. Its arrival
--- thresholds are saved before AmeisenNav sets its own and put back when the
--- walk ends (F.stop) - Slave Pens arrives at 0.7 yd and inherited 1.5 yd.
--- get_threshold / get_final_threshold: simple_movement stub.
-local saved_thresholds = nil
-
-local function restore_walker()
-    local sv = saved_thresholds
-    if not sv then return end
-    saved_thresholds = nil
-    if type(sv.threshold) == "number" then X.call(walker, "set_threshold", sv.threshold) end
-    if type(sv.final) == "number" then X.call(walker, "set_final_threshold", sv.final) end
-    if type(sv.turn) == "number" then X.call(walker, "set_turn_speed", sv.turn) end
-end
-
 local function configure_walker()
-    if not saved_thresholds then
-        local _, th = X.call(walker, "get_threshold")
-        local _, fi = X.call(walker, "get_final_threshold")
-        local _, tu = X.call(walker, "get_turn_speed")
-        saved_thresholds = { threshold = th, final = fi, turn = tu }
-    end
-    -- 1.7.3: the fastest turn simple_movement allows - tight corners
-    X.call(walker, "set_turn_speed", C.walker_turn_speed or 0.5)
     X.call(walker, "set_use_look_at", want_look_at())
     X.call(walker, "set_smoothing_enabled", false) -- the server returns the corners we want
-    -- 1.7.0: "reached" radius from the environment profile (open 2.5 yd,
-    -- indoor / cave 2.0 - never under the ~2.2 yd turning circle by much)
-    local th = C.waypoint_threshold
-    local okg, GZ = pcall(require, "anav/coords")
-    if okg and type(GZ) == "table" and type(GZ.profile) == "function" then
-        local okp, P = pcall(GZ.profile)
-        if okp and type(P) == "table" and type(P.threshold) == "number" then th = P.threshold end
-    else
-        local inside = false
-        pcall(function() inside = X.is_indoors() == true end)
-        if inside then th = C.waypoint_threshold_indoors or th end
+    X.call(walker, "set_threshold", P.get("waypoint_threshold"))
+    X.call(walker, "set_final_threshold", P.get("final_threshold"))
+    X.call(walker, "set_look_distance", C.look_distance)
+end
+
+--- End a back-off: release move backward and its strafe key.
+local function backing_stop()
+    X.call_fn("core.input.move_backward_stop", core.input.move_backward_stop)
+    if backing_strafe then
+        local fn = core.input["strafe_" .. backing_strafe .. "_stop"]
+        X.call_fn("core.input.strafe_" .. backing_strafe .. "_stop", fn)
+        backing_strafe = nil
     end
-    X.call(walker, "set_threshold", th)
-    X.call(walker, "set_final_threshold", C.final_threshold)
-    -- 1.6.9: direct_path - aim at the waypoint itself (simple_movement's
-    -- set_look_distance accepts 5-50 yd; 5 is the closest it allows)
-    X.call(walker, "set_look_distance", C.direct_path and 5 or C.look_distance)
-end
-
--- UNSTICK MANOEUVRE (1.6.5): strafe, jump, strafe. Forward is held the whole
--- time, so it is a short zig-zag hop: strafe to one side (MV_SIDE s, a jump
--- MV_JUMP s in, while still moving sideways), then to the other side for
--- MV_SIDE s. It frees the character from a lip, a root, a rock edge or a
--- spot just off the navmesh that a plain jump straight up does not.
--- The side it starts on alternates. Runs with or without a walk (F.active):
--- the walker is paused meanwhile and every key is released at the end.
-local MV_SIDE, MV_JUMP = 0.4, 0.2
-local mv = nil                -- { t0, a = "left"|"right", phase, jumped, fwd }
-local mv_side = "left"
-
-local function strafe_key(side, on)
-    local name = "core.input.strafe_" .. side .. (on and "_start" or "_stop")
-    local fn = core.input and core.input["strafe_" .. side .. (on and "_start" or "_stop")]
-    X.call_fn(name, fn)
-end
-
-local function mv_release()
-    if not mv then return end
-    strafe_key("left", false)
-    strafe_key("right", false)
-    if mv.fwd then X.call_fn("core.input.move_forward_stop", core.input.move_forward_stop) end
-    mv = nil
+    backing_until = nil
 end
 
 local function release_inputs()
     if F.driver == "walker" then X.call(walker, "strafe", nil) end
-    mv_release()
     forward_stop()
     turn_stop()
-    if backing_until then
-        X.call_fn("core.input.move_backward_stop", core.input.move_backward_stop)
-        backing_until = nil
-    end
+    if backing_until then backing_stop() end
     -- a back-off interrupted by stop()/follow() must not leave the walk paused
     pause_reasons.backoff = nil
 end
@@ -256,22 +209,34 @@ end
 --- nearest the player among the first few. A path starts where the player
 --- stood when it was requested; by the time it arrives that point is often
 --- behind, and steering to it would turn the character around.
+--- Only segments starting within START_SKIP_MAX yards of the path's start are
+--- considered, and a waypoint the player has not passed yet (projection
+--- before it) is started at, not skipped: a loop or patrol route ends where
+--- the player stands, and "nearest segment" alone jumped straight to its end.
+local START_SKIP_MAX = 8
+
 local function start_index(pts)
     local px, py = X.position()
     if not px or #pts < 2 then return 1 end
     local best, best_i = math.huge, 1
+    local along = 0
     for k = 1, math.min(#pts - 1, 4) do
         local a, b = pts[k], pts[k + 1]
+        if k > 1 then
+            local p = pts[k - 1]
+            along = along + sqrt((a.x - p.x) ^ 2 + (a.y - p.y) ^ 2)
+            if along > START_SKIP_MAX then break end
+        end
         local dx, dy = b.x - a.x, b.y - a.y
         local len2 = dx * dx + dy * dy
-        local t = 0
+        local raw, t = 0, 0
         if len2 > 0 then
-            t = ((px - a.x) * dx + (py - a.y) * dy) / len2
-            if t < 0 then t = 0 elseif t > 1 then t = 1 end
+            raw = ((px - a.x) * dx + (py - a.y) * dy) / len2
+            t = raw < 0 and 0 or (raw > 1 and 1 or raw)
         end
         local cx, cy = a.x + dx * t - px, a.y + dy * t - py
         local d = cx * cx + cy * cy
-        if d < best then best, best_i = d, k + 1 end
+        if d < best then best, best_i = d, raw > 0 and k + 1 or k end
     end
     return best_i
 end
@@ -314,7 +279,6 @@ function F.follow(points, seamless)
     F.driver = driver
     L.debug("driver: %s", driver)
 
-    walker_offset = 0
     F.points = pts
     F.active = true
     -- Force a resume() unless a pause reason is still live: the walker may have been
@@ -327,62 +291,6 @@ function F.follow(points, seamless)
     return true
 end
 
---- 1.6.0 (anav/horizon): swap a new window in under a running walk, now
---- (no REPLACE_GAP, no key release): the walker gets the new points from the
---- one nearest the player.
-function F.swap(points)
-    if type(points) ~= "table" or #points == 0 then return false end
-    if not F.active then return F.follow(points) end
-    local pts = {}
-    for i = 1, #points do pts[i] = vec3.new(points[i].x, points[i].y, points[i].z) end
-    local from = start_index(pts)
-    F.points = pts
-    if F.driver == "input" then
-        idx = from
-        last_turn, aim_until = nil, 0
-        return true
-    end
-    local rest = {}
-    for k = from, #pts do rest[#rest + 1] = pts[k] end
-    X.call(walker, "clear_navigation")
-    local ok, issued = X.call(walker, "navigate", rest, false, true)
-    if not ok or issued == false then
-        L.warn("simple_movement refused the next window")
-        return false
-    end
-    walker_offset = from - 1
-    last_replace = now()
-    if walker_paused then X.call(walker, "pause") end
-    return true
-end
-
---- 1.6.0 HANDOFF TO SIMPLE MOVEMENT: AmeisenNav lets go of the walk WITHOUT
---- releasing a key. The walker gets its own settings back (thresholds) and,
---- with `pos`, is pointed at it at once (move_to_position) - the character
---- keeps running and the consumer drives simple_movement from here.
-function F.hand_to_walker(pos)
-    if F.driver == "input" then
-        turn_stop()                                         -- simple_movement steers now
-        if backing_until then
-            X.call_fn("core.input.move_backward_stop", core.input.move_backward_stop)
-            backing_until = nil
-        end
-    end
-    pause_reasons = {}
-    if walker_paused then walker_paused = false; X.call(walker, "resume") end
-    restore_walker()
-    X.call(walker, "clear_navigation")
-    local ok = false
-    if pos then
-        local okc, issued = X.call(walker, "move_to_position", vec3.new(pos.x, pos.y, pos.z))
-        ok = okc and issued ~= false
-    end
-    if not ok and F.driver == "input" then forward_stop() end
-    F.active = false
-    F.points = nil
-    return ok
-end
-
 --- Stop walking and release the walker / inputs.
 function F.stop()
     release_inputs()
@@ -390,7 +298,6 @@ function F.stop()
         X.call(walker, "stop")
         X.call(walker, "clear_navigation")
     end
-    restore_walker()
     F.active = false
     F.points = nil
 end
@@ -400,87 +307,49 @@ function F.current_index()
     if not F.active or not F.points then return 1 end
     if F.driver == "input" then return math.min(idx, #F.points) end
     local ok, i = X.call(walker, "get_current_index")
-    if ok and type(i) == "number" and i >= 1 then return math.min(i + walker_offset, #F.points) end
-    return math.min(1 + walker_offset, #F.points)
-end
-
---- 1.5.0 (anav/pathcheck): corrected points for the walk in progress, from
---- waypoint `from` on. The input driver swaps them in place; the walker gets
---- the rest of the list re-issued (at most every REPLACE_GAP s - a correction
---- arriving sooner is still in F.points and goes out with the next one).
---- Returns true when the walk now uses them.
-local REPLACE_GAP = 0.5
-function F.replace_points(points, from)
-    if not F.active or type(points) ~= "table" or #points == 0 then return false end
-    from = math.max(1, math.min(from or 1, #points))
-    F.points = points
-    if F.driver == "input" then
-        idx = from
-        last_turn, aim_until = nil, 0
-        return true
-    end
-    local t = now()
-    if t - last_replace < REPLACE_GAP then return false end
-    last_replace = t
-    local rest = {}
-    for k = from, #points do rest[#rest + 1] = points[k] end
-    X.call(walker, "clear_navigation")
-    local ok, issued = X.call(walker, "navigate", rest, false, true)
-    if not ok or issued == false then
-        L.warn("simple_movement refused the corrected path")
-        return false
-    end
-    walker_offset = from - 1
-    if walker_paused then X.call(walker, "pause") end
-    return true
+    if ok and type(i) == "number" and i >= 1 then return math.min(i, #F.points) end
+    return 1
 end
 
 --- Back up for `seconds` (walking paused meanwhile). tick() returns "backed" when done.
+--- With the collision trace available, it backs out diagonally: strafing
+--- toward the open side as well, which clears the corner the character is
+--- caught on instead of walking straight back into it. No open side known:
+--- the side alternates per back-off.
 function F.back_off(seconds)
     F.set_paused("backoff", true)
     forward_stop()
     turn_stop()
     X.call_fn("core.input.move_backward_start", core.input.move_backward_start)
+    backing_strafe = nil
+    local px, py, pz = X.position()
+    local wp = F.points and F.points[F.current_index()]
+    if px and wp then
+        local side = AV.open_side(px, py, pz, wp.x, wp.y)
+        if not side then
+            last_strafe = -(last_strafe or -1)
+            side = last_strafe
+        end
+        last_strafe = side
+        backing_strafe = side == 1 and "left" or "right"
+        local fn = core.input["strafe_" .. backing_strafe .. "_start"]
+        X.call_fn("core.input.strafe_" .. backing_strafe .. "_start", fn)
+        L.debug("back off, strafing %s", backing_strafe)
+    end
     backing_until = now() + (seconds or C.backoff_time)
+end
+
+--- The game reports the player stopped moving (PLAYER_STOPPED_MOVING). While
+--- the input driver is walking, that means move forward was dropped: press
+--- it again on the next tick instead of after FORWARD_REFRESH.
+function F.on_stopped_moving()
+    if F.active and F.driver == "input" and not F.paused then
+        next_forward = 0
+    end
 end
 
 function F.jump()
     X.call_fn("core.input.jump", core.input.jump)
-end
-
---- 1.6.5: start the strafe-jump-strafe manoeuvre (`side` "left" / "right",
---- or nil to alternate). F.manoeuvre_tick() reports "manoeuvred" when done.
-function F.manoeuvre(side)
-    mv_release()
-    side = side or mv_side
-    mv_side = side == "left" and "right" or "left"
-    if F.active then F.set_paused("unstick", true) end
-    X.call_fn("core.input.move_forward_start", core.input.move_forward_start)
-    strafe_key(side, true)
-    mv = { t0 = now(), a = side, phase = 1, jumped = false, fwd = true }
-end
-
-function F.manoeuvring() return mv ~= nil end
-
---- Drive the manoeuvre; call every frame. Returns "manoeuvred" once it ends.
-function F.manoeuvre_tick()
-    if not mv then return nil end
-    local el = now() - mv.t0
-    if not mv.jumped and el >= MV_JUMP then
-        mv.jumped = true
-        X.call_fn("core.input.jump", core.input.jump)
-    end
-    if mv.phase == 1 and el >= MV_SIDE then
-        strafe_key(mv.a, false)
-        strafe_key(mv.a == "left" and "right" or "left", true)
-        mv.phase = 2
-    elseif mv.phase == 2 and el >= 2 * MV_SIDE then
-        mv_release()
-        if F.active then F.set_paused("unstick", false) end
-        reset_anchor()
-        return "manoeuvred"
-    end
-    return nil
 end
 
 -- 2D distance from (px, py) to segment a-b.
@@ -517,6 +386,9 @@ function F.off_path_distance()
 end
 
 -- STEERING
+-- With a trusted facing (see check_facing) the turn key is held until the
+-- facing is within FACING_DONE_DEG of the bearing, read every frame: no
+-- waiting to measure, no timed turns. Otherwise:
 -- Move forward stays held. Every frame with at least MIN_MOVE_FOR_HEADING
 -- yards of running since the last measurement, the running direction is
 -- compared with the bearing to the waypoint; when it is more than
@@ -553,17 +425,64 @@ local function calibrate(err_after_deg)
     end
 end
 
+--- Compare the reported facing with the measured running direction (a
+--- straight run, no turn key held). FACING_VOTES agreeing samples trust it
+--- for the session; FACING_VOTES disagreeing ones turn it off.
+local function check_facing(heading)
+    if F.facing_trusted ~= nil or C.use_facing == "off" then return end
+    if C.use_facing == "on" then
+        F.facing_trusted = true
+        return
+    end
+    local f = X.facing()
+    if not f then
+        F.facing_trusted = false
+        L.info("steering: the player's facing cannot be read - measuring from positions")
+        return
+    elseif math.abs(math.deg(wrap(f - heading))) <= FACING_MATCH_DEG then
+        facing_agree = facing_agree + 1
+    else
+        facing_disagree = facing_disagree + 1
+    end
+    if facing_agree >= FACING_VOTES and facing_agree > facing_disagree then
+        F.facing_trusted = true
+        L.info("steering: facing matches the running direction - steering by facing")
+    elseif facing_disagree >= FACING_VOTES and facing_disagree >= facing_agree then
+        F.facing_trusted = false
+        L.info("steering: facing does not match the running direction (%d/%d) - measuring from positions",
+            facing_disagree, facing_agree + facing_disagree)
+    end
+end
+
+--- Closed-loop turn toward `target` using the facing. Returns false when the
+--- facing could not be read this frame (caller falls back to measuring).
+local function steer_by_facing(t, px, py, target)
+    local f = X.facing()
+    if not f then return false end
+    local err_deg = math.deg(wrap(math.atan2(target.y - py, target.x - px) - f))
+    local dir = err_deg > 0 and 1 or -1
+    if turn_dir ~= 0 then
+        -- lined up, overshot, or the safety cap ran out
+        if math.abs(err_deg) <= FACING_DONE_DEG or dir ~= turn_dir or t >= turn_until then
+            turn_stop()
+        end
+    elseif math.abs(err_deg) > C.heading_tolerance then
+        turn_start(dir)
+        -- cap: twice the expected time, in case the facing stops updating
+        turn_until = t + 2 * math.abs(err_deg) / rate() + 0.3
+        L.debug("steer: %s %.0f deg toward %s %d/%d (facing)", dir == 1 and "left" or "right",
+            math.abs(err_deg), target == F.points[idx] and "waypoint" or "avoid point", idx, #F.points)
+    end
+    return true
+end
+
 --- The point to steer at this frame: the waypoint, or an avoidance aim point.
 local function steer_target(t, px, py, pz)
     local pts, n = F.points, #F.points
     if not C.avoid then return pts[idx] end
     AV.refresh(px, py, pz)
-    -- corner cutting: aim at the next waypoint as soon as it is in clear view.
-    -- 1.5.0: off while the path check runs - skipping ahead would bypass the
-    -- checked / shifted 5-yard waypoints, and its server /raycast took 3.5 s
-    -- and then killed AmeisenNavigationServer (2026-10-08).
-    -- 1.6.9: never with direct_path - each waypoint is walked to, in order
-    if idx < n and t >= next_pull and not C.pathcheck and not C.direct_path then
+    -- corner cutting: aim at the next waypoint as soon as it is in clear view
+    if idx < n and t >= next_pull then
         next_pull = t + PULL_EVERY
         if AV.can_skip_to(px, py, pz, pts[idx + 1], pts[idx + 1]) then
             idx = idx + 1
@@ -597,7 +516,7 @@ local function drive_input(t, px, py, pz)
     while idx <= n do
         local p = pts[idx]
         local dx, dy = p.x - px, p.y - py
-        local reach = idx == n and C.final_threshold or C.waypoint_threshold
+        local reach = idx == n and P.get("final_threshold") or P.get("waypoint_threshold")
         if dx * dx + dy * dy > reach * reach then break end
         idx = idx + 1
         last_turn = nil
@@ -613,11 +532,15 @@ local function drive_input(t, px, py, pz)
     forward_start(t)
     local target = steer_target(t, px, py, pz)
 
+    if F.facing_trusted and steer_by_facing(t, px, py, target) then
+        sample_x = nil -- measure afresh if the facing drops out
+        return false
+    end
+
     -- finish a timed turn, then measure afresh
     if turn_dir ~= 0 then
         if t < turn_until then return false end
         turn_stop()
-        forward_start(t)          -- 1.7.3: after a turn in place
         sample_x, sample_y = px, py
         return false
     end
@@ -630,6 +553,7 @@ local function drive_input(t, px, py, pz)
     if mx * mx + my * my < MIN_MOVE_FOR_HEADING * MIN_MOVE_FOR_HEADING then return false end
 
     local heading = math.atan2(my, mx)
+    check_facing(heading)
     local bearing = math.atan2(target.y - py, target.x - px)
     local err = wrap(bearing - heading)
     local err_deg = math.deg(err)
@@ -637,9 +561,6 @@ local function drive_input(t, px, py, pz)
     if target == pts[idx] then calibrate(err_deg) else last_turn = nil end
     if math.abs(err_deg) > C.heading_tolerance then
         local dur = math.abs(err_deg) / rate()
-        -- 1.7.3: a sharp corner is turned in place (forward released for the
-        -- turn): no turning circle, the waypoint is not run past and circled
-        if math.abs(err_deg) >= (C.sharp_turn or 60) then forward_stop() end
         turn_start(err > 0 and 1 or -1)
         turn_until = t + dur
         last_turn = (target == pts[idx]) and { err = err_deg, dur = dur, idx = idx } or nil
@@ -656,8 +577,7 @@ function F.tick()
 
     if backing_until then
         if t >= backing_until then
-            X.call_fn("core.input.move_backward_stop", core.input.move_backward_stop)
-            backing_until = nil
+            backing_stop()
             F.set_paused("backoff", false)
             return "backed"
         end
@@ -670,6 +590,16 @@ function F.tick()
         F.set_paused("cast", false)
     end
 
+    -- stunned / rooted / feared: not stuck, not deviating. The deviation
+    -- check repaths once control is back if a fear carried us off the path.
+    local lost = C.pause_while_controlled and X.movement_lost() or nil
+    if lost ~= loc_effect then
+        if lost then L.debug("movement lost (%s) - walk paused", lost)
+        elseif loc_effect then L.debug("movement back (%s ended)", loc_effect) end
+        loc_effect = lost
+        F.set_paused("control", lost ~= nil)
+    end
+
     local px, py, pz = X.position()
     local reached = false
     if F.driver == "input" then
@@ -677,48 +607,19 @@ function F.tick()
     else
         local ok, r = X.call(walker, "process")
         reached = ok and r == true
-        -- 1.7.3: ORBIT GUARD. Near the same waypoint for orbit_time without
-        -- reaching it = circling it: skip it and run on to the next.
-        if not reached and px and not F.paused then
-            local oki, wi = X.call(walker, "get_current_index")
-            local okc, wn = X.call(walker, "get_waypoint_count")
-            local okt, tg = X.call(walker, "get_target")
-            if oki and okc and type(wi) == "number" and type(wn) == "number" and wi < wn
-                and okt and tg ~= nil then
-                local okx, tx, ty = pcall(function() return tg.x, tg.y end)
-                local near = okx and type(tx) == "number"
-                    and (tx - px) ^ 2 + (ty - py) ^ 2 <= (C.orbit_radius or 5) ^ 2
-                if near then
-                    if orbit.i ~= wi then
-                        orbit.i, orbit.t = wi, t
-                    elseif t - orbit.t >= (C.orbit_time or 1.2) then
-                        L.debug("orbit: waypoint %d/%d not reached in %.1fs within %.0f yd - skipped",
-                            wi, wn, t - orbit.t, C.orbit_radius or 5)
-                        X.call(walker, "skip_waypoint")
-                        orbit.i = nil
-                    end
-                elseif orbit.i == wi then
-                    orbit.i = nil
-                end
-            end
-        end
     end
     local last = F.points[#F.points]
 
     if px and last then
         local dx, dy, dz = last.x - px, last.y - py, last.z - pz
-        -- 1.6.1: the same floor - indoors the floor above / below is a few
-        -- yards up, and 6 yd let the character "arrive" under an upstairs NPC
-        local level = math.abs(dz) < C.arrive_dz
-        local close = dx * dx + dy * dy <= C.final_threshold * C.final_threshold and level
-        if close or (reached and level) then
+        local fin = P.get("final_threshold")
+        -- only on the last leg: a route that ends where it starts (a loop,
+        -- a patrol) would otherwise "arrive" on its first frame
+        local close = dx * dx + dy * dy <= fin * fin and math.abs(dz) < 6
+            and F.current_index() >= #F.points
+        if reached or close then
             F.stop()
             return "arrived"
-        end
-        if reached then
-            -- the walker is done, but on another floor than the path's end
-            F.stop()
-            return "wrong_floor"
         end
     end
 
@@ -736,7 +637,7 @@ function F.tick()
             local mx, my = px - anchor_x, py - anchor_y
             if mx * mx + my * my >= C.stuck_min_move * C.stuck_min_move then
                 anchor_x, anchor_y, anchor_t = px, py, t
-            elseif t - anchor_t >= C.stuck_window then
+            elseif t - anchor_t >= P.get("stuck_window") then
                 reset_anchor()
                 return "stuck"
             end
@@ -746,7 +647,7 @@ function F.tick()
     -- deviation: knocked back, feared, slid off a ledge ...
     if t >= next_deviation_check then
         next_deviation_check = t + 1.0
-        if F.off_path_distance() > C.deviation_limit then
+        if F.off_path_distance() > P.get("deviation_limit") then
             return "deviated"
         end
     end

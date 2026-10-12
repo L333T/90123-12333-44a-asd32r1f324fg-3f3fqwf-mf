@@ -9,7 +9,7 @@
 --
 --   Q.find_path(from, to, opts, cb)     cb(ok, points|nil, info)
 --   Q.find_paths(pairs, opts, cb)       cb(ok, results|nil, info)
---   Q.get_height(pos, cb)               cb(ok, z|nil, info)
+--   Q.get_height(pos, cb, opts)         cb(ok, z|nil, info)   client first, then server
 --   Q.raycast(from, to, cb)             cb(ok, clear, hit_point|nil, info)
 --   Q.move_along_surface(from, to, cb)  cb(ok, point|nil, info)
 --   Q.random_point(center, radius, cb)  cb(ok, point|nil, info)
@@ -39,14 +39,6 @@ local T = require("anav/transport")
 local X = require("anav/context")
 
 local Q = {}
-
---- 1.6.8: `flags` without the server's smoothing bits (1 Chaikin, 2, 4);
---- VALIDATE_MAS (16) and anything else is kept.
-function Q.unsmoothed(flags)
-    flags = tonumber(flags) or 0
-    local smooth = flags % 8
-    return flags - smooth
-end
 
 local floor, sqrt = math.floor, math.sqrt
 local fmt = string.format
@@ -184,7 +176,6 @@ function Q.find_path(from, to, opts, cb)
         return
     end
     local flags = (opts and opts.flags) or C.path_flags
-    if C.no_smoothing then flags = Q.unsmoothed(flags) end    -- 1.6.8
     local as_vec3 = opts and opts.vec3
     local target = { x = ex, y = ey, z = ez }
     local key = cache_key(map, state, flags, sx, sy, sz, ex, ey, ez)
@@ -256,7 +247,6 @@ function Q.find_paths(pairs_list, opts, cb)
         return
     end
     local flags = (opts and opts.flags) or C.path_flags
-    if C.no_smoothing then flags = Q.unsmoothed(flags) end    -- 1.6.8
     local body = {}
     for i = 1, #pairs_list do
         local sx, sy, sz = xyz(pairs_list[i][1])
@@ -317,10 +307,16 @@ local function point_query(path, as_vec3, cb)
     end)
 end
 
+--- Ground height under pos. The client answers first (X.ground_height, no
+--- round trip, works on the 1.8.3.2 server that has no /height); the server
+--- is asked only when the client misses. opts.probe_up: yards above pos.z the
+--- client's downward ray starts (default 2) - raise it when pos.z is a guess.
 function Q.get_height(pos, cb, opts)
     local x, y, z = xyz(pos)
     local map = ctx(opts)
     if not x or not map then cb(false, nil, { code = "bad_request" }); return end
+    local h = X.ground_height(x, y, z, opts and opts.probe_up)
+    if h then cb(true, h, { code = "ok", source = "client" }); return end
     point_query(fmt("/height?map=%d&x=%.2f&y=%.2f&z=%.2f", map, x, y, z), false, function(ok, p, info)
         cb(ok, p and p.z or nil, info)
     end)

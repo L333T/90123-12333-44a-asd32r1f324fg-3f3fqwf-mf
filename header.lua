@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Purpose: TBC + IZI gate. Not class-locked. Start is gated by rotation registry.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -51,7 +51,6 @@ if (not izi_ok) or type(izi) ~= "table" then
 end
 
 local required_izi = {
-    "on_update",
     "spell",
     "item",
     "enemies",

@@ -1,43 +1,34 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- movement/leash.lua - path leash (corridor around a saved route)
+-- movement/leash.lua - the recorded-path corridor (path_runner)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- ============================================================================
--- The leash is a flat number array { x1, y1, z1, x2, ... } flattened once per
--- distinct waypoint list. Moving outside the corridor is only allowed when the
--- move brings the player closer to it.
+-- A recorded path (path_runner) is a polyline. Farther than PATH_LEASH yd
+-- from it (a fight pulled the player off) needs_rejoin() is true and
+-- rejoin_path() walks back to the nearest point of the line. path_anchor_index
+-- tells which segment a position is nearest to, so the run resumes there.
+-- The leash only arms once the player has been on the line.
 -- ============================================================================
 
----@type izi_api
-local izi = require("common/izi_sdk")
-
-local K = require("movement/const")
-local R = require("movement/rt")
-local U = require("movement/util")
-
-local PATH_LEASH = K.PATH_LEASH
-
-local xyz, dist2, here_xyz = U.xyz, U.dist2, U.here_xyz
-
-local sqrt = math.sqrt
+local R = require("movement/core")
+local N = require("movement/nav")
 
 local L = {}
 
--- ============================================================================
--- INTERNALS
--- ============================================================================
---- Closest point on the leash polyline to (x, y).
---- Returns px, py, pz, dist_xy, segment_index  (or nil when there is no leash).
-function L.project(x, y)
-    local leash = R.leash
-    if not leash then return nil end
-    if R.leash_n == 1 then
-        return leash[1], leash[2], leash[3], dist2(x, y, leash[1], leash[2]), 1
+local PATH_LEASH = 10.0
+
+local leash, leash_n, leash_src, armed = nil, 0, nil, false
+
+--- Nearest point of the polyline to (x, y): px, py, pz, distance, segment index.
+local function project(x, y)
+    if not leash or leash_n < 1 then return nil end
+    if leash_n == 1 then
+        return leash[1], leash[2], leash[3], R.dist2(x, y, leash[1], leash[2]), 1
     end
     local best_d2, bx, by, bz, bi = 1e18, 0, 0, 0, 1
-    for i = 1, R.leash_n - 1 do
+    for i = 1, leash_n - 1 do
         local o = (i - 1) * 3
         local ax, ay, az = leash[o + 1], leash[o + 2], leash[o + 3]
         local cx, cy, cz = leash[o + 4], leash[o + 5], leash[o + 6]
@@ -51,79 +42,32 @@ function L.project(x, y)
         local px, py = ax + vx * t, ay + vy * t
         local dx, dy = x - px, y - py
         local d2 = dx * dx + dy * dy
-        if d2 < best_d2 then
-            best_d2, bx, by, bz, bi = d2, px, py, az + (cz - az) * t, i
-        end
+        if d2 < best_d2 then best_d2, bx, by, bz, bi = d2, px, py, az + (cz - az) * t, i end
     end
-    return bx, by, bz, sqrt(best_d2), bi
+    return bx, by, bz, math.sqrt(best_d2), bi
 end
+L.project = project
 
---- Player's projection onto the leash, computed at most once per pulse.
-function L.here_on_leash()
-    if R.lc_tick == R.pulse_tick then
-        if R.lc_d == nil then return nil end
-        return R.lc_x, R.lc_y, R.lc_z, R.lc_d, R.lc_i
-    end
-    R.lc_tick = R.pulse_tick
-    local x, y = here_xyz()
-    if not x or not R.leash then
-        R.lc_d = nil
-        return nil
-    end
-    R.lc_x, R.lc_y, R.lc_z, R.lc_d, R.lc_i = L.project(x, y)
-    return R.lc_x, R.lc_y, R.lc_z, R.lc_d, R.lc_i
-end
-
-function L.offset_xy(x, y)
-    if not R.leash or not x then return nil end
-    local _, _, _, d = L.project(x, y)
-    return d
-end
-
---- May we move from `from` to `dest` under the leash? Inside the leash is
---- always fine; outside is fine only when the move brings us closer to it.
-function L.allows(from, dest)
-    if not R.leash_armed or not R.leash then return true end
-    local _, _, _, dd = L.project(dest.x, dest.y)
-    if dd <= PATH_LEASH then return true end
-    local _, _, _, fd = L.project(from.x, from.y)
-    return dd < (fd - 0.15)
-end
-
-function L.needs_rejoin()
-    if R.sn_active or R.sn_leash_hold then return false end   -- Sentinel may leave the polyline
-    if not R.leash_armed or not R.leash or R.rest_lock then return false end
-    local _, _, _, d = L.here_on_leash()
-    return d ~= nil and d > PATH_LEASH
-end
-
--- ============================================================================
--- PUBLIC API
--- ============================================================================
+--- `waypoints`: a flat {x1,y1,z1,...} array or a list of points.
 function L.set_path_leash(waypoints)
     if type(waypoints) ~= "table" or #waypoints < 1 then
-        R.leash, R.leash_n, R.leash_src, R.leash_armed = nil, 0, nil, false
+        leash, leash_n, leash_src, armed = nil, 0, nil, false
         return
     end
-    if waypoints ~= R.leash_src then                   -- flatten once per new list
+    if waypoints ~= leash_src then
         local flat, n = {}, 0
         if type(waypoints[1]) == "number" then
-            -- Already flat: a path's own coords array, handed straight over.
-            -- Building one object per waypoint here only to take it apart
-            -- again would allocate the whole route for nothing - 1,460
-            -- objects on the longest one.
-            local len = math.floor(#waypoints / 3)
-            for i = 1, len do
+            for i = 1, math.floor(#waypoints / 3) do
                 local k = (i - 1) * 3
                 local x, y, z = waypoints[k + 1], waypoints[k + 2], waypoints[k + 3]
-                if type(x) == "number" and type(y) == "number" and type(z) == "number" then
+                if R.finite(x) and R.finite(y) and R.finite(z) then
                     flat[n * 3 + 1], flat[n * 3 + 2], flat[n * 3 + 3] = x, y, z
                     n = n + 1
                 end
             end
         else
             for i = 1, #waypoints do
-                local x, y, z = xyz(waypoints[i])
+                local x, y, z = R.xyz(waypoints[i])
                 if x then
                     flat[n * 3 + 1], flat[n * 3 + 2], flat[n * 3 + 3] = x, y, z
                     n = n + 1
@@ -131,40 +75,58 @@ function L.set_path_leash(waypoints)
             end
         end
         if n == 0 then
-            R.leash, R.leash_n, R.leash_src, R.leash_armed = nil, 0, nil, false
+            leash, leash_n, leash_src, armed = nil, 0, nil, false
             return
         end
-        R.leash, R.leash_n, R.leash_src = flat, n, waypoints
+        leash, leash_n, leash_src = flat, n, waypoints
     end
-    R.lc_tick = -1
-    local _, _, _, d = L.here_on_leash()
-    R.leash_armed = d ~= nil and d <= PATH_LEASH
+    local hx, hy = R.here()
+    local d = hx and select(4, project(hx, hy)) or nil
+    armed = d ~= nil and d <= PATH_LEASH
 end
 
 function L.clear_path_leash()
-    R.leash, R.leash_n, R.leash_src, R.leash_armed = nil, 0, nil, false
+    leash, leash_n, leash_src, armed = nil, 0, nil, false
+end
+
+--- Off the corridor (and not walking an AmeisenNav path that may leave it)?
+function L.needs_rejoin()
+    if not leash or R.resting then return false end
+    local hx, hy = R.here()
+    if not hx then return false end
+    local _, _, _, d = project(hx, hy)
+    if not armed then
+        if d and d <= PATH_LEASH then armed = true end
+        return false
+    end
+    if N.busy() then return false end
+    return d ~= nil and d > PATH_LEASH
+end
+
+--- Walk back to the nearest point of the line.
+function L.rejoin_path()
+    local hx, hy = R.here()
+    if not hx or not leash then return false end
+    local px, py, pz = project(hx, hy)
+    if not px then return false end
+    return N.nav_to({ x = px, y = py, z = pz })
+end
+
+--- The segment index nearest `pos` (default: the player).
+function L.path_anchor_index(pos)
+    local x, y
+    if pos then x, y = R.xyz(pos) else x, y = R.here() end
+    if not x or not leash then return nil end
+    local _, _, _, _, i = project(x, y)
+    return i
 end
 
 function L.path_offset(pos)
-    if pos then return L.offset_xy(xyz(pos)) end
-    local _, _, _, d = L.here_on_leash()
+    local x, y
+    if pos then x, y = R.xyz(pos) else x, y = R.here() end
+    if not x or not leash then return nil end
+    local _, _, _, d = project(x, y)
     return d
-end
-
-function L.public_needs_rejoin()
-    if izi.now() < R.stuck_grace_until then return false end
-    return L.needs_rejoin()
-end
-
-function L.path_anchor_index(pos)
-    if pos then
-        local x, y = xyz(pos)
-        if not x or not R.leash then return nil end
-        local _, _, _, _, i = L.project(x, y)
-        return i
-    end
-    local _, _, _, _, i = L.here_on_leash()
-    return i
 end
 
 return L

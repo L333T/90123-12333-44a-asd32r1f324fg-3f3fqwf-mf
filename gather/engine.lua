@@ -3,7 +3,7 @@
 -- Gathering mode: patrol a route, gather herb / ore nodes, fight back
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine (MainThread + Gather_Process), PORT_PLAYBOOK.md.
@@ -47,8 +47,9 @@ local supply = require("gather/supply")
 local gather = {}
 
 local NOTE = "Gather"
-local CHUNK_MAX = 60
-local CHUNK_REFILL = 4
+-- 3.0.0: one full lap per AmeisenNav follow_path (it cannot take a new list
+-- without stopping); the next lap goes out when this one ends.
+local CHUNK_MAX = 400
 local NODE_PASS = 5.0
 local FAR_JOIN = 120          -- farther than this from every waypoint: nav_to the nearest first
 local USE_RANGE = 5           -- at or under this the node is used
@@ -346,7 +347,7 @@ local function build_chunk(r)
     local n = #(r.waypoints or {})
     local list, idx = {}, {}
     local i = (S.wp >= 1 and S.wp <= n) and S.wp or 1
-    for _ = 1, math.min(CHUNK_MAX, n) do
+    for _ = 1, math.min(CHUNK_MAX, n + 1) do
         local w = wp_xyz(r, i)
         if w and not movement.is_blocked(w) then
             list[#list + 1] = w
@@ -400,7 +401,7 @@ local function patrol(player, p)
     local note = string.format("%s  waypoint %d / %d", tostring(r.id), S.wp, n)
     local remaining = S.chunk and (#S.chunk - S.chunk_k + 1) or 0
     local moving = movement.is_moving()
-    if S.chunk and moving and remaining > CHUNK_REFILL then
+    if S.chunk and moving then
         local nxt = S.chunk[math.min(S.chunk_k, #S.chunk)]
         if nxt and mount_up(player, flat(p, nxt) > mount.TRAVEL_YARDS or remaining > 2) then
             S.chunk = nil
@@ -418,7 +419,7 @@ local function patrol(player, p)
         state.set_note(NOTE, "Route blocked")
         return
     end
-    if movement.follow_route(list, S.chunk ~= nil and moving) then
+    if movement.follow_route(list, true) then
         S.chunk, S.chunk_idx, S.chunk_k = list, idx, 1
     end
     state.set_note(NOTE, note)

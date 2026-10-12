@@ -173,9 +173,14 @@ end
 -- A failing element must not blank the rest of the page, and each distinct
 -- failure is logged once (the menu is drawn every frame).
 local reported = {}
+local ui_first_render = nil
 
 local function section(name, fn)
     local ok, err = xpcall(fn, L.traceback)
+    -- 2.0.3: see tune.lua - the first frames run over the build budget
+    local t = core.time()
+    ui_first_render = ui_first_render or t
+    if not ok and (t - ui_first_render) < 3.0 then return end
     if not ok and not reported[name] then
         reported[name] = true
         L.error("menu section '%s' failed: %s", name, tostring(err))

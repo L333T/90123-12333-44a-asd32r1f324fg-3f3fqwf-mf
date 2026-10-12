@@ -3,7 +3,7 @@
 -- quest/travel.lua - flights: RestedXP ".fly" goals and far-goal flight trips
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.5
+-- Version: 3.0.6
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 2.307.0: SPLIT OUT OF quest/engine.lua, which sat at Lua's hard limit of
@@ -210,7 +210,7 @@ end
 
 local function taxi_gossip()
     -- gossip.lua (2.144.0): izi's TAXI icon, then type "taxi" / wording.
-    return (gossip.select({ icon = "TAXI", type = "taxi", words = { "fly", "flight" } }))
+    return (gossip.select({ icon = "TAXI", type = "taxi", words = { "fly", "flight", "ride", "taxi" } }))
 end
 
 local function pos_of(player)
@@ -614,6 +614,7 @@ local function far_travel(player, goal, kind, wps, label)
         -- 2.239.0: the NPC flagged FLIGHTMASTER first (guards and vendors
         -- stand at flight points too), then the nearest friendly NPC.
         local best_d, best_fm = nil, false
+        local any_fm = false
         local list = targeting.visible_objects() or {}
         for i = 1, #list do
             local u = list[i]
@@ -623,6 +624,7 @@ local function far_travel(player, goal, kind, wps, label)
                 and safe(function() return player:can_attack(u) end) ~= true then
                 local g = FM.guid_text(u)
                 local p = safe(function() return u:get_position() end)
+                if p and d2(p, sp) <= FM_SEARCH and FM.is_flight_master(u) then any_fm = true end
                 if g ~= nil and not trip.tried[g] and p and d2(p, sp) <= FM_SEARCH then
                     local d = d2(here, p)
                     local fm = FM.is_flight_master(u)
@@ -632,6 +634,9 @@ local function far_travel(player, goal, kind, wps, label)
                 end
             end
         end
+        -- 3.0.6: other NPCs are tried only where NO NPC is flagged flight
+        -- master - the 10:32 log asked a boar, a guard and five players' pets
+        if unit and not best_fm and any_fm then unit = nil end
         if not unit then
             return trip_fail(key, "no flight master found at " .. sp.name)
         end

@@ -373,8 +373,16 @@ local function header(text, col)
 end
 
 local reported = {}
+-- 2.0.3: the first frames build every element at once and run over the menu
+-- library's build budget ("consume_build_unit"); the sections finish on the
+-- next frames. Failures in the first WARMUP s are not reported.
+local WARMUP = 3.0
+local first_render = nil
 local function section(name, fn)
     local ok, err = xpcall(fn, L.traceback)
+    local t = core.time()
+    first_render = first_render or t
+    if not ok and (t - first_render) < WARMUP then return end
     if not ok and not reported[name] then
         reported[name] = true
         L.error("movement menu section '%s' failed: %s", name, tostring(err))

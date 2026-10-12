@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.3
+-- Version: 3.0.4
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -46,7 +46,13 @@ movement.nav_to       = function(dest, direct) return N.nav_to(dest, direct) end
 movement.nudge        = function(dest) return N.nav_to(dest) end
 movement.follow_route = N.follow_route
 movement.nav_path     = function(points) return N.follow_route(points) end
-movement.nav_stop     = function() N.stop("Master Farmer") end
+-- 3.0.4: callers stop every tick once "near" an NPC (4-5 yd); an approach
+-- movement.interact started (to NPC_REACH) is not cancelled by that
+local npc_walk = { until_t = 0 }
+movement.nav_stop     = function()
+    if R.now() < npc_walk.until_t and N.mode() == "npc" then return end
+    N.stop("Master Farmer")
+end
 movement.is_moving    = function() return N.busy() or R.backpedal_until ~= nil end
 movement.is_navigating = function() return N.busy() and not C.in_combat_movement() end
 movement.sentinel_active = N.busy
@@ -129,7 +135,12 @@ movement.backpedaling    = Lk.backpedaling
 -- so a window, gossip, purchase, repair or turn-in completes before the
 -- bot walks off (walking away closed trainer / merchant windows). Fights
 -- are not held (combat_engage walks regardless).
-local NPC_HOLD = 2.0
+-- 3.0.4: the player walks to within NPC_REACH yd of the NPC first (the
+-- callers stopped at 4-5 yd and the game answered "too far away"), and the
+-- hold is NPC_HOLD = 10 s (user: stay long enough for the actions).
+local NPC_HOLD = 10.0
+local NPC_REACH = 3.0
+movement.NPC_REACH = NPC_REACH
 local function event_clock()
     -- events.lua stamps UI errors with izi.now(); the too-far check compares
     -- against that clock
@@ -152,8 +163,28 @@ function movement.npc_holding()
 end
 
 --- Interact with an NPC and hold travel NPC_HOLD s. True when sent.
+--- Farther than NPC_REACH: walks up to the NPC instead and answers false
+--- (the caller's next attempt interacts from there).
 function movement.interact(unit)
     if not unit then return false end
+    local me = R.me()
+    local d = nil
+    if me then
+        local okd, v = pcall(me.distance_to, me, unit)
+        if okd and type(v) == "number" then d = v end
+    end
+    if d and d > NPC_REACH then
+        local okp, pos = pcall(unit.get_position, unit)
+        if okp and pos then
+            R.npc_until, R.npc_ev_t = nil, nil
+            if N.nav_to(pos, true, "npc") then
+                npc_walk.until_t = R.now() + 3.0
+                R.trail("move", "NPC %.1f yd away - walking within %.0f yd before interacting", d, NPC_REACH)
+                return false
+            end
+        end
+    end
+    npc_walk.until_t = 0
     movement.npc_hold()
     local ok = pcall(function() core.input.interact_with_object(unit) end)
     return ok

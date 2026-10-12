@@ -85,19 +85,24 @@ local C = {
     scale_with_speed    = true,     -- grow reach / look-ahead with speed (mounted)
     speed_scale_max     = 2.5,
     profiles = {
+        -- 2.0.1: tighter corners indoors (Goldshire inn, 2026-10-12: stuck at
+        -- door frames and stair turns again and again - the walker looked 8 yd
+        -- ahead and cut each corner into the wall)
         indoor = {                  -- buildings and caves
-            waypoint_threshold = 1.5,  -- turn exactly at doorways
+            waypoint_threshold = 1.0,  -- turn exactly at doorways
             final_threshold    = 1.0,
-            wall_probe         = 3.0,  -- a 6 yd probe hits the far wall of every room
-            avoid_lookahead    = 4,
-            avoid_clearance    = 0.4,  -- 0.8 would make corridors impassable
-            string_pull_range  = 6,    -- short shortcuts: rooms, stairs, cave bends
-            deviation_limit    = 5,
-            stuck_window       = 1.5,
-            ground_max_dev     = 1.2,  -- balconies, stair wells, cave ledges
+            look_distance      = 2.5,  -- walker steering: aim at the corner, not past it
+            wall_probe         = 2.5,  -- a 6 yd probe hits the far wall of every room
+            avoid_lookahead    = 3,
+            avoid_clearance    = 0.3,  -- 0.8 would make corridors impassable
+            string_pull_range  = 3,    -- almost no shortcuts: door frames, stairs, cave bends
+            deviation_limit    = 4,
+            stuck_window       = 2.0,  -- slow turns in a small room are not stuck
+            ground_max_dev     = 1.0,  -- balconies, stair wells, cave ledges
         },
         swim = {
             waypoint_threshold = 2.0,
+            look_distance      = 6,
             wall_probe         = 4.0,  -- slower: less look-ahead needed
             string_pull_range  = 10,
             stuck_window       = 2.5,  -- currents and slow turns are not stuck

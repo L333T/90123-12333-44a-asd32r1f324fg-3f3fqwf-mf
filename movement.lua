@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -123,6 +123,41 @@ movement.prepare_ground  = Lk.prepare_ground
 movement.pause_for_loot  = Lk.pause_for_loot
 movement.backpedal       = Lk.backpedal
 movement.backpedaling    = Lk.backpedaling
+
+-- 3.0.2: AT AN NPC. Every NPC interaction goes through movement.interact:
+-- the walk stops and travel is held NPC_HOLD s from the LAST interaction,
+-- so a window, gossip, purchase, repair or turn-in completes before the
+-- bot walks off (walking away closed trainer / merchant windows). Fights
+-- are not held (combat_engage walks regardless).
+local NPC_HOLD = 2.0
+local function event_clock()
+    -- events.lua stamps UI errors with izi.now(); the too-far check compares
+    -- against that clock
+    local ok, izi = pcall(require, "common/izi_sdk")
+    if ok and type(izi) == "table" and type(izi.now) == "function" then
+        local okn, t = pcall(izi.now)
+        if okn and type(t) == "number" then return t end
+    end
+    return nil
+end
+
+function movement.npc_hold(seconds)
+    R.npc_until = R.now() + (tonumber(seconds) or NPC_HOLD)
+    R.npc_ev_t = event_clock()
+    if N.busy() then N.stop("at an NPC") end
+end
+
+function movement.npc_holding()
+    return (R.npc_until or 0) > R.now()
+end
+
+--- Interact with an NPC and hold travel NPC_HOLD s. True when sent.
+function movement.interact(unit)
+    if not unit then return false end
+    movement.npc_hold()
+    local ok = pcall(function() core.input.interact_with_object(unit) end)
+    return ok
+end
 
 -- ============================================================================
 -- RECORDED-PATH CORRIDOR (path_runner)

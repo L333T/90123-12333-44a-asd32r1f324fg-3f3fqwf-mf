@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -956,7 +956,7 @@ local function buy_goal(player, goal, wps, label)
     if (now - b.talk_t) >= BUY_TALK_GAP then
         b.talk_t = now
         targeting.set_current(unit, "vendor")
-        pcall(function() core.input.interact_with_object(unit) end)
+        pcall(function() require("movement").interact(unit) end)
         if gossip.is_open() then
             gossip.select({ icon = "VENDOR", icon_num = 1, type = "vendor",
                 words = { "browse your goods", "let me browse", "your wares", "buy from you" } })
@@ -1186,7 +1186,7 @@ local function prof_goal(player, goal, wps, label)
                 pcall(function() core.quests.close_gossip() end)
             end
         else
-            pcall(function() core.input.interact_with_object(unit) end)
+            pcall(function() require("movement").interact(unit) end)
         end
     end
     state.set_note("Quest", "Guide: opening the " .. prof .. " trainer")
@@ -2274,7 +2274,7 @@ local function dialog_goal(player, goal, kind, wps, label)
         end
         g_act_until = now + ACT_GAP
         g_talk_interact_t = now
-        pcall(function() core.input.interact_with_object(unit) end)
+        pcall(function() require("movement").interact(unit) end)
         debug("talk to %s", tostring(how))
     end
     state.set_note("Quest", "Guide: talk to " .. label)

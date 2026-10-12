@@ -3,7 +3,7 @@
 -- castq.lua - rotation casts through the Sylvanas spell queue
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.249.0)

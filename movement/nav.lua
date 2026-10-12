@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -125,6 +125,19 @@ function N.refusal()
     if R.resting then return "resting" end
     if R.backpedal_until then return "backpedal" end
     if (R.combat_until or 0) > R.now() then return "combat" end
+    -- 3.0.2: standing at an NPC (movement.interact) - its window / gossip /
+    -- purchase gets NPC_HOLD s before any walk starts again
+    if (R.npc_until or 0) > R.now() then
+        -- the game answered "too far away": nothing opened, the caller walks
+        -- up to the NPC - the hold is lifted for that walk
+        local ev = package.loaded["events"]
+        if R.npc_ev_t and type(ev) == "table" and type(ev.too_far_since) == "function"
+            and ev.too_far_since(R.npc_ev_t) == true then
+            R.npc_until, R.npc_ev_t = nil, nil
+            return nil
+        end
+        return "npc"
+    end
     return nil
 end
 

@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -1199,7 +1199,7 @@ local function hearth_tick(player)
     end
     movement.nav_stop()
     ht.cur, ht.t, ht.tries = n.guid, now, (ht.tries or 0) + 1
-    pcall(function() core.input.interact_with_object(n.unit) end)
+    pcall(function() require("movement").interact(n.unit) end)
     state.set_note("Vendor", "Looking for a merchant")
     return true
 end
@@ -1351,7 +1351,7 @@ local function supplier_tick(player)
     state.vendor.interact_until = now + INTERACT_GAP
     state.vendor.interact_t = now
     targeting.set_current(unit, "vendor")
-    pcall(function() core.input.interact_with_object(unit) end)
+    pcall(function() require("movement").interact(unit) end)
     if gossip_open() then
         if not select_vendor_gossip() then
             close_vendor()
@@ -1838,7 +1838,7 @@ function vendor.tick(player)
     state.vendor.interact_t = now
     targeting.set_current(unit, "vendor")
     pcall(function()
-        core.input.interact_with_object(unit)
+        require("movement").interact(unit)
     end)
     if gossip_open() then
         if not select_vendor_gossip() then

@@ -4,7 +4,7 @@
 -- "Food, drink, ammo")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine BulletRun / BuyBullets / Hunter_Ammo_* and
@@ -353,7 +353,7 @@ function supply.tick(player, r, opts)
         if gossip.is_open() then
             gossip.select({ icon = "VENDOR", icon_num = 1, type = "vendor", words = { "browse", "goods", "buy", "wares" } })
         else
-            pcall(function() core.input.interact_with_object(unit) end)
+            pcall(function() require("movement").interact(unit) end)
         end
     end
     state.set_note("Gather", "Opening " .. trip.vendor)

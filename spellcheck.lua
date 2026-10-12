@@ -201,9 +201,12 @@ function M.can_cast_at(spell, caster, target, pos, opts)
 end
 
 --- A cast went out: the refusal streak starts again.
-function M.cast_done(spell)
+function M.cast_done(spell, target)
     local id = M.id_of(spell)
     if id then streak[id] = nil end
+    -- 2.315.0: the last spell sent (was izi.on_spell_success, movement/fsm.lua)
+    local F = package.loaded["movement/fsm"]
+    if id and type(F) == "table" and type(F.note_spell) == "function" then pcall(F.note_spell, id, target) end
 end
 
 -- ----------------------------------------------------------------------------
@@ -337,14 +340,14 @@ end
 function M.cast_safe(sp, target, msg, opts)
     if not gate_unit(sp, target, opts) then return false, REFUSED end
     local ok, meta = M.core_cast(sp, target, opts)       -- 2.312.0: core API, not izi
-    if ok == true then M.cast_done(sp) end
+    if ok == true then M.cast_done(sp, target) end
     return ok, meta
 end
 
 function M.cast(sp, target, msg, opts)
     if not gate_unit(sp, target, opts) then return false, REFUSED end
     local ok, meta = M.core_cast(sp, target, opts)       -- 2.312.0: core API, not izi
-    if ok == true then M.cast_done(sp) end
+    if ok == true then M.cast_done(sp, target) end
     return ok, meta
 end
 
@@ -357,7 +360,7 @@ function M.cast_position(sp, pos, msg, opts)
         end
     end
     local ok, meta = M.core_cast_position(sp, pos, opts) -- 2.312.0: core API, not izi
-    if ok == true then M.cast_done(sp) end
+    if ok == true then M.cast_done(sp, nil) end
     return ok, meta
 end
 

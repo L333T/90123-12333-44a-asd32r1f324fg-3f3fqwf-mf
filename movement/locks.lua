@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest lock and cast / channel / loot locks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.314.0
+-- Version: 2.315.0
 -- ============================================================================
 -- Locks pause the walker by reason, so a cast finishing can never un-pause a
 -- stun or a food break. Releasing a cast lock touches only the cast and loot
@@ -150,11 +150,36 @@ local function still_casting()
     return ok and b == true
 end
 
+-- 2.315.0: OWN TIMERS. izi.after only fires from izi.on_update, which is no
+-- longer called (main.lua); the movement pulse ticks these (fsm.lua).
+local timers = {}
+
+local function after(seconds, fn)
+    timers[#timers + 1] = { at = izi.now() + (tonumber(seconds) or 0), fn = fn }
+end
+
+--- Run the timers that are due (every movement pulse).
+function Lk.timer_tick(t)
+    if #timers == 0 then return end
+    t = t or izi.now()
+    local due = nil
+    for i = #timers, 1, -1 do
+        if timers[i].at <= t then
+            due = due or {}
+            due[#due + 1] = timers[i].fn
+            table.remove(timers, i)
+        end
+    end
+    if due then
+        for i = #due, 1, -1 do pcall(due[i]) end
+    end
+end
+
 local function on_unlock_timer(gen)
     if gen ~= R.lock_gen then return end
     if still_casting() and (izi.now() - (R.lock_started or 0)) < HOLD_MAX then
         pcall(handler.pause_movement, handler, HOLD_STEP + 0.25)
-        pcall(izi.after, HOLD_STEP, function() on_unlock_timer(gen) end)
+        after(HOLD_STEP, function() on_unlock_timer(gen) end)
         return
     end
     Lk.release()
@@ -164,7 +189,7 @@ local function arm_unlock(seconds)
     R.lock_gen = R.lock_gen + 1
     local gen = R.lock_gen
     -- one small closure per cast lock (not per frame); it captures only `gen`
-    pcall(izi.after, seconds, function() on_unlock_timer(gen) end)
+    after(seconds, function() on_unlock_timer(gen) end)
 end
 
 --- Release a cast / channel / loot lock. Does not touch the rest or restriction

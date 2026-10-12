@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.313.0
+-- Version: 2.314.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -95,6 +95,9 @@ function grind.set_profile(path)
     hunt = nil
     state.grind.finished = false
     state.grind.dir = 1
+    -- 2.314.0: a new route starts from wherever the player stands - the
+    -- walk-in to its nearest point, then on from the next waypoint
+    state.grind.start_fresh = true
     lap_pending = 0
 end
 
@@ -315,6 +318,15 @@ local gp = { prev_step = 1, rejoin = true, rx = nil, ry = nil, last_tick = -1e9 
 -- to the nearest point of the path runs then, and the route continues from
 -- the node after it, wherever on the path the character stands.
 local RESTART_GAP = 2.0
+-- 2.314.0: EVERY GRIND ROUTE LOOPS (user request). A route file without
+-- "loop = true" read as point to point (path_format), and the patrol turned
+-- round at its ends and walked back. Now the last waypoint always leads to
+-- the first. Starting anywhere is unchanged: the walk-in goes to the nearest
+-- point of the route (the last -> first leg included) and the route runs on
+-- from the waypoint after it.
+local function open_route(zone)
+    return false
+end
 
 --- x, y, z of node i, without node_row's wrap-around side effect.
 local function node_xyz(zone, i)
@@ -333,7 +345,7 @@ end
 local function path_nearest(zone, hx, hy)
     local n = node_count(zone)
     if n < 1 then return nil end
-    local loop = not (zone.path and zone.path.loop == false)
+    local loop = not open_route(zone)
     local bx, by, bz, bd, bnext = nil, nil, nil, nil, nil
     local last = loop and n or (n - 1)
     if n == 1 then last = 1 end
@@ -388,7 +400,7 @@ end
 --- Next node index from i in direction dir, with the turn-round / wrap
 --- rules of the patrol. Returns the index and the (maybe flipped) direction.
 local function step_node(zone, n, i, dir)
-    local open = zone.path and zone.path.loop == false
+    local open = open_route(zone)
     local j = i + dir
     if j > n then
         if open then return math.max(1, n - 1), -1 end
@@ -402,7 +414,7 @@ end
 local function build_chunk(zone, n)
     local list, idx = {}, {}
     local i, dir = state.grind.move, state.grind.dir or 1
-    if zone.path and zone.path.loop ~= false then dir = 1 end
+    if not open_route(zone) then dir = 1 end
     if i < 1 or i > n then i = 1 end
     for _ = 1, math.min(CHUNK_MAX, n * 2) do
         local x, y, z = node_xyz(zone, i)
@@ -439,11 +451,11 @@ local function smooth_walk(zone, n)
             local nxt = gc.idx[math.min(gc.k, #gc.idx)]
             if nxt then
                 -- a closed loop wrapping past its last node is a lap
-                if zone.path and zone.path.loop ~= false and nxt < old and (old - nxt) > n / 2 then
+                if zone.path and not open_route(zone) and nxt < old and (old - nxt) > n / 2 then
                     lap_pending = math.min(lap_pending + 1, 1)
                 end
                 -- direction on an open path follows the chunk
-                if best_k < #gc.idx and gc.idx[best_k + 1] then
+                if open_route(zone) and best_k < #gc.idx and gc.idx[best_k + 1] then
                     local a, b = gc.idx[best_k], gc.idx[best_k + 1]
                     if b ~= a then state.grind.dir = (b > a) and 1 or -1 end
                 end
@@ -480,7 +492,7 @@ local function rejoin_path(zone, order)
         gp.rejoin = false
         -- Resume from the node the nearest segment leads to.
         -- Walking an open path backwards (2.233.0): the segment's other end.
-        if (state.grind.dir or 1) < 0 then
+        if open_route(zone) and (state.grind.dir or 1) < 0 then
             local n = node_count(zone)
             nxt = ((nxt - 2) % n) + 1        -- the segment's start
         end
@@ -559,6 +571,11 @@ function grind.kill_mobs(player)
     -- joins it (2.234.0): Sentinel's plan_route re-ordering is for the built-in
     -- zones only.
     if zone.path then order = nil end
+    -- 2.314.0: a newly started route begins where the player stands
+    if state.grind.start_fresh then
+        state.grind.start_fresh = nil
+        gp.rejoin, gc.list = true, nil
+    end
     -- Back onto the path first: after a fight, or drifted off it (2.230.0).
     if rejoin_path(zone, order) then
         gc.list = nil                         -- the next route starts from the rejoin
@@ -618,7 +635,7 @@ function grind.kill_mobs(player)
         -- paused or stopped. A closed loop wraps to node 1; an open path (loop
         -- = false) turns round at each end and walks back along itself,
         -- instead of cutting across country from its last node to its first.
-        local open = zone.path and zone.path.loop == false
+        local open = open_route(zone)
         local dir = state.grind.dir or 1
         if not open then dir = 1 end
         local nxt = state.grind.move + dir * step

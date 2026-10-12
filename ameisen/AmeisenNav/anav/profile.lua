@@ -45,12 +45,12 @@ local EVERY = 0.5
 --- Distances that grow with speed.
 P.SCALED = {
     waypoint_threshold = true, wall_probe = true, avoid_lookahead = true,
-    deviation_limit = true, string_pull_range = true,
+    deviation_limit = true, string_pull_range = true, look_distance = true,
 }
 
 --- Every key a profile may override, in menu order.
 P.KEYS = {
-    "waypoint_threshold", "final_threshold", "wall_probe", "avoid_lookahead",
+    "waypoint_threshold", "final_threshold", "look_distance", "wall_probe", "avoid_lookahead",
     "avoid_clearance", "string_pull_range", "deviation_limit", "stuck_window",
     "ground_max_dev",
 }

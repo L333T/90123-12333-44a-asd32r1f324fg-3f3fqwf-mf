@@ -140,12 +140,17 @@ local function want_look_at()
     return not X.is_forever()
 end
 
+-- 2.0.1: the walker's reach / look distance follow the profile, and are set
+-- again when the profile changes mid-walk (a walk into a building kept its
+-- outdoor 8 yd look distance and cut every corner inside)
+local walker_profile = nil
 local function configure_walker()
     X.call(walker, "set_use_look_at", want_look_at())
     X.call(walker, "set_smoothing_enabled", false) -- the server returns the corners we want
     X.call(walker, "set_threshold", P.get("waypoint_threshold"))
     X.call(walker, "set_final_threshold", P.get("final_threshold"))
-    X.call(walker, "set_look_distance", C.look_distance)
+    X.call(walker, "set_look_distance", P.get("look_distance"))
+    walker_profile = P.env.profile
 end
 
 --- End a back-off: release move backward and its strafe key.
@@ -574,6 +579,10 @@ end
 function F.tick()
     if not F.active then return nil end
     local t = now()
+    if F.driver == "walker" and walker_profile ~= P.env.profile then
+        L.debug("walker settings: %s profile", tostring(P.env.profile))
+        configure_walker()
+    end
 
     if backing_until then
         if t >= backing_until then

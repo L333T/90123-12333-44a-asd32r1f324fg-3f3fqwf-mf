@@ -37,6 +37,8 @@ local SLIDERS = {
         "A corner counts as reached this close. Larger cuts corners, smaller turns exactly at doorways" },
     final_threshold = { 0.3, 4.0, "Arrival reach (yd)",
         "The destination counts as reached this close" },
+    look_distance = { 1.0, 12.0, "Steering look-ahead (yd)",
+        "simple_movement driver: how far along the path it aims. Long cuts corners, short follows them exactly" },
     wall_probe = { 1.0, 12.0, "Wall look-ahead (yd)",
         "How far ahead the knee / chest rays look for walls. Too long indoors and it reacts to the far wall of the room" },
     avoid_lookahead = { 1.0, 15.0, "Object look-ahead (yd)",
@@ -132,7 +134,10 @@ for _, p in ipairs(PROFILES) do
     for _, key in ipairs(P.KEYS) do
         local def = SLIDERS[key]
         local value = base_value(p.key, key)
-        local id = (p.key == "outdoor" and LEGACY_IDS[key]) or ("anav_t_" .. p.key .. "_" .. key)
+        -- 2.0.1: the indoor sliders take new ids so the tighter corner
+        -- defaults apply (a saved 1.x value would otherwise win)
+        local pid = p.key == "indoor" and "indoor2" or p.key
+        local id = (p.key == "outdoor" and LEGACY_IDS[key]) or ("anav_t_" .. pid .. "_" .. key)
         prof[p.key][key] = { el = core.menu.slider_float(def[1], def[2], value, id), default = value }
     end
 end

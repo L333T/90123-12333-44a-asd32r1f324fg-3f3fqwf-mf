@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -248,7 +248,7 @@ function npc.talk(player, npc_id, dest, name_a, name_b)
     quest_debug("talk: matched by %s, interacting", tostring(how))
     state.quest.interact_until = now + 1.2
     pcall(function()
-        core.input.interact_with_object(unit)
+        require("movement").interact(unit)
     end)
     return true
 end
@@ -290,7 +290,7 @@ local function interact_once(player, npc_id, unit)
     end
     state.quest.interact_until = izi.now() + 1.2
     pcall(function()
-        core.input.interact_with_object(unit)
+        require("movement").interact(unit)
     end)
     return true
 end

@@ -3,7 +3,7 @@
 -- Flight points (taxi nodes) - positions and faction
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- ============================================================================
 -- Trimmed from SentinelCore's kernel/catalogs/taxi_nodes.lua, which is
 -- generated from the client's TaxiNodes.dbc (2.4.3). Kept: Eastern Kingdoms

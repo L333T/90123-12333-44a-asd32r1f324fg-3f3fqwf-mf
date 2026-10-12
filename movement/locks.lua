@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest, cast, channel and loot holds; backpedal
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- ============================================================================
 -- HOLDS go through AmeisenNav's own pause (client:pause(reason) /
 -- resume(reason) - reasons are counted separately, so a cast hold and a loot
@@ -164,6 +164,7 @@ function Lk.clear()
     for reason in pairs(holds) do lift(reason) end
     Lk.backpedal_stop()
     R.resting = false
+    R.npc_until, R.npc_ev_t = nil, nil
 end
 
 return Lk

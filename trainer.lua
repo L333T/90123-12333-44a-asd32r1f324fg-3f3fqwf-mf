@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
@@ -575,7 +575,7 @@ local function seek_tick(player, now)
     last_act = now
     seek.asked_t = now
     tried_level, tried_gold = nil, nil     -- a fresh visit: the gossip path may select
-    pcall(function() core.input.interact_with_object(unit) end)
+    pcall(function() require("movement").interact(unit) end)
     state.set_note("Trainer", "Talking to " .. tostring(seek.name))
     return true
 end

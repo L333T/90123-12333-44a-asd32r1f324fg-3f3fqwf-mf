@@ -3,7 +3,7 @@
 -- quest/travel.lua - flights: RestedXP ".fly" goals and far-goal flight trips
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.1
+-- Version: 3.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 2.307.0: SPLIT OUT OF quest/engine.lua, which sat at Lua's hard limit of
@@ -378,7 +378,7 @@ local function fly_goal(player, goal, wps, label)
         C.set_act_until(now + C.ACT_GAP)
         -- A quest window left over from this NPC blocks its flight map.
         pcall(function() core.quests.close_quest() end)
-        pcall(function() core.input.interact_with_object(unit) end)
+        pcall(function() require("movement").interact(unit) end)
     end
     state.set_note("Quest", "Guide: talk to the flight master")
     return true
@@ -658,7 +658,7 @@ local function far_travel(player, goal, kind, wps, label)
         C.set_act_until(now + C.ACT_GAP)
         trip.fm_tries = trip.fm_tries + 1
         pcall(function() core.quests.close_quest() end)
-        pcall(function() core.input.interact_with_object(unit) end)
+        pcall(function() require("movement").interact(unit) end)
         trail("travel", "talking to %s (try %d)", tostring(safe(function() return unit:get_name() end)), trip.fm_tries)
     end
     state.set_note("Travel", "Talking to the flight master")

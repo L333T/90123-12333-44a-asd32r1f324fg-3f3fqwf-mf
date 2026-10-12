@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.317.0
+-- Version: 2.318.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -63,6 +63,7 @@ local PLUGIN_MODULES = {
     "settings",
     "data/spell_categories",
     "strafe",
+    "merchants",        -- 2.318.0: remembered repair NPCs / innkeepers
     -- The path INDEXES. These were missing, and the effect was invisible and
     -- very confusing: a reload reused the previous session's grind/catalog
     -- table, so a newly added route list never appeared in the menu however

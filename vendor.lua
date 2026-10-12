@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.317.0
+-- Version: 2.318.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -171,6 +171,10 @@ local function current_merchant(player)
     local from_path = path_merchant()
     if from_path then
         return from_path
+    end
+    -- 2.318.0: the repairer / innkeeper picked for this trip (merchants.lua)
+    if type(state.vendor.book_pick) == "table" then
+        return state.vendor.book_pick
     end
     local okz, grind_zones = pcall(require, "grind/zone_lookup")
     if not okz or type(grind_zones) ~= "table" or type(grind_zones.lookup) ~= "function" then
@@ -780,6 +784,7 @@ local function finish_trip(note)
     end
     state.vendor.reason = nil
     state.vendor.inn = nil
+    state.vendor.book_pick = nil        -- 2.318.0
     state.vendor.idle_since = 0
     state.vendor.repair_tries = 0
     sell_pending = nil
@@ -865,6 +870,7 @@ function vendor.reset()
     -- to rotation only, or moved to another path. Leaving it set would send it
     -- to a merchant the new path knows nothing about.
     state.vendor.lap_due = false
+    state.vendor.book_pick = nil      -- 2.318.0
 end
 
 --- Did the running path just finish a lap that should end at the vendor?
@@ -1381,6 +1387,11 @@ function vendor.tick(player)
     if not player then
         return false
     end
+    -- 2.318.0: remember the repairers / innkeepers in sight (every 5 s)
+    do
+        local okm, mer = pcall(require, "merchants")
+        if okm and type(mer) == "table" and type(mer.scan) == "function" then pcall(mer.scan, player) end
+    end
     vendor.cap_soul_shards(player)      -- 2.208.0
     if not vendor.level_ok(player) and bag_free() > 0 then
         if state.vendor.active then
@@ -1497,6 +1508,33 @@ function vendor.tick(player)
                     tostring(state.vendor.supplier_name), vd or -1, bag_free())
                 state.set_note("Vendor", "Going to " .. tostring(state.vendor.supplier_name))
                 return supplier_tick(player)
+            end
+        end
+        -- 2.318.0: GRINDING - A REPAIR NPC OR AN INN. A grind route with no
+        -- merchant of its own walks to the nearest repairer or innkeeper the
+        -- bot has seen on this continent (merchants.lua; a repairer first when
+        -- the gear needs it), before the Hearthstone / zone merchant.
+        if not state.vendor.active and not path_merchant() and running_grind() then
+            local ratio_b, broken_b = worst_durability()
+            local want_rep = gui.is_on("repair") and (broken_b or ratio_b <= gui.slider("repair_pct", 10) / 100)
+            local okm, mer = pcall(require, "merchants")
+            local pick, pd = nil, nil
+            if okm and type(mer) == "table" and type(mer.nearest) == "function" then
+                pick, pd = mer.nearest(player, want_rep)
+            end
+            if pick then
+                state.vendor.active = true
+                supplies.reset()
+                state.vendor.repaired = false
+                state.vendor.sold = 0
+                state.vendor.wait_npc = 0
+                state.vendor.tries = 0
+                state.vendor.book_pick = pick
+                trail("vendor run (%s): %s %s %.0f yd away (remembered), %d free slot(s)",
+                    tostring(state.vendor.reason or "repair"), pick.repair and "repairer" or "innkeeper",
+                    tostring(pick.name), pd or -1, bag_free())
+                state.set_note("Vendor", "Going to " .. tostring(pick.name))
+                return true
             end
         end
         -- LOW DURABILITY -> HEARTHSTONE AND REPAIR (2.49.0). Out of combat,

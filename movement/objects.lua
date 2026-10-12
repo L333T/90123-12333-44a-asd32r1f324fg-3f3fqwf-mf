@@ -3,7 +3,7 @@
 -- movement/objects.lua - objects in the way of a straight move (no raycast)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.317.0
+-- Version: 2.318.0
 -- ============================================================================
 -- The user (2.317.0): "Player should check for objects when using Movement
 -- Handler API". Since 2.311.0 there is no ray, and U.walk_open - the

@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.317.0
+-- Version: 2.318.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -481,11 +481,69 @@ end
 
 --- Walk back onto the path when asked to (after a fight) or drifted far.
 --- True while walking back (the caller does nothing else this tick).
+-- 2.318.0: BACK FROM FAR (a vendor / repair / inn trip, a start away from
+-- the route): farther than REJOIN_FAR from the route, the walk goes to the
+-- nearest WAYPOINT of the route (user: "navto the closest waypoint on the
+-- grinding path and begin grinding again") and the route runs on from it.
+-- Nearer (after a fight) the nearest point of the line is used, as before.
+local REJOIN_FAR = 40.0
+
+--- The nearest node of the route to (hx, hy): index, x, y, z, flat distance.
+local function nearest_node(zone, hx, hy)
+    local n = node_count(zone)
+    local bi, bx, by, bz, bd = nil, nil, nil, nil, nil
+    for i = 1, n do
+        local x, y, z = node_xyz(zone, i)
+        if x then
+            local d = math.sqrt((x - hx) ^ 2 + (y - hy) ^ 2)
+            if not bd or d < bd then bi, bx, by, bz, bd = i, x, y, z, d end
+        end
+    end
+    return bi, bx, by, bz, bd
+end
+
 local function rejoin_path(zone, order)
     local here = state.cached_pos
     if not zone or not here or type(here.x) ~= "number" then return false end
     local px, py, pz, d, nxt = path_nearest(zone, here.x, here.y)
     if not px then return false end
+    -- 2.318.0: far from the route - head for its nearest waypoint
+    if gp.far_node == nil and d > REJOIN_FAR then
+        local ni, nx, ny, nz, nd = nearest_node(zone, here.x, here.y)
+        if ni then
+            gp.far_node = { i = ni, x = nx, y = ny, z = nz }
+            gp.rejoin = true
+            core.log(string.format("[Master Farmer - Grindbot] Back to the grind route: nearest waypoint %d, %.0f yd",
+                ni, nd or -1))
+        end
+    end
+    if gp.far_node then
+        local fn = gp.far_node
+        local fd = math.sqrt((fn.x - here.x) ^ 2 + (fn.y - here.y) ^ 2)
+        if fd <= PATH_KEEP then
+            gp.far_node, gp.rejoin = nil, false
+            local n = node_count(zone)
+            local resume = (fn.i % n) + 1                 -- on from the waypoint reached
+            if type(order) == "table" and #order > 0 then
+                for p = 1, #order do
+                    if order[p] == resume then state.grind.move = p break end
+                end
+            else
+                state.grind.move = resume
+            end
+            return false
+        end
+        if movement.is_quiet() or movement.in_combat_movement() then return true end
+        local same_far = gp.rx and math.abs(gp.rx - fn.x) < 2 and math.abs(gp.ry - fn.y) < 2
+        if movement.is_moving() and same_far then
+            state.set_note("Grind", string.format("Back to the route - waypoint %d  %.0f yd", fn.i, fd))
+            return true
+        end
+        gp.rx, gp.ry = fn.x, fn.y
+        state.set_note("Grind", string.format("Back to the route - waypoint %d  %.0f yd", fn.i, fd))
+        movement.nav_to({ x = fn.x, y = fn.y, z = fn.z }, true)
+        return true
+    end
     if d > DRIFT_MAX then gp.rejoin = true end
     if not gp.rejoin then return false end
     if d <= PATH_KEEP then
@@ -574,7 +632,7 @@ function grind.kill_mobs(player)
     -- 2.314.0: a newly started route begins where the player stands
     if state.grind.start_fresh then
         state.grind.start_fresh = nil
-        gp.rejoin, gc.list = true, nil
+        gp.rejoin, gc.list, gp.far_node = true, nil, nil
     end
     -- Back onto the path first: after a fight, or drifted off it (2.230.0).
     if rejoin_path(zone, order) then

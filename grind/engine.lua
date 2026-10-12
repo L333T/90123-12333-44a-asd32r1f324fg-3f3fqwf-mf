@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.2
+-- Version: 3.0.3
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -317,13 +317,11 @@ end
 --     - PATH_KEEP yards counts as on it - and resumes from the node after it.
 local PATH_KEEP = 5.0
 local DRIFT_MAX = 8.0     -- PATH_KEEP plus slack for the Sentinel line between nodes
-local GRIND_PULL = 50.0
--- 2.310.0: ROUTE PULL. With a route loaded, only enemies standing within
--- ROUTE_PULL yards of it (flat distance to its nearest segment) are pulled;
--- enemies further off the route are left alone. Mobs that attack the
--- character are still fought wherever they are (the cascade's attacker
--- handling, not this pull).
-local ROUTE_PULL = 15.0
+-- 3.0.3: PULL RADIUS. Enemies within the GUI "Pull Radius" (default
+-- GRIND_PULL 20 yd) of the PLAYER are pulled, nearest first - this replaces
+-- the 50 yd radius filtered to 15 yd of the route. Mobs that attack the
+-- character are still fought wherever they are (the attacker handling).
+local GRIND_PULL = 20.0
 local gp = { prev_step = 1, rejoin = true, rx = nil, ry = nil, last_tick = -1e9 }
 -- START ANYWHERE (2.234.0): a gap of RESTART_GAP s between grind ticks is a
 -- Start, a resume or a return from a vendor / rest / death run - the walk-in
@@ -605,21 +603,8 @@ function grind.kill_mobs(player)
     local mobs = zone and zone.mobs or nil
     -- Anything within GRIND_PULL yards, every class (2.233.0); the nearest
     -- valid mob wins. Until then the path is walked.
-    local pull = GRIND_PULL
+    local pull = gui.slider("pull_radius", GRIND_PULL)
     local enemies = targeting.find_mobs(player, mobs, pull, true)
-    -- 2.310.0: a loaded route - only enemies within ROUTE_PULL yd of it
-    if zone and zone.path and node_count(zone) >= 1 and type(enemies) == "table" and #enemies > 0 then
-        local keep = {}
-        for i = 1, #enemies do
-            local u = enemies[i]
-            local p = safe(function() return u:get_position() end)
-            if p and type(p.x) == "number" then
-                local _, _, _, d = path_nearest(zone, p.x, p.y)
-                if type(d) == "number" and d <= ROUTE_PULL then keep[#keep + 1] = u end
-            end
-        end
-        enemies = keep
-    end
     local unit = targeting.nearest(player, enemies)
     if unit then
         targeting.set_current(unit, "kill")
@@ -946,8 +931,6 @@ function grind.tick(player)
         state.set_note("Grind", "Skip unreachable")
         return
     end
-    xprobe("g:auto_attack")
-    targeting.start_auto_attack(player, unit)
     xprobe("g:combat_engage")
     if not movement.combat_engage(player, unit, yards) then
         if state.is_unreachable and state.is_unreachable(state.target.guid) then
@@ -957,16 +940,16 @@ function grind.tick(player)
             state.set_note("Grind", "Skip unreachable")
             return
         end
+        -- 3.0.3: closing - walk into melee / casting range first; no cast
+        -- or swing until there (a cast pauses the walk short of range)
         xprobe("g:face")
         movement.face(unit)
         state.set_note("Grind", "Closing")
-        xprobe("g:scan")
-        local closing_pack = targeting.combat_scan(player, yards)
-        xprobe("g:rotation.tick closing")
-        rotation.tick(player, unit, { enemies = closing_pack, no_move = true })
-        xprobe("g:rotation.tick done")
         return
     end
+    -- in range: swing / auto shot, then the rotation casts
+    xprobe("g:auto_attack")
+    targeting.start_auto_attack(player, unit)
     xprobe("g:face")
     movement.face(unit)
     xprobe("g:scan")

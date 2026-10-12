@@ -3,7 +3,7 @@
 -- Gathering: client skill cap, profession ranks, route selection
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.2
+-- Version: 3.0.3
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine Path_Information(): walk gather/routes.lua in FILE

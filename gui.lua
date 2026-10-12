@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.2
+-- Version: 3.0.3
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -355,6 +355,13 @@ menu:checkbox("mfg_fight_back", true, {
 menu:slider_int("mfg_fight_back_hp", 20, 90, 70, {
     label = "Fight Back HP %",
     tab = "grind",
+})
+-- 3.0.3: enemies are searched for within this many yards of the player
+-- (grinding, and RestedXP "grind to N xp" steps)
+menu:slider_int("mfg_pull_radius", 10, 60, 20, {
+    label = "Pull Radius (yd)",
+    tab = "grind",
+    tooltip = "Enemies within this many yards of the player are pulled: the bot walks into melee or casting range, then attacks.",
 })
 menu:slider_int("mfg_fight_back_yards", 10, 80, 30, {
     label = "Fight Back Range",
@@ -909,6 +916,7 @@ local slider_aliases = {
     max_kill = "mfg_max_kill",
     fight_back_hp = "mfg_fight_back_hp",
     fight_back_yards = "mfg_fight_back_yards",
+    pull_radius = "mfg_pull_radius",
     bag_free = "mfg_bag_free",
     max_shards = "mfg_max_shards",
     repair_pct = "mfg_repair_pct",

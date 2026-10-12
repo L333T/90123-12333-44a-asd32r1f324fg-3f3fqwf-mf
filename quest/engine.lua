@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.318.0
+-- Version: 2.319.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2739,7 +2739,52 @@ IS.rt = { t = 0, GAP = 1.0 }
 -- not only off-mesh) is skipped for the next one; and STILL_S seconds
 -- without STILL_YD yards of movement while the bot means to walk forces a
 -- fresh path (and the next point on a route), logged with the movement state.
-IS.still = { x = nil, y = nil, t = 0, seen = 0, S = 10.0, YD = 2.0 }
+IS.still = { x = nil, y = nil, t = 0, seen = 0, S = 6.0, YD = 2.0 }   -- 2.319.0: S was 10
+
+-- 2.319.0: WHERE EACH QUEST'S WORK IS. A kill / collect goal records its
+-- goal and waypoints by quest id, so a turn-in that the game says is not
+-- ready (is_quest_complete false, the quest in the log) goes back there and
+-- finishes the objectives first (20:20 log: a Webwood Venom turn-in with
+-- 1/10 sacs - "NOT confirmed - still on the quest", three times).
+IS.qwork = {}
+IS.remember_work = function(goal, kind, wps)
+    if (kind ~= "kill" and kind ~= "collect") or type(wps) ~= "table" or #wps == 0 then return end
+    local ids = type(guide.goal_quest_ids) == "function" and guide.goal_quest_ids(goal) or nil
+    if type(ids) ~= "table" or #ids == 0 then ids = { goal.quest_id } end
+    for i = 1, #ids do
+        local q = tonumber(ids[i])
+        if q and q > 0 then IS.qwork[q] = { goal = goal, kind = kind, wps = wps, t = izi.now() } end
+    end
+end
+--- An unfinished turn-in: the work goal to do instead (goal, kind, wps, label), or nil.
+IS.finish_first = function(goal, kind)
+    if kind ~= "turnin" then return nil end
+    local q = tonumber(goal and goal.quest_id)
+    if not q or q <= 0 then return nil end
+    local okn, npcm = pcall(require, "quest/npc")
+    if not okn or type(npcm) ~= "table" then return nil end
+    local in_log = type(npcm.in_log) == "function" and npcm.in_log(q, nil) or nil
+    local ready = type(npcm.quest_ready) == "function" and npcm.quest_ready(q) or nil
+    if in_log ~= true or ready ~= false then return nil end
+    if type(guide.needs_progress) == "function" and guide.needs_progress(q) ~= true then return nil end
+    local w = IS.qwork[q]
+    if not w then
+        if IS.finish_logged ~= q then
+            IS.finish_logged = q
+            trail("quest", "turn-in of quest %d: objectives not done, and no gathering spot known - turning in as the guide says", q)
+        end
+        return nil
+    end
+    if IS.finish_logged ~= q then
+        IS.finish_logged = q
+        local objs = type(guide.objectives) == "function" and guide.objectives(q) or {}
+        local parts = {}
+        for i = 1, #objs do parts[#parts + 1] = tostring(objs[i].text or objs[i].description or "?") end
+        trail("quest", "turn-in of quest %d not ready (%s) - back to finish it first",
+            q, #parts > 0 and table.concat(parts, "; ") or "objectives not done")
+    end
+    return w.goal, w.kind, w.wps, "finish before turn-in: " .. tostring(w.goal and w.goal.text or q)
+end
 
 -- 2.311.0: route points are no longer moved to a terrain height (2.300.0 /
 -- 2.308.0 IS.fix_z, a terrain ray per point) - they keep the guide's height
@@ -2810,6 +2855,27 @@ IS.walk_route = function(player, goal, kind, wps, label)
     if not must_do and type(guide.route) == "function" then
         pts = guide.route(goal, kind, wps) or wps
     end
+    IS.remember_work(goal, kind, wps)          -- 2.319.0
+    -- 2.319.0: MAP HEIGHT CHECK. A route point carries a guessed height
+    -- (RestedXP gives x, y; the player's own z stands in). Where AmeisenNav's
+    -- height search found the real ground, the point takes it.
+    if type(movement.reach_z) == "function" then
+        local fixed = nil
+        for i = 1, #pts do
+            local p = pts[i].pos
+            local zf = p and movement.reach_z(p)
+            if zf then
+                fixed = fixed or {}
+                fixed[i] = { pos = require("common/geometry/vector_3").new(p.x, p.y, zf), title = pts[i].title,
+                    patrol = pts[i].patrol }
+            end
+        end
+        if fixed then
+            local res = {}
+            for i = 1, #pts do res[i] = fixed[i] or pts[i] end
+            pts = res
+        end
+    end
     if g_move > #pts then
         g_move = 1
     end
@@ -2850,6 +2916,27 @@ IS.walk_route = function(player, goal, kind, wps, label)
         while tried < #pts and movement.reachable(pts[g_move].pos) == false do
             IS.next_wp(#pts)
             tried = tried + 1
+        end
+        -- 2.319.0: NEVER SKIP UNFINISHED QUEST WORK FOR "UNREACHABLE". The
+        -- answers were asked at guessed heights; the quest still needs these
+        -- kills / items (a skipped step reached the turn-in with 1/10 sacs).
+        -- The points' answers are dropped, and the walk itself (with its
+        -- height search) is tried for UNREACH_RETRY s before any skip.
+        if tried >= #pts then
+            local q = tonumber(goal.quest_id)
+            local unfinished = q and q > 0 and type(guide.needs_progress) == "function" and guide.needs_progress(q) == true
+            local key = tostring(guide.step_num()) .. "|" .. tostring(goal.index)
+            IS.unreach_first = IS.unreach_first or {}
+            local first = IS.unreach_first[key]
+            if not first then first = now IS.unreach_first[key] = now end
+            if unfinished and (now - first) < 180 then
+                if type(movement.reach_forget) == "function" then
+                    for i = 1, #pts do pcall(movement.reach_forget, pts[i].pos) end
+                end
+                trail("quest", "every waypoint of goal %d read unreachable, but quest %d is not done - walking there anyway",
+                    goal.index or 0, q)
+                tried = 0
+            end
         end
         if tried >= #pts then
             -- 2.300.0: the second time on the same step, RestedXP skips the step
@@ -3123,6 +3210,11 @@ tick_inner = function(player)
         return
     end
     g_loot_wait = false
+    -- 2.319.0: a turn-in the game says is not ready finishes its quest first
+    do
+        local fg, fk, fw, fl = IS.finish_first(goal, kind)
+        if fg then goal, kind, wps, label = fg, fk, fw, fl end
+    end
     probe("q:act " .. kind)
     g_cur_kind = kind
 

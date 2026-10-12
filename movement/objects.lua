@@ -3,7 +3,7 @@
 -- movement/objects.lua - objects in the way of a straight move (no raycast)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.318.0
+-- Version: 2.319.0
 -- ============================================================================
 -- The user (2.317.0): "Player should check for objects when using Movement
 -- Handler API". Since 2.311.0 there is no ray, and U.walk_open - the
@@ -135,6 +135,66 @@ function Ob.blocked(a, b)
         if s > 0 and s < len and not at_start and not at_end then
             local perp = math.abs(ox * uy - oy * ux)   -- off the line
             if perp < e.r + BODY and s < best_s then best, best_s = e, s end
+        end
+    end
+    return best
+end
+
+-- 2.319.0: THE DETOUR. The .api offers no ray-free collision query: trace_line
+-- / native_intersect / is_line_of_sight are rays (and native_intersect does not
+-- hit game objects at all - core.lua), evade_helper knows spell danger zones
+-- only. So the way round an object is geometry: the two tangent points
+-- beside the blocker's circle (radius + BODY + CLEAR), each checked against
+-- the other cached objects (Ob.blocked both legs) and against
+-- evade_helper:is_point_safe (no stepping into a ground effect). The side
+-- that is clear, safe and shorter wins.
+local CLEAR = 0.8
+
+local evade = nil
+local function point_safe(x, y, z)
+    if evade == nil then
+        local ok, m = pcall(require, "common/utility/evade_helper")
+        evade = (ok and m ~= nil) and m or false
+    end
+    if not evade then return true end
+    local okv, vec3 = pcall(require, "common/geometry/vector_3")
+    local p = (okv and vec3 and vec3.new) and vec3.new(x, y, z) or { x = x, y = y, z = z }
+    local ok, safe = pcall(evade.is_point_safe, evade, p)
+    if ok and safe == false then return false end
+    return true
+end
+
+--- Is (x, y) inside a cached object's circle (radius + BODY)?
+local function inside(x, y)
+    for i = 1, cache_n do
+        local e = cache[i]
+        if (e.x - x) ^ 2 + (e.y - y) ^ 2 < (e.r + BODY) ^ 2 then return true end
+    end
+    return false
+end
+Ob.inside = inside
+
+--- A point to walk to first so the line a -> b passes the object in the way,
+--- or nil when the line is clear (or no side is usable).
+function Ob.detour(a, b)
+    local hit = Ob.blocked(a, b)
+    if not hit then return nil end
+    local ax, ay, az = xyz(a)
+    local bx, by, bz = xyz(b)
+    local dx, dy = bx - ax, by - ay
+    local len = math.sqrt(dx * dx + dy * dy)
+    if len < 0.5 then return nil end
+    local ux, uy = dx / len, dy / len
+    local off = hit.r + BODY + CLEAR
+    local best, best_cost = nil, nil
+    for side = -1, 1, 2 do
+        -- beside the object, square to the line, a little past its centre
+        local px = hit.x - uy * off * side + ux * 0.5
+        local py = hit.y + ux * off * side + uy * 0.5
+        local p = { x = px, y = py, z = hit.z }
+        if not inside(px, py) and not Ob.blocked(a, p) and not Ob.blocked(p, b) and point_safe(px, py, hit.z) then
+            local cost = math.sqrt((px - ax) ^ 2 + (py - ay) ^ 2) + math.sqrt((bx - px) ^ 2 + (by - py) ^ 2)
+            if not best_cost or cost < best_cost then best, best_cost = p, cost end
         end
     end
     return best

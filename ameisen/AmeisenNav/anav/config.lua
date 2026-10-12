@@ -33,6 +33,8 @@ local C = {
     waypoint_threshold  = 2.5,      -- yards to count a waypoint as reached
     final_threshold     = 1.5,      -- yards to count the destination as reached
     look_distance       = 8,
+    corner_pad          = 1.5,      -- 2.0.2: each sharp corner of a server path is moved this
+                                    -- far off the wall it bends round (0 = off)
     pause_while_casting = true,
     pause_while_controlled = true,  -- hold the walk while stunned / rooted / feared / charmed
     driver              = "auto",   -- walker (simple_movement) | input (built-in) | auto
@@ -41,6 +43,9 @@ local C = {
                                     -- where core.input.look_at does not turn the character
     turn_rate           = 180,      -- input driver: degrees per second the turn keys rotate
     heading_tolerance   = 12,       -- input driver: degrees off course before steering
+    -- 2.0.2: fast, tight turns
+    walker_turn_speed   = 0.5,      -- simple_movement turn speed (0.05-0.5, the API maximum)
+    sharp_turn_deg      = 60,       -- input driver: a turn this sharp is made standing (no arc)
     use_facing          = "auto",   -- input driver: steer by the player's reported facing
                                     -- auto = once it has matched the running direction
                                     -- 3 times this session | on | off (measure from positions)
@@ -91,7 +96,8 @@ local C = {
         indoor = {                  -- buildings and caves
             waypoint_threshold = 1.0,  -- turn exactly at doorways
             final_threshold    = 1.0,
-            look_distance      = 2.5,  -- walker steering: aim at the corner, not past it
+            look_distance      = 5,    -- walker steering: the API minimum (5-50 yd)
+            corner_pad         = 0.7,  -- 2.0.2: corners pushed this far off the wall
             wall_probe         = 2.5,  -- a 6 yd probe hits the far wall of every room
             avoid_lookahead    = 3,
             avoid_clearance    = 0.3,  -- 0.8 would make corridors impassable
@@ -103,6 +109,7 @@ local C = {
         swim = {
             waypoint_threshold = 2.0,
             look_distance      = 6,
+            corner_pad         = 1.0,
             wall_probe         = 4.0,  -- slower: less look-ahead needed
             string_pull_range  = 10,
             stuck_window       = 2.5,  -- currents and slow turns are not stuck

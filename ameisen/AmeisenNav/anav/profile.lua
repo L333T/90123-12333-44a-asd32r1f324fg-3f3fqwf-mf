@@ -50,7 +50,7 @@ P.SCALED = {
 
 --- Every key a profile may override, in menu order.
 P.KEYS = {
-    "waypoint_threshold", "final_threshold", "look_distance", "wall_probe", "avoid_lookahead",
+    "waypoint_threshold", "final_threshold", "look_distance", "corner_pad", "wall_probe", "avoid_lookahead",
     "avoid_clearance", "string_pull_range", "deviation_limit", "stuck_window",
     "ground_max_dev",
 }

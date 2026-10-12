@@ -18,7 +18,7 @@
 -- Full reference: AmeisenNav/docs/API.md
 -- ============================================================================
 
-local VERSION = "2.0.1"   -- Master Farmer release of the AmeisenNav 1.4.0 rework (Desktop Ameisen folder)
+local VERSION = "2.0.2"   -- Master Farmer release of the AmeisenNav 1.4.0 rework (Desktop Ameisen folder)
 local BOOT_URL = "http://127.0.0.1:47110/log?src=boot"
 
 --- Startup problems go to the server too: console output may not be visible

@@ -28,6 +28,7 @@ local T = require("anav/transport")
 local X = require("anav/context")
 local Q = require("anav/query")
 local F = require("anav/follower")
+local P = require("anav/profile")
 
 local M = {}
 M.__index = M
@@ -166,6 +167,55 @@ local function new_nav(self, mode, dest, cb, opts)
     return nav
 end
 
+-- ----------------------------------------------------------------------------
+-- 2.0.2: CORNER CLEARANCE. A navmesh path bends exactly at the mesh edge, an
+-- agent radius from the wall, so the walk brushed every corner (and the
+-- walker's look-ahead cut into it). Each interior corner turning more than
+-- CORNER_MIN_DEG is moved `corner_pad` yd (profile) away from the inside of
+-- the turn, along its bisector - at most a third of either leg - where the
+-- ground there is within CORNER_MAX_DZ of the corner (a half step is tried
+-- next; otherwise the corner stays). Recorded routes are never changed.
+-- ----------------------------------------------------------------------------
+local CORNER_MIN_DEG = 25
+local CORNER_MAX_DZ = 1.5
+
+local function pad_corners(pts, n)
+    local pad = tonumber(P.get("corner_pad")) or 0
+    if pad <= 0 or n < 3 then return 0 end
+    local orig = {}
+    for i = 1, n do orig[i] = { x = pts[i].x, y = pts[i].y, z = pts[i].z } end
+    local moved = 0
+    local cos_min = math.cos(math.rad(CORNER_MIN_DEG))
+    for i = 2, n - 1 do
+        local a, b, c = orig[i - 1], orig[i], orig[i + 1]
+        local ux, uy = b.x - a.x, b.y - a.y
+        local vx, vy = c.x - b.x, c.y - b.y
+        local lu, lv = math.sqrt(ux * ux + uy * uy), math.sqrt(vx * vx + vy * vy)
+        if lu > 0.5 and lv > 0.5 then
+            ux, uy, vx, vy = ux / lu, uy / lu, vx / lv, vy / lv
+            if ux * vx + uy * vy < cos_min then
+                -- v - u points to the inside of the turn: go the other way
+                local ox, oy = ux - vx, uy - vy
+                local lo = math.sqrt(ox * ox + oy * oy)
+                if lo > 1e-3 then
+                    ox, oy = ox / lo, oy / lo
+                    local d = math.min(pad, lu / 3, lv / 3)
+                    for _, k in ipairs({ 1, 0.5 }) do
+                        local nx, ny = b.x + ox * d * k, b.y + oy * d * k
+                        local gz = X.ground_height(nx, ny, b.z + 2)
+                        if type(gz) == "number" and math.abs(gz - b.z) <= CORNER_MAX_DZ then
+                            pts[i] = { x = nx, y = ny, z = gz }
+                            moved = moved + 1
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return moved
+end
+
 --- Ask the server for a path from the player to `target` and walk it.
 --- `tail` points are appended after the path (used when following a route);
 --- `route_i` is the route index of `target` in route mode.
@@ -187,6 +237,8 @@ function M:_plan(nav, target, tail, reason, route_i)
             return
         end
         local n = #pts
+        local okp, padded = pcall(pad_corners, pts, n)
+        if okp and padded > 0 then L.debug("corner clearance: %d corner(s) moved off the walls", padded) end
         if tail then
             for i = 1, #tail do pts[#pts + 1] = tail[i] end
         end

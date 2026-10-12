@@ -3,7 +3,7 @@
 -- movement/util.lua - logging, position input, distance, ground and traces
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.316.0
+-- Version: 2.317.0
 -- ============================================================================
 -- The bottom layer. Depends only on const + rt, so every other movement module
 -- may require it without creating a cycle.
@@ -224,8 +224,22 @@ local function corridor_key(a, b, tight)
 end
 
 --- true = the body fits from a to b; false = blocked; nil = out of budget.
+local objects_mod = nil
+
 function U.corridor(a, b)
-    if FLAG_COLLISION == nil then return true end
+    -- 2.317.0: NO RAYS - the way is checked against the objects around the
+    -- player (movement/objects.lua: game objects and standing NPCs, from
+    -- core.object_manager, no raycast). Before, with the flags off, every
+    -- line read open and combat movement ran into whatever stood there.
+    if FLAG_COLLISION == nil then
+        if objects_mod == nil then
+            local ok, m = pcall(require, "movement/objects")
+            objects_mod = (ok and type(m) == "table") and m or false
+        end
+        if not objects_mod then return true end
+        local ok, hit = pcall(objects_mod.blocked, a, b)
+        return not (ok and hit ~= nil)
+    end
     -- TIGHT (2.85.0): R.tight_corridor narrows the shoulder rays for the
     -- steering search's last-chance pass through doorways and tunnels.
     local tight = R.tight_corridor == true

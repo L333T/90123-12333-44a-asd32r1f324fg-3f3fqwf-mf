@@ -3,7 +3,7 @@
 -- movement/sentinel.lua - actuator: AMEISEN navmesh travel (out of combat)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.318.0
+-- Version: 2.319.0
 -- ============================================================================
 -- Optional. Used for long legs, blocked straight lines and stuck recovery.
 -- When the client is absent every caller silently degrades to walker steering,
@@ -1326,8 +1326,9 @@ end
 -- ----------------------------------------------------------------------------
 -- reach[key] = { ok = true|false|nil (pending), t = when }. Keyed on a 4-yard
 -- grid so nearby asks share one answer; answers live REACH_TTL.
-local REACH_TTL = 300
-local REACH_GAP = 0.5          -- seconds between new requests
+local REACH_TTL = 120          -- 2.319.0: was 300
+local REACH_TTL_BAD = 45       -- 2.319.0: an "unreachable" answer is asked again sooner
+local REACH_GAP = 0.25         -- seconds between new requests (2.319.0: was 0.5)
 local reach = {}
 local reach_n = 0
 local reach_next = 0
@@ -1352,7 +1353,7 @@ function N.reachable(pos)
     local key = reach_key(x, y)
     local now = izi.now()
     local e = reach[key]
-    if e and (now - e.t) < REACH_TTL then
+    if e and (now - e.t) < ((e.ok == false) and REACH_TTL_BAD or REACH_TTL) then
         return e.ok ~= false or far
     end
     local c = client()
@@ -1363,12 +1364,24 @@ function N.reachable(pos)
     reach[key] = e
     reach_n = reach_n + 1
     -- 2.311.0: asked at the given height again (the 2.301.0 terrain ray is gone)
-    local ok = pcall(c.validate_destination, c, vec3.new(x, y, z), function(reachable)
+    -- 2.319.0: AmeisenNav 1.7.4 searches the height too and hands back the
+    -- one it found (4th argument) - kept for N.reach_z
+    local ok = pcall(c.validate_destination, c, vec3.new(x, y, z), function(reachable, _, _, zf)
         e.ok = reachable == true
         e.t = izi.now()
+        if e.ok and type(zf) == "number" and math.abs(zf - z) > 2 then e.z = zf end
     end)
     if not ok then e.ok = true end
     return true
+end
+
+--- 2.319.0: the ground height AmeisenNav found at (x, y) when the given one
+--- was wrong (validate_destination's height search), or nil.
+function N.reach_z(pos)
+    local x, y = xyz(pos)
+    if not x then return nil end
+    local e = reach[reach_key(x, y)]
+    return e and e.z or nil
 end
 
 --- 2.300.0: forget the cached answer for (x, y) - its height was corrected.
@@ -1583,7 +1596,7 @@ function N.prefetch(from, to)
     return nil
 end
 
-local CHASE_GAP, CHASE_AGE, CHASE_REPATH = 1.0, 3.0, 5.0
+local CHASE_GAP, CHASE_AGE, CHASE_REPATH = 0.5, 2.0, 4.0   -- 2.319.0: was 1.0, 3.0, 5.0
 local chase = { key = nil, t = -1e9, asked = -1e9, pts = nil, pending = false }
 
 function N.chase_path(from, to, key)

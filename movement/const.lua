@@ -3,7 +3,7 @@
 -- movement/const.lua - enums, tunables and engine flags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.318.0
+-- Version: 2.319.0
 -- ============================================================================
 -- Immutable. Every value here was a top-level `local` in the old movement.lua.
 -- Modules pull the handful they need into their own locals at load time, so the
@@ -54,15 +54,15 @@ K.MIN_NAV          = 2.0    -- never issue a move shorter than this
 K.MIN_NAV_TRAVEL   = 4.0    -- travel dests closer than this are arrival, not a walk
 K.ARRIVE           = 2.0
 K.SAME_DEST        = 6.0    -- destinations closer than this are "the same"
-K.MOVE_GAP         = 0.85   -- seconds between navigation moves
+K.MOVE_GAP         = 0.5    -- seconds between navigation moves (2.319.0: was 0.85)
 K.COMBAT_GAP       = 0.5    -- seconds between combat moves
 K.INFLIGHT_TIMEOUT = 8.0    -- an issued move counts as moving for this long
 K.FAIL_COOLDOWN    = 6.0
-K.QUIET_STOP       = 1.25
+K.QUIET_STOP       = 0.6    -- 2.319.0: was 1.25 ("Nav settle" after a stop)
 K.QUIET_OFFMESH    = 5.0
 K.PATROL_HOP       = 40.0   -- nav hop length when the direct line is clear
 K.STEER_HOP        = 5.0    -- combat / avoidance hop length
-K.STEER_BACKOFF    = 0.5    -- seconds before retrying a steer that found nothing
+K.STEER_BACKOFF    = 0.3    -- seconds before retrying a steer that found nothing (2.319.0: was 0.5)
 K.PATH_LEASH       = 10.0
 
 -- blacklist zones
@@ -74,7 +74,7 @@ K.MAX_ZONES        = 24
 
 -- stuck watch
 K.STUCK_ZONE_RADIUS = 14.0
-K.STUCK_GRACE      = 4.0
+K.STUCK_GRACE      = 3.0    -- 2.319.0: was 4.0
 K.STUCK_MOVE       = 1.5    -- yards of progress that resets the stuck timer
 
 -- geometry
@@ -96,7 +96,7 @@ K.SETTLE           = 0.35   -- a de-escalation must hold this long
 K.COMBAT_EXIT_HOLD = 1.5    -- every combat-end condition must hold this long
 K.COMBAT_REQ_TTL   = 0.35   -- a combat request stays live this long between bot ticks
 K.CHASE_GIVE_UP    = 10.0   -- blacklist a mob we could not reach for this long
-K.SN_MIN_GAP       = 1.0    -- seconds between any two Sentinel move_to requests
+K.SN_MIN_GAP       = 0.5    -- seconds between any two Sentinel move_to requests (2.319.0: was 1.0)
 -- 2.109.0: out of combat every move goes through Sentinel's pathing - no
 -- walker / movement-handler legs. The walker is used out of combat only when
 -- Sentinel itself is unavailable (not loaded, server down).

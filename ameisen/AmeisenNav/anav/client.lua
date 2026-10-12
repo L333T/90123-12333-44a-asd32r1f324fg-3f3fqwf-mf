@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/client.lua - public API: _G.AmeisenNav.client
 -- ============================================================================
--- Version: 1.5.0
+-- Version: 1.7.4
 -- Author: BLIZZ
 -- ============================================================================
 -- STATES   idle -> planning -> navigating -> arrived | failed
@@ -235,8 +235,37 @@ end
 -- no_path / end_off_mesh / unreachable the same x, y is asked again at
 -- Z_SEARCH offsets in ONE batched request; the first offset (nearest to the
 -- guess) with a full path is walked, and the destination takes its height.
-local Z_SEARCH = { 8, -8, 20, -20, 40, -40, 80, -80, 150 }
+-- 1.7.4: DENSER. 8 / 20 / 40 left gaps of 12-20 yd: the Shadowthread Cave
+-- route points (z 1311 guessed, ground ~1335-1345, 2026-10-11 20:18) found
+-- +20 for some and "no height at that spot" for the rest - the goal was
+-- skipped at 1/10 Webwood Venom Sacs. Every 5 yd to +-40, then wider.
+local Z_SEARCH = { 5, -5, 10, -10, 15, -15, 20, -20, 25, -25, 30, -30, 35, -35, 40, -40,
+    50, -50, 60, -60, 80, -80, 100, -100, 150 }
 local Z_RETRY_CODES = { no_path = true, end_off_mesh = true, unreachable = true }
+M.Z_SEARCH = Z_SEARCH
+
+--- 1.7.4: the height search on its own (no walk): done(found, points, z).
+local function z_search(from, target, flags, done)
+    local list = {}
+    for i = 1, #Z_SEARCH do
+        list[i] = { from, { x = target.x, y = target.y, z = target.z + Z_SEARCH[i] } }
+    end
+    Q.find_paths(list, { flags = flags, allow_partial = false }, function(ok, res)
+        if ok and type(res) == "table" then
+            for i = 1, #Z_SEARCH do
+                local r = res[i]
+                if r and r.ok and r.points and #r.points > 1 then
+                    local e = r.points[#r.points]
+                    local dx, dy = e.x - target.x, e.y - target.y
+                    if dx * dx + dy * dy <= C.partial_accept * C.partial_accept then
+                        return done(true, r.points, e.z, Z_SEARCH[i])
+                    end
+                end
+            end
+        end
+        done(false)
+    end)
+end
 
 function M:_z_search(nav, from, target, flags, done)
     local list = {}
@@ -810,8 +839,23 @@ function M:validate_destination(target, cb)
     local from = player_point()
     if not from then cb(false, "no player position"); return end
     Q.find_path(from, target, nil, function(ok, pts, info)
-        if ok then cb(true, nil, Q.path_length(pts))
-        else cb(false, info.code, nil) end
+        if ok then cb(true, nil, Q.path_length(pts)) return end
+        -- 1.7.4: a guessed height is searched here too (as a walk does), so a
+        -- point whose ground is 25 yd above the guess is not "unreachable".
+        -- The height found is the 4th argument: cb(true, nil, length, z).
+        if Z_RETRY_CODES[info and info.code] and type(target) == "table" and type(target.z) == "number" then
+            z_search(from, { x = target.x, y = target.y, z = target.z }, C.path_flags, function(found, zpts, z, off)
+                if found then
+                    L.debug("validate: (%.0f, %.0f) reachable at z %.1f (%+d yd from the given height)",
+                        target.x, target.y, z, off or 0)
+                    cb(true, nil, Q.path_length(zpts), z)
+                else
+                    cb(false, info.code, nil)
+                end
+            end)
+            return
+        end
+        cb(false, info and info.code, nil)
     end)
 end
 

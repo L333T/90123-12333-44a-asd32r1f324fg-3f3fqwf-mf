@@ -3,7 +3,7 @@
 -- movement/combat.lua - combat movement
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.318.0
+-- Version: 2.319.0
 -- ============================================================================
 -- Approach, retreat and the hysteresis that keeps the player off the range
 -- edge. The class profile decides the "why" of a retreat; this module decides
@@ -714,6 +714,19 @@ function C.combat_engage(player, unit, yards)
                         and W.move(dest, "chase_direct") then
                         R.chase_fail_key, R.chase_fail_t = nil, 0
                         return false
+                    end
+                    -- 2.319.0: an OBJECT on the straight line: step round it
+                    -- (movement/objects.lua detour - tangent point, clear and
+                    -- safe) instead of the whole path / steering search
+                    if line_clear and L.allows(here, dest) then
+                        local ok_o, Ob = pcall(require, "movement/objects")
+                        local det = ok_o and type(Ob) == "table" and type(Ob.detour) == "function"
+                            and Ob.detour(here, goal) or nil
+                        if det and W.ensure() and W.move(pt(P_TMP, det.x, det.y, det.z), "object_detour") then
+                            dlog("combat", string.format("object in the way - detour via (%.1f, %.1f)", det.x, det.y))
+                            R.chase_fail_key, R.chase_fail_t = nil, 0
+                            return false
+                        end
                     end
                 end
             end

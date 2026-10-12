@@ -2,7 +2,7 @@
 -- AmeisenNav
 -- anav/config.lua - defaults for every tunable
 -- ============================================================================
--- Version: 1.7.3
+-- Version: 1.7.4
 -- Author: BLIZZ
 -- ============================================================================
 -- One shared table. The menu (anav/ui.lua) writes the user-facing values into
@@ -101,7 +101,9 @@ local C = {
     -- sooner, and the next one is prepared well before the walk reaches the
     -- end of the current one, so the character keeps moving.
     horizon_length      = 20.0,     -- yards of path per window (1.6.9: 20 again; 1.6.8 had 15)
-    horizon_refresh     = 8.0,      -- yards before the window end: plan the next one (was 5)
+    horizon_refresh     = 11.0,     -- yards before the window end: plan the next one
+                                    -- (1.7.4: was 8 - the next window is asked earlier, so
+                                    -- a slow answer no longer leaves the character waiting)
     horizon_clearance   = 2.0,      -- yards kept from walls, ledges, drops (both sides)
     horizon_probes      = { 1.0, 2.0, 3.0 }, -- side probe distances (yards)
     horizon_object_clearance = 1.0, -- extra yards kept from cached objects
@@ -127,11 +129,11 @@ local C = {
     -- Windows are re-planned with about 40% of the window still ahead, so the
     -- next one is checked and ready before the walk gets there.
     env_profiles = {
-        open   = { length = 20.0, refresh = 8.0, spacing = 5.0, threshold = 2.5,
+        open   = { length = 20.0, refresh = 11.0, spacing = 5.0, threshold = 2.5,
                    clearance = 2.0, object_clearance = 1.0 },
-        indoor = { length = 12.0, refresh = 5.0, spacing = 3.0, threshold = 2.0,
+        indoor = { length = 12.0, refresh = 7.0, spacing = 3.0, threshold = 2.0,
                    clearance = 0.9, object_clearance = 0.3 },
-        cave   = { length = 15.0, refresh = 6.0, spacing = 4.0, threshold = 2.0,
+        cave   = { length = 15.0, refresh = 9.0, spacing = 4.0, threshold = 2.0,
                    clearance = 1.2, object_clearance = 0.5 },
     },
     env_cave_cover      = 8.0,      -- yards of terrain above the character that make it a cave

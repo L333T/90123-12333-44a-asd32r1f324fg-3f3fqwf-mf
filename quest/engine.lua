@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.5
+-- Version: 3.0.6
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2989,6 +2989,25 @@ IS.walk_route = function(player, goal, kind, wps, label)
         end
     elseif #pts > 1 and movement.is_moving() and near(pts[g_move].pos, CHAIN_WP) then
         IS.next_wp(#pts)
+    end
+    -- 3.0.6: FLIP-FLOP GUARD. Two points stacked one over the other (a mine
+    -- under a hill) made the walker swap between them every tick for a
+    -- minute (log 2026-10-12 10:39). Three swaps back and forth within
+    -- FLIP_WINDOW s hold the current point for FLIP_HOLD s.
+    do
+        local fl = IS.flip
+        if not fl then fl = { last = nil, prev = nil, t = 0, n = 0, lock = nil, lock_until = 0 } IS.flip = fl end
+        if fl.lock and now < fl.lock_until and fl.lock <= #pts then
+            g_move = fl.lock
+        elseif g_move ~= fl.last then
+            if g_move == fl.prev and (now - fl.t) < 4 then fl.n = fl.n + 1 else fl.n = 0 end
+            fl.prev, fl.last, fl.t = fl.last, g_move, now
+            if fl.n >= 3 then
+                fl.lock, fl.lock_until, fl.n = g_move, now + 10, 0
+                trail("route", "points %s / %d flip-flopping - holding point %d for 10 s",
+                    tostring(fl.prev), g_move, g_move)
+            end
+        end
     end
     local arrive = must_do and TALK_ARRIVE or ARRIVE
     if walk_to(pts[g_move].pos, label, arrive) then

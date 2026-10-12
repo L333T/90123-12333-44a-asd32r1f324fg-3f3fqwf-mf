@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.5
+-- Version: 3.0.6
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -42,6 +42,11 @@ local UNDERFOOT = 1.0          -- yd: a destination this close is reached
 local QUIET_STOP = 0.3         -- s callers wait after a real stop (is_quiet)
 local HEIGHT_RANGE = 150       -- yd: the ground under nearer points can be read
 local HEIGHT_PROBE_UP = 60
+-- 3.0.6: the ground is looked for just above the guessed height first; only
+-- when nothing is found there is it read from HEIGHT_PROBE_UP above. From 60
+-- yd up the probe hit the hill over the Silver Stream Mine (z 366, the mine
+-- floor ~320) and the route walked the hilltop (log 2026-10-12 10:36).
+local HEIGHT_PROBE_NEAR = 8
 local FAIL_WINDOW, FAIL_BLACKLIST = 120, 2
 local REACH_TTL, REACH_TTL_BAD, REACH_GAP = 120, 45, 0.25
 local REACH_TRUST_FAR = 150    -- yd: farther answers are guesses, never "unreachable"
@@ -184,6 +189,16 @@ end
 -- ----------------------------------------------------------------------------
 local issue_move
 
+--- The ground at (x, y) nearest the guessed z: probed from just above it, then
+--- from HEIGHT_PROBE_UP above. cb(ok, z). True when the query went out.
+local function ground_near(c, x, y, z, cb)
+    return call(c, "get_height", { x = x, y = y, z = z }, function(ok, hz)
+        if ok and R.finite(hz) then cb(true, hz) return end
+        local sent = call(c, "get_height", { x = x, y = y, z = z }, cb, { probe_up = HEIGHT_PROBE_UP })
+        if not sent then cb(false) end
+    end, { probe_up = HEIGHT_PROBE_NEAR }) == true
+end
+
 --- AmeisenNav found no path to (x, y, z): read the ground there and walk again
 --- at that height, once per destination.
 local function retry_at_ground(c, id, x, y, z, code, opts)
@@ -192,7 +207,7 @@ local function retry_at_ground(c, id, x, y, z, code, opts)
     local k = key_of(x, y)
     if zfix[k] ~= nil then return false end
     cache_put(zfix, "zfix", k, false)             -- asked once
-    local ok = call(c, "get_height", { x = x, y = y, z = z }, function(okh, hz)
+    local ok = ground_near(c, x, y, z, function(okh, hz)
         if cur.id ~= id then return end           -- superseded meanwhile
         if okh and R.finite(hz) and math.abs(hz - z) > 2 then
             zfix[k] = hz
@@ -202,7 +217,7 @@ local function retry_at_ground(c, id, x, y, z, code, opts)
         else
             record_fail(code, x, y, z)
         end
-    end, { probe_up = HEIGHT_PROBE_UP })
+    end)
     return ok == true
 end
 
@@ -390,13 +405,13 @@ function N.reachable(pos)
         if ok == true then e.ok = true return end
         if far then e.ok = true return end
         -- the height may be the guess: ask at the ground before saying no
-        local okh = call(c, "get_height", { x = x, y = y, z = z }, function(okg, gz)
+        local okh = ground_near(c, x, y, z, function(okg, gz)
             if not okg or not R.finite(gz) or math.abs(gz - z) <= 2 then e.ok, e.t = false, R.now() return end
             call(c, "validate_destination", { x = x, y = y, z = gz }, function(ok2)
                 e.ok, e.t = ok2 == true, R.now()
                 if ok2 == true then e.z = gz zfix[k] = gz end
             end)
-        end, { probe_up = HEIGHT_PROBE_UP })
+        end)
         if not okh then e.ok = false end
     end)
     return true

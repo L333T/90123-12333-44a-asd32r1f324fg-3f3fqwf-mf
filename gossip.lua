@@ -3,7 +3,7 @@
 -- Gossip options - find and select an NPC's option by icon, type or wording
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.5
+-- Version: 3.0.6
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE WAY TO PICK A GOSSIP OPTION (2.144.0). Four modules each found and
@@ -70,6 +70,11 @@ local function wording_matches(name, words)
     return false
 end
 
+-- 3.0.6: this client reports gossip icons as texture file ids with an
+-- empty type ("'I need a ride.' type= icon=132057", 10:31 log) - the taxi,
+-- trainer and vendor gossip icons are matched by those ids too.
+local FILE_ICON = { TAXI = 132057, TRAINER = 132058, VENDOR = 132060 }
+
 local function izi_icon(spec)
     local g = izi.gossip
     if type(spec.icon) == "string" and type(g) == "table" and type(g.ICON) == "table"
@@ -93,8 +98,10 @@ function gossip.find(spec)
     end
     local function wanted(opt)
         local gtype = type(opt.gossip_type) == "string" and string.lower(opt.gossip_type) or ""
+        local file_icon = type(spec.icon) == "string" and FILE_ICON[spec.icon] or nil
         return (spec.type and gtype == spec.type)
             or (icon and opt.icon == icon and icon ~= 0)
+            or (file_icon ~= nil and opt.icon == file_icon)
             or wording_matches(opt.name, spec.words)
     end
     -- 1b. izi's views by type / icon / wording, still selected by the view.

@@ -3,7 +3,7 @@
 -- Faction lookup
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.2
+-- Version: 3.0.3
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- BOTH APIS, IN THAT ORDER  (1.9.1)

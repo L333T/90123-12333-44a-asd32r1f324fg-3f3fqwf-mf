@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.2
+-- Version: 3.0.3
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -354,8 +354,6 @@ local function fight_unit(player, unit, note)
     if type(movement.set_approach_target) == "function" then
         movement.set_approach_target(nil)
     end
-    probe("f:start_auto_attack")
-    targeting.start_auto_attack(player, unit)
     probe("f:combat_engage")
     if not movement.combat_engage(player, unit, yards) then
         if state.is_unreachable and state.is_unreachable(state.target.guid) then
@@ -363,16 +361,16 @@ local function fight_unit(player, unit, note)
             state.set_note("Quest", "Skip unreachable")
             return false
         end
+        -- 3.0.3: closing - walk into melee / casting range first; no cast
+        -- or swing until there (a cast pauses the walk short of range)
         probe("f:face (closing)")
         movement.face(unit)
         state.set_note("Quest", note or "Closing")
-        probe("f:combat_scan (closing)")
-        local pack = targeting.combat_scan(player, yards)
-        probe("f:rotation.tick (closing)")
-        rotation.tick(player, unit, { enemies = pack, no_move = true })
-        probe("f:rotation.tick done")
         return true
     end
+    -- in range: swing / auto shot, then the rotation casts
+    probe("f:start_auto_attack")
+    targeting.start_auto_attack(player, unit)
     probe("f:face")
     movement.face(unit)
     state.set_note("Quest", note or "Killing")
@@ -2686,7 +2684,8 @@ local function xp_goal(player, goal, wps, label)
         return false
     end
     g_scan_until = now + SCAN_GAP
-    local range = targeting.ENEMY_SCAN or 100
+    -- 3.0.3: the GUI Pull Radius around the player (was ENEMY_SCAN, 100 yd)
+    local range = gui.slider("pull_radius", 20)
     local unit, d = nearest_xp_enemy(player, range)
     if not unit then
         return false

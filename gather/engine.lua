@@ -3,7 +3,7 @@
 -- Gathering mode: patrol a route, gather herb / ore nodes, fight back
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.2
+-- Version: 3.0.3
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine (MainThread + Gather_Process), PORT_PLAYBOOK.md.
@@ -320,11 +320,16 @@ local function fight(player)
         state.set_note(NOTE, "Skip unreachable")
         return end_fight()
     end
-    targeting.start_auto_attack(player, unit)
     local engaged = movement.combat_engage(player, unit, yards)
     movement.face(unit)
+    -- 3.0.3: closing - into melee / casting range first, then attack
+    if not engaged then
+        state.set_note(NOTE, "Closing")
+        return
+    end
+    targeting.start_auto_attack(player, unit)
     local pack = targeting.combat_scan(player, yards)
-    state.set_note(NOTE, engaged and "Fighting" or "Closing")
+    state.set_note(NOTE, "Fighting")
     rotation.tick(player, unit, { enemies = pack, no_move = true })
 end
 

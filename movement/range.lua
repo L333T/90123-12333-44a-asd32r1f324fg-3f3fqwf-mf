@@ -1,106 +1,65 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- movement/range.lua - facing, range, line of sight, reachability
+-- movement/range.lua - facing, line of sight, arrival, fight range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- ============================================================================
--- Read-only questions about the world plus the one fire-and-forget command
--- (facing). Split out from combat so navigation callers can ask "can I reach
--- this?" without pulling the combat controller in.
+-- FACING: a POSITION, never the unit object (2.72.0: the movement handler
+-- keeps whatever it is given across frames, and a freed mob read later is a
+-- native crash). Throttled, and never while AmeisenNav is walking - it steers
+-- the facing itself.
+--
+-- LINE OF SIGHT, no ray (2.311.0 / 2.313.0): a unit is in sight unless
+--   * the game refused a cast at it with "Target not in line of sight"
+--     within LOS_HOLD s (events.lua), or
+--   * the navmesh says the walk to it bends round something, or it is
+--     underground / unreachable (movement/sight.lua).
+-- 3 yd and closer: always in sight. Cached per unit for LOS_TTL.
 -- ============================================================================
 
----@type izi_api
-local izi = require("common/izi_sdk")
-
----@type movement_handler
-local handler = require("common/utility/movement_handler")
-
-local K = require("movement/const")
-local R = require("movement/rt")
-local U = require("movement/util")
-local Z = require("movement/zones")
-local S = require("movement/steer")
-local O = require("movement/own")
-
-local EYE_Z      = K.EYE_Z
-local ARRIVE     = K.ARRIVE
-local MIN_NAV    = K.MIN_NAV
-local STEER_HOP  = K.STEER_HOP
-local FACE_GAP   = K.FACE_GAP
-local FACE_LOCK  = K.FACE_LOCK
-local FLAG_LOS   = K.FLAG_LOS
-
-local pt = R.pt
-local xyz, here_xyz, dist2, dist3 = U.xyz, U.here_xyz, U.dist2, U.dist3
-local unit_xyz, unit_valid, trace, walk_open = U.unit_xyz, U.unit_valid, U.trace, U.walk_open
-
-local P_HERE, P_DEST = R.P_HERE, R.P_DEST
+local R = require("movement/core")
+local N = require("movement/nav")
 
 local Rg = {}
 
--- ============================================================================
--- FACING
--- ============================================================================
---- Command the player to face `target`. There is no facing read-back anywhere
---- in the API, so this is fire-and-forget and throttled to FACE_GAP.
-function Rg.face(target)
-    if not unit_valid(target) then return false end
-    if not O.can_act() then return false end
-    -- While the walker or Sentinel is moving the character, it steers the
-    -- facing itself (the walker runs look_at every frame). A look_at lock
-    -- from here on top of it was two controllers turning the character at
-    -- once. Facing the target resumes the moment the character stops.
-    if R.walker_moving or R.sn_active then return false end
-    local t = izi.now()
-    if (t - R.last_face_t) < FACE_GAP then return false end
-    R.last_face_t = t
-    -- A POSITION, never the unit (2.72.0). look_at_target hands the SDK's
-    -- movement handler the game object, which it keeps across frames (and
-    -- its on_render reads it every frame). A mob freed meanwhile - a corpse
-    -- despawning, a mob leaving view - is then touched after its memory is
-    -- gone, which is a native crash, not a Lua error. The crashes of
-    -- 2026-09-27 all came while facing / casting at a mob. The position is
-    -- re-read on every call (every FACE_GAP), so the facing still follows.
-    local ok, pos = pcall(target.get_position, target)
-    if ok and pos then
-        pcall(handler.look_at_position, handler, FACE_LOCK, 0, pos)
-        pcall(core.input.look_at, pos)
+local FACE_GAP = 0.35
+local LOS_TTL = 0.25
+local LOS_HOLD = 2.5
+local ARRIVE = 2.0
+
+local last_face = 0
+local los_cache = { guid = nil, t = -1, v = true }
+local ev_mod, sight_mod, handler_mod = nil, nil, nil
+
+local function handler()
+    if handler_mod == nil then
+        local ok, h = pcall(require, "common/utility/movement_handler")
+        handler_mod = (ok and h) and h or false
     end
-    return true
+    return handler_mod or nil
 end
 
--- ============================================================================
--- RANGE / LOS
--- ============================================================================
---- Distance + LoS to a unit, with every verified LoS path tried in turn.
---- Returns in_range, distance, has_los.
--- LINE OF SIGHT, shared (2.78.0). The rotation checked only range before a
--- cast, so it kept casting into walls ("Target not in line of sight") while
--- combat movement - which did check LoS - was still repositioning. Answers
--- are cached per unit for LOS_TTL so several spells checked in one tick cost
--- one set of native calls.
-local LOS_TTL = 0.25
-local los_cache = { guid = nil, t = -1, v = false }
-
--- 2.311.0: NO LINE-OF-SIGHT RAY. Every M2HitTest game crash of 2026-10-11
--- (ASSERT(m_data), the game's ray test against a model) came from this ray
--- test - player:los_to on the unit the bot engaged. The 2.309.0 model gate
--- was not enough for the user: line of sight is no ray at all now. A unit is
--- taken as in sight until the game itself refuses a cast at it with "Target
--- not in line of sight" (UI_ERROR_MESSAGE, events.lua); for LOS_HOLD seconds
--- after that it reads as out of sight, so combat movement repositions
--- (orbit / close in) as it did on a los_to "no". 3 yd and closer: in sight.
-local LOS_HOLD = 2.5
-local ev_mod = nil
-
-local sight_mod = nil
+--- Face `target` (a unit). Fire-and-forget; false when nothing was sent.
+function Rg.face(target)
+    if not R.alive(target) then return false end
+    if R.resting or R.backpedal_until then return false end
+    if N.busy() then return false end
+    local t = R.now()
+    if (t - last_face) < FACE_GAP then return false end
+    last_face = t
+    local ok, pos = pcall(target.get_position, target)
+    if ok and pos then
+        local h = handler()
+        if h then pcall(h.look_at_position, h, 0.5, 0, pos) end
+        pcall(core.input.look_at, pos)
+        return true
+    end
+    return false
+end
 
 local function raw_los(player, unit, range)
     if type(range) == "number" and range <= 3 then return true end
-    -- 2.313.0: the navmesh (movement/sight.lua, AmeisenNav find_path - no
-    -- game ray): a walk round a wall, an enemy under the ground or out of
-    -- reach is not in sight. No answer yet: the refusal check below decides.
     if sight_mod == nil then
         local ok, m = pcall(require, "movement/sight")
         sight_mod = (ok and type(m) == "table") and m or false
@@ -116,79 +75,50 @@ local function raw_los(player, unit, range)
     if not ev_mod then return true end
     local okf, guid, at = pcall(ev_mod.los_failed)
     if not okf or guid == nil or type(at) ~= "number" then return true end
-    if (izi.now() - at) > LOS_HOLD then return true end
-    local okg, ug = pcall(unit.get_guid, unit)
-    return not (okg and ug ~= nil and ug == guid)
+    if (R.now() - at) > LOS_HOLD then return true end
+    return R.guid(unit) ~= guid
 end
 
 --- Can the player see `unit`? Cached briefly per unit.
 function Rg.has_los(player, unit)
     if not player or not unit then return false end
-    local okg, guid = pcall(unit.get_guid, unit)
-    local t = izi.now()
-    if okg and guid ~= nil and guid == los_cache.guid and (t - los_cache.t) < LOS_TTL then
-        return los_cache.v
-    end
+    local g = R.guid(unit)
+    local t = R.now()
+    if g ~= nil and g == los_cache.guid and (t - los_cache.t) < LOS_TTL then return los_cache.v end
     local okd, range = pcall(player.distance_to, player, unit)
     local v = raw_los(player, unit, okd and range or nil)
-    los_cache.guid, los_cache.t, los_cache.v = okg and guid or nil, t, v
+    los_cache.guid, los_cache.t, los_cache.v = g, t, v
     return v
 end
 
+--- in_range (hitbox, the client's own test), centre distance, has_los.
 function Rg.in_fight_range(player, unit, yards)
     yards = tonumber(yards) or 20
-    if yards < 1 then yards = 5 end
     if not player or not unit then return false, 99, false end
     local ok, range = pcall(player.distance_to, player, unit)
     if not ok or type(range) ~= "number" then return false, 99, false end
-
-    local has_los = raw_los(player, unit, range)
-    local okg, guid = pcall(unit.get_guid, unit)
-    if okg and guid ~= nil then
-        los_cache.guid, los_cache.t, los_cache.v = guid, izi.now(), has_los
-    end
-
-    -- `range` is centre to centre, so comparing it straight against `yards`
-    -- puts a large mob out of the fight while the player is standing in its
-    -- hitbox. Ask the client, which measures to the hitbox, and keep the raw
-    -- distance as the returned value because callers steer on it.
+    local los = Rg.has_los(player, unit)
     local in_range
-    local ok_r, hit = pcall(unit.is_in_range, unit, yards)
-    if ok_r and type(hit) == "boolean" then
-        in_range = hit
-    else
-        in_range = (range <= yards)
-    end
-
-    return (in_range and has_los), range, has_los
+    local okr, hit = pcall(unit.is_in_range, unit, yards)
+    if okr and type(hit) == "boolean" then in_range = hit else in_range = range <= yards end
+    return in_range and los, range, los
 end
 
+--- Within `yards` (3D) of `dest`?
 function Rg.arrived(dest, yards)
-    local hx, hy, hz = here_xyz()
-    local x, y, z = xyz(dest)
+    local hx, hy, hz = R.here()
+    local x, y, z = R.xyz(dest)
     if not hx or not x then return false end
-    return dist3(hx, hy, hz, x, y, z) <= (yards or ARRIVE)
+    return R.dist3(hx, hy, hz, x, y, z) <= (tonumber(yards) or ARRIVE)
 end
 
-function Rg.line_blocked(from, dest)
-    local fx, fy, fz = xyz(from)
-    local tx, ty, tz = xyz(dest)
-    if not fx or not tx then return false end
-    return not walk_open(pt(P_HERE, fx, fy, fz), pt(P_DEST, tx, ty, tz))
-end
+--- AmeisenNav steers round walls and objects itself; a straight line is never
+--- "blocked" for the caller (path_runner skips a waypoint only on a failure).
+function Rg.line_blocked() return false end
 
-function Rg.can_reach(from, dest)
-    local fx, fy, fz = xyz(from)
-    local tx, ty, tz = xyz(dest)
-    if not fx or not tx then return false end
-    if Z.blocked_xy(tx, ty) then return false end
-    local f, d = pt(P_HERE, fx, fy, fz), pt(P_DEST, tx, ty, tz)
-    if walk_open(f, d) then return true end
-    local hop = dist2(fx, fy, tx, ty)
-    if hop > STEER_HOP then hop = STEER_HOP end
-    if hop < MIN_NAV then hop = MIN_NAV end
-    if S.pick_steer(f, d, hop, false, true) then return true end
-    return S.orbit_for_los(f, d, 8) ~= nil
+--- Target selection: false only when the navmesh says it cannot be reached.
+function Rg.can_reach(_, dest)
+    return N.reachable(dest) ~= false
 end
 
 return Rg

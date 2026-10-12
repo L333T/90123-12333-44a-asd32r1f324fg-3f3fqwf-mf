@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -382,13 +382,16 @@ end
 -- nodes from the current one, in the walking direction (wrapping on a
 -- loop, turning round at the ends of an open path), go to Ameisen as ONE
 -- route (movement.follow_route), so it walks through them without stopping.
--- Nodes passed (within NODE_PASS yd) advance state.grind.move; with
--- CHUNK_REFILL nodes left the next chunk replaces the running route before
--- it ends. Blacklisted nodes are left out. Fights, loot and the walk back to
+-- Nodes passed (within NODE_PASS yd) advance state.grind.move; the next
+-- lap goes out when this one ends (3.0.0). Blacklisted nodes are left out. Fights, loot and the walk back to
 -- the path (rejoin) work as before: they stop the route, and the next chunk
 -- starts from the node after the rejoin point.
-local CHUNK_MAX    = 60
-local CHUNK_REFILL = 4
+-- 3.0.0: ONE LAP PER HAND-OFF. AmeisenNav's follow_path cannot take a new
+-- list without stopping (only move_to re-paths seamlessly), so a chunk
+-- refilled every few nodes stopped the character each time. Each hand-off is
+-- now a full lap from the current node back round to it, and the next lap
+-- goes out when this one ends.
+local CHUNK_MAX    = 400
 local NODE_PASS    = 5.0
 local gc = { list = nil, idx = nil, k = 1, zone = nil }
 
@@ -416,7 +419,7 @@ local function build_chunk(zone, n)
     local i, dir = state.grind.move, state.grind.dir or 1
     if not open_route(zone) then dir = 1 end
     if i < 1 or i > n then i = 1 end
-    for _ = 1, math.min(CHUNK_MAX, n * 2) do
+    for _ = 1, math.min(CHUNK_MAX, n + 1) do
         local x, y, z = node_xyz(zone, i)
         if x and not movement.is_blocked({ x = x, y = y, z = z }) then
             list[#list + 1] = { x = x, y = y, z = z }
@@ -463,16 +466,15 @@ local function smooth_walk(zone, n)
             end
         end
     end
-    local remaining = gc.list and (#gc.list - gc.k + 1) or 0
     local moving = movement.is_moving()
-    if gc.list and moving and remaining > CHUNK_REFILL then
+    -- 3.0.0: the running lap is never replaced mid-walk (see CHUNK_MAX)
+    if gc.list and moving then
         state.set_note("Grind", string.format("%s  node %d / %d", tostring(zone.name or "Patrol"), state.grind.move, n))
         return true
     end
     local list, idx = build_chunk(zone, n)
     if #list < 2 then return false end
-    local replace = gc.list ~= nil and moving
-    if movement.follow_route(list, replace) then
+    if movement.follow_route(list, true) then
         gc.list, gc.idx, gc.k = list, idx, 1
     end
     state.set_note("Grind", string.format("%s  node %d / %d", tostring(zone.name or "Patrol"), state.grind.move, n))

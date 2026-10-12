@@ -30,13 +30,9 @@ local m = {
     draw_path     = core.menu.checkbox(C.draw_path, "anav_draw_path"),
     debug_log     = core.menu.checkbox(C.debug_log, "anav_debug_log"),
     pause_cast    = core.menu.checkbox(C.pause_while_casting, "anav_pause_cast"),
-    wp_threshold  = core.menu.slider_float(1.0, 5.0, C.waypoint_threshold, "anav_wp_threshold"),
-    fin_threshold = core.menu.slider_float(0.5, 4.0, C.final_threshold, "anav_final_threshold"),
-    stuck_window  = core.menu.slider_float(0.8, 4.0, C.stuck_window, "anav_stuck_window"),
     btn_target    = core.menu.button("anav_btn_target"),
     btn_stop      = core.menu.button("anav_btn_stop"),
     btn_ping      = core.menu.button("anav_btn_ping"),
-    kb_minimap    = core.menu.keybind(999, false, "anav_kb_minimap"),   -- 1.6.6
     follow_mode   = core.menu.combobox(1, "anav_follow_mode"),
     follow_name   = core.menu.text_input("anav_follow_name", true),
     btn_fstart    = core.menu.button("anav_follow_start"),
@@ -79,9 +75,6 @@ local function sync_config()
     C.draw_path = get_bool(m.draw_path, C.draw_path)
     C.debug_log = get_bool(m.debug_log, C.debug_log)
     C.pause_while_casting = get_bool(m.pause_cast, C.pause_while_casting)
-    C.waypoint_threshold = get_num(m.wp_threshold, C.waypoint_threshold)
-    C.final_threshold = get_num(m.fin_threshold, C.final_threshold)
-    C.stuck_window = get_num(m.stuck_window, C.stuck_window)
     C.banner = get_bool(m.banner, C.banner)
     local fi = get_num(m.faction, 1)
     if fi < 1 then fi = fi + 1 end -- tolerate a 0-based combobox
@@ -150,20 +143,6 @@ local function run_request(client)
         else
             L.info("test: no target selected")
         end
-    elseif a == "minimap" then
-        -- 1.6.6: the minimap point under the cursor (coords_helper)
-        local okc, GZ = pcall(require, "anav/coords")
-        local pos, why = nil, "no anav/coords"
-        if okc and type(GZ) == "table" then pos, why = GZ.cursor_point() end
-        if pos then
-            L.info("test: walking to the minimap point %.0f, %.0f, %.0f", pos.x, pos.y, pos.z)
-            client:move_to(pos, function(success, reason)
-                if success then L.info("test: arrived at the minimap point")
-                else L.info("test: failed - %s", tostring(reason)) end
-            end)
-        else
-            L.info("test: no minimap point - %s", tostring(why))
-        end
     elseif a == "stop" then
         client:stop()
     elseif a == "ping" then
@@ -182,15 +161,9 @@ end
 --- Call once per update tick, never from a render callback: copies the menu
 --- values into the config, refreshes what the menu draws, and carries out
 --- whatever a menu button asked for.
-local kb_was = false
 function U.tick(client)
     sync_config()
     refresh(client)
-    -- 1.6.6: "walk to the minimap point" key, on the press (not while held)
-    local okk, down = pcall(m.kb_minimap.get_state, m.kb_minimap)
-    down = okk and down == true
-    if down and not kb_was and not pending then request("minimap") end
-    kb_was = down
     run_request(client)
 end
 
@@ -200,16 +173,9 @@ end
 -- A failing element must not blank the rest of the page, and each distinct
 -- failure is logged once (the menu is drawn every frame).
 local reported = {}
--- 1.6.7: the Sylvanas menu builds its elements over the first frames with a
--- per-frame budget (menu_api consume_build_unit); a section that does not
--- fit yet fails once and draws on the next frame. Not reported while the
--- menu is still being built.
-local BUILD_FRAMES = 10
-local rendered_frames = 0
 
 local function section(name, fn)
     local ok, err = xpcall(fn, L.traceback)
-    if not ok and rendered_frames <= BUILD_FRAMES then return end
     if not ok and not reported[name] then
         reported[name] = true
         L.error("menu section '%s' failed: %s", name, tostring(err))
@@ -272,9 +238,7 @@ local function render_options()
     m.draw_path:render("Draw path", "Draw the current path in the world")
     m.pause_cast:render("Pause while casting", "Stop walking while casting or channelling")
     m.debug_log:render("Debug log", "Print every request and state change to the console")
-    m.wp_threshold:render("Waypoint reach (yd)", "Distance at which a corner counts as reached")
-    m.fin_threshold:render("Arrival reach (yd)", "Distance at which the destination counts as reached")
-    m.stuck_window:render("Stuck after (s)", "Seconds without progress before stuck recovery starts")
+    header("Reach, stuck and avoidance distances: the 'Ameisen Movement' page", color.gray(200))
 end
 
 local function render_buttons()
@@ -287,8 +251,6 @@ local function render_buttons()
     if m.btn_ping:render("Ping server", "Check the navigation server now") then
         request("ping")
     end
-    m.kb_minimap:render("Test: walk to the minimap point",
-        "Hover the minimap and press this key: pathfind to that spot (coords_helper) and walk there")
 end
 
 local function render_follow()
@@ -320,7 +282,6 @@ local function render_follow()
 end
 
 function U.render_menu(version)
-    rendered_frames = rendered_frames + 1
     header_next = 1
     m.tree:render("AmeisenNav", function()
         section("status", function() render_status(version) end)

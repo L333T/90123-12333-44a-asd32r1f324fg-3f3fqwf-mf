@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -287,17 +287,6 @@ menu:checkbox("mfg_path_combat", true, {
     tab = "path",
     tooltip = "Auto-target the closest PvE mob in rotation range and fight from the loaded path (10-yard leash). Starts melee auto-attack so any class swings when the mob is in melee.",
 })
--- 2.235.0: movement/hazards - learned bad terrain.
-menu:checkbox("mfg_learn_terrain", true, {
-    label = "Learn Bad Terrain",
-    tab = "path",
-    tooltip = "Remember cliffs, too-steep slopes and spots the character got stuck on, and route around them for the rest of the session. A spot hit twice is saved per map and avoided from the start next time.",
-})
-menu:checkbox("mfg_forget_terrain", false, {
-    label = "Forget Learned Terrain",
-    tab = "path",
-    tooltip = "Tick to clear this map's learned bad-terrain spots (and their saved file). Unticks itself.",
-})
 menu:checkbox("mfg_draw_path", true, {
     label = "Draw Loaded Path",
     tab = "path",
@@ -392,13 +381,6 @@ menu:checkbox("mfg_untapped", true, {
 })
 -- 2.273.0: travel steers around the aggro range of hostile mobs at or below
 -- the player's level (targeting.scan_enemies -> movement danger map).
-menu:checkbox("mfg_avoid_packs", false, {
-    label = "Avoid Mob Packs",
-    tab = "general",
-    tooltip = "Walks and paths keep out of the aggro range of hostile mobs at or below your level "
-        .. "(20 yd at your level, 1 yd less per level below you, 5 yd at least; grey mobs never aggro "
-        .. "and are ignored). The mob being walked to for a fight is not avoided. Off: walk straight through.",
-})
 
 -- Every questing setting lives on the Questing tab, under Enable Questing.
 -- There is no quest list to pick from: RestedXP decides what comes next.
@@ -478,6 +460,26 @@ menu:checkbox("mfg_vendor_each_lap", true, {
 menu:slider_int("mfg_repair_pct", 5, 50, 10, {
     label = "Repair at Durability %",
     tab = "vendor",
+})
+-- 3.0.0: the NPC a route sells / repairs at. The click is only recorded here
+-- (render pass); merchants.tick saves the current target on the update tick.
+menu:button("mfg_save_route_vendor", {
+    label = "Save Target as Route Vendor",
+    tab = "vendor",
+    tooltip = "Target a vendor or repair NPC and press this: the loaded (or selected) grind route sells and repairs there whenever the bags are full or the gear is worn, and walks back to the nearest waypoint afterwards.",
+    on_click = function()
+        local okm, mer = pcall(function() return package.loaded["merchants"] end)
+        if okm and type(mer) == "table" and type(mer.request) == "function" then mer.request("save") end
+    end,
+})
+menu:button("mfg_clear_route_vendor", {
+    label = "Clear Route Vendor",
+    tab = "vendor",
+    tooltip = "Forget the vendor saved for the loaded (or selected) route.",
+    on_click = function()
+        local okm, mer = pcall(function() return package.loaded["merchants"] end)
+        if okm and type(mer) == "table" and type(mer.request) == "function" then mer.request("clear") end
+    end,
 })
 
 menu:checkbox("mfg_show_gui", true, {
@@ -593,38 +595,6 @@ menu:checkbox("mfg_strafe_combat", false, {
     class_id = enums.class_id.ROGUE,
     tooltip = "In combat, once in melee range of the target, tap strafe right and left (0.2-0.5 s each, random) so the rogue does not stand still. Stops the moment the target leaves melee range, so the bot can chase it.",
 })
--- MELEE OR RANGED (2.93.0): only the slider that applies is shown. The same
--- test that picks the engage distance decides it (rotation.is_melee - the
--- ticked spells first, so a Cat / Bear druid or a Stormstrike shaman flips to
--- melee the moment it is ticked), falling back to the class before the
--- spellbook scan. Read at most every 0.5 s: it runs from the tab draw.
-local MELEE_CLASS = { WARRIOR = true, ROGUE = true, PALADIN = true }
-local melee_cache = { t = -1, v = false }
-
-function gui.fights_in_melee()
-    local now = izi.now()
-    if (now - melee_cache.t) < 0.5 then
-        return melee_cache.v
-    end
-    local v = nil
-    local me = izi.me()
-    local ok_r, rotation = pcall(require, "rotation")
-    if me and ok_r and type(rotation) == "table" and type(rotation.is_melee) == "function" then
-        local ok, r = pcall(rotation.is_melee, me)
-        if ok and type(r) == "boolean" then v = r end
-    end
-    if v == nil then
-        local cid = nil
-        pcall(function() cid = menu:player_class() end)
-        v = false
-        for key, flag in pairs(MELEE_CLASS) do
-            if flag and enums.class_id[key] == cid then v = true end
-        end
-    end
-    melee_cache.t, melee_cache.v = now, v
-    return v
-end
-
 -- Spells-tab sliders, one saved element per class (2.129.0). The menu
 -- stores a slider by its id for the whole account, so a single mfg_sp_heal
 -- was the mage's value on a hunter. class_id hides every other class's row.
@@ -777,7 +747,6 @@ local aliases = {
     random_path = "mfg_random_path",
     fight_back = "mfg_fight_back",
     untapped = "mfg_untapped",
-    avoid_packs = "mfg_avoid_packs",           -- 2.273.0
     loot = "mfg_loot",
     sell = "mfg_vendor_sell",
     repair = "mfg_repair",
@@ -789,8 +758,6 @@ local aliases = {
     hunter_pet_aggro = "mfg_hunter_pet_aggro",  -- 2.284.0
     adaptive = "mfg_adaptive",                 -- 2.274.0
     path_loop = "mfg_path_loop",
-    learn_terrain = "mfg_learn_terrain",
-    forget_terrain = "mfg_forget_terrain",
     path_reverse = "mfg_path_reverse",
     path_combat = "mfg_path_combat",
     draw_path = "mfg_draw_path",
@@ -1565,6 +1532,24 @@ function gui.load_selected_path()
     return gui.load_grind_path()
 end
 
+--- 3.0.0: the id of the loaded grind route, else the selected catalog route.
+function gui.route_key()
+    if type(armed_path) == "table" and type(armed_path.id) == "string" then return armed_path.id end
+    local ok, grind_catalog = pcall(require, "grind/catalog")
+    if ok and type(grind_catalog) == "table" and type(grind_catalog.entries_for_faction) == "function" then
+        local entries = grind_catalog.entries_for_faction(gui.faction_key())
+        local e = entries and entries[gui.path_index()]
+        if type(e) == "table" and type(e.id) == "string" then return e.id end
+    end
+    return nil
+end
+
+--- 3.0.0: carry out the menu clicks queued during the render pass (main.lua
+--- calls this first on every update).
+function gui.run_deferred()
+    menu:run_deferred()
+end
+
 function gui.ready_path()
     if type(armed_path) == "table" then
         return armed_path
@@ -1693,6 +1678,60 @@ function gui.has_quest_profile()
     return ok and type(guide) == "table" and guide.is_loaded() == true
 end
 
+-- ============================================================================
+-- RENDER CACHE (3.0.0)
+-- ============================================================================
+-- The windows are drawn on the render pass, where no game call may run (a
+-- game call while drawing can take WoW Forever down). Everything they show
+-- from the game is read here, on the update tick (main.lua -> refresh_view),
+-- and the draw code reads only this table.
+local view = {
+    class_id = nil, level = nil, target_line = "Searching...",
+    herb = nil, mine = nil, has_herb = false, has_mine = false, prof_cap = 0, map = nil,
+    spell_rows = nil, t = -1e9, slow_t = -1e9,
+}
+local VIEW_EVERY, VIEW_SLOW = 0.25, 1.0
+
+--- Update tick only: read what the windows show.
+function gui.refresh_view(player)
+    local now = izi.now()
+    if type(now) ~= "number" or (now - view.t) < VIEW_EVERY then return end
+    view.t = now
+    if not player then return end
+    local okc, cid = pcall(player.get_class, player)
+    if okc and type(cid) == "number" then view.class_id = cid end
+    local okl, lvl = pcall(player.get_level, player)
+    if okl and type(lvl) == "number" then view.level = lvl end
+    -- the HUD target line: Rotation Only fights the player's own target
+    local line = "Searching..."
+    pcall(function()
+        local u = (is_on("rotation_only") and player:get_target()) or (state.target and state.target.unit)
+        if u and u:is_valid() and not u:is_dead_or_ghost() then
+            local d = player:distance_to(u)
+            line = string.format("%s  %s", tostring(u:get_name()),
+                type(d) == "number" and string.format("%.0f yd", d) or "?")
+        end
+    end)
+    view.target_line = line
+    pcall(gui.sync_faction, player)
+    if (now - view.slow_t) >= VIEW_SLOW then
+        view.slow_t = now
+        local okr, groute = pcall(require, "gather/route")
+        if okr and type(groute) == "table" then
+            pcall(function()
+                view.herb, view.mine, view.has_herb, view.has_mine = groute.ranks()
+                view.prof_cap = groute.profession_cap()
+            end)
+        end
+        pcall(function() view.map = core.game_ui.get_current_map_id() end)
+        local oks, smart = pcall(require, "smart")
+        if oks and type(smart) == "table" and type(smart.rows) == "function" then
+            local okw, rows = pcall(smart.rows, player)
+            view.spell_rows = okw and rows or nil
+        end
+    end
+end
+
 function gui.is_started()
     if not is_on("enable") then
         return false
@@ -1713,18 +1752,8 @@ function gui.is_started()
     if not ok or type(rotation) ~= "table" then
         return false
     end
-    local me = nil
-    pcall(function()
-        me = izi.me()
-    end)
-    -- 2.306.0 (audit LOGIC-9): get_class guarded - this runs every frame, and
-    -- a freed player object (loading screen) threw out of gui.is_started
-    local class_id = nil
-    if me then
-        local okc, cid = pcall(function() return me:get_class() end)
-        if okc then class_id = cid end
-    end
-    class_id = class_id or gui.class_id()
+    -- 3.0.0: the class from the render cache (this runs on the render pass)
+    local class_id = view.class_id or gui.class_id()
     return rotation.supported(class_id) == true
 end
 
@@ -2361,7 +2390,7 @@ menu:on_tab("grinding", function(win, x, y, w, h)
         return
     end
 
-    gui.sync_faction(izi.me())
+    -- 3.0.0: gui.sync_faction runs on the update tick (refresh_view)
 
     -- 1. which side
     local key, fidx = gui.faction_key()
@@ -2474,12 +2503,12 @@ menu:on_tab("gathering", function(win, x, y, w, h)
     end
     local ok_r, groute = pcall(require, "gather/route")
     if ok_r and type(groute) == "table" then
-        local herb, mine, has_herb, has_mine = groute.ranks()
+        -- 3.0.0: read on the update tick (refresh_view)
         text(gold, string.format("Herbalism %s   Mining %s   Cap %d",
-            has_herb and tostring(herb) or "-", has_mine and tostring(mine) or "-", groute.profession_cap()))
+            view.has_herb and tostring(view.herb) or "-", view.has_mine and tostring(view.mine) or "-",
+            tonumber(view.prof_cap) or 0))
     end
-    local map = nil
-    pcall(function() map = core.game_ui.get_current_map_id() end)
+    local map = view.map
     local engine = loader.gather()
     local st = engine and type(engine.status) == "function" and engine.status() or nil
     if not st then
@@ -2552,7 +2581,9 @@ menu:on_tab("questing", function(win, x, y, w, h)
         end
     end
     if menu:draw_launcher(win, LEFT, by, btn_w, 30, string.format("Clear Skipped (%d)", skipped)) then
-        gui.clear_quest_skips()
+        menu:defer(function()
+            gui.clear_quest_skips()
+        end)
     end
     if menu:draw_launcher(win, LEFT + btn_w + gap, by, btn_w, 30, "Vendor") then
         menu:open_popup("vendor")
@@ -2671,8 +2702,7 @@ menu:on_tab("class", function(win, x, y, w, h)
     end
 
     local ok_s, smart = pcall(require, "smart")
-    local player = izi.me()
-    local rows = ok_s and smart and player and smart.rows(player) or nil
+    local rows = view.spell_rows     -- 3.0.0: built on the update tick
     local idx = menu:get("mfg_class") or 7
     local name = CLASS_LABELS[idx] or "Unknown"
     if type(rows) ~= "table" or #rows == 0 then
@@ -2747,7 +2777,8 @@ menu:on_tab("class", function(win, x, y, w, h)
                     local hit = false
                     pcall(function() hit = win:is_rect_clicked(rmin, rmax) == true end)
                     if hit then
-                        smart.toggle(row)
+                        local r = row
+                        menu:defer(function() smart.toggle(r) end)   -- 3.0.0: update tick
                     end
                     yy = yy + SPELL_ROW
                 end
@@ -2758,8 +2789,15 @@ menu:on_tab("class", function(win, x, y, w, h)
     return (yy - y) + 10
 end)
 
+-- 3.0.0: the list is rebuilt at most once a second while the tab is open
+-- (every frame it reset the picker cache and rebuilt every label)
+local path_tab_sync_t = -1e9
 menu:on_tab("path", function(win, x, y, w, h)
-    gui.sync_profile_list(false)
+    local clk = tonumber(izi.now()) or 0
+    if (clk - path_tab_sync_t) >= 1.0 then
+        path_tab_sync_t = clk
+        gui.sync_profile_list(false)
+    end
     local ok_pr, path_runner = pcall(require, "path_runner")
     local field_w = w - 20
     if field_w < 120 then
@@ -2816,56 +2854,62 @@ menu:on_tab("path", function(win, x, y, w, h)
     end
 
     if menu:draw_launcher(win, x1, by, btn_w, btn_h, "Load") then
-        local path, err = gui.load_selected_path()
-        if path then
-            preview_path(path)
-            state.set_note("Path", "Loaded " .. tostring(path.name) .. " - ready for Play")
-            core.log("[Master Farmer - Grindbot] Loaded path: " .. tostring(path.name))
-        else
-            state.set_note("Path", err or "load failed")
-            core.log_warning("[Master Farmer - Grindbot] Profile load failed: " .. tostring(err))
-        end
+        menu:defer(function()
+            local path, err = gui.load_selected_path()
+            if path then
+                preview_path(path)
+                state.set_note("Path", "Loaded " .. tostring(path.name) .. " - ready for Play")
+                core.log("[Master Farmer - Grindbot] Loaded path: " .. tostring(path.name))
+            else
+                state.set_note("Path", err or "load failed")
+                core.log_warning("[Master Farmer - Grindbot] Profile load failed: " .. tostring(err))
+            end
+        end)
     end
     if menu:draw_launcher(win, x2, by, btn_w, btn_h, "Save") then
-        local path = armed_path or path_profiles.last_loaded()
-        if not path then
-            path = select(1, gui.load_selected_path())
-        end
-        if path then
-            local fname = (path.id or "path") .. ".json"
-            local ok_save, saved = path_profiles.save_path(path, fname)
-            if ok_save then
-                gui.sync_profile_list(false)
-                preview_path(path)
-                state.set_note("Path", "Saved " .. tostring(saved))
-                core.log("[Master Farmer - Grindbot] Saved profile: " .. tostring(saved))
-            else
-                state.set_note("Path", saved or "save failed")
+        menu:defer(function()
+            local path = armed_path or path_profiles.last_loaded()
+            if not path then
+                path = select(1, gui.load_selected_path())
             end
-        else
-            state.set_note("Path", "Nothing to save")
-        end
+            if path then
+                local fname = (path.id or "path") .. ".json"
+                local ok_save, saved = path_profiles.save_path(path, fname)
+                if ok_save then
+                    gui.sync_profile_list(false)
+                    preview_path(path)
+                    state.set_note("Path", "Saved " .. tostring(saved))
+                    core.log("[Master Farmer - Grindbot] Saved profile: " .. tostring(saved))
+                else
+                    state.set_note("Path", saved or "save failed")
+                end
+            else
+                state.set_note("Path", "Nothing to save")
+            end
+        end)
     end
     if menu:draw_launcher(win, x3, by, btn_w, btn_h, "Play") then
-        local path = armed_path
-        local err = nil
-        if not path then
-            path, err = gui.load_selected_path()
-        end
-        if path then
-            armed_path = path
-            path_profiles.remember(path)
-            preview_path(path)
-            if gui.is_on("rotation_only") then
-                state.set_note("Path", "Rotation Only - movement off")
-                core.log("[Master Farmer - Grindbot] Rotation Only is on; Play does not move.")
-            else
-                play_pending = true
-                state.set_note("Path", "Starting " .. tostring(path.name))
+        menu:defer(function()
+            local path = armed_path
+            local err = nil
+            if not path then
+                path, err = gui.load_selected_path()
             end
-        else
-            state.set_note("Path", err or "play failed - Load a path first")
-        end
+            if path then
+                armed_path = path
+                path_profiles.remember(path)
+                preview_path(path)
+                if gui.is_on("rotation_only") then
+                    state.set_note("Path", "Rotation Only - movement off")
+                    core.log("[Master Farmer - Grindbot] Rotation Only is on; Play does not move.")
+                else
+                    play_pending = true
+                    state.set_note("Path", "Starting " .. tostring(path.name))
+                end
+            else
+                state.set_note("Path", err or "play failed - Load a path first")
+            end
+        end)
     end
 end)
 
@@ -2964,23 +3008,9 @@ local function draw_mini()
     pcall(function() win:set_next_window_padding(vec2.new(0, 0)) end)
 
     local elapsed = fmt_elapsed(izi.now() - mini.since)
-    local level = "?"
-    pcall(function()
-        local me = izi.me()
-        local l = me and me:get_level()
-        if type(l) == "number" then level = tostring(l) end
-    end)
-    local target_line = "Searching..."
-    pcall(function()
-        local me = izi.me()
-        -- Rotation Only fights the player's own target; the engines keep theirs.
-        local u = (is_on("rotation_only") and me and me:get_target()) or (state.target and state.target.unit)
-        if u and u:is_valid() and not u:is_dead_or_ghost() then
-            local d = me and me:distance_to(u)
-            target_line = string.format("%s  %s", tostring(u:get_name()),
-                type(d) == "number" and string.format("%.0f yd", d) or "?")
-        end
-    end)
+    -- 3.0.0: level and target line from the render cache (refresh_view)
+    local level = view.level and tostring(view.level) or "?"
+    local target_line = view.target_line or "Searching..."
     local mode = is_on("rotation_only") and "Rotation Only"
         or (is_on("use_quest") and "Questing" or (is_on("use_gather") and "Gathering" or "Grinding"))
 
@@ -3022,7 +3052,7 @@ local function draw_mini()
             end)
     end)
     if stop then
-        mini_stop()
+        menu:defer(mini_stop)                -- 3.0.0: the stop runs on the update tick
     elseif restore then
         restore_main()
     end

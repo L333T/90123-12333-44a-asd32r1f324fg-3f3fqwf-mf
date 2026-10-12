@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -228,43 +228,10 @@ end
 -- mobs): each living, attackable unit within ENEMY_SCAN yards of the player's
 -- x, y, z - all the way round, 3D distance - sorted into
 --   attack  up to LEVEL_CAP above the player: candidates for a fight
---   avoid   hostile and more than LEVEL_CAP above: never targeted, and their
---           positions go to movement's danger map so paths keep clear
+--   avoid   hostile and more than LEVEL_CAP above: never targeted
 -- Cached SCAN_TTL.
 local LEVEL_CAP = 5
 local SCAN_TTL = 0.25
-local DANGER_RADIUS = 12
-
--- AVOID MOB PACKS (2.273.0, GUI "Avoid Mob Packs"). With the option on, a
--- hostile mob AT OR BELOW the player's level also goes into the danger map
--- (the high-level ones always do), with its aggro radius: 20 yd at the
--- player's level, 1 yd less per level under it, never under 5 yd, plus
--- PACK_MARGIN. Left out: grey mobs (they never aggro - the classic grey
--- rule), mobs already in combat (the fight handles those), mobs that are
--- not hostile to the player (neutral ones only answer an attack), and the
--- current kill target. The danger map steers travel paths (sentinel
--- danger_zones -> an avoid plan around the zone), the local walker's hops
--- (steer.lua) and the move look-ahead (fsm.lua); a zone that holds the
--- destination or the player is never planned around, so a mob walked to
--- for a fight is still reached.
-local PACK_MARGIN = 2
-
---- The highest mob level that is grey (no aggro, no xp) for `lvl`.
-local function grey_level(lvl)
-    if lvl <= 5 then return 0 end
-    if lvl <= 39 then return lvl - math.floor(lvl / 10) - 5 end
-    if lvl <= 59 then return lvl - math.floor(lvl / 5) - 1 end
-    return lvl - 9
-end
-targeting.grey_level = grey_level
-
---- Aggro radius (yards) of a mob of level `mob_lvl` against a player of `my_lvl`.
-local function aggro_radius(my_lvl, mob_lvl)
-    local r = 20 - (my_lvl - mob_lvl)
-    if r < 5 then r = 5 elseif r > 45 then r = 45 end
-    return r
-end
-targeting.aggro_radius = aggro_radius
 local scan = { t = -1, attack = {}, avoid = {} }
 
 function targeting.scan_enemies(player)
@@ -282,10 +249,6 @@ function targeting.scan_enemies(player)
     local my_lvl = call(player.get_level, player) or 1
     local list = targeting.visible_objects()
     local range = targeting.ENEMY_SCAN
-    local danger = {}
-    local avoid_packs = gui.is_on("avoid_packs") == true
-    local grey = grey_level(my_lvl)
-    local cur_guid = state.target and state.target.kind == "kill" and state.target.guid or nil
     if pos and type(list) == "table" then
         for i = 1, #list do
             local u = list[i]
@@ -300,30 +263,19 @@ function targeting.scan_enemies(player)
                         if lvl > my_lvl + LEVEL_CAP then
                             if call(u.is_enemy_with, u, player) == true then
                                 avoid[#avoid + 1] = u
-                                danger[#danger + 1] = { x = up.x, y = up.y, z = up.z, r = DANGER_RADIUS }
                             end
                         else
                             attack[#attack + 1] = u
-                            -- 2.273.0: Avoid Mob Packs - the aggro range of a
-                            -- hostile mob at or below the player's level
-                            if avoid_packs and lvl <= my_lvl and lvl > grey
-                                and call(u.is_in_combat, u) ~= true
-                                and call(u.is_enemy_with, u, player) == true
-                                and (cur_guid == nil or call(u.get_guid, u) ~= cur_guid) then
-                                danger[#danger + 1] = { x = up.x, y = up.y, z = up.z,
-                                    r = aggro_radius(my_lvl, lvl) + PACK_MARGIN, pack = true }
-                            end
                         end
                     end
                 end
             end
         end
     end
+    -- 3.0.0: no danger circles any more - AmeisenNav has no area to steer
+    -- round, and the "Avoid Mob Packs" walk avoidance went with the old
+    -- steering; too-high mobs are still never targeted (scan.avoid)
     scan.attack, scan.avoid = attack, avoid
-    local ok_m, movement = pcall(require, "movement")
-    if ok_m and type(movement) == "table" and type(movement.set_danger) == "function" then
-        pcall(movement.set_danger, danger)
-    end
     return attack, avoid
 end
 

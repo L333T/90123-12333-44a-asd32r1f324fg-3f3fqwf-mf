@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One file per session:
@@ -53,6 +53,7 @@ local opened = false
 local disabled = false
 local lines = 0
 local seen = {}               -- error key -> count
+local seen_n = 0
 local last_trail = {}         -- tag -> last text
 local context_fn = nil
 -- Heartbeat state (see HEARTBEAT below). Declared up here because
@@ -202,6 +203,14 @@ end
 --- Record a Lua error. `where` names the call that threw.
 function errorlog.error(where, err, tb)
     local key = tostring(where) .. "|" .. tostring(err)
+    -- 3.0.0: bounded - errors that embed numbers make new keys forever
+    if seen[key] == nil then
+        seen_n = seen_n + 1
+        if seen_n > 500 then
+            for k in pairs(seen) do seen[k] = nil end
+            seen_n = 1
+        end
+    end
     local n = (seen[key] or 0) + 1
     seen[key] = n
     if n > 1 and n % REPEAT_NOTE ~= 0 then

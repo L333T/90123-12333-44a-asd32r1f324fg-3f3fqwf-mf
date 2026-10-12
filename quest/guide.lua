@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -2471,21 +2471,6 @@ end
 -- WAYPOINTS
 -- ============================================================================
 
-local coords_mod = nil
-local coords_tried = false
-
-local function coords()
-    if coords_tried then
-        return coords_mod
-    end
-    coords_tried = true
-    local ok, mod = pcall(require, "common/utility/coords_helper")
-    if ok and type(mod) == "table" then
-        coords_mod = mod
-    end
-    return coords_mod
-end
-
 --- Is this waypoint usable at all?
 ---
 --- map_id 0 means the guide has no place to point at. wrong_continent means
@@ -2520,17 +2505,9 @@ end
 ---   * x,y come from core.game_ui.get_world_pos_from_map_pos, which converts
 ---     without touching terrain, given a real vec2.
 ---   * each waypoint is converted ONCE and cached.
----   * height is only queried once the point is within HEIGHT_RANGE of the
----     player, where its terrain is certainly loaded. Until then the player's
----     own height stands in, which is all a far-away walk target needs.
----   * map_to_world remains as a fallback only when the pure conversion is
----     missing, and then at most once per waypoint.
-local HEIGHT_RANGE = 120      -- yards
--- 2.311.0: terrain rays off (map_to_world fallback, waypoint floors)
-local TERRAIN_RAYS = (function()
-    local ok, K = pcall(require, "movement/const")
-    return ok and type(K) == "table" and K.TERRAIN_RAYS == true
-end)()
+---   * no height is read here (no ray): the player's height stands in and
+---     AmeisenNav finds the ground where it walks (3.0.0). map_to_world is
+---     not used at all.
 local WORLD_LIMIT = 20000     -- no WoW coordinate is larger than this
 local CONV_MAX = 400          -- cached waypoints before the cache is dropped
 
@@ -2579,139 +2556,7 @@ local function convert(map_id, x, y)
             end
         end
     end
-    -- Fallback: the raycasting helper, once for this waypoint. 2.311.0: off
-    -- with the terrain rays (movement/const K.TERRAIN_RAYS).
-    local helper = TERRAIN_RAYS and coords() or nil
-    if helper and type(helper.map_to_world) == "function" then
-        local ok, w = pcall(helper.map_to_world, helper, map_id, mp, 0)
-        if ok and w ~= nil then
-            local wx, wy, wz = tonumber(get(w, "x")), tonumber(get(w, "y")), tonumber(get(w, "z"))
-            -- The world origin is a failed conversion here too (2.213.0), as
-            -- it is for get_world_pos_from_map_pos above.
-            -- NOT FINAL (2.214.0): its z is a raycast started at the PLAYER's
-            -- height + extra_height (coords_helper stub), so a waypoint on
-            -- higher or lower ground far away gets the wrong floor - and a
-            -- final z was cached for good. x, y are kept; z goes through the
-            -- same terrain / navmesh height path as the pure conversion.
-            if finite(wx) and finite(wy) and finite(wz) and not (wx == 0 and wy == 0) then
-                return { x = wx, y = wy, z = nil, final = false }
-            end
-        end
-    end
     return nil
-end
-
--- FAR WAYPOINT HEIGHT FROM THE NAVMESH (2.108.0)
---   A far waypoint used the PLAYER's height. Leaving Ironforge (z 502) for
---   Dun Morogh (ground ~100 yards lower) Sentinel answered "HTTP 422:
---   Position not on navmesh" three times per waypoint and the bot cycled
---   through every waypoint of the goal. Now each far waypoint asks Sentinel
---   once for the navmesh heights at its x,y (get_all_heights, server side, no
---   terrain loading) and keeps the layer nearest the player's height. One
---   request in flight at a time, NAVZ_GAP apart - never a flood.
--- MASTER FARMER BOT (Ameisen): there is no navmesh height query to ask - the
--- Ameisen 1.8.3.2 server has no height opcode (its HTTP bridge answers
--- "err no_path"), and Sentinel's get_all_heights does not exist here. A far
--- waypoint keeps the player's height until it is within HEIGHT_RANGE (the
--- terrain height then settles it); a wrong height that Ameisen answers with
--- end_off_mesh / no_path is retried at the floor heights found there
--- (movement/terrain on_unreachable).
-local function request_nav_height(e, mz)
-    if e.navz_asked then return end
-    e.navz_asked = true
-    e.navz_failed = true
-end
-
--- THE WAYPOINT'S FLOOR (2.290.0). RestedXP gives a waypoint as map x, y
--- only (rested_xp_waypoint_info has no height). Its height came from ONE
--- ground ray started 30 yd above the player (4 indoors): the first surface
--- below that start - a bridge deck over the road the guide follows, a cliff
--- top over the cave - so the path went over (or under) the guide's route.
--- Now every floor at the waypoint's x, y is read (rays from several heights
--- above and below the player), and with more than one, AmeisenNav is asked
--- in ONE batch for the walk to each: the floor with the shortest real walk
--- from the player is the guide's. Without AmeisenNav: the floor nearest the
--- player's height (never simply the highest).
-local FLOOR_STARTS_OUT = { 4, 15, 30, 60, -10, -25 }   -- extra_height above the player
-local FLOOR_STARTS_IN = { 2, 4, 8, -6 }
-local FLOOR_SAME = 1.5
-
-local function waypoint_floors(x, y, mz, indoors)
-    local out = {}
-    -- 2.311.0: no terrain ray - no floor is read; the waypoint keeps the
-    -- player's height and AmeisenNav finds the ground at its x, y
-    if not TERRAIN_RAYS then return out end
-    local starts = indoors and FLOOR_STARTS_IN or FLOOR_STARTS_OUT
-    for i = 1, #starts do
-        local ok, h = pcall(izi.get_terrain_height, x, y, starts[i])
-        local bogus_zero = ok and h == 0 and math.abs(mz) > 5
-        if ok and finite(h) and not bogus_zero and math.abs(h - mz) < 60
-            and h <= mz + starts[i] + 0.5 then
-            local dup = false
-            for k = 1, #out do
-                if math.abs(out[k] - h) < FLOOR_SAME then dup = true break end
-            end
-            if not dup then out[#out + 1] = h end
-        end
-    end
-    table.sort(out, function(a, b) return math.abs(a - mz) < math.abs(b - mz) end)
-    return out
-end
-
---- Several floors: AmeisenNav picks the one with the shortest walk. `e`
---- gets e.z / e.final when the answer lands (one batch per waypoint).
-local function pick_floor_by_path(e, floors, mx, my, mz)
-    local an = rawget(_G, "AmeisenNav")
-    local q = type(an) == "table" and an.query or nil
-    if type(q) ~= "table" or type(q.find_paths) ~= "function" then return false end
-    if e.floor_asked then
-        -- no answer in 5 s (server down): the floor nearest the player's height
-        if (izi.now() - (e.floor_t or 0)) > 5 then e.z, e.final = floors[1], true end
-        return true
-    end
-    e.floor_asked, e.floor_t = true, izi.now()
-    local from = { x = mx, y = my, z = mz }
-    local list = {}
-    for i = 1, #floors do list[i] = { from, { x = e.x, y = e.y, z = floors[i] } } end
-    local ok_call = pcall(q.find_paths, list, { allow_partial = false }, function(ok, res)
-        local best, best_len = nil, nil
-        if ok and type(res) == "table" then
-            for i = 1, #floors do
-                local r = res[i]
-                local pts = r and r.ok and r.points
-                if type(pts) == "table" and #pts > 1 then
-                    local last = pts[#pts]
-                    local dx, dy = (last.x or 0) - e.x, (last.y or 0) - e.y
-                    if dx * dx + dy * dy <= 9 and math.abs((last.z or 0) - floors[i]) <= 2.5 then
-                        local len = 0
-                        for k = 2, #pts do
-                            local ax, ay, az = pts[k - 1].x, pts[k - 1].y, pts[k - 1].z or 0
-                            local bx, by, bz = pts[k].x, pts[k].y, pts[k].z or 0
-                            len = len + math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2 + (bz - az) ^ 2)
-                        end
-                        if best_len == nil or len < best_len then best, best_len = floors[i], len end
-                    end
-                end
-            end
-        end
-        local log = elog()
-        if best then
-            e.z, e.final = best, true
-            if log then
-                local parts = {}
-                for i = 1, #floors do parts[i] = string.format("%.1f", floors[i]) end
-                log.trail("waypoint", "(%.0f, %.0f): %d floors (z %s) - the guide's floor is z %.1f (walk %.0f yd)",
-                    e.x, e.y, #floors, table.concat(parts, ", "), best, best_len)
-            end
-        else
-            e.z, e.final = floors[1], true          -- nearest the player's height
-            if log then
-                log.trail("waypoint", "(%.0f, %.0f): %d floors, no walk to any - nearest the player's height, z %.1f",
-                    e.x, e.y, #floors, floors[1])
-            end
-        end
-    end)
-    return ok_call
 end
 
 local function to_world(wp)
@@ -2760,30 +2605,10 @@ local function to_world(wp)
         local me = safe(function() return izi.me():get_position() end)
         local mx, my, mz = tonumber(get(me, "x")), tonumber(get(me, "y")), tonumber(get(me, "z"))
         if mx and my and mz then
+            -- 3.0.0: the player's height stands in (RestedXP gives x, y only);
+            -- AmeisenNav reads the ground where the walk has no path at it
+            -- (movement/nav: get_height retry)
             z = mz
-            local dx, dy = e.x - mx, e.y - my
-            if dx * dx + dy * dy <= HEIGHT_RANGE * HEIGHT_RANGE then
-                -- 2.290.0: every floor at x, y (see THE WAYPOINT'S FLOOR);
-                -- a bogus 0 (2.71.0) and anything 60+ yd from the player's
-                -- height are still refused
-                local indoors = false
-                pcall(function() indoors = izi.me():is_indoors() == true end)
-                local floors = waypoint_floors(e.x, e.y, mz, indoors)
-                if #floors == 1 then
-                    e.z, e.final = floors[1], true
-                    z = floors[1]
-                elseif #floors > 1 then
-                    -- nearest the player's height until AmeisenNav answers
-                    z = floors[1]
-                    if not pick_floor_by_path(e, floors, mx, my, mz) then
-                        e.z, e.final = floors[1], true
-                    end
-                    if e.final and finite(e.z) then z = e.z end   -- answered already
-                end
-            else
-                -- Far away: the navmesh height, asked of Sentinel once (2.108.0).
-                request_nav_height(e, mz)
-            end
         end
     end
     -- Always return a walkable point. Waiting here for a height (2.137.0)

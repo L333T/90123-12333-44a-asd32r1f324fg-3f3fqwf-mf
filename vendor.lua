@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -161,7 +161,16 @@ local function path_merchant()
             path = safe(function() return runner.current_path() end)
         end
     end
-    if type(path) ~= "table" or type(path.merchant) ~= "table" then
+    if type(path) ~= "table" then
+        return nil
+    end
+    -- 3.0.0: the vendor the user saved for this route (Vendor tab) comes first
+    local okm, mer = pcall(require, "merchants")
+    if okm and type(mer) == "table" and type(mer.route_vendor) == "function" then
+        local saved = mer.route_vendor(path.id)
+        if saved then return saved, path end
+    end
+    if type(path.merchant) ~= "table" then
         return nil
     end
     return path.merchant, path
@@ -1391,6 +1400,12 @@ function vendor.tick(player)
     do
         local okm, mer = pcall(require, "merchants")
         if okm and type(mer) == "table" and type(mer.scan) == "function" then pcall(mer.scan, player) end
+        -- 3.0.0: a "Save / Clear Route Vendor" click from the menu
+        if okm and type(mer) == "table" and type(mer.tick) == "function" then
+            local okg, g = pcall(require, "gui")
+            local key = okg and type(g) == "table" and type(g.route_key) == "function" and g.route_key() or nil
+            pcall(mer.tick, player, key)
+        end
     end
     vendor.cap_soul_shards(player)      -- 2.208.0
     if not vendor.level_ok(player) and bag_free() > 0 then

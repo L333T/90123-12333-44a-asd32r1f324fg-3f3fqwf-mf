@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -697,7 +697,9 @@ function Menu:ensure_logo()
     if type(now) == "number" and now < (self._next_logo_try or 0) then
         return nil
     end
-    self._next_logo_try = (type(now) == "number" and now or 0) + 0.50
+    -- 3.0.0: back off - 0.5 s for the first 20 tries, then every 10 s
+    self._logo_tries = (self._logo_tries or 0) + 1
+    self._next_logo_try = (type(now) == "number" and now or 0) + ((self._logo_tries <= 20) and 0.50 or 10)
 
     local bytes = banner_bytes() or load_pack_bytes(resolve_pack_path(self.logo))
     if type(bytes) ~= "string" then
@@ -1659,6 +1661,28 @@ function Menu:draw_status(win, x, y, w, h, title)
     end
 end
 
+-- ============================================================================
+-- DEFERRED CLICKS (3.0.0)
+-- ============================================================================
+-- Every click handler runs on the UPDATE tick, never inside the render pass:
+-- a game call made while drawing can take WoW Forever down (AmeisenNav docs),
+-- and Start / Stop / Save / toggles all reach the game. A click is queued here
+-- and Menu:run_deferred() (called first thing on each update) carries it out.
+local deferred = {}
+
+--- Queue `fn` for the next update tick (render-safe).
+function Menu:defer(fn)
+    if type(fn) == "function" and #deferred < 32 then deferred[#deferred + 1] = fn end
+end
+
+--- Run the queued clicks (update callback only).
+function Menu:run_deferred()
+    if #deferred == 0 then return end
+    local list = deferred
+    deferred = {}
+    for i = 1, #list do pcall(list[i]) end
+end
+
 function Menu:draw_action(win, spec, x, y, w, h)
     local t = self.theme
     local style = spec.style or "neutral"
@@ -1706,7 +1730,7 @@ function Menu:draw_action(win, spec, x, y, w, h)
     block_drag(win, pmin, pmax)
     if clicked(win, pmin, pmax) then
         if type(spec.on_click) == "function" then
-            pcall(spec.on_click)
+            self:defer(spec.on_click)
         end
         return true
     end
@@ -2046,7 +2070,7 @@ function Menu:render_native_at(win, record, x, y, width)
             if record.kind == "button" then
                 local pressed = element:render(record.label, record.tooltip)
                 if pressed and type(record.on_click) == "function" then
-                    pcall(record.on_click)
+                    self:defer(record.on_click)
                 end
             end
         end)
@@ -2413,7 +2437,7 @@ function Menu:mark_closed()
         self.window:set_visibility(false)
     end)
     if type(self.on_close) == "function" then
-        pcall(self.on_close)
+        self:defer(self.on_close)
     end
 end
 

@@ -204,9 +204,9 @@ end
 function M.cast_done(spell, target)
     local id = M.id_of(spell)
     if id then streak[id] = nil end
-    -- 2.315.0: the last spell sent (was izi.on_spell_success, movement/fsm.lua)
-    local F = package.loaded["movement/fsm"]
-    if id and type(F) == "table" and type(F.note_spell) == "function" then pcall(F.note_spell, id, target) end
+    -- the last spell sent (class retreat rules read it: movement.note_spell)
+    local mv = package.loaded["movement"]
+    if id and type(mv) == "table" and type(rawget(mv, "note_spell")) == "function" then pcall(mv.note_spell, id, target) end
 end
 
 -- ----------------------------------------------------------------------------

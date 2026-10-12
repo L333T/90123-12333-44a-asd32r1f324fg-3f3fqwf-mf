@@ -3,7 +3,7 @@
 -- merchants.lua - remembered repair NPCs and innkeepers
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- ============================================================================
 -- The user (2.318.0): "Grinding path should vendor at repair NPC or INN if
 -- bags are full". A grind route without its own merchant record had only the
@@ -178,6 +178,105 @@ end
 function M.count()
     if not loaded then load() end
     return book_n
+end
+
+-- ============================================================================
+-- ROUTE VENDOR (3.0.0): the user picks the NPC a route sells / repairs at.
+-- "Save Target as Route Vendor" (Vendor tab) stores the targeted NPC for the
+-- loaded / selected route: npc id, name, position, whether it repairs. A
+-- grind route with a saved vendor goes there for full bags and worn gear
+-- (vendor.lua path_merchant), before anything the bot finds on its own.
+-- Kept in scripts_data/mfb/route_vendors.txt, one line per route id.
+-- The menu button only records the click (the render pass must not touch
+-- the game); M.tick carries it out on the update tick.
+-- ============================================================================
+local RV_FILE = FOLDER .. "/route_vendors.txt"
+local NPC_VENDOR = 0x80
+local rv, rv_loaded = {}, false
+local pending = nil            -- "save" | "clear"
+
+local function rv_load()
+    rv_loaded = true
+    local body = safe(function() return core.read_data_file(RV_FILE) end)
+    if type(body) ~= "string" or body == "" then return end
+    for line in body:gmatch("[^\n]+") do
+        local key, npc, x, y, z, rep, name = line:match("^(%S+) (%d+) (%-?[%d%.]+) (%-?[%d%.]+) (%-?[%d%.]+) (%d) (.*)$")
+        npc, x, y, z = tonumber(npc), tonumber(x), tonumber(y), tonumber(z)
+        if key and npc and x and y and z then
+            rv[key] = { npc_id = npc, x = x, y = y, z = z, repair = rep == "1",
+                name = (name or "?"):gsub("_", " "), route_vendor = true }
+        end
+    end
+end
+
+local function rv_save()
+    local out = {}
+    for key, e in pairs(rv) do
+        out[#out + 1] = string.format("%s %d %.1f %.1f %.1f %d %s", key, e.npc_id, e.x, e.y, e.z,
+            e.repair and 1 or 0, (tostring(e.name or "?"):gsub("%s", "_")))
+    end
+    pcall(function() core.create_data_folder(FOLDER) end)
+    pcall(function() core.create_data_file(RV_FILE) end)
+    pcall(function() core.write_data_file(RV_FILE, table.concat(out, "\n") .. "\n") end)
+end
+
+--- The saved vendor of route `key` (path.id), or nil.
+function M.route_vendor(key)
+    if not rv_loaded then rv_load() end
+    if type(key) ~= "string" or key == "" then return nil end
+    return rv[key]
+end
+
+--- Menu click (render pass): only recorded.
+function M.request(kind)
+    pending = kind
+end
+
+--- Store `unit` as the vendor of route `key`. Returns ok, message.
+function M.save_route_vendor(key, unit, player)
+    if not rv_loaded then rv_load() end
+    if type(key) ~= "string" or key == "" then return false, "load or select a route first" end
+    if not unit then return false, "target the vendor NPC first" end
+    if safe(function() return unit:is_player() end) == true then return false, "the target is a player" end
+    local flags = safe(function() return unit:get_npc_flags() end)
+    local sells, repairs = has_flag(flags, NPC_VENDOR), has_flag(flags, NPC_REPAIR)
+    if not sells and not repairs then return false, "the target is not a vendor" end
+    if player and safe(function() return player:can_attack(unit) end) == true then
+        return false, "the target is hostile"
+    end
+    local p = safe(function() return unit:get_position() end)
+    local npc = safe(function() return unit:get_npc_id() end)
+    if not p or not npc then return false, "the target has no position / npc id" end
+    local name = safe(function() return unit:get_name() end) or "?"
+    rv[key] = { npc_id = npc, x = p.x, y = p.y, z = p.z, repair = repairs, name = name, route_vendor = true }
+    rv_save()
+    return true, string.format("%s (npc %d%s) saved as the vendor of route %s", name, npc,
+        repairs and ", repairs" or "", key)
+end
+
+function M.clear_route_vendor(key)
+    if not rv_loaded then rv_load() end
+    if type(key) ~= "string" or rv[key] == nil then return false, "no saved vendor for this route" end
+    rv[key] = nil
+    rv_save()
+    return true, "route vendor cleared for " .. key
+end
+
+--- Update tick: carry out a menu click. `route_key` = the loaded / selected route id.
+function M.tick(player, route_key)
+    local kind = pending
+    if not kind then return end
+    pending = nil
+    local ok, msg
+    if kind == "save" then
+        local target = player and safe(function() return player:get_target() end)
+        ok, msg = M.save_route_vendor(route_key, target, player)
+    else
+        ok, msg = M.clear_route_vendor(route_key)
+    end
+    local line = "[Master Farmer - Grindbot] Route vendor: " .. tostring(msg)
+    if ok then pcall(core.log, line) else pcall(core.log_warning, line) end
+    trail("%s", tostring(msg))
 end
 
 --- Test hook.

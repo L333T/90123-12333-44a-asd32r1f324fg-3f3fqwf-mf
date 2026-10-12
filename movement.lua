@@ -1,276 +1,232 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- Intelligent Movement & Navigation System - public facade
+-- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
--- SINGLE-OWNER MOVEMENT STATE MACHINE
+-- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
+-- every walk: navmesh paths, wall traces (safe collision mask, crash-guarded),
+-- object avoidance, corner cutting, stuck recovery, swim / indoor profiles.
+-- This layer decides where to go and when to stand still:
 --
---   STATE      IDLE -> NAVIGATION -> COMBAT, plus RESTRICTED above all.
---   OWNER      NONE | NAV | COMBAT.  Exactly one may issue a command.
+--   travel   nav_to / follow_route / nav_stop      movement/nav
+--   combat   combat_engage / combat_release        movement/combat
+--   holds    rest, cast, channel, loot, backpedal  movement/locks
+--   sight    facing, line of sight, arrival        movement/range, sight
+--   corridor recorded-path leash (path_runner)      movement/leash
+--   areas    blacklisted areas                     movement/zones
 --
--- Handing movement over always goes through own.take(owner): it halts the
--- outgoing actuator before the incoming one is allowed to speak, so two
--- subsystems can never steer on the same tick.
---
--- ACTUATORS
---   simple_movement ("walker")  the only thing that moves the player.
---                               NAV drives it for travel and saved paths.
---                               COMBAT drives it for approach / retreat hops.
---   SentinelNavClient           optional navmesh fallback, OOC only. Used for
---                               long legs, blocked lines and stuck recovery.
---                               Absent = we degrade to walker steering.
---   movement_handler            facing and cast/channel pauses only. It has no
---                               move method, so it never repositions anything.
---
--- PAUSE MODEL
---   walker:pause()/resume() is reference counted by reason (cast, restrict,
---   rest, loot, nav). Resume only fires when every reason has cleared, so a
---   cast finishing cannot un-pause a stun.
---
--- STATE TRANSITIONS are debounced. Escalations (restriction, combat entry) are
--- immediate; releases must hold for a settle window. Nothing toggles per frame.
---
--- MEMORY MODEL
---   * no closures on the per-frame path: guarded calls are pcall(fn, args...)
---   * steering math is plain numbers; candidates live in a fixed pool of tables
---   * one vec3 is allocated per ISSUED move, never per candidate
---   * cheap gates run before any trace line
---   * blacklist zones are pruned in place; the leash is flattened once
---
--- ----------------------------------------------------------------------------
--- WHY THIS FILE IS A FACADE
--- ----------------------------------------------------------------------------
--- Lua allows at most 200 local variables in any one function, and a file IS a
--- function (its main chunk). The previous single-file movement.lua declared 235
--- top-level locals, so the Sylvanas loader could not compile it at all:
---
---     movement.lua: main function has more than 200 local variables
---
--- The logic now lives in movement/*.lua. Each module declares its own handful
--- of locals and is nowhere near the limit. Shared MUTABLE state lives in
--- movement/rt.lua, because upvalues cannot cross a chunk boundary; shared
--- CONSTANTS live in movement/const.lua and are pulled into module locals at
--- load time, so the hot path still reads an upvalue and not a table field.
---
--- LAYERS (each may only require the ones above it)
---   const   enums, tunables, engine flags          (no deps)
---   rt      mutable state, point pool, scratch     (const)
---   util    logging, position, distance, traces    (const, rt)
---   zones   blacklist areas                        (util)
---   geom    number-only geometry                   (util)
---   leash   path corridor                          (util)
---   steer   candidate search                       (geom, zones, leash)
---   walker  simple_movement actuator               (zones, util)
---   sentinel navmesh fallback actuator             (walker, zones)
---   own     ownership, restrictions, gates, halt   (walker, sentinel)
---   locks   rest / cast / channel / loot locks     (own, walker)
---   range   facing, range, LoS, reachability       (steer, own)
---   nav     navigation                             (own, steer, actuators)
---   combat  combat movement                        (own, steer, range)
---   fsm     stuck watch, arbitration, pulse        (combat, nav layers)
---   diag    snapshot / dump                        (own, walker, leash)
---
--- The public surface below is unchanged: every call site that did
--- `require("movement")` keeps working exactly as before.
+-- The surface below is the one the rest of the bot calls (every name has
+-- callers; the 2.x helpers nobody called are gone). Reading a name that does
+-- not exist is logged once and answers nil.
 -- ============================================================================
 
-local K  = require("movement/const")
-local U  = require("movement/util")
+local R  = require("movement/core")
 local Z  = require("movement/zones")
-local L  = require("movement/leash")
-local W  = require("movement/walker")
-local N  = require("movement/sentinel")
-local O  = require("movement/own")
+local N  = require("movement/nav")
 local Lk = require("movement/locks")
 local Rg = require("movement/range")
-local Nv = require("movement/nav")
 local C  = require("movement/combat")
-local F  = require("movement/fsm")
-local D  = require("movement/diag")
-local Pr = require("movement/probe")
+local L  = require("movement/leash")
 
 local movement = {}
 
--- ============================================================================
--- ENUMS
--- ============================================================================
-movement.STATE    = K.STATE
-movement.OWNER    = K.OWNER
-movement.RESTRICT = K.RESTRICT
+-- GUI snapshot state (built in movement.pulse, read by debug_snapshot)
+local SNAP_EVERY = 0.5
+local snap = { state = "idle", owner = "none", quiet = false }
+local snap_t = -1e9
+local build_snapshot
 
 -- ============================================================================
--- POSITION
+-- TRAVEL
 -- ============================================================================
-movement.to_pos = U.to_pos
+movement.nav_to       = function(dest, direct) return N.nav_to(dest, direct) end
+movement.nudge        = function(dest) return N.nav_to(dest) end
+movement.follow_route = N.follow_route
+movement.nav_path     = function(points) return N.follow_route(points) end
+movement.nav_stop     = function() N.stop("Master Farmer") end
+movement.is_moving    = function() return N.busy() or R.backpedal_until ~= nil end
+movement.is_navigating = function() return N.busy() and not C.in_combat_movement() end
+movement.sentinel_active = N.busy
+movement.is_quiet     = function() return R.now() < (R.quiet_until or 0) end
 
---- Ground height under (x, y), falling back to hint_z when the lookup fails or
---- lands on the wrong floor. Exported because callers that build their own
---- candidate points - death.lua's safe-spot offsets, for one - otherwise place
---- them at the source point's z and can end up inside terrain on a slope.
-movement.ground_z = U.ground_z
+--- The running walk's destination is within `yards` (2D) of `pos`.
+function movement.headed_to(pos, yards)
+    local dx, dy = N.destination()
+    local x, y = R.xyz(pos)
+    if not dx or not x then return false end
+    return R.dist2(dx, dy, x, y) <= (tonumber(yards) or 15)
+end
+
+-- "long travel" / approach hints: AmeisenNav needs neither (one path to the
+-- real destination); kept so the callers' bookkeeping stays simple.
+local hints = { keep = false, approach = nil, target = nil }
+movement.keep_path           = function(on) hints.keep = on == true end
+movement.set_approach        = function(kind) hints.approach = kind end
+movement.set_approach_target = function(guid) hints.target = guid end
+
+--- Everything stops: walk, fight, holds, backpedal.
+function movement.halt()
+    C.combat_release()
+    Lk.clear()
+    N.stop("halt")
+end
 
 -- ============================================================================
--- BLACKLIST ZONES
+-- FAILURES
 -- ============================================================================
-movement.blacklist_area = Z.blacklist_area
-movement.set_danger     = Z.set_danger       -- 2.95.0: high-level mobs to steer around
-movement.is_blocked     = Z.is_blocked
-movement.zone_count     = Z.count
+movement.last_fail_reason  = N.last_fail_reason
+movement.last_fail_offmesh = N.last_fail_offmesh
+movement.clear_fail        = N.clear_fail
 
 -- ============================================================================
--- STATE / OWNERSHIP / RESTRICTIONS
+-- COMBAT
 -- ============================================================================
-movement.owner         = O.owner
-movement.state         = O.state
-movement.is_restricted = O.is_restricted
-movement.restriction   = O.restriction
-movement.can_act       = O.can_act
-
--- ============================================================================
--- COMBAT PROFILE
--- ============================================================================
+movement.combat_engage        = C.combat_engage
+movement.combat_release       = C.combat_release
+movement.in_combat_movement   = C.in_combat_movement
+movement.combat_unit          = C.combat_unit
+movement.combat_in_position   = C.in_position
 movement.set_combat_profile   = C.set_combat_profile
 movement.clear_combat_profile = C.clear_combat_profile
 
 -- ============================================================================
--- FACING / RANGE / LOS
+-- FACING / SIGHT / RANGE
 -- ============================================================================
 movement.face           = Rg.face
+movement.has_los        = Rg.has_los
 movement.in_fight_range = Rg.in_fight_range
-movement.has_los        = Rg.has_los         -- 2.78.0: shared, cached LoS
 movement.arrived        = Rg.arrived
 movement.line_blocked   = Rg.line_blocked
 movement.can_reach      = Rg.can_reach
+--- Ground height: no ray of our own - the hint stands (AmeisenNav corrects
+--- heights where it walks).
+movement.ground_z       = function(_, _, hint_z) return hint_z end
 
 -- ============================================================================
--- MOVEMENT GATES
+-- AREAS
 -- ============================================================================
-movement.is_quiet        = O.is_quiet
-movement.is_moving       = O.is_moving
---- 2.316.0: is the walk in progress headed to within `yards` of `pos`?
-function movement.headed_to(pos, yards)
-    local R = require("movement/rt")
-    if not R.has_dest or type(pos) ~= "table" and type(pos) ~= "userdata" then return false end
-    local ok, x, y = pcall(function() return pos.x, pos.y end)
-    if not ok or type(x) ~= "number" or type(y) ~= "number" then return false end
-    local dx, dy = R.dest_x - x, R.dest_y - y
-    local r = tonumber(yards) or 15
-    return dx * dx + dy * dy <= r * r
-end
-movement.sentinel_active = O.sentinel_active
+movement.is_blocked     = Z.is_blocked
+movement.blacklist_area = Z.blacklist_area
 
 -- ============================================================================
--- NAVIGATION
--- ============================================================================
-movement.nav_to        = Nv.nav_to
-movement.keep_path     = Nv.keep_path
-movement.set_approach  = Nv.set_approach
-movement.nudge         = Nv.nudge
-movement.nav_path      = Nv.nav_path
-movement.follow_route  = Nv.follow_route   -- 2.235.2-ameisen: smooth grind path
-movement.nav_stop      = Nv.nav_stop
-movement.set_approach_target = Nv.set_approach_target  -- 2.140.0 (renamed 2.148.0)
-movement.halt          = Nv.halt
-movement.nav_pause     = Nv.nav_pause
-movement.nav_resume    = Nv.nav_resume
-movement.is_navigating = Nv.is_navigating
-movement.can_navigate  = Nv.can_navigate
-movement.rejoin_path   = Nv.rejoin_path
-
--- ============================================================================
--- PATH LEASH
--- ============================================================================
-movement.set_path_leash    = L.set_path_leash
-movement.clear_path_leash  = L.clear_path_leash
-movement.path_offset       = L.path_offset
-movement.needs_rejoin      = L.public_needs_rejoin
-movement.path_anchor_index = L.path_anchor_index
-
--- ============================================================================
--- COLLISION PROBING AND PATH SHAPING
--- ============================================================================
--- The ported legacy helpers. blocked() answers "front" / "right" / "left" /
--- false; shape() prunes, smooths and settles a path we hold ourselves.
-movement.probe_blocked  = Pr.blocked
-movement.probe_hits     = Pr.hits
-movement.probe_hit_at   = Pr.hit_at
-movement.shape_path     = Pr.shape
-movement.prune_path     = Pr.prune
-movement.smooth_path    = Pr.smooth
-movement.settle_path    = Pr.settle
-movement.set_off_mesh   = Pr.set_off_mesh
-movement.off_mesh       = Pr.off_mesh
-
--- ============================================================================
--- FAILURE REPORTING
--- ============================================================================
-movement.last_fail_offmesh = Lk.last_fail_offmesh
-movement.last_fail_reason  = Lk.last_fail_reason
-movement.clear_fail        = Lk.clear_fail
-
--- ============================================================================
--- REST / CAST / CHANNEL LOCKS
+-- HOLDS
 -- ============================================================================
 movement.set_resting     = Lk.set_resting
-movement.is_resting      = Lk.is_resting
 movement.release         = Lk.release
-movement.cast_cancelled  = Lk.cast_cancelled       -- 2.271.0 (callbacks.lua)
-movement.backpedal       = Lk.backpedal        -- 2.97.0
-movement.backpedal_stop  = Lk.backpedal_stop
-movement.backpedaling    = Lk.backpedaling
+movement.cast_cancelled  = Lk.cast_cancelled
 movement.prepare_cast    = Lk.prepare_cast
 movement.prepare_channel = Lk.prepare_channel
 movement.prepare_ground  = Lk.prepare_ground
 movement.pause_for_loot  = Lk.pause_for_loot
+movement.backpedal       = Lk.backpedal
+movement.backpedaling    = Lk.backpedaling
 
 -- ============================================================================
--- COMBAT MOVEMENT
+-- RECORDED-PATH CORRIDOR (path_runner)
 -- ============================================================================
-movement.combat_engage      = C.combat_engage
-movement.in_combat_movement = C.in_combat_movement
-movement.combat_unit        = C.combat_unit
-movement.combat_in_position = C.in_position
-movement.combat_release     = C.combat_release
+movement.set_path_leash    = L.set_path_leash
+movement.clear_path_leash  = L.clear_path_leash
+movement.needs_rejoin      = L.needs_rejoin
+movement.rejoin_path       = L.rejoin_path
+movement.path_anchor_index = L.path_anchor_index
 
 -- ============================================================================
--- PER-FRAME / EVENTS
+-- NAVMESH QUERIES
 -- ============================================================================
-movement.pulse             = F.pulse
-movement.on_render         = F.on_render
-movement.set_debug         = F.set_debug
-movement.last_player_spell = F.last_player_spell
-
--- ============================================================================
--- SENTINEL HELPERS
--- ============================================================================
-movement.plan_grind_route = N.plan_grind_route
+movement.reachable         = N.reachable
+movement.node_reachable    = N.node_reachable
+movement.reach_z           = N.reach_z
+movement.reach_forget      = N.reach_forget
+movement.plan_grind_route  = N.plan_grind_route
 movement.grind_visit_order = N.grind_visit_order
-movement.node_reachable   = N.node_reachable
-movement.reachable        = N.reachable        -- 2.59.0: validate_destination, cached
-movement.reach_z          = N.reach_z          -- 2.319.0: the ground height found there
-movement.reach_forget     = N.reach_forget
-movement.reach_forget     = N.reach_forget     -- 2.300.0
+movement.nav_stats         = function() return N.stats end
 
 -- ============================================================================
--- DIAGNOSTICS
+-- SPELLS (spellcheck.lua records each cast sent; class retreat rules read it)
 -- ============================================================================
-movement.debug_snapshot = D.debug_snapshot
-movement.dump           = D.dump
+function movement.note_spell(id, target)
+    R.last_spell_id, R.last_spell_target, R.last_spell_t = id, target, R.now()
+end
+
+function movement.last_player_spell()
+    return R.last_spell_id, R.last_spell_target, R.last_spell_t
+end
+
+-- ============================================================================
+-- PER FRAME / DEBUG
+-- ============================================================================
+--- Once per frame (main.lua), before anything reads movement state.
+function movement.pulse()
+    local t = R.now()
+    Lk.tick(t)
+    N.pulse()
+    Z.prune(t)
+    if t - snap_t >= SNAP_EVERY then build_snapshot(t) end
+end
+
+function movement.on_render() end
+
+function movement.set_debug(on) R.debug_on = on == true end
+
+function movement.owner()
+    if C.in_combat_movement() then return "combat" end
+    if N.busy() then return "nav" end
+    return "none"
+end
+
+function movement.state()
+    local c = N.client()
+    if c and type(c.get_full_state) == "function" then
+        local ok, s = pcall(c.get_full_state, c)
+        if ok then return s end
+    end
+    return N.busy() and "navigating" or "idle"
+end
+
+-- The GUI movement panel is drawn on the RENDER path, where no game call
+-- may run (AmeisenNav docs: a game call inside the menu render crashed WoW
+-- Forever). The snapshot is built on the update tick (movement.pulse, every
+-- SNAP_EVERY s) and the panel only reads this cached table.
+build_snapshot = function(t)
+    local u = C.combat_unit()
+    local d = nil
+    if u then
+        local me = R.me()
+        if me then
+            local ok, v = pcall(me.distance_to, me, u)
+            if ok and type(v) == "number" then d = v end
+        end
+    end
+    snap = {
+        state = movement.state(),
+        owner = movement.owner(),
+        restriction = R.resting and "resting" or (R.backpedal_until and "backpedal" or nil),
+        retreating = false,
+        paused = R.resting == true,
+        sentinel = N.busy(),
+        quiet = t < (R.quiet_until or 0),
+        target_dist = d,
+    }
+    snap_t = t
+end
+
+--- For the GUI movement panel: the cached snapshot (no game call).
+function movement.debug_snapshot()
+    return snap
+end
 
 -- ============================================================================
 -- STRICT SURFACE
 -- ============================================================================
--- Reading a field that does not exist is a bug in a caller, not a no-op. Log it
--- loudly (once per key) and return nil so the plugin degrades instead of dying.
 local missing_reported = {}
 setmetatable(movement, {
     __index = function(_, key)
         if type(key) == "string" and not missing_reported[key] then
             missing_reported[key] = true
-            core.log_error(K.TAG .. " movement." .. key .. " does not exist (stale call site)")
+            pcall(core.log_error, R.TAG .. " movement." .. key .. " does not exist (stale call site)")
         end
         return nil
     end,

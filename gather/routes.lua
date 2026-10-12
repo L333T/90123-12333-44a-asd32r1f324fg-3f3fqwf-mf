@@ -3,7 +3,7 @@
 -- Gathering: 24 herb / mine routes (port of EP_Herb_Mine Path_Information)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

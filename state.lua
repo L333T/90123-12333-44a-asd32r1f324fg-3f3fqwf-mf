@@ -3,7 +3,7 @@
 -- Shared runtime state (no leaked globals)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -259,7 +259,16 @@ function state.mark_unreachable(guid)
     if type(state.combat.unreachable) ~= "table" then
         state.combat.unreachable = {}
     end
-    state.combat.unreachable[key] = now_s()
+    -- 3.0.0: bounded - a long session marks many mobs; past 200 start over
+    local u = state.combat.unreachable
+    if u[key] == nil then
+        state.unreachable_n = (state.unreachable_n or 0) + 1
+        if state.unreachable_n > 200 then
+            for k in pairs(u) do u[k] = nil end
+            state.unreachable_n = 1
+        end
+    end
+    u[key] = now_s()
 end
 
 function state.is_unreachable(guid)

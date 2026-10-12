@@ -1,273 +1,169 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- movement/locks.lua - rest lock and cast / channel / loot locks
+-- movement/locks.lua - rest, cast, channel and loot holds; backpedal
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- ============================================================================
--- Locks pause the walker by reason, so a cast finishing can never un-pause a
--- stun or a food break. Releasing a cast lock touches only the cast and loot
--- reasons; rest and restrict are owned by their own callers.
+-- HOLDS go through AmeisenNav's own pause (client:pause(reason) /
+-- resume(reason) - reasons are counted separately, so a cast hold and a loot
+-- hold do not undo each other). AmeisenNav also pauses by itself while the
+-- player casts or channels (pause_while_casting); the hold here covers the
+-- moment before the cast starts, when moving would cancel it. Each hold has
+-- an end time and is lifted by the pulse even if nobody calls release().
+--
+-- REST halts everything and refuses travel and combat movement until lifted.
+--
+-- BACKPEDAL (Frost Nova, hunter dead zone, unstacking) walks backwards with
+-- the core movement keys for a set time, with an optional jump. While it
+-- runs nothing else moves the player (nav refuses).
 -- ============================================================================
 
----@type izi_api
-local izi = require("common/izi_sdk")
-
----@type movement_handler
-local handler = require("common/utility/movement_handler")
-
-local K = require("movement/const")
-local R = require("movement/rt")
-local U = require("movement/util")
-local W = require("movement/walker")
-local O = require("movement/own")
-
-local OWNER      = K.OWNER
-local QUIET_STOP = K.QUIET_STOP
-
-local dlog = U.dlog
+local R = require("movement/core")
+local N = require("movement/nav")
 
 local Lk = {}
 
--- ============================================================================
--- REST LOCK
--- ============================================================================
-function Lk.set_resting(on)
-    if on == true then
-        if not R.rest_lock then
-            R.rest_lock = true
-            W.set_pause("rest", true)
-            W.set_quiet(QUIET_STOP)
-            O.halt_all()
-            R.cur_owner = OWNER.NONE
-            dlog("rest", "resting - movement released")
-        end
-        return
+local HOLD_MAX = 12.0
+local holds = {}               -- reason -> end time
+local face_lock = nil
+
+local function handler()
+    if face_lock == nil then
+        local ok, h = pcall(require, "common/utility/movement_handler")
+        face_lock = (ok and h) and h or false
     end
-    if R.rest_lock then
-        R.rest_lock = false
-        W.set_pause("rest", false)
-        dlog("rest", "resting cleared")
+    return face_lock or nil
+end
+
+local function hold(reason, seconds)
+    seconds = tonumber(seconds) or 1.0
+    if seconds > HOLD_MAX then seconds = HOLD_MAX end
+    if seconds <= 0 then return end
+    if not holds[reason] then N.pause("mf_" .. reason) end
+    holds[reason] = R.now() + seconds
+end
+
+local function lift(reason)
+    if holds[reason] then
+        holds[reason] = nil
+        N.resume("mf_" .. reason)
     end
 end
 
-function Lk.is_resting() return R.rest_lock end
+local function face_pos(pos)
+    local x, y, z = R.xyz(pos)
+    if not x then return end
+    local ok, vec3 = pcall(require, "common/geometry/vector_3")
+    local p = (ok and vec3 and vec3.new) and vec3.new(x, y, z) or { x = x, y = y, z = z }
+    local h = handler()
+    if h then pcall(h.look_at_position, h, 0.5, 0, p) end
+    pcall(core.input.look_at, p)
+end
 
--- ============================================================================
--- BACKPEDAL (2.97.0)
--- ============================================================================
--- A timed walk backwards with the core movement keys (Frost Nova, then back
--- away). While it runs it owns movement outright: the walker and Sentinel are
--- halted first, the walker is paused ("backpedal"), and may_issue / combat
--- engage refuse every other move. It always ends with move_backward_stop -
--- on time, on a rest, on a halt, on death - and normal movement picks up on
--- the next tick.
---
--- JUMP (2.105.0, 0.75 s since 2.110.0): BACKPEDAL_JUMP_AT seconds into the backward walk the player
--- jumps, still moving backward; the jump key is let go (ascend_stop)
--- JUMP_RELEASE later. The backpedal timer itself is unchanged.
-local BACKPEDAL_JUMP_AT = 0.75
-local JUMP_RELEASE = 0.15
+--- Hold the walk for a cast of `seconds` and face `unit` (nil = no facing).
+function Lk.prepare_cast(unit, seconds)
+    hold("cast", seconds)
+    if unit then
+        local ok, pos = pcall(unit.get_position, unit)
+        if ok and pos then face_pos(pos) end
+    end
+end
 
---- `jump_at` (2.284.0): seconds into the walk for the jump - the Hunter's
---- back-jump uses 0.5; the Mage's Frost Nova keeps BACKPEDAL_JUMP_AT.
+function Lk.prepare_channel(unit, seconds)
+    Lk.prepare_cast(unit, seconds)
+end
+
+--- Hold for a ground-targeted spell at `pos`.
+function Lk.prepare_ground(pos, seconds)
+    hold("cast", seconds)
+    face_pos(pos)
+end
+
+function Lk.pause_for_loot(seconds)
+    hold("loot", seconds or 2)
+end
+
+--- Lift the cast / channel / loot holds (not rest).
+function Lk.release()
+    lift("cast")
+    lift("loot")
+end
+
+--- The cast ended early (callbacks.lua): only the cast hold goes.
+function Lk.cast_cancelled()
+    lift("cast")
+end
+
+-- ----------------------------------------------------------------------------
+-- rest
+-- ----------------------------------------------------------------------------
+function Lk.set_resting(on)
+    on = on == true
+    if on and not R.resting then
+        N.stop("rest")
+        Lk.backpedal_stop()
+    end
+    R.resting = on
+end
+
+function Lk.is_resting() return R.resting == true end
+
+-- ----------------------------------------------------------------------------
+-- backpedal
+-- ----------------------------------------------------------------------------
+local bp = { jump_at = nil, jumped = false }
+local BACKPEDAL_JUMP_AT = 0.75 -- s in: the default jump (Frost Nova backpedal)
+
+local function key(name)
+    local f = core.input and core.input[name]
+    if type(f) == "function" then pcall(f) end
+end
+
+--- Walk backwards for `seconds`, jumping `jump_at` s in (default 0.75 s; a
+--- value past `seconds` means no jump).
+--- True when started, false when one is already running.
 function Lk.backpedal(seconds, jump_at)
-    local t = izi.now()
-    if R.backpedal_until then return false end
-    O.halt_all()
-    W.set_pause("backpedal", true)
-    R.backpedal_until = t + (tonumber(seconds) or 3)
-    R.backpedal_jump_at = t + (tonumber(jump_at) or BACKPEDAL_JUMP_AT)
-    R.backpedal_jump_release = nil
-    pcall(core.input.move_backward_start)
-    dlog("backpedal", string.format("backing off for %.1fs", tonumber(seconds) or 3))
+    if R.backpedal_until or R.resting then return false end
+    seconds = tonumber(seconds) or 1.5
+    N.stop("backpedal")
+    local t = R.now()
+    R.backpedal_until = t + seconds
+    bp.jump_at = t + (tonumber(jump_at) or BACKPEDAL_JUMP_AT)
+    bp.jumped = false
+    key("move_backward_start")
+    R.trail("move", "backpedal %.1f s", seconds)
     return true
 end
 
 function Lk.backpedal_stop()
     if not R.backpedal_until then return end
     R.backpedal_until = nil
-    R.backpedal_jump_at = nil
-    if R.backpedal_jump_release then
-        R.backpedal_jump_release = nil
-        pcall(core.input.ascend_stop)
+    key("move_backward_stop")
+end
+
+function Lk.backpedaling() return R.backpedal_until ~= nil end
+
+--- Per frame: end holds and the backpedal on time.
+function Lk.tick(t)
+    t = t or R.now()
+    for reason, ends in pairs(holds) do
+        if t >= ends then lift(reason) end
     end
-    pcall(core.input.move_backward_stop)
-    W.set_pause("backpedal", false)
-    dlog("backpedal", "stopped")
-end
-
---- Called every pulse: ends the backpedal on time (or when a rest begins).
-function Lk.backpedal_tick(t)
-    if not R.backpedal_until then return false end
-    if t >= R.backpedal_until or R.rest_lock then
-        Lk.backpedal_stop()
-        return false
-    end
-    if R.backpedal_jump_at and t >= R.backpedal_jump_at then
-        R.backpedal_jump_at = nil
-        R.backpedal_jump_release = t + JUMP_RELEASE
-        pcall(core.input.jump)
-        dlog("backpedal", "jump")
-    elseif R.backpedal_jump_release and t >= R.backpedal_jump_release then
-        R.backpedal_jump_release = nil
-        pcall(core.input.ascend_stop)
-    end
-    return true
-end
-
-function Lk.backpedaling()
-    return R.backpedal_until ~= nil
-end
-
--- A reload in the middle of a backpedal would leave the key held down: let
--- go of it once whenever this module loads.
-pcall(core.input.move_backward_stop)
-
--- ============================================================================
--- CAST / CHANNEL LOCKS
--- ============================================================================
-local function clamp_sec(value, fallback)
-    local n = tonumber(value)
-    if type(n) ~= "number" or n ~= n or n <= 0 then return fallback end
-    if n > 20 then n = n / 1000 end            -- milliseconds were passed
-    if n < 0.15 then n = 0.15 elseif n > 12 then n = 12 end
-    return n
-end
-
--- HOLD WHILE STILL CASTING (2.240.0). A channel's lock was a fixed 3.2 s
--- (smart.lua takes 3.0 s for every CHANNEL spell): Evocation and Blizzard
--- run 8 s, Arcane Missiles up to 5, so movement came back mid-channel and a
--- waiting combat hop broke it. When the timer fires while the player is
--- still casting or channelling, the pause is renewed and checked again every
--- HOLD_STEP s, up to HOLD_MAX s from the start of the lock.
-local HOLD_STEP, HOLD_MAX = 0.25, 12.0
-
-local function still_casting()
-    local okp, me = pcall(izi.me)
-    if not okp or not me then return false end
-    local ok, b = pcall(me.is_channeling_or_casting, me)
-    return ok and b == true
-end
-
--- 2.315.0: OWN TIMERS. izi.after only fires from izi.on_update, which is no
--- longer called (main.lua); the movement pulse ticks these (fsm.lua).
-local timers = {}
-
-local function after(seconds, fn)
-    timers[#timers + 1] = { at = izi.now() + (tonumber(seconds) or 0), fn = fn }
-end
-
---- Run the timers that are due (every movement pulse).
-function Lk.timer_tick(t)
-    if #timers == 0 then return end
-    t = t or izi.now()
-    local due = nil
-    for i = #timers, 1, -1 do
-        if timers[i].at <= t then
-            due = due or {}
-            due[#due + 1] = timers[i].fn
-            table.remove(timers, i)
+    if R.backpedal_until then
+        if bp.jump_at and not bp.jumped and t >= bp.jump_at then
+            bp.jumped = true
+            key("jump")
         end
-    end
-    if due then
-        for i = #due, 1, -1 do pcall(due[i]) end
+        if t >= R.backpedal_until then Lk.backpedal_stop() end
     end
 end
 
-local function on_unlock_timer(gen)
-    if gen ~= R.lock_gen then return end
-    if still_casting() and (izi.now() - (R.lock_started or 0)) < HOLD_MAX then
-        pcall(handler.pause_movement, handler, HOLD_STEP + 0.25)
-        after(HOLD_STEP, function() on_unlock_timer(gen) end)
-        return
-    end
-    Lk.release()
-end
-
-local function arm_unlock(seconds)
-    R.lock_gen = R.lock_gen + 1
-    local gen = R.lock_gen
-    -- one small closure per cast lock (not per frame); it captures only `gen`
-    after(seconds, function() on_unlock_timer(gen) end)
-end
-
---- Release a cast / channel / loot lock. Does not touch the rest or restriction
---- pauses, so finishing a cast cannot un-pause a stun or a food break.
-function Lk.release()
-    R.lock_gen = R.lock_gen + 1
-    pcall(handler.resume_movement, handler)
-    pcall(handler.unlock_look_at, handler)
-    W.set_pause("cast", false)
-    W.set_pause("loot", false)
-end
-
---- 2.271.0 (callbacks.lua, izi.on_spell_cancel): the cast is gone - lift
---- the CAST pause now instead of at the next HOLD_STEP check. The loot,
---- rest and restriction pauses are not touched.
-function Lk.cast_cancelled()
-    R.lock_gen = R.lock_gen + 1
-    pcall(handler.resume_movement, handler)
-    pcall(handler.unlock_look_at, handler)
-    W.set_pause("cast", false)
-end
-
-local function begin_lock(sec, light, target, pos)
-    R.lock_started = izi.now()
-    W.set_pause("cast", true)
-    if light then
-        pcall(handler.pause_movement_light, handler, sec)
-    else
-        pcall(handler.pause_movement, handler, sec + 0.5)
-    end
-    -- The target's position, not the unit (2.72.0) - see Rg.face: the
-    -- handler keeps what it is given across frames, and a freed unit there
-    -- is a native crash.
-    if target and not pos then
-        local ok, p = pcall(target.get_position, target)
-        if ok and p then pos = p end
-    end
-    if pos then
-        pcall(handler.look_at_position, handler, sec, 0, pos)
-    end
-    arm_unlock(light and sec or (sec + 0.5))
-end
-
-function Lk.prepare_cast(target, duration)
-    begin_lock(clamp_sec(duration, 0.5), true, target, nil)
-end
-
-function Lk.prepare_channel(target, duration)
-    begin_lock(clamp_sec(duration, 3.0), false, target, nil)
-end
-
-function Lk.prepare_ground(pos, duration, channel)
-    begin_lock(clamp_sec(duration, channel and 3.0 or 0.5), not channel, nil, pos)
-end
-
-function Lk.pause_for_loot(duration)
-    O.halt_all()
-    W.set_pause("loot", true)
-    begin_lock(clamp_sec(duration, 0.5), true, nil, nil)
-end
-
--- ============================================================================
--- FAILURE REPORTING
--- ============================================================================
-function Lk.last_fail_offmesh()
-    return R.last_fail.valid and R.last_fail.offmesh
-end
-
-function Lk.last_fail_reason()
-    if R.last_fail.valid then return R.last_fail.reason end
-    return nil
-end
-
-function Lk.clear_fail()
-    R.last_fail.valid = false
-    -- The off-mesh probe flag was set alongside the failure; it goes with it.
-    local ok, Pr = pcall(require, "movement/probe")
-    if ok and type(Pr) == "table" then Pr.set_off_mesh(false) end
+--- Everything off (bot stop, unload).
+function Lk.clear()
+    for reason in pairs(holds) do lift(reason) end
+    Lk.backpedal_stop()
+    R.resting = false
 end
 
 return Lk

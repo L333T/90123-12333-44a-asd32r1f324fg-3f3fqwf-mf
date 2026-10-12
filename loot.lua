@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -75,6 +75,21 @@ local ENTRY_TTL = 120.0       -- seconds a queued corpse is remembered
 local GIVE_UP = 30.0
 local IGNORE_FOR = 600.0
 local ignored = {}            -- guid -> ignored until
+-- 3.0.0: bounded - expired entries are dropped once 100 pile up
+local ignored_n = 0
+local function ignore(guid, until_t)
+    if ignored[guid] == nil then
+        ignored_n = ignored_n + 1
+        if ignored_n > 100 then
+            local n = 0
+            for g, t in pairs(ignored) do
+                if t <= until_t - IGNORE_FOR then ignored[g] = nil else n = n + 1 end
+            end
+            ignored_n = n + 1
+        end
+    end
+    ignored[guid] = until_t
+end
 -- The game sets a corpse's lootable flag a moment AFTER the mob dies. A corpse
 -- queued in the kill tick used to be dropped on the next tick as "never ours"
 -- because can_be_looted was still false (2.38.0).
@@ -297,7 +312,7 @@ function loot.has_work(player)
         local e = queue[i]
         if (now - e.added) > GIVE_UP then
             ltrail("done %s: gave up after %.0f s", e.guid, GIVE_UP)
-            ignored[e.guid] = now + IGNORE_FOR
+            ignore(e.guid, now + IGNORE_FOR)
             drop(i)
         elseif (now - e.added) > ENTRY_TTL then
             drop(i)
@@ -310,6 +325,7 @@ end
 function loot.reset()
     queue = {}
     ignored = {}
+    ignored_n = 0
     close_at = nil
     working_guid = nil
     burst = nil
@@ -566,7 +582,7 @@ tick_inner = function(player)
         local why = nil
         if (now - e.added) > GIVE_UP then
             why = string.format("gave up after %.0f s", GIVE_UP)
-            ignored[e.guid] = now + IGNORE_FOR
+            ignore(e.guid, now + IGNORE_FOR)
         elseif obj == nil then
             why = "corpse not found"
         elseif safe(function() return obj:is_dead() end) ~= true then
@@ -603,7 +619,7 @@ tick_inner = function(player)
             -- Every finished corpse is remembered (2.56.0): the fallback scan
             -- used to find a looted corpse again - the flag lags, or items
             -- that are not ours stay on it - and queue it all over again.
-            ignored[e.guid] = now + IGNORE_FOR
+            ignore(e.guid, now + IGNORE_FOR)
             drop(i)
         else
             local d = safe(function() return player:distance_to(obj) end)

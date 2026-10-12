@@ -3,7 +3,7 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.319.0
+-- Version: 3.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /
@@ -53,7 +53,7 @@ local ACT_GAP = 1.5
 -- DELAYED COMMANDS NEED on_render
 --   set_pet_state and move_pet_to_position take a delay, and a delayed
 --   command only fires if pet_handler:on_render() is pumped every frame.
---   pets.on_render does that, and main.lua calls it from its render
+--   pets.on_render does that, and main.lua calls it from its update
 --   callback. Nothing here passes a delay today, but a delay that silently
 --   never fires is a nasty thing to leave for whoever adds one.
 local handler = nil
@@ -187,7 +187,7 @@ local function set_state(player, name)
 end
 
 --- Pump the handler's delayed-command queue. Called once per frame from
---- main.lua's render callback; a no-op when there is no handler, or for a
+--- main.lua's update callback; a no-op when there is no handler, or for a
 --- Hunter below level 10 / without a live pet.
 function pets.on_render()
     local h = handler_for(nil)

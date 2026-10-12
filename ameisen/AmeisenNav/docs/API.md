@@ -1,4 +1,4 @@
-# AmeisenNav API (v1.6.0)
+# AmeisenNav API (v1.0.0)
 
 Shared navmesh navigation for Sylvanas plugins, backed by the local
 AmeisenNavigation server. Replaces SentinelNavClient.
@@ -51,7 +51,7 @@ the navigation ends (arrived, failed or `stop()`).
 | `c:move_direct(target, cb)` | Walk a straight line (no pathfinding), with stuck recovery. |
 | `c:follow_path(waypoints, cb)` | Walk a recorded route. Recovery rejoins the route at the waypoint being approached. |
 | `c:replan(reason)` | Rebuild the active path from the current position. |
-| `c:stop()` | Stop. The active callback gets `code = "cancelled"`. |
+| `c:stop(reason)` | Stop. The active callback gets `code = "cancelled"`, `detail = reason` (default `"stopped"`). |
 | `c:pause(reason)` / `c:resume(reason)` | Hold the walk (e.g. looting) without losing it. Reasons are counted separately. |
 
 Starting a new navigation cancels the old one (its callback gets `cancelled`).
@@ -63,7 +63,7 @@ Starting a new navigation cancels the old one (its callback gets `cancelled`).
 | code | meaning |
 |---|---|
 | `arrived` | success |
-| `cancelled` | `stop()` or replaced by a new navigation |
+| `cancelled` | `stop()`, replaced by a new navigation, or ended by the game: detail `"loading screen"`, `"player died"`, `"combat"` (combat mode *Stop*) |
 | `unreachable` | only a partial path exists and it stops more than 5 yd from the target |
 | `start_off_mesh` / `end_off_mesh` | the player / target is not on the navmesh |
 | `no_path` | no connection between start and target |
@@ -75,108 +75,56 @@ Starting a new navigation cancels the old one (its callback gets `cancelled`).
 
 ### Stuck recovery
 
-No progress for *Stuck after* seconds (menu, default 1.5) raises the stuck
-level; real progress (3 yd) resets it.
+No progress for *Stuck after* seconds (per profile, default 1.5) raises the
+stuck level; real progress (3 yd) resets it.
 
 1. jump, 2. repath, 3. detour to a random mesh point within 5 yd,
-4. back off 0.6 s then repath, 5. jump + repath, 6. fail `max_stuck_exceeded`.
+4. back off 0.6 s, strafing toward the open side, then repath,
+5. jump + repath, 6. fail `max_stuck_exceeded`.
 
-Being pushed more than 8 yd off the path repaths immediately. Walking pauses
-while casting or channelling (menu option), and that never counts as stuck.
+Being pushed further than the *Off-path limit* (default 8 yd) repaths
+immediately. Walking pauses while casting or channelling, while stunned,
+rooted, feared or charmed, and (combat mode *Pause*) in combat; none of that
+counts as stuck.
 
-## Path check (1.5.0)
+## Movement profiles
 
-`anav/pathcheck.lua`, on by default (`pathcheck = true`).
+`anav/profile.lua` reads where the player is every 0.5 s and swaps in the
+matching distances. The plain config keys are the **outdoor** profile;
+`C.profiles.indoor` and `C.profiles.swim` list what differs.
 
-- **5-yard waypoints.** Every walked path is resampled so no two waypoints are
-  more than `waypoint_spacing` (5) yards apart. `get_current_path()` and
-  `get_path_index()` report the walked (resampled) points.
-- **Checked 15 yards ahead.** The next `check_ahead` (3) waypoints are checked
-  once each, as they come into that window, and corrected before the character
-  gets there. One small request in flight, the next waypoint no sooner than
-  `check_gap` (0.25 s): about 3 requests a second while running, none while
-  standing. Never per frame. No game (native) calls: server requests only.
-- **Height.** A short server path from the previous waypoint is asked at four
-  heights in one batch (the line's, the last ground height, +/- 6 yd); the one
-  that lands on the waypoint gives the ground height, and the waypoint takes it.
-- **Too steep / cliff.** A climb over `max_climb` (1.0 yd per yd), a drop over
-  `max_drop` (1.5 yd per yd) or deeper than `cliff_drop` (6 yd), or a leg that
-  leaves the walkable mesh: that leg is re-planned unsmoothed (`splice_flags`
-  16) between the waypoints around it and spliced in (`max_splices` 4 per path).
-- **Width.** Side probes 1.5 and 3 yd left and right of the waypoint (from the
-  ground height). A wall / edge on one side moves the waypoint
-  `edge_clearance` (1.5) yd away from it, so the character keeps 1-2 yd; both
-  sides closed at 1.5 yd (a corridor under 3 yd) centres it. The destination
-  itself is never moved.
-- **No Chaikin smoothing** while it runs (`pathcheck_unsmoothed`): flag 1 is
-  dropped from walked paths - measured on the server, smoothing left the
-  walkable mesh twice on a 540 yd route. VALIDATE_MAS (16) is kept.
-- **No corner skipping** (input driver) while it runs: skipping ahead would
-  bypass the checked waypoints, and its `/raycast` kills the 1.8.3.2 server.
+| | Outdoor | Indoor & caves | Swimming |
+|---|---|---|---|
+| Waypoint reach | 2.5 | 1.5 | 2.0 |
+| Arrival reach | 1.5 | 1.0 | 1.5 |
+| Wall look-ahead | 6 | 3 | 4 |
+| Object look-ahead | 8 | 4 | 8 |
+| Object clearance | 0.8 | 0.4 | 0.8 |
+| Corner-cut range | 15 | 6 | 10 |
+| Off-path limit | 8 | 5 | 8 |
+| Stuck after (s) | 1.5 | 1.5 | 2.5 |
+| Ledge / drop height | 2.0 | 1.2 | (ground check off) |
 
-`client:update_config({ pathcheck = false })` turns all of it off (1.4.0
-behaviour). Stats: `require("anav/pathcheck").stats`.
+- Indoor: `is_indoors()`, which WoW sets in buildings and caves alike. A
+  flip has to read the same twice in a row (1 s): doorways flicker.
+- Swimming: `core.character.is_swimming()`, at once. The ground check is off
+  there because the height probe answers the lake bed.
+- Speed: reach, look-ahead, corner-cut and off-path distances grow with the
+  movement speed over 7 yd/s (mounted, sprint), up to x2.5. Arrival reach does not.
+- Height: the wall rays sit at 25% / 65% of the player's model height.
+- Combat: NPCs are not obstacles in combat unless *Avoid NPCs in combat* is on.
+- A unit standing on the point being walked to (a mob, an NPC to talk to) is
+  never treated as in the way.
 
-## Stuck recovery and the strafe-jump-strafe manoeuvre (1.6.5)
+## Combat handoff
 
-The manoeuvre: forward held, strafe to one side for 0.4 s with a jump 0.2 s
-in, then strafe to the other side for 0.4 s; every key is released at the
-end. The side it starts on alternates.
+`C.combat_mode`, set on the *Ameisen Movement* page:
 
-During a walk, each "stuck" (no 0.8 yd of progress in 1.5 s) climbs the
-ladder: 1 strafe-jump-strafe, 2 re-plan, 3 strafe-jump-strafe (other side),
-4 detour to a random mesh point, 5 back off, 6 jump + re-plan; past
-`max_stuck` (6) the navigation fails with `max_stuck_exceeded`.
-
-When no walk can start - `unstick_after_fails` (2) failed plans (no_path,
-start_off_mesh, unreachable, end_off_mesh) from the same spot - the
-manoeuvre runs on its own (every 4th failure backs off instead), and the
-consumer's next request starts from where that left the character.
-
-## Rolling horizon (1.6.0)
-
-`c:move_to` no longer walks one long server path. Every walk is a chain of
-**windows**:
-
-1. The server is asked for an **unsmoothed** path from the player's current
-   position and height to the destination.
-2. Its first `horizon_length` (20) yards become waypoints `waypoint_spacing`
-   (5) yards apart, starting at the player.
-3. The window is checked **before** a step is taken (nav server only, two
-   batched requests - no native traces):
-   - **ground**: each leg is probed at four heights; the waypoint takes the real
-     ground height. A leg that leaves walkable ground, climbs steeper than
-     `max_climb`, or drops steeper than `max_drop` / deeper than `cliff_drop`
-     is re-planned unsmoothed between its neighbours and spliced in
-     (`horizon_splices` per window).
-   - **width**: probes `horizon_probes` (1, 2, 3) yards left and right measure
-     the free room; every waypoint is moved to keep `horizon_clearance` (2)
-     yards from walls, ledges and drops. A corridor narrower than twice that
-     is walked down its middle.
-   - **objects**: nearby objects (radius + `body_radius` +
-     `horizon_object_clearance`) push the waypoint aside, never past the
-     measured free room.
-4. When the player is within `horizon_refresh` (5) yards of the window end,
-   the next window is planned from the player's position and swapped in
-   **without releasing a key**. This repeats until the destination is in the
-   window. The destination itself is never moved.
-
-`opts.horizon = false` (or `horizon = false` in the config) walks the whole
-server path the old way (with the 1.5.0 path check). `c:follow_path`
-(recorded routes) keeps the 1.5.0 path check.
-
-## Handoff (1.6.0)
-
-| Call | Does |
+| mode | when combat starts |
 |---|---|
-| `c:handoff("simple", { position = p })` | Lets go of the walk **without releasing a key**. The walker gets its own thresholds back and, with `position`, is pointed at it (`simple_movement:move_to_position`); your code drives simple_movement from there. |
-| `c:handoff("combat", { target = u, face = s, pause = s })` | Stops the walk; the movement handler faces `u` for `face` seconds (`handoff_face`, 1) and, with `pause`, holds still that long (`pause_movement_light`, for a cast). Your combat movement takes over. |
-| `c:move_to(p, cb, { handoff = { at = 5 } })` | Automatic handoff: once the player is `at` yards from the destination, the callback gets `(true, "arrived", { code = "arrived", detail = "handoff:simple" })` and simple_movement walks the last yards to `p` with no stop in between. |
-
-The callback of a navigation handed off by `c:handoff` receives
-`(false, "handoff:<to>", { code = "cancelled", detail = "handoff:<to>" })`, the
-same code as `c:stop()`. The movement handler's `on_render` is called by
-AmeisenNav while its handoff lock lasts.
+| `continue` (default) | nothing: the consumer decides. Master_Farmer_Bot stops AmeisenNav itself and hands combat to its own walker. |
+| `pause` | the walk holds (keys released) and resumes when combat ends |
+| `stop` | the walk ends: `cancelled`, detail `"combat"` |
 
 ## Following a moving unit
 
@@ -200,7 +148,7 @@ continuous re-pathing. Focus may be unavailable on WoW Forever
 |---|---|
 | `c:find_path(from, to, cb, opts)` | `cb(ok, points, info)` |
 | `c:validate_destination(target, cb)` | `cb(reachable, code, path_length)` |
-| `c:get_height(pos, cb)` / `c:get_player_height(cb)` | `cb(ok, z)` |
+| `c:get_height(pos, cb, opts)` / `c:get_player_height(cb)` | `cb(ok, z)`: the game client first (`core.get_height_for_position`), the server only when it misses. `opts.probe_up` starts the downward ray higher |
 | `c:raycast(from, to, cb)` | `cb(ok, clear, hit_point)` |
 | `c:random_point(center, radius, cb)` | `cb(ok, point)` |
 | `c:kite(player_pos, target_pos, cb)` | `cb(point or nil)`: a mesh point about 12 yd away from the target |
@@ -237,10 +185,21 @@ on a 4-yard grid, and identical in-flight path requests are merged.
 ## Configuration
 
 `c:update_config({ key = value })` changes any key in `anav/config.lua`
-(`base_url`, `token`, timeouts, thresholds...). The menu owns *Faction*,
-*Draw path*, *Pause while casting*, *Debug log*, *Waypoint reach*,
-*Arrival reach*, *Stuck after* and *On-screen banner*, and rewrites those on
-every update tick.
+(`base_url`, `token`, timeouts, thresholds...). Keys that have a menu control
+are rewritten from the menu on every update tick, so set those in the menu:
+
+- **AmeisenNav** page: *Faction*, *Draw path*, *Pause while casting*,
+  *Debug log*, *On-screen banner*, follow controls, server status.
+- **Ameisen Movement** page (`anav/tune.lua`): the profile choice and every
+  profile distance above, speed scaling, avoidance and wall / ground checks,
+  NPC avoidance (also in combat), body radius, object scan radius,
+  *Show probes*, combat mode, pause while stunned, movement driver, steer by
+  facing, heading tolerance. It also shows a live readout (profile, indoors,
+  swimming, mounted, combat, speed scale, player height and ray heights,
+  ground under the player, the distances in force, wall source, steering
+  mode) and has test buttons: walk 20 yd ahead, walk to a random point, walk
+  a 10 yd square (steering only), walk to target, probe walls ahead, probe
+  ground ahead, stop, reset the page to defaults.
 
 The menu page itself only draws values cached on the update tick.
 `core.register_on_render_menu_callback` is documented as being for menu

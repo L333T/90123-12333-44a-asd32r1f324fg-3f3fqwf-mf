@@ -3,7 +3,7 @@
 -- Intelligent Movement & Navigation System - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 2.315.0
+-- Version: 2.316.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- SINGLE-OWNER MOVEMENT STATE MACHINE
@@ -150,6 +150,16 @@ movement.can_reach      = Rg.can_reach
 -- ============================================================================
 movement.is_quiet        = O.is_quiet
 movement.is_moving       = O.is_moving
+--- 2.316.0: is the walk in progress headed to within `yards` of `pos`?
+function movement.headed_to(pos, yards)
+    local R = require("movement/rt")
+    if not R.has_dest or type(pos) ~= "table" and type(pos) ~= "userdata" then return false end
+    local ok, x, y = pcall(function() return pos.x, pos.y end)
+    if not ok or type(x) ~= "number" or type(y) ~= "number" then return false end
+    local dx, dy = R.dest_x - x, R.dest_y - y
+    local r = tonumber(yards) or 15
+    return dx * dx + dy * dy <= r * r
+end
 movement.sentinel_active = O.sentinel_active
 
 -- ============================================================================

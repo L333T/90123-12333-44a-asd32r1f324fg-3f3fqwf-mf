@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.6
+-- Version: 3.1.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)
@@ -261,6 +261,14 @@ W.ROGUE = t({
     -- target and in melee reach while sneaking in, is sapped once.
     { "Sap",                    "sap", on = true, id = 6770, melee = true,
       tip = "While sneaking in: saps a second humanoid next to the target (not in combat, within reach) so the fight is one at a time." },
+    -- 3.1.0: STEALTH OPENERS (smart.lua ROGUE STEALTH OPENER) - with a dagger
+    -- in the main hand Ambush from behind (Backstab when Ambush is not known),
+    -- without one Cheap Shot (no positioning); a dagger opener that cannot get
+    -- behind opens with Cheap Shot from the front.
+    { "Ambush",                 "stealth_opener", on = true, melee = true, id = 8676,
+      tip = "Stealth opener with a dagger in the main hand: from behind the target." },
+    { "Cheap Shot",             "stealth_opener", on = true, melee = true, id = 1833,
+      tip = "Stealth opener without a dagger (or when it cannot get behind the target): stuns 4 s." },
     { "Throw",                  "pull", on = true,
       tip = "With a throwing weapon equipped: throw at the target from up to 30 yd, then wait for it to reach melee." },
     { "Evasion",                "defensive", on = true, when = function(c) return c.near(8) >= 2 or c.hp() < c.def_pct() end, hp = 101 },
@@ -274,18 +282,27 @@ W.ROGUE = t({
     { "Sprint",                 "resource", on = true, self = true, id = 2983,
       when = function(c) return c.thp() < 35 and c.tmoving() and c.dist() > 8 end,
       tip = "Catches a fleeing mob: cast when the target is under 35 % health, moving and more than 8 yd away." },
-    { "Gouge",                  "interrupt", on = false, melee = true },
+    -- 3.1.0: opening without Stealth (or already in combat) with a dagger:
+    -- Gouge, step behind the incapacitated target, Backstab (smart.lua ROGUE
+    -- GOUGE). Without a dagger the fight goes straight to the builder.
+    { "Gouge",                  "gouge", on = true, melee = true, id = 1776,
+      tip = "Dagger build, no Stealth opener: Gouge, step behind the target and Backstab." },
 
     { "Adrenaline Rush",        "cooldown", on = true, self = true },
     { "Blade Flurry",           "cooldown", on = true, self = true, when = function(c) return c.near(8) >= c.aoe_n() end },
     { "Cold Blood",             "cooldown", on = true, self = true, when = function(c) return c.cp() >= 4 end },
 
+    -- 3.1.0: Slice and Dice only against tougher mobs (elite / rare / boss,
+    -- or a higher level than the player); normal leveling mobs get Eviscerate.
     { "Slice and Dice",         "finisher", on = true, self = true, cp = 2, thp = 30,
-      when = function(c) return not c.buff("Slice and Dice") end },
+      when = function(c) return c.tough() and not c.buff("Slice and Dice") end,
+      tip = "Against tougher mobs (elite, rare, boss or a higher level than you): kept up from 2 combo points." },
     { "Rupture",                "finisher", on = false, melee = true, cp = 4, thp = 50,
       when = function(c) return not c.debuff("Rupture") end },
     { "Envenom",                "finisher", on = false, melee = true, cp = 4 },
-    { "Eviscerate",             "finisher", on = true, melee = true, cp = 4, id = 2098 },   -- 2.229.0: id 2098 hard-coded
+    -- 2.229.0: id 2098 hard-coded. 3.1.0: the main finisher from 3 combo points.
+    { "Eviscerate",             "finisher", on = true, melee = true, cp = 3, id = 2098,
+      tip = "Main finisher: at 3+ combo points (earlier on a dying target)." },
 
     -- 2.244.0: Eureka! (WoW Forever, 1259812) - cast every time it is off
     -- cooldown in a fight. First damage entry, so nothing else goes ahead of
@@ -296,11 +313,13 @@ W.ROGUE = t({
     { "Ghostly Strike",         "damage", on = true, melee = true },
     { "Mutilate",               "damage", on = true, melee = true },
     { "Hemorrhage",             "damage", on = true, melee = true },
-    -- 2.227.0: only from Stealth and from behind the target.
+    -- 3.1.0: THE BUILDER - Backstab with a dagger from behind the target,
+    -- else Sinister Strike (Backstab cannot be used from the front).
     { "Backstab",               "damage", on = true, melee = true,
-      when = function(c) return c.stealthed() and c.behind() end,
-      tip = "Used only while stealthed and behind the target (needs a dagger)." },
-    { "Sinister Strike",        "damage", on = true, melee = true },
+      when = function(c) return c.dagger() and c.behind() end,
+      tip = "Combo builder with a dagger in the main hand, from behind the target (Sinister Strike otherwise)." },
+    { "Sinister Strike",        "damage", on = true, melee = true,
+      tip = "Combo builder (from the front, or without a dagger)." },
 })
 
 -- ============================================================================

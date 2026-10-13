@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.6
+-- Version: 3.1.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1215,6 +1215,11 @@ function targeting.start_auto_attack(player, unit)
                 and auras.buff_up(player, STEALTH_IDS) == true
         end
         if hidden == true then return false end
+    end
+    -- 3.1.0: no swing while a Gouged target waits for Backstab (smart.lua)
+    local smh = package.loaded["smart"]
+    if type(smh) == "table" and type(smh.rogue_hold_auto) == "function" and smh.rogue_hold_auto(player, unit) then
+        return false
     end
     local types = auto_attack.ATTACK_TYPE
     if type(types) ~= "table" or type(types.MELEE) ~= "number" then

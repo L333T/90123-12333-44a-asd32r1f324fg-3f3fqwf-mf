@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.6
+-- Version: 3.1.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -674,6 +674,61 @@ function c.behind()
         memo.behind = v == true
     end
     return memo.behind
+end
+
+-- 3.1.0: DAGGER IN THE MAIN HAND - the main-hand item (inventory slot 16),
+-- its item info: weapon class 2, subclass 15 (localised "Dagger" only as a
+-- fallback). Cached per item id; read at most every 2 s.
+local DAGGER_CLASS, DAGGER_SUB = 2, 15
+local dagger_memo = { id = nil, v = false, t = -1e9 }
+local function dagger_equipped(player)
+    if not player then return false end
+    local now = izi.now()
+    if (now - dagger_memo.t) < 2 then return dagger_memo.v end
+    dagger_memo.t = now
+    local info = safe(player.get_item_at_inventory_slot, player, 16)
+    local obj = type(info) == "table" and info.object or (type(info) == "userdata" and info or nil)
+    local id = obj and safe(obj.get_item_id, obj) or nil
+    if type(id) ~= "number" or id <= 0 then
+        dagger_memo.id, dagger_memo.v = nil, false
+        return false
+    end
+    if id == dagger_memo.id then return dagger_memo.v end
+    local ii = safe(function() return core.quests.get_item_info(id) end)
+    local v = false
+    if type(ii) == "table" then
+        if type(ii.class_id) == "number" and type(ii.subclass_id) == "number" then
+            v = ii.class_id == DAGGER_CLASS and ii.subclass_id == DAGGER_SUB
+        elseif type(ii.item_sub_type) == "string" then
+            v = string.lower(ii.item_sub_type):find("dagger", 1, true) ~= nil
+        end
+    end
+    dagger_memo.id, dagger_memo.v = id, v
+    return v
+end
+smart.dagger_equipped = dagger_equipped
+
+--- 3.1.0: a dagger in the main hand?
+function c.dagger()
+    if memo.dagger == nil then memo.dagger = dagger_equipped(P) end
+    return memo.dagger
+end
+
+--- 3.1.0: a tougher mob - elite, rare elite, world boss, rare (classification
+--- 1-4) or a boss, or a higher level than the player.
+function c.tough()
+    if memo.tough == nil then
+        local v = false
+        if T then
+            local cl = safe(T.get_classification, T)
+            if type(cl) == "number" and cl >= 1 and cl <= 4 then v = true end
+            if safe(T.is_boss, T) == true then v = true end
+            local tl, pl = safe(T.get_level, T), safe(P.get_level, P)
+            if type(tl) == "number" and type(pl) == "number" and tl > pl then v = true end
+        end
+        memo.tough = v
+    end
+    return memo.tough
 end
 
 --- Is the named debuff (any rank) on the target?
@@ -2058,13 +2113,58 @@ local function stealth_wanted(player, target)
     return stealth_entry() ~= nil or is_stealthed(player)
 end
 
+--- 3.1.0: the Stealth opener and whether it needs the rear arc. Dagger:
+--- Ambush (Backstab when Ambush is not known / unticked), from behind.
+--- No dagger: Cheap Shot, no positioning. nil when none is usable.
+local function stealth_opener(player)
+    if dagger_equipped(player) then
+        local a = entry_named("Ambush")
+        if a and usable(a) then return a, true end
+        local b = backstab_entry()
+        if b then return b, true end
+    end
+    local cs = entry_named("Cheap Shot")
+    if cs and usable(cs) then return cs, false end
+    return nil, false
+end
+
+-- ROGUE GOUGE (3.1.0): opening without Stealth (or already in combat) with
+-- a dagger: Gouge (incapacitates GOUGE_HOLD s), step behind, Backstab. Any
+-- damage breaks Gouge, so nothing else is cast and auto attack is held
+-- (smart.rogue_hold_auto) until Backstab. Once per target; Gouge on
+-- cooldown / refused, or not behind in time -> the normal rotation.
+local GOUGE_HOLD = 3.5
+local GO = { guid = nil, t = nil, done = false }
+
+local function gouge_reset(target)
+    local g = target and safe(target.get_guid, target) or nil
+    if g ~= GO.guid then GO.guid, GO.t, GO.done = g, nil, false end
+end
+
+local function gouge_active(target)
+    gouge_reset(target)
+    return GO.t ~= nil and not GO.done and (izi.now() - GO.t) <= GOUGE_HOLD
+end
+
 --- movement: should the rogue step behind `target` now? (combat profile)
 function smart.rogue_wants_behind(player, target)
     if not player or not target or not spellbook.ready() then return false end
     build(player)
+    if built.class ~= enums.class_id.ROGUE then return false end
+    -- 3.1.0: the Gouge window - Backstab from behind
+    if gouge_active(target) then return true end
     if not stealth_wanted(player, target) or not is_stealthed(player) then return false end
-    if not backstab_entry() then return false end
+    local op, need_behind = stealth_opener(player)
+    if not (op and need_behind) then return false end
     return not SO.reached_t or (izi.now() - SO.reached_t) < BEHIND_MAX
+end
+
+--- 3.1.0: no auto attack now - stealthed before the opener, or the target is
+--- Gouged and Backstab has not landed (a swing would break either).
+function smart.rogue_hold_auto(player, target)
+    if not player or not target or built.class ~= enums.class_id.ROGUE then return false end
+    if gouge_active(target) then return true end
+    return safe(player.is_in_combat, player) ~= true and is_stealthed(player)
 end
 
 --- Is a Stealth opener under way or wanted (the Throw pull stands aside)?
@@ -2151,28 +2251,93 @@ local function rogue_stealth()
             end
         end
     end
-    local bs = backstab_entry()
-    if bs then
+    -- 3.1.0: Ambush (dagger, from behind) or Cheap Shot (no dagger)
+    local op, need_behind = stealth_opener(P)
+    if op and need_behind then
         if d <= STEALTH_MELEE and c.behind() then
-            if try(bs, nil) then
+            if try(op, nil) then
                 SO.done = true
+                state.set_note("Stealth", "opened with " .. op.name)
                 return true
             end
         end
         if SO.reached_t and (now - SO.reached_t) >= BEHIND_MAX then
-            SO.done = true                 -- could not get behind: open from the front
+            -- could not get behind: Cheap Shot from the front, else the rotation
+            local cs = entry_named("Cheap Shot")
+            if cs and usable(cs) and d <= STEALTH_MELEE and try(cs, nil) then
+                SO.done = true
+                state.set_note("Stealth", "not behind - opened with Cheap Shot")
+                return true
+            end
+            SO.done = true
             state.set_note("Stealth", "not behind - opening from the front")
             return false
         end
         state.set_note("Stealth", d <= STEALTH_MELEE and "getting behind" or "sneaking in")
         return true                        -- hold: nothing that breaks Stealth
     end
-    -- No Backstab: the first ticked melee spell opens once in reach.
+    if op then
+        -- Cheap Shot: no positioning - in melee it opens (waiting for energy)
+        if d <= STEALTH_MELEE then
+            if try(op, nil) then
+                SO.done = true
+                state.set_note("Stealth", "opened with " .. op.name)
+                return true
+            end
+            if SO.reached_t and (now - SO.reached_t) >= BEHIND_MAX then
+                SO.done = true
+                return false
+            end
+        end
+        state.set_note("Stealth", "sneaking in")
+        return true
+    end
+    -- No opener: the first ticked melee spell opens once in reach.
     if d <= STEALTH_MELEE then
         SO.done = true
         return false
     end
     return true
+end
+
+--- 3.1.0: Gouge -> Backstab (dagger, no Stealth opener). True = handled.
+local function rogue_gouge()
+    if built.class ~= enums.class_id.ROGUE or not T or not P then return false end
+    gouge_reset(T)
+    if GO.done then return false end
+    if c.stealthed() then return false end            -- the Stealth opener's turn
+    if not c.dagger() then GO.done = true return false end
+    local go, bs = entry_named("Gouge"), backstab_entry()
+    if not (go and usable(go) and bs) then GO.done = true return false end
+    local now = izi.now()
+    if not GO.t then
+        if c.dist() > STEALTH_MELEE then return false end   -- walking in
+        if (fail_until[go.key] or 0) > now then GO.done = true return false end
+        if try(go, nil) then
+            GO.t = now
+            pcall(function() core.input.stop_attack() end)   -- a swing would break it
+            state.set_note("Rogue", "Gouge - stepping behind for Backstab")
+            return true
+        end
+        local _, why = ready_now(go)
+        if type(why) == "string" and why:find("energy", 1, true) then return true end   -- wait for it
+        GO.done = true                                    -- cooldown / refused
+        return false
+    end
+    if (now - GO.t) > GOUGE_HOLD then
+        GO.done = true
+        state.set_note("Rogue", "Gouge over - not behind in time")
+        return false
+    end
+    if c.behind() then
+        if try(bs, nil) then
+            GO.done = true
+            state.set_note("Rogue", "Backstab after Gouge")
+        end
+        return true                                       -- or waiting for the energy
+    end
+    state.set_note("Rogue", "Gouged - getting behind")
+    return true                                           -- hold: nothing breaks Gouge
 end
 
 --- One combat decision. `ctx.enemies` is the pack the caller scanned.
@@ -2234,9 +2399,11 @@ function smart.combat(player, target, ctx)
     end
     if hunter_back_jump() then return true end
 
-    -- Rogue Stealth opener (2.228.0), else the throw pull (2.224.0).
+    -- Rogue Stealth opener (2.228.0), else the throw pull (2.224.0), else
+    -- (3.1.0) Gouge -> Backstab with a dagger.
     if rogue_stealth() then return true end
     if rogue_throw() then return true end
+    if rogue_gouge() then return true end
 
     -- Spells cast at their own range (in_reach). They are not held back until
     -- the walk finishes: the moment the focused target is in range, the

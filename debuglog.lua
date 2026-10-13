@@ -3,7 +3,7 @@
 -- Debug log, written to scripts_data
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.1.0
+-- Version: 3.2.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Every debug toggle in this project used core.log, which goes to the console

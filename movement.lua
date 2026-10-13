@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.1.0
+-- Version: 3.2.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -30,6 +30,15 @@ local Lk = require("movement/locks")
 local Rg = require("movement/range")
 local C  = require("movement/combat")
 local L  = require("movement/leash")
+local Pv = require("movement/pivot")   -- 3.2.0: stop and turn on sharp waypoint turns
+
+-- 3.2.0: the GUI switch (Path tab, "Stop and Turn on Sharp Turns", on by default)
+Pv.set_enabled_fn(function()
+    local ok, gui = pcall(require, "gui")
+    if not ok or type(gui) ~= "table" or type(gui.is_on) ~= "function" then return true end
+    local v = gui.is_on("sharp_turn_stop")
+    return v ~= false
+end)
 
 local movement = {}
 
@@ -75,6 +84,7 @@ movement.set_approach_target = function(guid) hints.target = guid end
 
 --- Everything stops: walk, fight, holds, backpedal.
 function movement.halt()
+    Pv.release("halt")
     C.combat_release()
     Lk.clear()
     N.stop("halt")
@@ -229,6 +239,7 @@ function movement.pulse()
     local t = R.now()
     Lk.tick(t)
     N.pulse()
+    Pv.tick(t)                 -- 3.2.0: sharp turn -> hold the walk, turn in place
     Z.prune(t)
     if t - snap_t >= SNAP_EVERY then build_snapshot(t) end
 end

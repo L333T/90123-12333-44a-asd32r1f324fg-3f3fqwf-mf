@@ -3,7 +3,7 @@
 -- deathzones.lua - areas to avoid after dying there 3 times
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.0.6
+-- Version: 3.1.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.247.0)

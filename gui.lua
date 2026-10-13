@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.1.0
+-- Version: 3.2.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -291,6 +291,13 @@ menu:checkbox("mfg_draw_path", true, {
     label = "Draw Loaded Path",
     tab = "path",
     tooltip = "Draw the loaded travel path in the world.",
+})
+
+-- 3.2.0: movement/pivot.lua
+menu:checkbox("mfg_sharp_turn_stop", true, {
+    label = "Stop and Turn on Sharp Turns",
+    tab = "path",
+    tooltip = "When the next waypoint is more than 70 degrees off the way you face, stop running, turn in place to face it, then walk on - sharp corners are not taken as wide arcs into walls and mobs. Applies to every walk (questing, grinding, routes, NPC runs).",
 })
 
 menu:checkbox("mfg_move_debug", false, {
@@ -769,6 +776,7 @@ local aliases = {
     path_combat = "mfg_path_combat",
     draw_path = "mfg_draw_path",
     move_debug = "mfg_move_debug",
+    sharp_turn_stop = "mfg_sharp_turn_stop",   -- 3.2.0
     rotation_only = "mfg_rotation_only",
     use_grind = "mfg_use_grind",
     use_quest = "mfg_use_quest",

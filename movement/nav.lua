@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.2.0
+-- Version: 3.3.0
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -85,12 +85,12 @@ local fallback_walker = nil
 -- the client
 -- ----------------------------------------------------------------------------
 function N.client()
-    local g = rawget(_G, "AmeisenNav")
+    local g = (rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav"))
     local c = type(g) == "table" and g.client or nil
     if c == nil and not warned_no_nav then
         warned_no_nav = true
-        R.log("AmeisenNav not loaded - walking straight lines without the navmesh "
-            .. "(install scripts\\AmeisenNav, start the nav server, reload)")
+        R.log("MasterArthasNav not loaded - walking straight lines without the navmesh "
+            .. "(install MasterArthasNav (MasterArthasNav-Setup.exe) and reload)")
     end
     if c ~= nil then warned_no_nav = false end
     return c
@@ -253,8 +253,8 @@ local function check_combat_mode(c)
     local m = ok and type(cfg) == "table" and cfg.combat_mode or nil
     if m and m ~= "continue" then
         mode_warned_t = t
-        R.log("AmeisenNav 'When combat starts' is '" .. tostring(m) .. "' - set it to Continue "
-            .. "(AmeisenNav > Ameisen Movement), or the bot cannot close on its targets")
+        R.log("MasterArthasNav 'When combat starts' is '" .. tostring(m) .. "' - set it to Continue "
+            .. "(ArthasNav > ArthasNav Movement), or the bot cannot close on its targets")
     end
 end
 
@@ -360,7 +360,7 @@ end
 
 --- Per frame: drive the fallback walker when AmeisenNav is missing.
 function N.pulse()
-    if rawget(_G, "AmeisenNav") ~= nil then return end
+    if (rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav")) ~= nil then return end
     local w = walker()
     if w and cur.x then
         local ok, reached = pcall(w.process, w)

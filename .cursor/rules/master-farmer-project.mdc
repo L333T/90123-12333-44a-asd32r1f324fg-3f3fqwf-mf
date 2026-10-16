@@ -18,6 +18,6 @@ The essentials, so they are never missed:
   `VERSIONING.md` row, run `python make_local.py` (regenerates `manifest.lua`).
 - Then commit on `dev`, push, open the PR to `main` and **merge it** — the game
   loads from GitHub `main`, so uncommitted work never reaches it.
-- Never stage `plugin_loader.zip`; do not change `plugin_loader/` without the
-  user's approval.
+- One loader only: the Master Farmer launcher loads this bot. Never add a loader
+  folder (the old `plugin_loader/` was retired in 3.4.1).
 - Only use APIs declared in the `.api` stubs (`00-no-guessing-index.mdc`).

@@ -16,8 +16,8 @@ Steps, in order, stopping at the first failure:
   3. Copy the plugin into the version folder. Copy-forward, per VERSIONING.md:
      an existing version folder is never overwritten without --force.
 
-Not copied: plugin_loader/ and plugin_loader.zip (the loader fetches from
-GitHub, which is exactly what a local test must not do), bootstrap/, .git,
+Not copied: plugin_loader/ and plugin_loader.zip if an old checkout still has them
+(retired in 3.4.1; the launcher is the only loader), bootstrap/, .git,
 the .bak_* snapshots and *.bak files. Files are taken from git's view of the
 working tree - tracked plus new untracked ones, minus .gitignore'd and deleted
 ones - so the copy is what the next commit will contain.

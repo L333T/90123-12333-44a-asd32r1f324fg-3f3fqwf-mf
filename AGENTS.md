@@ -24,14 +24,14 @@ runtime by `gamever.lua`.
    means the change never reaches the game), syntax-checks every `.lua`, and copies
    the build to `Desktop/_MASTER-FARMER_/Grindbot_Versions/Master_Farmer_Grindbot_v<version>/`.
 3. **Always publish**: commit on `dev` (`vX.Y.Z: <summary>`), push, open the PR to
-   `main` **and merge it**. The in-game loader downloads from GitHub `main`
-   (`plugin_loader/main.lua`, `BRANCH = "main"`), so uncommitted or unmerged work is
-   invisible in game. Do not leave a finished version uncommitted.
-4. **Never stage `plugin_loader.zip`** (it is `skip-worktree` locally).
-5. **Leave `plugin_loader/` alone** unless the user approves a change. When one is
-   made, also copy it to the INSTALLED loader the game runs (below), back up the
-   installed copy first, and keep backups OUTSIDE `scripts\` (a folder there is
-   loaded as a plugin). Current loader: 1.2.3 (quiet console: only "[Master Farmer] loading..." / "loaded <name> v<version>"; repository, commit, URLs, HTTP codes and progress only with `VERBOSE = true` in `plugin_loader/main.lua`). It follows GitHub `main` (no commit pin) and loads on TBC and Forever for every class. Edit it only when the download mechanism changes. The game install now runs a PACKED copy (`scripts\ext_plugin_masterfarmer_beta_test`) - a loader change reaches the game only when that file is rebuilt from `plugin_loader/`.
+   `main` **and merge it**. The Master Farmer launcher downloads this repo from GitHub
+   `main` (latest commit), so uncommitted or unmerged work is invisible in game. Do not
+   leave a finished version uncommitted.
+4. **One loader only: the Master Farmer launcher.** The bot is loaded by the launcher
+   (`scripts\Master_Farmer`, built in `_MASTER-FARMER_`), never by a loader of its own.
+   The repo's standalone `plugin_loader/` (and `plugin_loader.zip`) was retired in 3.4.1
+   (copy kept in `_MASTER-FARMER_\projects-old\grindbot_plugin_loader`). Do not add a
+   loader folder back to this repo or to a `scripts` folder.
 
 ## Paths
 
@@ -41,10 +41,10 @@ runtime by `gamever.lua`.
 | Repo (open this folder) | `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\Master_Farmer_Grindbot` |
 | Local version builds | `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\Grindbot_Versions\Master_Farmer_Grindbot_v<version>\` |
 | Older version archive (builds before 2026-10-16) | `C:\Users\ebene\OneDrive\Desktop\SNES_\` |
-| Active game install (changes between installs — ask if logs look stale) | `C:\Users\ebene\OneDrive\Documents\3cf70445e7` |
-| Installed loader | `…\3cf70445e7\scripts\plugin_loader\` |
-| Session logs (one per session, `errorlog.lua`) | `…\3cf70445e7\scripts_log\MASTER_FARMER_ERRORS\` |
-| API stubs (source of truth for every call) | `…\3cf70445e7\scripts\.api\` |
+| Active game install (changes between installs — ask if logs look stale) | `C:\Users\ebene\OneDrive\Documents\7bf69871` |
+| Installed loader (the Master Farmer launcher, the only one) | `…\7bf69871\scripts\Master_Farmer\` |
+| Session logs (one per session, `errorlog.lua`) | `…\7bf69871\scripts_log\MASTER_FARMER_ERRORS\` |
+| API stubs (source of truth for every call) | `…\7bf69871\scripts\.api\` |
 | API docs (per game version, incl. Forever notes) | `C:\Users\ebene\Downloads\Sylvanas_coreAPI_IZI_API\` |
 | Sentinel navigation source (v0.0.6; installed client is v0.23) | `C:\Users\ebene\OneDrive\Desktop\SNES_\MF_Navigation\` |
 
@@ -141,8 +141,9 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 - **Intentional undeclared API**: `core.reload_game_ui()` (reload after a flight
   lands, 2.107.0) is called on purpose even though the API docs do not list it.
   `izi.is_los` does not exist - LoS is `player:los_to(unit)` only (2.147.0).
-- **Loader**: the in-game loader is `plugin_loader/` (http_loader.lua reads
-  manifest.lua). The old `bootstrap/` and root `net_loader.lua` were removed in 2.147.0.
+- **Loader**: the only loader is the Master Farmer launcher (`mfcore/loader.lua`
+  reads manifest.lua). The old `bootstrap/` and root `net_loader.lua` were removed in
+  2.147.0, the standalone `plugin_loader/` in 3.4.1.
 
 ## Lua limits
 

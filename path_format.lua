@@ -3,7 +3,7 @@
 -- PathTool format — { name, map_id, loop, waypoints[{x,y,z,wait,combo,actions}] }
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.5.0
+-- Version: 3.6.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

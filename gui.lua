@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.5.0
+-- Version: 3.6.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -112,6 +112,12 @@ local menu = ui.new({
     size = { w = 1100, h = 640 },
     position = { x = 80, y = 180 },
     nav = "top",
+    product = "Questing & Grinding",
+    -- 3.6.0: the 5-tab window; two pairs share a tab (sub-tabs in the panel)
+    tab_groups = {
+        { label = "Grinding", tabs = { "grinding", "gathering" } },
+        { label = "Spells", tabs = { "class", "healing" } },
+    },
     tabs = {
         { id = "general", label = "General" },
         { id = "grinding", label = "Grinding" },

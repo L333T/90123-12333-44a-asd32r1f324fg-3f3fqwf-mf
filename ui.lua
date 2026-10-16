@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.5.0
+-- Version: 3.6.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -490,6 +490,8 @@ function ui.new(config)
     self.font_path = config.font or config.font_path or FONT_VIRTUAL
     self.footer = config.footer or ""
     self.nav_style = config.nav or "top"
+    self.product = config.product           -- PRODUCT SKIN: name in the header
+    self.tab_groups = config.tab_groups     -- PRODUCT SKIN: tabs shown as one
 
     local size_w, size_h = 1100, 640
     if type(config.size) == "table" then
@@ -2292,6 +2294,26 @@ function Menu:handle_close_cross(win)
     return false
 end
 
+-- ---------------------------------------------------------------------------
+-- PRODUCT SKIN: the Master Farmer mockup artwork (mf_skin.lua, copied from
+-- _MASTER-FARMER_/tools/product_skin by tools/sync_product_skin.py)
+-- ---------------------------------------------------------------------------
+local skin_mod = nil
+local function product_skin()
+    if skin_mod == nil then
+        local ok, m = pcall(require, "mf_skin")
+        skin_mod = (ok and type(m) == "table") and m or false
+    end
+    return skin_mod or nil
+end
+local SKIN_H = { draw_text = draw_text, text_size = size_of_font, hovered = hovered, clicked = clicked,
+    block_drag = block_drag, value = call_value }
+
+--- Tabs shown together: { { label = "Grinding", tabs = { "grinding", "gathering" } }, ... }
+function Menu:set_tab_groups(groups)
+    self.tab_groups = groups
+end
+
 function Menu:draw()
     local win = self.window
     if self.visible == false then
@@ -2304,6 +2326,12 @@ function Menu:draw()
     pcall(function()
         self:retry_font()
     end)
+
+    -- PRODUCT SKIN: the window size of the screen's artwork set; the textured
+    -- window once its art is loaded (the drawn chrome until then)
+    local SK = product_skin()
+    if SK then pcall(SK.fit, self) end
+    local skinned = SK ~= nil and SK.ready(self) == true
 
     pcall(function()
         win:force_window_size(vec2.new(self.width, self.height))
@@ -2318,12 +2346,20 @@ function Menu:draw()
     local t = self.theme
     local open = win:begin(
         WE.window_resizing_flags.NO_RESIZE,
-        true,
+        not skinned,                       -- the artwork has its own close X
         t.bg_window,
         t.border_window,
         WE.window_cross_visuals.BLUE_THEME,
         function()
             local ok, err = pcall(function()
+                if skinned then
+                    SK.draw(self, win, SKIN_H)
+                    self:draw_popups()
+                    if self.tools_popup_active == true then
+                        self:draw_panel_picker_popup(win, vec2.new(24, 90))
+                    end
+                    return
+                end
                 if self:handle_close_cross(win) then
                     return
                 end

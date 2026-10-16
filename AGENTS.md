@@ -81,6 +81,7 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
   waypoints, the next 3 checked once each with short server paths (ground height, steep / cliff legs re-planned
   unsmoothed, 1-2 yd kept from walls / edges, narrow corridors centred); while it runs the bot's flags 17 are walked
   as 16. `get_current_path` / `get_path_index` report the 5-yard points.
+- **Window art** (3.6.0): `mf_skin.lua` / `mf_skin_geom.lua` are COPIES - edit `_MASTER-FARMER_/tools/product_skin` and run `python tools/sync_product_skin.py` there (it also hooks `ui.lua`). Tabs are grouped to fit the 5-tab art (`tab_groups` in `gui.lua`); keep at most 5 groups.
 - **RestedXP walks** (3.5.0, `movement/guide_path.lua`): quest/engine `walk_to` -> `movement.guide_to` (nav mode "guide"): find_path -> 3 yd waypoints pushed clear of objects -> follow_path, re-checked 5 waypoints ahead every 0.5 s (re-plan before a collision). Wall distance is MasterArthasNav's own settings, set by the launcher (2.6.0) while the bot runs - do not tune walls here, and never edit the MasterArthasNav folder.
 - **Movement** (`movement/*`): Sentinel (`SentinelNavClient`) owns out-of-combat
   travel (`K.SENTINEL_TRAVEL` in `movement/const.lua`); the local walker owns

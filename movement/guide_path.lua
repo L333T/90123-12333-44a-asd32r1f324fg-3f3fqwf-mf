@@ -3,7 +3,7 @@
 -- movement/guide_path.lua - 3-yard, object-checked paths for RestedXP walks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.5.0
+-- Version: 3.6.0
 -- ============================================================================
 -- RestedXP waypoints and movement instructions (quest/engine walk_to) are
 -- walked as SPACING-yard waypoints (3.5.0), not one long MasterArthasNav

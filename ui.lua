@@ -5,7 +5,7 @@
 -- Uses only verified core.menu.window / core.menu.* / assets_helper APIs.
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.3.0
+-- Version: 3.4.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -58,14 +58,14 @@ end
 
 function ui.default_theme()
     return {
-        bg_window        = col(10, 12, 18, 245),
-        bg_header        = col(8, 10, 16, 255),
-        bg_panel         = col(14, 16, 24, 230),
+        bg_window        = col(18, 24, 36, 245),
+        bg_header        = col(14, 20, 32, 255),
+        bg_panel         = col(22, 30, 44, 235),
         bg_panel_alt     = col(18, 20, 28, 230),
         bg_nav           = col(12, 14, 22, 240),
-        bg_tab           = col(20, 24, 34, 230),
+        bg_tab           = col(28, 36, 52, 240),
         bg_tab_hover     = col(28, 34, 48, 255),
-        bg_tab_active    = col(24, 52, 92, 255),
+        bg_tab_active    = col(40, 56, 80, 255),
         bg_input         = col(16, 18, 26, 255),
         bg_row           = col(16, 18, 26, 180),
         bg_row_hover     = col(22, 26, 36, 220),
@@ -88,8 +88,8 @@ function ui.default_theme()
 
         button_start     = col(32, 118, 48, 255),
         button_start_hi  = col(48, 150, 64, 255),
-        button_pause     = col(176, 138, 28, 255),
-        button_pause_hi  = col(210, 168, 42, 255),
+        button_pause     = col(32, 118, 48, 255),
+        button_pause_hi  = col(48, 150, 64, 255),
         button_stop      = col(156, 36, 36, 255),
         button_stop_hi   = col(190, 50, 50, 255),
         button_neutral   = col(42, 46, 58, 255),
@@ -105,25 +105,25 @@ function ui.default_theme()
         font_title       = WE.font_id.FONT_SEMI_BIG or FONT_BIG,
         font_section     = FONT_NORMAL,
 
-        header_font_size = 18,
+        header_font_size = 28,
         section_font_size = 18,
         normal_font_size = 16,
         small_font_size  = 15,
 
         left_margin      = 21,
         top_margin       = 14,
-        header_height    = 136,
-        footer_height    = 39,
-        nav_height       = 39,
+        header_height    = 72,
+        footer_height    = 36,
+        nav_height       = 28,
         nav_width        = 147,
         panel_gap        = 16,
         control_gap      = 7,
         section_gap      = 14,
         control_width    = 368,
         row_height       = 35,
-        button_height    = 39,
+        button_height    = 32,
         border_thickness = 1.0,
-        rounding         = 5.0,
+        rounding         = 8.0,
     }
 end
 
@@ -491,7 +491,7 @@ function ui.new(config)
     self.footer = config.footer or ""
     self.nav_style = config.nav or "top"
 
-    local size_w, size_h = 828, 621
+    local size_w, size_h = 1100, 640
     if type(config.size) == "table" then
         size_w = config.size.w or config.size.x or size_w
         size_h = config.size.h or config.size.y or size_h
@@ -1357,190 +1357,56 @@ function Menu:draw_header(win, m)
     local t = self.theme
     local pmin = vec2.new(0, 0)
     local pmax = vec2.new(m.w, m.header_h)
-    local painted = pcall(function()
-        win:render_page_title(pmin, pmax, t.bg_header, t.border_header, t.accent, 0.0, 0.0, core.time(), 1.0)
-    end)
-    if not painted then
-        draw_rect(win, pmin, pmax, t.bg_header, t.border_header, 0.0, t.border_thickness)
-    end
+    draw_rect(win, pmin, pmax, t.bg_header, t.border_header, 0.0, t.border_thickness)
 
     local pad = t.left_margin
-    local bottom_pad = 10
-
-    -- Version, top-left. Drawn before anything else in the header so nothing
-    -- can overlap it, and independent of header_text: when that is set - which
-    -- it always is - the subtitle branch below never runs, which is why the
-    -- build number used to be nowhere on screen.
-    local version_h = 0
-    if self.version ~= nil and tostring(self.version) ~= "" then
-        local vtext = "v" .. tostring(self.version)
-        local vsz = size_of_font(win, t.font_small, t.small_font_size, vtext)
-        draw_text(win, t.font_small, vec2.new(pad, 6), t.text_secondary, vtext, t.small_font_size)
-        version_h = vsz.y + 4
+    local tag = self.header_text
+    if type(tag) ~= "string" or tag == "" or tag == "MASTER FARMER" then
+        tag = self.subtitle
+    end
+    if type(tag) ~= "string" or tag == "" then
+        tag = self.name
+    end
+    if tag == "MASTER FARMER" then
+        tag = self.subtitle ~= "" and self.subtitle or ""
+    end
+    if tag ~= "" then
+        draw_text(win, t.font_small, vec2.new(pad, 18), t.text_secondary, tag, t.small_font_size)
     end
 
-    local title = self.header_text
-    local sub = ""
-    if type(title) ~= "string" or title == "" then
-        title = self.name
-        sub = self.subtitle
-        if sub == "" and self.version ~= "" then
-            sub = "v" .. tostring(self.version)
-        elseif sub ~= "" and self.version ~= "" then
-            sub = sub .. "  -  v" .. tostring(self.version)
-        end
-    end
-
-    local title_font = t.font_title or t.font
+    local title = "MASTER FARMER"
+    local title_font = t.font_title or t.font_big
     local title_size = t.header_font_size
     local title_sz = size_of_font(win, title_font, title_size, title)
-    local sub_sz = vec2.new(0, 0)
-    if sub ~= "" then
-        sub_sz = size_of_font(win, t.font_small, t.small_font_size, sub)
-    end
-    local text_h = title_sz.y
-    if sub ~= "" then
-        text_h = text_h + 4 + sub_sz.y
-    end
-    -- Reserve the version line so the title block centres in what is LEFT of
-    -- the header rather than in the whole of it, which is what produced the
-    -- uneven gap above the title.
-    text_h = text_h + version_h
-
-    local logo = type(self.logo) == "string" and self.logo ~= ""
-    local dw, dh = 0, 0
-    if logo then
-        dw = self.logo_width
-        dh = self.logo_height
-        local max_h = m.header_h - bottom_pad - text_h - 4
-        if max_h < 24 then
-            max_h = 24
-        end
-        local max_w = math.min(self.logo_width, math.floor(m.w * 0.72))
-        if dh > max_h and dh > 0 then
-            local scale = max_h / dh
-            dw = math.max(1, math.floor(dw * scale))
-            dh = math.max(1, math.floor(dh * scale))
-        end
-        if dw > max_w and dw > 0 then
-            local scale = max_w / dw
-            dw = math.max(1, math.floor(dw * scale))
-            dh = math.max(1, math.floor(dh * scale))
-        end
-    end
-
-    local ly = 8
-    if dw > 0 then
-        local lx = math.floor((m.w - dw) * 0.5)
-        local band_h = m.header_h - text_h - 4
-        ly = math.floor((band_h - dh) * 0.62)
-        if ly < 8 then
-            ly = 8
-        end
-        if ly + dh > band_h then
-            ly = math.max(4, band_h - dh)
-        end
-        self:draw_logo_texture(win, lx, ly, dw, dh)
-        -- the game emblem, left of the banner (Forever / retail)
-        local isz = math.floor(dh * 0.92)
-        draw_game_icon(win, lx - isz - 12, ly + math.floor((dh - isz) * 0.5), isz)
-    end
-
-    local tx = pad
-    local ty = math.floor((m.header_h - text_h) * 0.5)
-    if dh > 0 then
-        ty = ly + dh - 6
-        local min_ty = ly + dh - 10
-        if ty < min_ty then
-            ty = min_ty
-        end
-        local max_ty = m.header_h - bottom_pad - text_h
-        if ty > max_ty then
-            ty = max_ty
-        end
-    end
+    local tx = math.floor((m.w - title_sz.x) * 0.5)
+    local ty = math.floor((m.header_h - title_sz.y) * 0.5)
     draw_text(win, title_font, vec2.new(tx, ty), t.text_header, title, title_size)
-    if sub ~= "" then
-        draw_text(win, t.font_small, vec2.new(tx, ty + title_sz.y + 4), t.text_secondary, sub, t.small_font_size)
-    end
-
-    local hints = self.header_hints
-    if type(hints) == "function" then
-        hints = safe(hints)
-    end
-    if type(hints) == "table" and #hints > 0 then
-        local key_w = 0
-        local line_h = 16
-        for i = 1, #hints do
-            local hint = hints[i]
-            if type(hint) == "table" then
-                local ksz = size_of_font(win, t.font_small, t.small_font_size, tostring(hint.key or ""))
-                if ksz.x > key_w then
-                    key_w = ksz.x
-                end
-                if ksz.y > line_h then
-                    line_h = ksz.y
-                end
-            end
-        end
-        local col_gap = 14
-        local block_h = (#hints * line_h) + ((#hints - 1) * 3)
-        local hx = m.w - pad - 40
-        local max_cmd_w = 0
-        for i = 1, #hints do
-            local hint = hints[i]
-            if type(hint) == "table" then
-                local csz = size_of_font(win, t.font_small, t.small_font_size, tostring(hint.command or ""))
-                if csz.x > max_cmd_w then
-                    max_cmd_w = csz.x
-                end
-            end
-        end
-        hx = m.w - 44 - key_w - col_gap - max_cmd_w
-        if hx < (tx + title_sz.x + 24) then
-            hx = tx + title_sz.x + 24
-        end
-        local hy = math.floor((m.header_h - block_h) * 0.5)
-        if hy < 8 then
-            hy = 8
-        end
-        for i = 1, #hints do
-            local hint = hints[i]
-            if type(hint) == "table" then
-                local row_y = hy + ((i - 1) * (line_h + 3))
-                draw_text(win, t.font_small, vec2.new(hx, row_y), t.text_header, tostring(hint.key or ""), t.small_font_size)
-                draw_text(win, t.font_small, vec2.new(hx + key_w + col_gap, row_y), t.text_primary, tostring(hint.command or ""), t.small_font_size)
-            end
-        end
-    end
 end
 
 function Menu:draw_nav(win, m)
-    if #self.tabs == 0 then
-        return
-    end
     local t = self.theme
-    local active_id, active_index = self:active_tab()
-
-    if m.top_nav then
-        local y = m.header_h + 6
-        local x = t.left_margin
-        local gap = 6
-        local count = #self.tabs
-        local avail = m.w - (t.left_margin * 2) - ((count - 1) * gap)
-        local tab_w = math.floor(avail / math.max(count, 1))
-        if tab_w < 64 then
-            tab_w = 64
-        end
-        for i = 1, count do
-            local tab = self.tabs[i]
-            local pmin = vec2.new(x, y)
-            local pmax = vec2.new(x + tab_w, y + t.nav_height)
+    local active_id = self:active_tab()
+    local y = m.header_h + 6
+    local x = t.left_margin
+    local gap = 8
+    local slots = math.max(6, #self.tabs)
+    local avail = m.w - (t.left_margin * 2) - ((slots - 1) * gap)
+    local tab_w = math.floor(avail / slots)
+    if tab_w < 48 then
+        tab_w = 48
+    end
+    for i = 1, slots do
+        local tab = self.tabs[i]
+        local pmin = vec2.new(x, y)
+        local pmax = vec2.new(x + tab_w, y + t.nav_height)
+        local fill = t.bg_tab
+        local border = t.border_tab
+        local text_col = t.text_secondary
+        local label = ""
+        if tab then
+            label = tab.label or ""
             local is_active = tab.id == active_id
             local is_hover = hovered(win, pmin, pmax)
-            local fill = t.bg_tab
-            local border = t.border_tab
-            local text_col = t.text_secondary
             if is_active then
                 fill = t.bg_tab_active
                 border = t.accent
@@ -1549,55 +1415,21 @@ function Menu:draw_nav(win, m)
                 fill = t.bg_tab_hover
                 text_col = t.text_primary
             end
-            draw_rect(win, pmin, pmax, fill, border, t.rounding, 1.0)
-            local sz = size_of_font(win, t.font, t.normal_font_size, tab.label)
-            local tx = x + math.floor((tab_w - sz.x) * 0.5)
-            local ty = y + math.floor((t.nav_height - sz.y) * 0.5)
-            draw_text(win, t.font, vec2.new(tx, ty), text_col, tab.label, t.normal_font_size)
             block_drag(win, pmin, pmax)
             if clicked(win, pmin, pmax) then
                 pcall(function()
                     self.tab_store:set(i)
                 end)
-                active_index = i
-                active_id = tab.id
             end
-            x = x + tab_w + gap
-        end
-        return
-    end
-
-    local y = m.header_h + 8
-    local x = t.left_margin
-    local tab_w = t.nav_width
-    for i = 1, #self.tabs do
-        local tab = self.tabs[i]
-        local pmin = vec2.new(x, y)
-        local pmax = vec2.new(x + tab_w, y + t.nav_height)
-        local is_active = tab.id == active_id
-        local is_hover = hovered(win, pmin, pmax)
-        local fill = t.bg_tab
-        local border = t.border_tab
-        local text_col = t.text_secondary
-        if is_active then
-            fill = t.bg_tab_active
-            border = t.accent
-            text_col = t.text_primary
-        elseif is_hover then
-            fill = t.bg_tab_hover
-            text_col = t.text_primary
         end
         draw_rect(win, pmin, pmax, fill, border, t.rounding, 1.0)
-        local sz = size_of_font(win, t.font, t.normal_font_size, tab.label)
-        local ty = y + math.floor((t.nav_height - sz.y) * 0.5)
-        draw_text(win, t.font, vec2.new(x + 10, ty), text_col, tab.label, t.normal_font_size)
-        block_drag(win, pmin, pmax)
-        if clicked(win, pmin, pmax) then
-            pcall(function()
-                self.tab_store:set(i)
-            end)
+        if label ~= "" then
+            local sz = size_of_font(win, t.font, t.normal_font_size, label)
+            local tx = x + math.floor((tab_w - sz.x) * 0.5)
+            local ty = y + math.floor((t.nav_height - sz.y) * 0.5)
+            draw_text(win, t.font, vec2.new(tx, ty), text_col, label, t.normal_font_size)
         end
-        y = y + t.nav_height + 4
+        x = x + tab_w + gap
     end
 end
 
@@ -1739,7 +1571,11 @@ end
 
 function Menu:draw_actions(win, x, y, w)
     if type(self.actions) ~= "table" or #self.actions == 0 then
-        return y
+        self.actions = {
+            { label = "Start", style = "start" },
+            { label = "Paused", style = "pause" },
+            { label = "Stop", style = "stop" },
+        }
     end
     local t = self.theme
     local gap = 10
@@ -2504,32 +2340,24 @@ function Menu:draw()
                     end
                 end
 
-                local has_status = type(self.status_items) == "table" and #self.status_items > 0
                 local gap = t.panel_gap
-                local left_w = m.content_w
-                local status_w = 0
-                if has_status then
-                    status_w = math.floor(m.content_w * 0.38)
-                    left_w = m.content_w - status_w - gap
-                end
-
+                local left_w = math.floor((m.content_w - gap) * 0.5)
+                local right_w = m.content_w - gap - left_w
                 local left_x = m.content_x
                 local left_y = m.content_y
-                local panel_h = m.content_h
-                if type(self.actions) == "table" and #self.actions > 0 then
-                    panel_h = panel_h - ((t.button_height or 34) + 12)
-                end
+                local panel_h = m.content_h - ((t.button_height or 32) + 16)
 
                 local inner_y = self:draw_panel(win, left_x, left_y, left_w, panel_h, tab_title)
                 self:draw_tab_scroll_area(win, active_id, left_x + 8, inner_y + 4, left_w - 16, (left_y + panel_h) - inner_y - 10)
 
+                local has_status = type(self.status_items) == "table" and #self.status_items > 0
                 if has_status then
-                    self:draw_status(win, left_x + left_w + gap, left_y, status_w, panel_h, "Status")
+                    self:draw_status(win, left_x + left_w + gap, left_y, right_w, panel_h, "Status")
+                else
+                    self:draw_panel(win, left_x + left_w + gap, left_y, right_w, panel_h, nil)
                 end
 
-                if type(self.actions) == "table" and #self.actions > 0 then
-                    self:draw_actions(win, left_x, left_y + panel_h + 6, m.content_w)
-                end
+                self:draw_actions(win, left_x, left_y + panel_h + 8, m.content_w)
 
                 self:draw_footer(win, m)
                 self:draw_popups()

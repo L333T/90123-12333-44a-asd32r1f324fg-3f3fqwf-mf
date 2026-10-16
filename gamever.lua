@@ -60,9 +60,10 @@ end
 function gamever.is_tbc() return gamever.version() == gamever.TBC end
 function gamever.is_vanilla() return gamever.version() == gamever.VANILLA end
 
---- Is this a game version the plugin runs on?
+--- Is this a game version the plugin runs on? Every one (launcher 2.4.0);
+--- is_tbc / is_forever / is_vanilla still pick the data for the client.
 function gamever.supported()
-    return gamever.is_tbc() or gamever.is_forever() or gamever.is_vanilla()
+    return true
 end
 
 local RACES_TBC = { [1] = true, [2] = true, [3] = true, [4] = true, [5] = true,

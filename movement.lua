@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.4.1
+-- Version: 3.5.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -53,6 +53,8 @@ local build_snapshot
 -- ============================================================================
 movement.nav_to       = function(dest, direct) return N.nav_to(dest, direct) end
 movement.nudge        = function(dest) return N.nav_to(dest) end
+-- 3.5.0: RestedXP waypoints / movement instructions: 3-yard, object-checked walks
+movement.guide_to     = function(dest) return N.nav_to(dest, true, "guide") end
 movement.follow_route = N.follow_route
 movement.nav_path     = function(points) return N.follow_route(points) end
 -- 3.0.4: callers stop every tick once "near" an NPC (4-5 yd); an approach

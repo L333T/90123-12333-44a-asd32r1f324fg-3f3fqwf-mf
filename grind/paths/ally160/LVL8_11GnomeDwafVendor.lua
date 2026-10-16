@@ -3,7 +3,7 @@
 -- Gnome/Dwarf 8-11 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.4.1
+-- Version: 3.5.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

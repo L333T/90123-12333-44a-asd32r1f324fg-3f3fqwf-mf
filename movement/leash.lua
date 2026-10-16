@@ -3,7 +3,7 @@
 -- movement/leash.lua - the recorded-path corridor (path_runner)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.4.1
+-- Version: 3.5.0
 -- ============================================================================
 -- A recorded path (path_runner) is a polyline. Farther than PATH_LEASH yd
 -- from it (a fight pulled the player off) needs_rejoin() is true and

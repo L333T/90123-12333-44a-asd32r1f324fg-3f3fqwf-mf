@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.4.1
+-- Version: 3.5.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -622,6 +622,8 @@ local function walk_to(pos, note, arrive, exact)
         if (moved or aim_moved) and type(movement.nudge) == "function" then
             movement.nudge(target)
         end
+    elseif type(movement.guide_to) == "function" then
+        movement.guide_to(target)        -- 3.5.0: 3-yard waypoints, object-checked
     else
         movement.nav_to(target, true)
     end

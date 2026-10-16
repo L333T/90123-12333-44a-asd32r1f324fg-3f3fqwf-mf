@@ -3,7 +3,7 @@
 -- movement/guide_path.lua - 3-yard, object-checked paths for RestedXP walks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.6.0
+-- Version: 3.6.1
 -- ============================================================================
 -- RestedXP waypoints and movement instructions (quest/engine walk_to) are
 -- walked as SPACING-yard waypoints (3.5.0), not one long MasterArthasNav
@@ -40,6 +40,8 @@ P.RECHECK_GAP = 0.5    -- s between two re-checks of the path ahead
 P.AHEAD       = 5      -- waypoints re-checked ahead (15 yd)
 P.STRAIGHT    = 1.6    -- a pushed point is walkable when the mesh path to it
                        -- is at most this times the straight line (+1 yd)
+P.PROP_R      = 1.0    -- yd: radius of a non-unit object (no model read, 3.6.1)
+P.SAME_OBJ    = 1.0    -- yd: an object this close to one seen at plan time is that one
 
 local OBJ_DZ = 6       -- yd: objects farther above / below are another floor
 local MIN_R, MAX_R = 0.3, 4.0
@@ -140,8 +142,16 @@ function P.objects(px, py, pz)
                         skip = yes(o, "is_dead") or (okc and IGNORED[ctype] == true)
                     end
                     if not skip then
-                        local okr, r = call(o, "get_bounding_radius")
-                        r = (okr and type(r) == "number") and r or 1.0
+                        -- 3.6.1: the radius is read for units only (a unit
+                        -- field). A prop's radius would come from its model,
+                        -- and a model that has not loaded yet is the known
+                        -- crash class here (M2HitTest, 2.309.0) - props count
+                        -- as P.PROP_R yd, no model data is touched.
+                        local r = P.PROP_R
+                        if unit then
+                            local okr, ur = call(o, "get_bounding_radius")
+                            if okr and type(ur) == "number" then r = ur end
+                        end
                         out[#out + 1] = { x = pos.x, y = pos.y, z = pos.z or pz, r = min(MAX_R, max(MIN_R, r)) }
                     end
                 end
@@ -154,6 +164,34 @@ end
 
 --- Forget the scan (tests, a new map).
 function P.reset() cache.t, cache.list = -1e9, {} end
+
+--- The objects of `objs` that were not in `known` (the scan the path was
+--- planned with): only these can make a re-plan worth it (3.6.1). Before, an
+--- object the plan had already been pushed round - or a push the navmesh
+--- check took back - re-planned the walk every 2 s.
+function P.new_only(objs, known)
+    if type(known) ~= "table" or #known == 0 then return objs or {} end
+    local out = {}
+    local d2 = P.SAME_OBJ * P.SAME_OBJ
+    for i = 1, #(objs or {}) do
+        local o = objs[i]
+        local seen = false
+        for j = 1, #known do
+            local k = known[j]
+            local dx, dy = o.x - k.x, o.y - k.y
+            if dx * dx + dy * dy <= d2 then seen = true break end
+        end
+        if not seen then out[#out + 1] = o end
+    end
+    return out
+end
+
+--- A copy of a scan (positions only), kept with the walk.
+function P.snapshot(objs)
+    local out = {}
+    for i = 1, #(objs or {}) do out[i] = { x = objs[i].x, y = objs[i].y } end
+    return out
+end
 
 local function need(o) return o.r + P.BODY + P.CLEAR end
 

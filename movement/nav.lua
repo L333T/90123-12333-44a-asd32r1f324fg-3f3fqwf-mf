@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.6.0
+-- Version: 3.6.1
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -277,7 +277,9 @@ local function guide_move(c, x, y, z)
         if not ok or type(points) ~= "table" or #points < 2 then return fallback() end
         local pts = GP.resample(points, GP.SPACING)
         pts[#pts] = { x = x, y = y, z = pts[#pts].z }  -- the destination itself, never moved
-        local moved = GP.push(pts, GP.objects(hx, hy, hz))
+        local objs = GP.objects(hx, hy, hz)
+        guide.known = GP.snapshot(objs)                 -- 3.6.1: what this plan already avoided
+        local moved = GP.push(pts, objs)
         local n = 0
         for _ in pairs(moved) do n = n + 1 end
         GP.stats.pushed = GP.stats.pushed + n
@@ -306,12 +308,25 @@ local function guide_move(c, x, y, z)
 end
 
 --- While a guide walk runs: the next GP.AHEAD waypoints are checked against the
---- objects around the player every GP.RECHECK_GAP s; one inside an object's
---- clearance re-plans the walk from here (at most every REPLAN_GAP s).
+--- objects around the player every GP.RECHECK_GAP s; one inside the clearance
+--- of an object that was NOT there when the path was planned re-plans the walk
+--- from here (3.6.1: never in the first GUIDE_SETTLE s of a walk, at most
+--- GUIDE_REPLAN_MAX times per destination in GUIDE_REPLAN_WINDOW s). Before,
+--- an object the plan had already gone round re-planned it every 2 s - each
+--- re-plan a stop and a fresh start of the walk (log 2026-10-16 17:39).
+local GUIDE_SETTLE, GUIDE_REPLAN_MAX, GUIDE_REPLAN_WINDOW = 3.0, 3, 60
 local function guide_recheck(c)
     local t = R.now()
     if cur.mode ~= "guide" or guide.planning or t < guide.next_check then return end
     guide.next_check = t + GP.RECHECK_GAP
+    if t - (cur.t or 0) < GUIDE_SETTLE then return end
+    local key = cur.x and key_of(cur.x, cur.y) or nil
+    local b = guide.budget
+    if not b or b.key ~= key or t - b.t0 > GUIDE_REPLAN_WINDOW then
+        b = { key = key, t0 = t, n = 0 }
+        guide.budget = b
+    end
+    if b.n >= GUIDE_REPLAN_MAX then return end
     if not N.busy() then return end
     local hx, hy, hz = R.here()
     if not hx then return end
@@ -320,9 +335,11 @@ local function guide_recheck(c)
     if type(path) ~= "table" then return end
     local oki, idx = call(c, "get_path_index")
     idx = (oki and type(idx) == "number") and idx or 1
-    local i, o = GP.blocked(path, GP.objects(hx, hy, hz), idx, math.min(#path - 1, idx + GP.AHEAD - 1))
+    local fresh = GP.new_only(GP.objects(hx, hy, hz), guide.known)
+    local i, o = GP.blocked(path, fresh, idx, math.min(#path - 1, idx + GP.AHEAD - 1))
     if not i or t < guide.replan_at then return end
     guide.replan_at = t + REPLAN_GAP
+    b.n = b.n + 1
     GP.stats.replans = GP.stats.replans + 1
     R.trail("nav", "guide walk: waypoint %d of %d is %.1f yd from an object (r %.1f) - planning again",
         i, #path, R.dist2(path[i].x, path[i].y, o.x, o.y), o.r)

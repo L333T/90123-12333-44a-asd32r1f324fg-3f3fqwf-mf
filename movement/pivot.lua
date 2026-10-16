@@ -3,7 +3,7 @@
 -- movement/pivot.lua - stop and turn on sharp waypoint turns
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.0
+-- Version: 3.7.1
 -- ============================================================================
 -- THE RULE (CLAUDE_MOVEMENT_RULES.md, "Sharp turns: stop, turn, go"):
 -- AmeisenNav's walkers keep running forward while they turn, so a sharp
@@ -19,6 +19,12 @@
 --   * a turn never lasts more than MAX_S (then the walk resumes anyway).
 -- Turn keys only - never look_at, never a second walker. Not while casting,
 -- channeling, backpedalling, or with no AmeisenNav walk running.
+-- 3.7.1 (crash logs 2026-10-16 18:06): the pause made MasterArthasNav end the
+-- walk as "arrived"; the turn was dropped the next frame and a fresh leg was
+-- started at once, still facing the wrong way, and held again. Now a turn
+-- started is finished toward its point even when the walk ended meanwhile,
+-- no new travel leg starts while it runs (R.turning, movement/nav), and a
+-- leg younger than movement/nav FRESH_LEG is never held.
 -- FACING TRUST: the facing (get_rotation) is only used once it has matched
 -- the running direction TRUST_N times (as AmeisenNav's own use_facing does);
 -- a client whose facing never matches never pivots.
@@ -59,6 +65,7 @@ end
 function Pv.release(why)
     if not active then return end
     active = nil
+    R.turning, R.turn_cancel = false, false
     keys_off()
     N.resume(REASON)
     next_ok = R.now() + Pv.GAP_S
@@ -111,10 +118,15 @@ end
 
 ---Per frame (movement.pulse). Holds the walk and turns in place on a sharp turn.
 function Pv.tick(t)
+    if R.turn_cancel then                      -- the bot stopped the walk itself
+        R.turn_cancel = false
+        Pv.release("walk stopped")
+    end
     local c = N.client()
     local me = R.me()
     local busy = c ~= nil and N.busy()
-    if not (enabled() and c and busy and me) or R.backpedal_until or R.resting then
+    -- a turn in progress is finished even when the walk ended meanwhile
+    if not (enabled() and c and me and (busy or active)) or R.backpedal_until or R.resting then
         Pv.release()
         trust.x = nil
         return
@@ -133,7 +145,7 @@ function Pv.tick(t)
     if not active then learn_trust(pos.x, pos.y, rot) end
     if trust.ok < TRUST_N then return end
 
-    local pt = next_point(c, pos.x, pos.y)
+    local pt = (busy and next_point(c, pos.x, pos.y)) or (active and active.pt) or nil
     if not pt then
         Pv.release("no point ahead")
         return
@@ -153,6 +165,7 @@ function Pv.tick(t)
     end
 
     if t < next_ok or math.abs(diff) <= math.rad(Pv.ON_DEG) then return end
+    if not busy or N.leg_fresh() then return end      -- 3.7.1: never hold a fresh leg
     -- sharp: hold the walk (AmeisenNav lets go of its keys), turn on the spot
     N.pause(REASON)
     pcall(function() core.input.move_forward_stop() end)
@@ -163,7 +176,8 @@ function Pv.tick(t)
     else
         pcall(function() core.input.turn_right_start() end)
     end
-    active = { sign = left and 1 or -1, since = t }
+    active = { sign = left and 1 or -1, since = t, pt = { x = pt.x, y = pt.y } }
+    R.turning = true
     R.trail("move", "sharp turn %.0f deg %s: stop and turn", math.abs(math.deg(diff)), left and "left" or "right")
     R.dlog("pivot", string.format("sharp turn %.0f deg %s - stop and turn", math.abs(math.deg(diff)),
         left and "left" or "right"))
@@ -172,6 +186,7 @@ end
 ---Test hook: reset everything.
 function Pv._reset()
     active, next_ok = nil, 0
+    R.turning = false
     trust.ok, trust.bad, trust.x, trust.y, trust.logged = 0, 0, nil, nil, false
 end
 

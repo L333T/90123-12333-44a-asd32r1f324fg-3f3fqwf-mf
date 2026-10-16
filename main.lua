@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.4.0
+-- Version: 3.4.1
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -970,7 +970,7 @@ core.log(string.format("[Master Farmer - Grindbot] v%s loaded by %s", identity.v
 
 -- 2.257.0: UNLOAD. The launcher (Master_Farmer loader.lua) calls on_unload and
 -- removes the callbacks it routed for this instance. There is no core API to
--- unregister a callback, so under the standalone plugin_loader the old
+-- unregister a callback, so outside the launcher (a folder loaded directly) the old
 -- callbacks stay registered: the session counter is bumped so every one of
 -- them sees is_stale() and returns at once. _G.MasterFarmer_Grindbot stays:
 -- header.lua (session counter, meta), events.lua (event handlers, read by

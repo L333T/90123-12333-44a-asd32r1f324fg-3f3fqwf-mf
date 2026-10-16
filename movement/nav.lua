@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.4.0
+-- Version: 3.4.1
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -254,7 +254,7 @@ local function check_combat_mode(c)
     if m and m ~= "continue" then
         mode_warned_t = t
         R.log("MasterArthasNav 'When combat starts' is '" .. tostring(m) .. "' - set it to Continue "
-            .. "(ArthasNav > ArthasNav Movement), or the bot cannot close on its targets")
+            .. "(ArthasNav tab > Movement > When combat starts), or the bot cannot close on its targets")
     end
 end
 

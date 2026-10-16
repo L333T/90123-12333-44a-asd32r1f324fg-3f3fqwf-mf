@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.6.1
+-- Version: 3.7.0
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -30,12 +30,15 @@
 -- NO AMEISENNAV: the bot still moves - straight walks with simple_movement,
 -- driven here every frame - and warns once.
 --
--- GUIDE WALKS (3.5.0, mode "guide": RestedXP waypoints and movement
--- instructions, quest/engine walk_to): planned with find_path, walked as
--- 3-yard waypoints pushed clear of nearby objects (movement/guide_path), and
--- re-checked ahead while walking; an object that comes too close re-plans the
--- path before the collision. A retarget (movement.nudge) of a running guide
--- walk stays a guide walk.
+-- EXACT-PATH WALKS (3.7.0, every mode but "combat"; recorded routes keep
+-- follow_route): ONE find_path per destination, walked exactly as 5-yard
+-- waypoints with follow_path. The path is prepared 15 yd ahead of the player
+-- at a time (objects, walls, indoors - movement/guide_path; one batched server
+-- request per window, client reads rate-limited, nothing per frame); the walk
+-- is handed a changed window only when a check moved a waypoint (a restart is
+-- a walker stop - at most every RESTART_GAP s). Combat walks keep move_to
+-- with seamless retargets (a moving target). (3.5.0 - 3.6.1: RestedXP walks
+-- only, 3-yard waypoints.)
 -- ============================================================================
 
 local R = require("movement/core")
@@ -67,7 +70,8 @@ local HEIGHT_RETRY = { no_path = true, end_off_mesh = true, unreachable = true }
 -- the walk this layer asked for
 local cur = { id = 0, x = nil, y = nil, z = nil, mode = nil, t = 0, route = nil }
 -- the guide walk (mode "guide"): planning = a find_path / check is out
-local guide = { planning = false, next_check = 0, replan_at = 0, pts = nil }
+local guide = { planning = false, next_check = 0, replan_at = 0, full = nil, base = 1, done_to = 0,
+    processing = false, dirty = false, restart_at = 0, known = {} }
 GP.stats = { walks = 0, replans = 0, pushed = 0, fallbacks = 0 }
 local fail = { reason = nil, offmesh = false, t = 0 }
 local fails_at = {}            -- dest key -> { n, t }
@@ -236,7 +240,7 @@ end
 issue_move = function(c, x, y, z, opts)
     cur.id = cur.id + 1
     local id = cur.id
-    cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route = x, y, z, R.now(), opts.mode or "move", nil
+    cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route, cur.exact = x, y, z, R.now(), opts.mode or "move", nil, nil
     stats.issued = stats.issued + 1
     local ok = call(c, "move_to", { x = x, y = y, z = z }, function(arrived, _, detail)
         if cur.id ~= id then return end
@@ -253,72 +257,138 @@ issue_move = function(c, x, y, z, opts)
     return ok == true
 end
 
---- A guide walk (see the header): find_path -> 3-yard waypoints pushed clear of
---- objects -> follow_path. Falls back to a plain move_to when the client
---- cannot plan or no path comes back.
-local function guide_move(c, x, y, z)
+--- An exact-path walk (3.7.0, movement/guide_path header): ONE find_path ->
+--- 5-yard waypoints -> the first 15 yd window prepared (objects, walls, one
+--- batched server request) -> follow_path. While it runs, guide_recheck keeps
+--- at least HORIZON yd of prepared path ahead of the player. Falls back to a
+--- plain move_to when the client cannot plan or no path comes back.
+local RESTART_GAP = 1.5        -- s: at most one walk restart (a changed window) this often
+
+local function nav_table() return rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav") end
+
+--- follow_path from guide.full[from] to the end; guide.base maps the client's
+--- path index back onto guide.full.
+local function start_walk(c, id, from)
+    local list = {}
+    for i = math.max(1, from), #guide.full do list[#list + 1] = guide.full[i] end
+    if #list < 1 then return false end
+    guide.base = math.max(1, from)
+    local x, y, z = cur.x, cur.y, cur.z
+    local okf = call(c, "follow_path", list, function(arrived, _, detail)
+        if cur.id ~= id then return end
+        if arrived then fail.reason, fail.offmesh = nil, false return end
+        local code = type(detail) == "table" and detail.code or nil
+        if code == "cancelled" then return end
+        if HEIGHT_RETRY[code] and retry_at_ground(c, id, x, y, z, code, { mode = "move" }) then return end
+        R.trail("nav", "exact walk to (%.0f, %.0f, %.0f) ended: %s", x, y, z, tostring(code))
+        record_fail(code, x, y, z)
+    end)
+    return okf == true
+end
+
+local function guide_move(c, x, y, z, mode)
+    mode = mode or "move"
     if type(c.find_path) ~= "function" or type(c.follow_path) ~= "function" then
-        return issue_move(c, x, y, z, { seamless = N.busy(), mode = "guide" })
+        return issue_move(c, x, y, z, { seamless = N.busy(), mode = mode })
     end
     local hx, hy, hz = R.here()
     if not hx then return false end
     cur.id = cur.id + 1
     local id = cur.id
-    cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route = x, y, z, R.now(), "guide", nil
-    guide.planning, guide.pts = true, nil
+    -- the caller's mode is kept (movement.interact walks up as "npc"); cur.exact
+    -- marks the exact-path walk
+    cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route, cur.exact = x, y, z, R.now(), mode, nil, true
+    guide.planning, guide.full, guide.processing, guide.dirty = true, nil, false, false
     stats.issued = stats.issued + 1
     local function fallback()
-        guide.planning = false
+        guide.planning, guide.full = false, nil
         GP.stats.fallbacks = GP.stats.fallbacks + 1
-        if cur.id == id then issue_move(c, x, y, z, { seamless = N.busy(), mode = "move" }) end
+        if cur.id == id then issue_move(c, x, y, z, { seamless = N.busy(), mode = mode }) end
     end
     local sent = call(c, "find_path", { x = hx, y = hy, z = hz }, { x = x, y = y, z = z }, function(ok, points)
         if cur.id ~= id then return end                 -- a newer walk replaced this one
         if not ok or type(points) ~= "table" or #points < 2 then return fallback() end
         local pts = GP.resample(points, GP.SPACING)
         pts[#pts] = { x = x, y = y, z = pts[#pts].z }  -- the destination itself, never moved
+        guide.full, guide.base, guide.done_to = pts, 1, 0
         local objs = GP.objects(hx, hy, hz)
-        guide.known = GP.snapshot(objs)                 -- 3.6.1: what this plan already avoided
-        local moved = GP.push(pts, objs)
-        local n = 0
-        for _ in pairs(moved) do n = n + 1 end
-        GP.stats.pushed = GP.stats.pushed + n
-        GP.validate(rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav"), pts, moved, function(list)
+        guide.known = GP.snapshot(objs)
+        local w = GP.window_end(pts, 1)
+        guide.processing = true
+        GP.process_window(nav_table(), pts, 1, w, objs, GP.indoors(), function(changed)
             if cur.id ~= id then return end
-            guide.planning, guide.pts = false, list
+            guide.processing, guide.planning, guide.done_to = false, false, w
+            GP.stats.pushed = GP.stats.pushed + changed
+            GP.stats.windows = (GP.stats.windows or 0) + 1
             guide.next_check = R.now() + GP.RECHECK_GAP
+            guide.restart_at = R.now() + RESTART_GAP
             GP.stats.walks = GP.stats.walks + 1
-            local okf = call(c, "follow_path", list, function(arrived, _, detail)
-                if cur.id ~= id then return end
-                if arrived then fail.reason, fail.offmesh = nil, false return end
-                local code = type(detail) == "table" and detail.code or nil
-                if code == "cancelled" then return end
-                if HEIGHT_RETRY[code] and retry_at_ground(c, id, x, y, z, code, { mode = "move" }) then return end
-                R.trail("nav", "guide walk to (%.0f, %.0f, %.0f) ended: %s", x, y, z, tostring(code))
-                record_fail(code, x, y, z)
-            end)
-            if okf ~= true then fallback() end
+            if not start_walk(c, id, 1) then fallback() end
         end)
     end)
     if sent ~= true then
         guide.planning = false
-        return issue_move(c, x, y, z, { seamless = N.busy(), mode = "move" })
+        return issue_move(c, x, y, z, { seamless = N.busy(), mode = mode })
     end
     return true
 end
 
---- While a guide walk runs: the next GP.AHEAD waypoints are checked against the
---- objects around the player every GP.RECHECK_GAP s; one inside the clearance
---- of an object that was NOT there when the path was planned re-plans the walk
---- from here (3.6.1: never in the first GUIDE_SETTLE s of a walk, at most
---- GUIDE_REPLAN_MAX times per destination in GUIDE_REPLAN_WINDOW s). Before,
---- an object the plan had already gone round re-planned it every 2 s - each
---- re-plan a stop and a fresh start of the walk (log 2026-10-16 17:39).
+--- While an exact walk runs (every GP.RECHECK_GAP s; client reads only, a
+--- server request only for a new window):
+---   1. a window that changed is handed to the client: follow_path again from
+---      the waypoint being walked (at most every RESTART_GAP s - a restart is a
+---      walker stop);
+---   2. less than HORIZON yd of prepared path ahead: the next window is
+---      prepared (one batched request);
+---   3. an object that was NOT there when its window was prepared, inside the
+---      clearance of one of the next AHEAD waypoints: that stretch is prepared
+---      again (never in the first GUIDE_SETTLE s of a walk, at most
+---      GUIDE_REPLAN_MAX times per destination in GUIDE_REPLAN_WINDOW s).
 local GUIDE_SETTLE, GUIDE_REPLAN_MAX, GUIDE_REPLAN_WINDOW = 3.0, 3, 60
 local function guide_recheck(c)
     local t = R.now()
-    if cur.mode ~= "guide" or guide.planning or t < guide.next_check then return end
+    if not cur.exact or guide.planning or not guide.full or t < guide.next_check then return end
     guide.next_check = t + GP.RECHECK_GAP
+    if not N.busy() then return end
+    local full = guide.full
+    local id = cur.id
+    local oki, idx = call(c, "get_path_index")
+    idx = (oki and type(idx) == "number") and idx or 1
+    local fi = math.min(#full, math.max(1, (guide.base or 1) + idx - 1))
+
+    -- 1. a changed window reaches the client
+    if guide.dirty and not guide.processing and t >= (guide.restart_at or 0) then
+        guide.dirty = false
+        guide.restart_at = t + RESTART_GAP
+        GP.stats.restarts = (GP.stats.restarts or 0) + 1
+        start_walk(c, id, fi)
+        return
+    end
+    if guide.processing then return end
+
+    -- 2. keep HORIZON yd of prepared path ahead
+    if guide.done_to < #full and GP.along(full, fi, guide.done_to) < GP.HORIZON then
+        local hx, hy, hz = R.here()
+        if not hx then return end
+        local i1 = guide.done_to + 1
+        local i2 = GP.window_end(full, guide.done_to)
+        local objs = GP.objects(hx, hy, hz)
+        local snap = GP.snapshot(objs)
+        for k = 1, #snap do guide.known[#guide.known + 1] = snap[k] end
+        guide.processing = true
+        GP.process_window(nav_table(), full, i1, i2, objs, GP.indoors(), function(changed)
+            if cur.id ~= id then return end
+            guide.processing, guide.done_to = false, i2
+            GP.stats.windows = (GP.stats.windows or 0) + 1
+            if changed > 0 then
+                GP.stats.pushed = GP.stats.pushed + changed
+                guide.dirty = true
+            end
+        end)
+        return
+    end
+
+    -- 3. a new object close to the path just ahead
     if t - (cur.t or 0) < GUIDE_SETTLE then return end
     local key = cur.x and key_of(cur.x, cur.y) or nil
     local b = guide.budget
@@ -326,24 +396,27 @@ local function guide_recheck(c)
         b = { key = key, t0 = t, n = 0 }
         guide.budget = b
     end
-    if b.n >= GUIDE_REPLAN_MAX then return end
-    if not N.busy() then return end
+    if b.n >= GUIDE_REPLAN_MAX or t < guide.replan_at then return end
     local hx, hy, hz = R.here()
     if not hx then return end
-    local okp, path = call(c, "get_current_path")
-    if not okp or type(path) ~= "table" or #path < 2 then path = guide.pts end
-    if type(path) ~= "table" then return end
-    local oki, idx = call(c, "get_path_index")
-    idx = (oki and type(idx) == "number") and idx or 1
-    local fresh = GP.new_only(GP.objects(hx, hy, hz), guide.known)
-    local i, o = GP.blocked(path, fresh, idx, math.min(#path - 1, idx + GP.AHEAD - 1))
-    if not i or t < guide.replan_at then return end
+    local objs = GP.objects(hx, hy, hz)
+    local fresh = GP.new_only(objs, guide.known)
+    local last = math.min(guide.done_to, fi + GP.AHEAD)
+    local i, o = GP.blocked(full, fresh, fi + 1, last)
+    if not i then return end
     guide.replan_at = t + REPLAN_GAP
     b.n = b.n + 1
     GP.stats.replans = GP.stats.replans + 1
-    R.trail("nav", "guide walk: waypoint %d of %d is %.1f yd from an object (r %.1f) - planning again",
-        i, #path, R.dist2(path[i].x, path[i].y, o.x, o.y), o.r)
-    guide_move(c, cur.x, cur.y, cur.z)
+    R.trail("nav", "exact walk: waypoint %d of %d is %.1f yd from a new object (r %.1f) - preparing it again",
+        i, #full, R.dist2(full[i].x, full[i].y, o.x, o.y), o.r)
+    local snap = GP.snapshot(fresh)
+    for k = 1, #snap do guide.known[#guide.known + 1] = snap[k] end
+    guide.processing = true
+    GP.process_window(nav_table(), full, fi + 1, last, objs, GP.indoors(), function(changed)
+        if cur.id ~= id then return end
+        guide.processing = false
+        if changed > 0 then guide.dirty = true end
+    end)
 end
 
 -- AmeisenNav's "When combat starts" (C.combat_mode, its Movement page) must
@@ -370,7 +443,7 @@ function N.nav_to(dest, direct, mode)
     local x, y, z = R.xyz(dest)
     if not x then return false end
     -- 3.5.0: a retarget (movement.nudge) of a running guide walk stays one
-    if mode == nil and cur.mode == "guide" and (guide.planning or N.busy()) then mode = "guide" end
+    if mode == nil and cur.exact and cur.mode == "guide" and (guide.planning or N.busy()) then mode = "guide" end
     local why = N.refusal()
     -- combat walks always go; an NPC approach (movement.interact) goes
     -- through its own NPC hold
@@ -396,7 +469,7 @@ function N.nav_to(dest, direct, mode)
         return true
     end
     -- the guide walk to this spot is still being planned (not busy yet)
-    if guide.planning and cur.mode == "guide" and cur.x and R.dist2(cur.x, cur.y, x, y) <= SAME_DEST then
+    if guide.planning and cur.exact and cur.x and R.dist2(cur.x, cur.y, x, y) <= SAME_DEST then
         return true
     end
     if not c then
@@ -408,10 +481,11 @@ function N.nav_to(dest, direct, mode)
     end
     if busy and (R.now() - cur.t) < RETARGET_GAP then return true end
     if mode == "combat" then check_combat_mode(c) end
-    if mode == "guide" then
-        -- a guide retarget re-plans: at most every REPLAN_GAP s while walking
+    if mode ~= "combat" then
+        -- 3.7.0: every out-of-combat walk follows the exact server path;
+        -- a retarget re-plans: at most every REPLAN_GAP s while walking
         if (busy or guide.planning) and (R.now() - cur.t) < REPLAN_GAP then return true end
-        return guide_move(c, x, y, z)
+        return guide_move(c, x, y, z, mode)
     end
     return issue_move(c, x, y, z, { seamless = busy, mode = mode })
 end
@@ -436,7 +510,7 @@ function N.follow_route(list, replace)
     cur.id = cur.id + 1
     local id = cur.id
     local last = pts[#pts]
-    cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route = last.x, last.y, last.z, R.now(), "route", list
+    cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route, cur.exact = last.x, last.y, last.z, R.now(), "route", list, nil
     stats.issued = stats.issued + 1
     local ok = call(c, "follow_path", pts, function(arrived, _, detail)
         if cur.id ~= id or arrived then return end
@@ -460,8 +534,8 @@ function N.stop(reason)
         if w and was then pcall(w.stop, w) end
     end
     cur.id = cur.id + 1                     -- late callbacks of the stopped walk are ignored
-    cur.x, cur.mode, cur.route = nil, nil, nil
-    guide.planning, guide.pts = false, nil
+    cur.x, cur.mode, cur.route, cur.exact = nil, nil, nil, nil
+    guide.planning, guide.full, guide.processing, guide.dirty = false, nil, false, false
     if was then R.quiet_until = R.now() + QUIET_STOP end
 end
 
@@ -478,7 +552,7 @@ end
 --- Per frame: drive the fallback walker when AmeisenNav is missing.
 function N.pulse()
     if (rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav")) ~= nil then
-        if cur.mode == "guide" then
+        if cur.exact then
             local c = N.client()
             if c then guide_recheck(c) end
         end

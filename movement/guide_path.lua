@@ -1,27 +1,34 @@
 -- ============================================================================
 -- Master Farmer - Grindbot
--- movement/guide_path.lua - 3-yard, object-checked paths for RestedXP walks
+-- movement/guide_path.lua - the exact server path, checked 15 yd ahead
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.6.1
+-- Version: 3.7.0
 -- ============================================================================
--- RestedXP waypoints and movement instructions (quest/engine walk_to) are
--- walked as SPACING-yard waypoints (3.5.0), not one long MasterArthasNav
--- move_to:
---   1. MasterArthasNav plans the path (client:find_path).
---   2. resample(): the path becomes waypoints SPACING yd apart.
---   3. push(): a waypoint that comes within clearance of a nearby object
---      (its bounding radius + BODY + CLEAR) is moved straight away from it,
---      at most MAX_PUSH yd; the destination itself never moves.
---   4. A moved waypoint is kept only when the navmesh walks to it from the
---      waypoint before in about a straight line (query.find_paths, one batch);
---      otherwise it goes back (a push must never aim the player at a wall).
---   5. movement/nav walks the list with client:follow_path and, while it runs,
---      blocked() re-checks the next AHEAD waypoints every RECHECK_GAP s
---      against the objects around the player (they spawn, move, respawn):
---      one comes too close -> the path is planned again from where the player
---      stands, before the collision.
--- Server queries only - no ray casts (no core.graphics.trace_line, no /raycast).
+-- 3.7.0 EXACT PATH. Every out-of-combat walk (movement/nav modes nil, move,
+-- guide, npc) follows the server's own path, not a smoothed one:
+--   1. ONE server request per destination: client:find_path. resample() cuts
+--      it into waypoints SPACING (5) yd apart; the destination is the last one.
+--   2. The path is prepared in WINDOWS of HORIZON (15) yd, each one shortly
+--      before the player reaches it (movement/nav keeps >= HORIZON yd of
+--      checked path ahead). process_window() does, per window:
+--        objects  push(): a waypoint inside an object's clearance (radius +
+--                 BODY + CLEAR) moves straight away from it, <= MAX_PUSH yd
+--                 (client object list, scanned at most every SCAN_GAP s);
+--        walls    each waypoint is probed WALL_CLEAR yd to its left and right
+--                 (WALL_CLEAR_IN indoors): a side the navmesh cannot reach in
+--                 about a straight line is a wall / edge, and the waypoint
+--                 moves WALL_SHIFT yd away from it (both sides closed: a
+--                 corridor - it stays on the server's line);
+--        validate a moved waypoint is kept only when the navmesh walks to it
+--                 from the one before in about a straight line, else it goes
+--                 back (a push must never aim the player at a wall);
+--      all of it in ONE batched server request (query.find_paths, <= 64
+--      pairs) per window - about one request per 15 yd walked, never per frame.
+--   3. indoors() reads the client (player:is_indoors) at most once a second.
+-- The destination itself never moves. No ray casts (no core.graphics.trace_line,
+-- no /raycast) - the walls come from the navmesh.
+-- (3.5.0 - 3.6.1: RestedXP walks only, 3 yd waypoints, checked once at the start.)
 -- Objects come from targeting.visible_objects() (the shared cache), filtered
 -- like MasterArthasNav's own avoidance: no players, no bag items, no hidden
 -- objects, no dead units, no critters / pets / gas clouds, nothing two floors
@@ -30,14 +37,20 @@
 
 local P = {}
 
-P.SPACING     = 3.0    -- yd between two walked waypoints
+P.SPACING     = 5.0    -- yd between two walked waypoints (3.7.0; was 3)
+P.HORIZON     = 15.0   -- yd: one window, prepared ahead of the player
 P.BODY        = 0.9    -- yd: the player's body (launcher 2.6.0 body_radius)
 P.CLEAR       = 1.0    -- yd kept between the body and an object
-P.MAX_PUSH    = 3.0    -- yd a waypoint may be moved aside (one waypoint spacing)
+P.MAX_PUSH    = 3.0    -- yd a waypoint may be moved aside
+P.WALL_CLEAR    = 2.0  -- yd probed left / right of a waypoint outdoors
+P.WALL_CLEAR_IN = 1.0  -- ... indoors (doorways, corridors)
+P.WALL_SHIFT    = 0.5  -- share of the probe distance a waypoint moves off a wall
+P.PROBE_STRAIGHT = 1.3 -- a probe is open when the mesh path to it is <= this x straight + 0.5 yd
+P.INDOOR_GAP  = 1.0    -- s between two client indoors reads
 P.SCAN_RADIUS = 30     -- yd around the player
 P.SCAN_GAP    = 0.5    -- s between two object scans
-P.RECHECK_GAP = 0.5    -- s between two re-checks of the path ahead
-P.AHEAD       = 5      -- waypoints re-checked ahead (15 yd)
+P.RECHECK_GAP = 0.5    -- s between two looks at the path ahead (client only)
+P.AHEAD       = 3      -- waypoints re-checked for new objects (15 yd)
 P.STRAIGHT    = 1.6    -- a pushed point is walkable when the mesh path to it
                        -- is at most this times the straight line (+1 yd)
 P.PROP_R      = 1.0    -- yd: radius of a non-unit object (no model read, 3.6.1)
@@ -217,12 +230,13 @@ function P.blocked(pts, objs, i1, i2)
     return nil
 end
 
---- Moves waypoints out of every object's clearance (never the last one).
---- Returns { [i] = original point } for the waypoints it moved.
-function P.push(pts, objs)
+--- Moves waypoints out of every object's clearance (never the last one);
+--- i1..i2 limits it to one window. Returns { [i] = original point } for the
+--- waypoints it moved.
+function P.push(pts, objs, i1, i2)
     local moved = {}
     if type(pts) ~= "table" or type(objs) ~= "table" or #objs == 0 then return moved end
-    for i = 1, #pts - 1 do
+    for i = math.max(1, i1 or 1), math.min(#pts - 1, i2 or #pts) do
         local p = pts[i]
         local ox, oy = 0, 0                       -- total push of this waypoint
         for _ = 1, 3 do                           -- a few passes: objects side by side
@@ -255,6 +269,151 @@ function P.push(pts, objs)
         end
     end
     return moved
+end
+
+-- ----------------------------------------------------------------------------
+-- windows (3.7.0)
+-- ----------------------------------------------------------------------------
+--- Walking distance along pts from index i1 to i2 (2D).
+function P.along(pts, i1, i2)
+    local d = 0
+    for i = math.max(2, i1 + 1), math.min(#pts, i2) do
+        d = d + sqrt((pts[i].x - pts[i - 1].x) ^ 2 + (pts[i].y - pts[i - 1].y) ^ 2)
+    end
+    return d
+end
+
+--- The last index of the window that starts at i1: HORIZON yd of path.
+function P.window_end(pts, i1, horizon)
+    horizon = horizon or P.HORIZON
+    local d, j = 0, i1
+    while j < #pts do
+        local step = sqrt((pts[j + 1].x - pts[j].x) ^ 2 + (pts[j + 1].y - pts[j].y) ^ 2)
+        if d + step > horizon + 0.01 and j > i1 then break end
+        d = d + step
+        j = j + 1
+    end
+    return j
+end
+
+local indoor = { v = false, t = -1e9 }
+--- Is the player indoors (client read, at most once per INDOOR_GAP s)?
+function P.indoors()
+    local t = now()
+    if t - indoor.t < P.INDOOR_GAP then return indoor.v end
+    indoor.t = t
+    local ok, v = pcall(function()
+        local me = core.object_manager.get_local_player()
+        return me and me:is_indoors()
+    end)
+    indoor.v = ok and v == true
+    return indoor.v
+end
+
+local function path_len(points)
+    local len, a = 0, points[1]
+    for k = 2, #points do
+        local b = points[k]
+        len = len + sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2)
+        a = b
+    end
+    return len
+end
+
+--- A batch result: ok, points (find_paths answers named fields).
+local function result(r)
+    if type(r) ~= "table" then return false, nil end
+    local ok = r.ok
+    local pts = r.points
+    if ok == nil then ok, pts = r[1], r[2] end
+    return ok == true and type(pts) == "table" and #pts >= 2, pts
+end
+
+--- Is the navmesh walk from a to b about a straight line ending at b?
+local function straight_ok(r, a, b, factor, slack)
+    local ok, pts = result(r)
+    if not ok then return false end
+    local last = pts[#pts]
+    if (last.x - b.x) ^ 2 + (last.y - b.y) ^ 2 > 1.0 then return false end
+    local straight = sqrt((b.x - a.x) ^ 2 + (b.y - a.y) ^ 2)
+    return path_len(pts) <= straight * factor + slack
+end
+
+--- Prepare the window pts[i1..i2] (step 2 of the header): object pushes, wall
+--- probes and the validation of every move, in ONE find_paths request.
+--- done(changed): the number of waypoints that moved. Without the batch query
+--- the object pushes stay (<= MAX_PUSH) and no wall is probed.
+function P.process_window(nav_table, pts, i1, i2, objs, is_indoor, done)
+    local last = #pts
+    i1, i2 = math.max(1, i1), math.min(i2, last)
+    local moved = P.push(pts, objs, i1, i2)
+    local q = type(nav_table) == "table" and nav_table.query or nil
+    if type(q) ~= "table" or type(q.find_paths) ~= "function" then
+        local n = 0
+        for _ in pairs(moved) do n = n + 1 end
+        return done(n)
+    end
+    local clear = is_indoor and P.WALL_CLEAR_IN or P.WALL_CLEAR
+    local pairs_, jobs = {}, {}
+    for i = i1, i2 do
+        if i > 1 and i < last then
+            local a, b = pts[i - 1], pts[i + 1]
+            local dx, dy = b.x - a.x, b.y - a.y
+            local l = sqrt(dx * dx + dy * dy)
+            if l > 0.01 then
+                local p = pts[i]
+                local nx, ny = -dy / l, dx / l                  -- left of the walking direction
+                local left = { x = p.x + nx * clear, y = p.y + ny * clear, z = p.z }
+                local right = { x = p.x - nx * clear, y = p.y - ny * clear, z = p.z }
+                pairs_[#pairs_ + 1] = { p, left }
+                pairs_[#pairs_ + 1] = { p, right }
+                local o = moved[i] or p
+                jobs[#jobs + 1] = { i = i, nx = nx, ny = ny, li = #pairs_ - 1, ri = #pairs_, vi = nil,
+                    sx = o.x, sy = o.y }                       -- where the server put it
+                if moved[i] then
+                    pairs_[#pairs_ + 1] = { pts[i - 1], p }
+                    jobs[#jobs].vi = #pairs_
+                end
+            end
+        end
+        if #pairs_ > 60 then break end                     -- the server takes 64 per batch
+    end
+    if #pairs_ == 0 then
+        local n = 0
+        for _ in pairs(moved) do n = n + 1 end
+        return done(n)
+    end
+    local answered = false
+    local ok = pcall(q.find_paths, pairs_, nil, function(okb, results)
+        if answered then return end
+        answered = true
+        local changed = 0
+        local res = (okb and type(results) == "table") and results or {}
+        for _, j in ipairs(jobs) do
+            local p = pts[j.i]
+            if j.vi and not straight_ok(res[j.vi], pairs_[j.vi][1], p, P.STRAIGHT, 1.0) then
+                local o = moved[j.i]
+                p.x, p.y, p.z = o.x, o.y, o.z                   -- the push is taken back
+            end
+            local lp, rp = pairs_[j.li][2], pairs_[j.ri][2]
+            local l_open = straight_ok(res[j.li], p, lp, P.PROBE_STRAIGHT, 0.5)
+            local r_open = straight_ok(res[j.ri], p, rp, P.PROBE_STRAIGHT, 0.5)
+            local s = clear * P.WALL_SHIFT
+            if l_open and not r_open then
+                p.x, p.y = p.x + j.nx * s, p.y + j.ny * s       -- wall on the right
+            elseif r_open and not l_open then
+                p.x, p.y = p.x - j.nx * s, p.y - j.ny * s       -- wall on the left
+            end
+            if (p.x - j.sx) ^ 2 + (p.y - j.sy) ^ 2 > 0.09 then changed = changed + 1 end
+        end
+        done(changed)
+    end)
+    if not ok and not answered then
+        answered = true
+        local n = 0
+        for _ in pairs(moved) do n = n + 1 end
+        done(n)
+    end
 end
 
 --- Step 4: each moved waypoint must be reachable from the one before in about

@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.0
+-- Version: 3.7.1
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -201,6 +201,36 @@ local function record_fail(code, x, y, z)
 end
 
 -- ----------------------------------------------------------------------------
+-- fresh legs (3.7.1, crash logs 2026-10-16 17:30 - 18:06)
+-- ----------------------------------------------------------------------------
+-- Every crash came 0.6 - 1.6 s after a walk leg started, and 2.181.0 already
+-- found stopping a fresh leg to be the common factor. A leg is "fresh" for
+-- FRESH_LEG s; movement/pivot does not hold one, and no new leg starts while
+-- a sharp turn is being made (R.turning) - the next leg starts after it,
+-- facing the right way.
+local FRESH_LEG = 1.0
+local FALSE_ARRIVAL = 5.0      -- yd: an "arrived" farther from the goal is not one
+
+--- Seconds since the running leg started (huge when none runs).
+function N.leg_age()
+    if not cur.leg_t or not N.busy() then return 1e9 end
+    return R.now() - cur.leg_t
+end
+function N.leg_fresh() return N.leg_age() < FRESH_LEG end
+
+--- MasterArthasNav answered "arrived" for a walk paused by the sharp-turn
+--- stop, far from the goal (log 2026-10-16 18:06: "arrived after 2.4s", 305
+--- yd short). Logged once per leg; such a leg is not counted as arrived.
+function N.false_arrival(x, y)
+    local hx, hy = R.here()
+    if not hx or not x then return false end
+    local d = R.dist2(hx, hy, x, y)
+    if d <= FALSE_ARRIVAL then return false end
+    R.trail("nav", "walk ended as 'arrived' %.0f yd short of (%.0f, %.0f) - not counted", d, x, y)
+    return true
+end
+
+-- ----------------------------------------------------------------------------
 -- issuing walks
 -- ----------------------------------------------------------------------------
 local issue_move
@@ -241,10 +271,12 @@ issue_move = function(c, x, y, z, opts)
     cur.id = cur.id + 1
     local id = cur.id
     cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route, cur.exact = x, y, z, R.now(), opts.mode or "move", nil, nil
+    cur.leg_t = R.now()
     stats.issued = stats.issued + 1
     local ok = call(c, "move_to", { x = x, y = y, z = z }, function(arrived, _, detail)
         if cur.id ~= id then return end
         local code = type(detail) == "table" and detail.code or nil
+        if arrived and N.false_arrival(x, y) then return end
         if arrived then
             fail.reason, fail.offmesh = nil, false
             return
@@ -273,9 +305,11 @@ local function start_walk(c, id, from)
     for i = math.max(1, from), #guide.full do list[#list + 1] = guide.full[i] end
     if #list < 1 then return false end
     guide.base = math.max(1, from)
+    cur.leg_t = R.now()
     local x, y, z = cur.x, cur.y, cur.z
     local okf = call(c, "follow_path", list, function(arrived, _, detail)
         if cur.id ~= id then return end
+        if arrived and N.false_arrival(x, y) then return end
         if arrived then fail.reason, fail.offmesh = nil, false return end
         local code = type(detail) == "table" and detail.code or nil
         if code == "cancelled" then return end
@@ -305,11 +339,21 @@ local function guide_move(c, x, y, z, mode)
         GP.stats.fallbacks = GP.stats.fallbacks + 1
         if cur.id == id then issue_move(c, x, y, z, { seamless = N.busy(), mode = mode }) end
     end
-    local sent = call(c, "find_path", { x = hx, y = hy, z = hz }, { x = x, y = y, z = z }, function(ok, points)
+    local sent = call(c, "find_path", { x = hx, y = hy, z = hz }, { x = x, y = y, z = z }, function(ok, points, info)
         if cur.id ~= id then return end                 -- a newer walk replaced this one
-        if not ok or type(points) ~= "table" or #points < 2 then return fallback() end
+        -- 3.7.1: a partial path (the server stops short) is walked too, as
+        -- move_to's allow_partial does - it used to fall back to move_to
+        local partial = type(info) == "table" and info.partial == true
+        if type(points) ~= "table" or #points < 2 or not (ok or partial) then
+            R.trail("nav", "exact walk to (%.0f, %.0f, %.0f): find_path ok=%s points=%s code=%s partial=%s - walking move_to",
+                x, y, z, tostring(ok), tostring(type(points) == "table" and #points or nil),
+                tostring(type(info) == "table" and info.code or nil), tostring(partial))
+            return fallback()
+        end
         local pts = GP.resample(points, GP.SPACING)
-        pts[#pts] = { x = x, y = y, z = pts[#pts].z }  -- the destination itself, never moved
+        if not partial then
+            pts[#pts] = { x = x, y = y, z = pts[#pts].z }  -- the destination itself, never moved
+        end
         guide.full, guide.base, guide.done_to = pts, 1, 0
         local objs = GP.objects(hx, hy, hz)
         guide.known = GP.snapshot(objs)
@@ -444,6 +488,13 @@ function N.nav_to(dest, direct, mode)
     if not x then return false end
     -- 3.5.0: a retarget (movement.nudge) of a running guide walk stays one
     if mode == nil and cur.exact and cur.mode == "guide" and (guide.planning or N.busy()) then mode = "guide" end
+    -- 3.7.1: a sharp turn is being made - the next leg starts after it
+    if R.turning and mode ~= "combat" then
+        local cx, cy = cur.x, cur.y
+        if cx and R.dist2(cx, cy, x, y) <= SAME_DEST then return true end
+        stats.refused = stats.refused + 1
+        return true
+    end
     local why = N.refusal()
     -- combat walks always go; an NPC approach (movement.interact) goes
     -- through its own NPC hold
@@ -511,6 +562,7 @@ function N.follow_route(list, replace)
     local id = cur.id
     local last = pts[#pts]
     cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route, cur.exact = last.x, last.y, last.z, R.now(), "route", list, nil
+    cur.leg_t = R.now()
     stats.issued = stats.issued + 1
     local ok = call(c, "follow_path", pts, function(arrived, _, detail)
         if cur.id ~= id or arrived then return end
@@ -535,6 +587,9 @@ function N.stop(reason)
     end
     cur.id = cur.id + 1                     -- late callbacks of the stopped walk are ignored
     cur.x, cur.mode, cur.route, cur.exact = nil, nil, nil, nil
+    -- 3.7.1: a deliberate stop also ends a sharp turn in progress (movement/pivot
+    -- only finishes a turn when MasterArthasNav ended the walk by itself)
+    if R.turning then R.turn_cancel, R.turning = true, false end
     guide.planning, guide.full, guide.processing, guide.dirty = false, nil, false, false
     if was then R.quiet_until = R.now() + QUIET_STOP end
 end

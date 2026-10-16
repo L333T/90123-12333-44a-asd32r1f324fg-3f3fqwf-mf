@@ -2,9 +2,9 @@
 -- Master Farmer - Grindbot
 -- Header — load gate
 -- ============================================================================
--- Purpose: TBC + IZI gate. Not class-locked. Start is gated by rotation registry.
+-- Purpose: IZI gate (every game version). Not class-locked. Start is gated by rotation registry.
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.2.0
+-- Version: 3.3.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -21,7 +21,11 @@ plugin["load"] = true
 -- gate does not require one. Class is not a gate. Both version calls are
 -- pcalled, then the decision is posted to the local nav boot log.
 -- "Vanilla" = WoW Classic (2.237.0, gathering: PORT_PLAYBOOK cap 300).
-local SUPPORTED = { Forever = true, Tbc = true, Vanilla = true }
+-- LOADS ON EVERY GAME VERSION (launcher 2.4.0, at the user's request): Retail
+-- "Midnight", Classic Era / SoD / Hardcore "Vanilla", Classic Anniversary
+-- "Tbc", "Forever" and the Forever beta (wow_forever_beta_us), "Mop", "Titan".
+-- The game version is only logged here; the data and rotations are still
+-- written for TBC / Forever / Classic (gamever.lua).
 local BOOT_URL = "http://127.0.0.1:47110/log?src=boot"
 
 local function call(fn, ...)
@@ -31,7 +35,7 @@ end
 
 local okv, version = call(core.get_game_version)
 local oke, exact = call(core.get_exact_game_version)
-local load = (okv and SUPPORTED[version] == true) or (oke and exact == "wow_forever_beta_us")
+local load = true
 
 local line = string.format("Master Farmer %s header: load=%s game_version=%s exact=%s",
     plugin["version"], tostring(load), tostring(version), tostring(oke and exact or exact))

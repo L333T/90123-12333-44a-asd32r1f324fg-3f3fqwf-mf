@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.2.0
+-- Version: 3.3.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -2164,7 +2164,7 @@ menu:set_status({
             elseif snap.paused then
                 text = text .. " (paused)"
             elseif snap.sentinel then
-                text = text .. " (Ameisen)"
+                text = text .. " (nav)"
             elseif snap.quiet then
                 text = text .. " (settling)"
             end
@@ -2178,19 +2178,19 @@ menu:set_status({
         -- Is out-of-combat travel going through Ameisen?
         -- Reads AmeisenNav's own connection flag only (plain Lua, no game
         -- call), so it is safe on the draw path.
-        label = "Ameisen",
+        label = "Navigation",
         value = function()
-            local g = rawget(_G, "AmeisenNav")
+            local g = (rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav"))
             local c = type(g) == "table" and g.client or nil
             if type(c) ~= "table" or type(c.is_server_available) ~= "function" then
-                return "AmeisenNav not loaded"
+                return "MasterArthasNav not loaded"
             end
             local ok, up = pcall(c.is_server_available, c)
-            if ok and up == true then return "Ameisen ready" end
-            return "server down - start Ameisen\\Start-Ameisen.bat"
+            if ok and up == true then return "MasterArthasNav ready" end
+            return "server down - start it from the MasterArthasNav tray icon"
         end,
         color = function()
-            local g = rawget(_G, "AmeisenNav")
+            local g = (rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav"))
             local c = type(g) == "table" and g.client or nil
             local ok, up = false, false
             if type(c) == "table" and type(c.is_server_available) == "function" then
@@ -2542,7 +2542,7 @@ menu:on_tab("gathering", function(win, x, y, w, h)
     else
         text(warn, "No route: " .. tostring(st.reason))
     end
-    text(mute, "Travel uses Ameisen navigation. Fights use the Spells tab rotation.")
+    text(mute, "Travel uses MasterArthasNav navigation. Fights use the Spells tab rotation.")
 end)
 
 local show_quest_diag = true

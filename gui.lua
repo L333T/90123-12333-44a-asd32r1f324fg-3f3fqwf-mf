@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.3.0
+-- Version: 3.4.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -98,13 +98,10 @@ local PATH_LABELS = { EMPTY_PATH }
 
 local menu = ui.new({
     id = "mfg_" .. string.gsub(identity.version, "%.", "_") .. "_main",
-    name = identity.name,
+    name = "MASTER FARMER",
     version = identity.version,
     header_text = identity.description,
-    logo = "mf_assets\\mf_assets\\logo.png",
-    logo_width = 300,     -- Master Farmer banner (3:1)
-    logo_height = 99,
-    font = "mf_assets\\mf_assets\\ManlineSlabs-pgPVy.otf",
+    subtitle = identity.description,
     footer = "Contact Us On Discord: 1stblizz",
     header_hints = {
         { key = "Numpad 0", command = "Start" },
@@ -112,7 +109,7 @@ local menu = ui.new({
         { key = "Numpad 2", command = "Stop" },
         { key = "Numpad 4", command = "Show / Hide GUI" },
     },
-    size = { w = 960, h = 695 },
+    size = { w = 1100, h = 640 },
     position = { x = 80, y = 180 },
     nav = "top",
     tabs = {
@@ -2221,7 +2218,7 @@ menu:set_actions({
     },
     {
         id = "toggle_pause",
-        label = "Pause",
+        label = "Paused",
         style = "pause",
         on_click = pause_bot,
     },

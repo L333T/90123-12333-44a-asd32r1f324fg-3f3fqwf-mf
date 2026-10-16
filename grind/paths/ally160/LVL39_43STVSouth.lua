@@ -3,7 +3,7 @@
 -- STV 39-43 South
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.3.0
+-- Version: 3.4.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

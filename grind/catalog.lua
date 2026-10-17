@@ -3,7 +3,7 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.1
+-- Version: 4.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -37,8 +37,6 @@ local function add_index(mod)
 end
 
 add_index("grind/paths/ally160/catalog")
--- 3.9.0: herbing + mining paths (tools/build_gather_path.py), listed for both sides
-add_index("grind/paths/gather/catalog")
 
 local novelist_paths = {}
 

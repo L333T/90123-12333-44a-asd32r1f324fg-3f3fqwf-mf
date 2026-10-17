@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.1
+-- Version: 4.0.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -41,7 +41,7 @@ local PLUGIN_MODULES = {
     "targeting",
     "movement",
     -- 3.0.0: the movement layer modules (fresh code on a reload)
-    "movement/core", "movement/zones", "movement/guide_path", "movement/mount", "movement/nav", "gather/esp", "gather/detour", "movement/locks",
+    "movement/core", "movement/zones", "movement/guide_path", "movement/mount", "movement/nav", "movement/locks",
     "movement/range", "movement/combat", "movement/leash", "movement/sight",
     "loot",
     "path_runner",
@@ -256,7 +256,7 @@ end
 local supplies = load_mod("supplies")
 local loader = load_mod("loader")
 local path_runner = load_mod("path_runner")
-local modes = gui and gui.modes or { GRIND = "grind", QUEST = "quest", GATHER = "gather" }
+local modes = gui and gui.modes or { GRIND = "grind", QUEST = "quest" }
 
 if gui and supplies and type(supplies.register_gui) == "function" then
     pcall(supplies.register_gui, gui.get_menu())
@@ -562,11 +562,6 @@ local function on_update()
     gui.sync_player(player)
     -- 3.0.0: what the windows show is read here, not while drawing
     pcall(gui.refresh_view, player)
-    -- 3.9.0: the herb / ore node ESP cache (gather/esp) is filled here, drawn on render
-    if gui.is_on("mfg_node_esp") then
-        local ok_esp, esp = pcall(require, "gather/esp")
-        if ok_esp and type(esp) == "table" then pcall(esp.update, player) end
-    end
     -- 3.0.0: pet_handler's delayed-command queue (moved off the render pass)
     if pets and type(pets.on_render) == "function" then
         pcall(pets.on_render)
@@ -772,18 +767,7 @@ local function on_update()
         return
     end
 
-    -- Gathering (2.237.0): herb / ore routes, lazily loaded like grind.
-    if mode == modes.GATHER then
-        local gather = loader and loader.ensure_gather() or nil
-        if not gather then
-            state.set_note("Gather", "Gather pack failed to load")
-            return
-        end
-        probe("u:gather.tick")
-        gather.tick(player)
-        probe("u:gather.tick done")
-        return
-    end
+    -- 4.0.0: gathering moved to the Herbing & Mining product (launcher card 4).
 
     if mode == modes.GRIND then
         local grind = loader and loader.ensure_grind() or nil
@@ -818,10 +802,6 @@ local function on_render()
     -- write_data_file appends. Without this they never reach scripts_data.
     if debuglog and type(debuglog.tick) == "function" then
         pcall(debuglog.tick)
-    end
-    -- 3.9.0: node ESP - cached names / positions only, no game object read here
-    if gui and gui.is_on("mfg_node_esp") and package.loaded["gather/esp"] then
-        pcall(package.loaded["gather/esp"].draw)
     end
     if gui and gui.is_on("draw_path") and path_runner and type(path_runner.draw) == "function" then
         pcall(function()

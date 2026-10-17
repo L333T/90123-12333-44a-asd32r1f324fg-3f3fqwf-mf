@@ -3,7 +3,7 @@
 -- Gathering: profession trainer trips (PORT_PLAYBOOK "Vendor, repair, trainers")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.0
+-- Version: 3.8.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- trainer.lua (the class trainer) refuses every profession service on
@@ -63,6 +63,14 @@ end
 local function now()
     local ok, t = pcall(core.time)                 -- 3.8.0: core API (was izi.now)
     return (ok and type(t) == "number") and t or 0
+end
+
+--- Distance between two game objects from get_position (3.8.1: Core API; distance_to is an izi extension).
+local function unit_dist(a, b)
+    local ok, pa, pb = pcall(function() return a:get_position(), b:get_position() end)
+    if not ok or type(pa) ~= "table" or type(pb) ~= "table" then return nil end
+    local dx, dy, dz = pa.x - pb.x, pa.y - pb.y, (pa.z or 0) - (pb.z or 0)
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
 -- 2.285.0: professions.lua (skill lines, then the profession tabs) - the
@@ -189,7 +197,7 @@ function trainer.tick(player, need, enabled)
             movement.nav_to(dest)
             return true
         end
-        if (safe(function() return player:distance_to(unit) end) or 99) > ARRIVE then
+        if (unit_dist(player, unit) or 99) > ARRIVE then
             movement.nav_to(up)
             state.set_note("Gather", string.format("To trainer %s", r.name))
             return true

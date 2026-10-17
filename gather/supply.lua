@@ -4,7 +4,7 @@
 -- "Food, drink, ammo")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.0
+-- Version: 3.8.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine BulletRun / BuyBullets / Hunter_Ammo_* and
@@ -81,6 +81,14 @@ end
 local function now()
     local ok, t = pcall(core.time)                 -- 3.8.0: core API (was izi.now)
     return (ok and type(t) == "number") and t or 0
+end
+
+--- Distance between two game objects from get_position (3.8.1: Core API; distance_to is an izi extension).
+local function unit_dist(a, b)
+    local ok, pa, pb = pcall(function() return a:get_position(), b:get_position() end)
+    if not ok or type(pa) ~= "table" or type(pb) ~= "table" then return nil end
+    local dx, dy, dz = pa.x - pb.x, pa.y - pb.y, (pa.z or 0) - (pb.z or 0)
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
 local function log(msg) core.log("[Master Farmer - Grindbot] gather supply: " .. msg) end
@@ -320,7 +328,7 @@ function supply.tick(player, r, opts)
     end
 
     local unit = targeting.find_named(player, trip.vendor, nil, 40)
-    local d_npc = unit and safe(function() return player:distance_to(unit) end) or nil
+    local d_npc = unit and unit_dist(player, unit) or nil
     if not d_npc and not movement.arrived(trip.dest, ARRIVE) then
         local here = state.cached_pos or safe(function() return player:get_position() end)
         local far = here and type(here.x) == "number"

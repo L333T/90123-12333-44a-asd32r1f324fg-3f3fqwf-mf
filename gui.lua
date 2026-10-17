@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.0
+-- Version: 3.8.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -197,8 +197,8 @@ menu:checkbox("mfg_gather_mine", true, {
     tooltip = "Gather ore and allow the mining routes.",
 })
 menu:checkbox("mfg_gather_fight", true, {
-    label = "Fight While Patrolling", tab = "gathering", visible_if = gather_on,
-    tooltip = "In combat on the route, fight back once health falls to the Fight-Back Health %. At a node the bot always fights what attacks it. Uses the Spells tab rotation.",
+    label = "Fight Attackers", tab = "gathering", visible_if = gather_on,
+    tooltip = "Any mob that attacks the player within the Fight-Back Range is fought at once with the Spells tab rotation. Off: only at a node.",
 })
 menu:checkbox("mfg_gather_mount", true, {
     label = "Use Mount", tab = "gathering", visible_if = gather_on,
@@ -251,10 +251,6 @@ menu:slider_int("mfg_gather_scan_gap", 1, 5, 1, {
 menu:slider_int("mfg_gather_max", 30, 600, 200, {
     label = "Max Gather Time (s)", tab = "gathering", visible_if = gather_on,
     tooltip = "A node not gathered within this time is blacklisted.",
-})
-menu:slider_int("mfg_gather_fight_hp", 10, 100, 50, {
-    label = "Fight-Back Health %", tab = "gathering", visible_if = gather_on,
-    tooltip = "On the route, fight back when in combat and health is at or below this percentage.",
 })
 menu:slider_int("mfg_gather_fight_yards", 10, 60, 40, {
     label = "Fight-Back Range (yd)", tab = "gathering", visible_if = gather_on,

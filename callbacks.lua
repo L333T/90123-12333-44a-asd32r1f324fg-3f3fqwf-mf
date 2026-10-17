@@ -3,7 +3,7 @@
 -- callbacks.lua - combat finished, spell cancelled (core API polling, 2.315.0)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.1
+-- Version: 4.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.271.0)

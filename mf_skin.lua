@@ -20,9 +20,15 @@
 --            start / pause / stop actions; the mockup's X closes the window
 --   footer   the mockup's Discord bar
 --
--- PIXEL-PERFECT: the art exists for 1080 / 1440 / 2160 screens (the set whose
--- height is at least the screen's, smaller when it would not fit) and is drawn
--- 1:1 at that set's window size.
+-- PIXEL-PERFECT (2026-10-17, user: every product GUI on WoW's UI scale): WoW
+-- lays its UI out on a screen 768 units tall, uiScale = 768 / vertical
+-- resolution (1080p 0.7111, 1440p 0.5333, 2160p 0.3556). The window is
+-- G.units (896 x 500) UI units, so its size in pixels is
+--     units * (screen height / 768)        (1 / uiScale)
+-- rounded to whole pixels, shrunk only when it would not fit the screen
+-- (98 %) - the launcher's rule (modules/ui.lua pixel_scale). The art set is
+-- the first one at least that large (1080 / 1440 / 2160), drawn scaled to
+-- the window: exactly 1:1 on 1080p, 1440p and 4K, and never stretched up.
 -- Nothing here calls the game except the texture / http / data-file natives
 -- the product windows already use while drawing.
 -- ============================================================================
@@ -33,7 +39,7 @@ local G = require("mf_skin_geom")
 
 local S = {}
 
-S.ASSET_VERSION = "p1"
+S.ASSET_VERSION = "p2"                 -- p2: + the 3-tab layout (tab3_*)
 S.ART_URL = "https://raw.githubusercontent.com/L333T/master-farmer-assets/main/gui/product/"
 local DIR = "master_farmer/gui_product_" .. S.ASSET_VERSION
 
@@ -52,7 +58,7 @@ S.COL = {
     underline = color.new(240, 196, 135, 220),
 }
 
--- text sizes in mockup pixels (scaled with the set)
+-- text sizes in mockup pixels (scaled with the window)
 local SIZE = { name = 40, version = 24, tab = 30, title = 28, sub = 25, row = 22, hint = 20 }
 
 local function safe(fn, ...)
@@ -80,18 +86,71 @@ local function screen_size()
     return screen.w, screen.h
 end
 
---- The set for a screen: the first whose height is at least the screen's,
---- then smaller while it would not fit (98 %). nil while the screen is unknown.
-function S.set_for(sw, sh)
+S.REF_H = 768                          -- WoW's UI height in units
+
+--- UI units -> pixels for a screen: 1 / uiScale = screen height / 768,
+--- shrunk only when the window would not fit (98 %).
+function S.pixel_scale(sw, sh)
     if not sw or not sh then return nil end
-    local pick = G.sets[#G.sets]
-    for i = 1, #G.sets do
-        if G.sets[i].screen_h >= sh - 0.5 then pick = G.sets[i] break end
+    local k = sh / S.REF_H
+    local uw, uh = G.units.w, G.units.h
+    if uw * k > sw * 0.98 then k = sw * 0.98 / uw end
+    if uh * k > sh * 0.98 then k = sh * 0.98 / uh end
+    return k
+end
+
+--- The window size in whole pixels for a screen: w, h (nil while unknown).
+function S.window_px(sw, sh)
+    local k = S.pixel_scale(sw, sh)
+    if not k then return nil end
+    return math.floor(G.units.w * k + 0.5), math.floor(G.units.h * k + 0.5)
+end
+
+--- PIXEL SCALE FOR THE CONTROLS (2026-10-17). A product's ui.lua theme holds
+--- its control metrics in pixels for a 1080p screen (fonts 15-28, rows 35,
+--- margins, widths). Every number in the theme except the font ids (keys
+--- starting "font") is scaled by pixel_scale / (1080 / 768) - the window's own
+--- factor relative to 1080p - and rounded to whole pixels: unchanged on
+--- 1080p, x1.333 on 1440p, x2 on 4K. The 1080p values are kept in
+--- menu._theme_base; the theme is rewritten only when the factor changes.
+S.THEME_BASE_K = 1080 / 768
+function S.theme_scale(menu)
+    local t = type(menu) == "table" and menu.theme or nil
+    if type(t) ~= "table" then return false end
+    local k = S.pixel_scale(screen_size())
+    if not k then return false end
+    local f = k / S.THEME_BASE_K
+    if menu._theme_f and math.abs(menu._theme_f - f) < 1e-4 then return true end
+    if not menu._theme_base then
+        local base = {}
+        for key, v in pairs(t) do
+            if type(v) == "number" and type(key) == "string" and key:sub(1, 4) ~= "font" then base[key] = v end
+        end
+        menu._theme_base = base
     end
-    local i = 1
-    for j = 1, #G.sets do if G.sets[j] == pick then i = j end end
-    while i > 1 and (G.sets[i].w > sw * 0.98 or G.sets[i].h > sh * 0.98) do i = i - 1 end
-    return G.sets[i]
+    for key, v in pairs(menu._theme_base) do
+        local scaled = v * f
+        if key == "border_thickness" then
+            t[key] = math.max(1, math.floor(scaled + 0.5))
+        elseif math.floor(v) ~= v then
+            t[key] = math.floor(scaled * 10 + 0.5) / 10      -- a fractional metric keeps one decimal
+        else
+            t[key] = math.max(1, math.floor(scaled + 0.5))
+        end
+    end
+    menu._theme_f = f
+    return true
+end
+
+--- The art set for a screen: the first drawn at least as large as the
+--- window (never stretched up); the largest when the window is larger still.
+function S.set_for(sw, sh)
+    local w = S.window_px(sw, sh)
+    if not w then return nil end
+    for i = 1, #G.sets do
+        if G.sets[i].w >= w - 0.5 then return G.sets[i] end
+    end
+    return G.sets[#G.sets]
 end
 
 function S.current_set()
@@ -203,9 +262,9 @@ end
 --- so the window does not jump when it arrives). False while the screen size
 --- is unknown.
 function S.fit(menu)
-    local set = S.current_set()
-    if not set then return false end
-    menu.width, menu.height = set.w, set.h
+    local w, h = S.window_px(screen_size())
+    if not w then return false end
+    menu.width, menu.height = w, h
     return true
 end
 
@@ -214,8 +273,15 @@ local function names(set, n)
         "tab" .. n .. "_on_" .. set.tag .. ".png"
 end
 
+--- The tab art for a group count: 3 or fewer -> the 3-tab layout, 4 -> 4, else 5.
+local function layout_for(count)
+    if count <= 3 then return 3 end
+    return (count <= 4) and 4 or 5
+end
+S.layout_for = layout_for
+
 local function layout_n(menu)
-    return (#S.groups(menu) <= 4) and 4 or 5
+    return layout_for(#S.groups(menu))
 end
 
 --- True when this screen's set is loaded for the menu's tab count (the
@@ -230,15 +296,19 @@ function S.ready(menu)
     if ok then
         -- the other layout too, so a window that changes its tab count
         -- (Intelligent Ally: follower / leader) never falls back meanwhile
-        local _, off2, on2 = names(set, n == 4 and 5 or 4)
-        S.texture(off2)
-        S.texture(on2)
+        for _, other in ipairs({ 3, 4, 5 }) do
+            if other ~= n then
+                local _, off2, on2 = names(set, other)
+                S.texture(off2)
+                S.texture(on2)
+            end
+        end
     end
     return ok
 end
 
 -- per-frame context
-local C = { win = nil, ox = 0, oy = 0, k = 1, set = nil, H = nil }
+local C = { win = nil, ox = 0, oy = 0, k = 1, set = nil, H = nil, tk = 1 }
 
 local function px(v) return math.floor(v * C.k + 0.5) end
 
@@ -251,7 +321,10 @@ local function draw_tex(name, x, y, alpha)
     local t = tex[name]
     local size = G.tex[name]
     if type(t) ~= "table" or not size then return false end
-    return pcall(core.graphics.draw_texture_rect, t.id, vec2.new(C.ox + x, C.oy + y), size[1], size[2],
+    -- the set's texture at the window's scale, on whole pixels (1:1 when the
+    -- window is exactly the set's size)
+    local w, h = math.floor(size[1] * C.tk + 0.5), math.floor(size[2] * C.tk + 0.5)
+    return pcall(core.graphics.draw_texture_rect, t.id, vec2.new(C.ox + x, C.oy + y), w, h,
         0, 0, 1, 1, color.white(alpha or 255), true)
 end
 
@@ -315,7 +388,7 @@ local function draw_header(menu, f_title, f_sec)
 end
 
 local function draw_tabs(menu, groups, active_gi, f_sec)
-    local n = (#groups <= 4) and 4 or 5
+    local n = layout_for(#groups)
     local L = G.tabs[n]
     local _, off, on = names(C.set, n)
     local size = px(SIZE.tab)
@@ -467,11 +540,15 @@ end
 --- { draw_text, text_size, hovered, clicked, block_drag, value }. Returns the
 --- active tab id (the product's scroll area was drawn for it).
 function S.draw(menu, win, H)
-    local set = S.current_set()
-    if not set then return nil end
-    C.win, C.H, C.set, C.k = win, H, set, set.w / G.src_w
+    local sw, sh = screen_size()
+    local set = S.set_for(sw, sh)
+    local ww = S.window_px(sw, sh)
+    if not set or not ww then return nil end
+    C.win, C.H, C.set = win, H, set
+    C.k = ww / G.src_w                     -- mockup px -> window px
+    C.tk = ww / set.w                      -- the set's texture px -> window px
     local o = safe(function() return win:get_position() end)
-    C.ox, C.oy = (o and o.x) or 0, (o and o.y) or 0
+    C.ox, C.oy = math.floor(((o and o.x) or 0) + 0.5), math.floor(((o and o.y) or 0) + 0.5)
 
     local f_title, f_sec, f_row = fonts(menu)
     draw_tex("product_bg_" .. set.tag .. ".png", 0, 0)

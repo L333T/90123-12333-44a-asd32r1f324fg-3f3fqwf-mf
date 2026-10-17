@@ -3,7 +3,7 @@
 -- Gathering: client skill cap, profession ranks, route selection
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.0
+-- Version: 3.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine Path_Information(): walk gather/routes.lua in FILE
@@ -107,6 +107,51 @@ function route.select(player, need_mine, need_herb)
         end
     end
     return nil, string.format("no %s route for herb %d / mine %d under cap %d", faction, herb, mine, cap)
+end
+
+-- ----------------------------------------------------------------------------
+-- 3.9.1: a herbing / mining PATH instead of the skill route (Gathering tab
+-- "Gathering Path" dropdown: 1 = Auto, then grind/paths/gather/catalog).
+-- ----------------------------------------------------------------------------
+route.AUTO_LABEL = "Auto (route by skill)"
+
+local function path_index()
+    local ok, list = pcall(require, "grind/paths/gather/catalog")
+    return (ok and type(list) == "table") and list or {}
+end
+
+---Dropdown labels: Auto first, then every herbing / mining path.
+function route.path_labels()
+    local labels = { route.AUTO_LABEL }
+    local list = path_index()
+    for i = 1, #list do labels[#labels + 1] = tostring(list[i].label or list[i].id) end
+    return labels
+end
+
+local path_cache = { idx = nil, route = nil }
+
+---The route built from dropdown entry `idx` (2 = the first path), or nil for Auto.
+---Shaped like a gather/routes.lua route: id, waypoints {x, y, z}; plus
+---from_path = true, no_z (the path has no heights), skill = nil (both).
+function route.from_path(idx)
+    idx = tonumber(idx)
+    if not idx or idx < 2 then return nil end
+    if path_cache.idx == idx and path_cache.route then return path_cache.route end
+    local entry = path_index()[idx - 1]
+    if type(entry) ~= "table" or type(entry.module) ~= "string" then return nil end
+    local ok, raw = pcall(require, entry.module)
+    if not ok or type(raw) ~= "table" or type(raw.coords) ~= "table" then return nil end
+    local wps = {}
+    local c = raw.coords
+    for k = 1, #c - 2, 3 do wps[#wps + 1] = { c[k], c[k + 1], c[k + 2] } end
+    local r = {
+        id = tostring(raw.id or entry.id), name = tostring(raw.name or entry.label),
+        faction = "Both", from_path = true, no_z = raw.no_z == true,
+        continent_id = raw.continent_id, waypoints = wps,
+    }
+    package.loaded[entry.module] = nil          -- the flat copy is not kept twice
+    path_cache.idx, path_cache.route = idx, r
+    return r
 end
 
 return route

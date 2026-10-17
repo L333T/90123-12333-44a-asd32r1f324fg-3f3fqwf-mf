@@ -3,7 +3,7 @@
 -- gather/detour.lua - leave a recorded path for a herb / ore node, gather it
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.0
+-- Version: 3.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Used by grind/engine while a recorded path runs (the Path tab's loaded

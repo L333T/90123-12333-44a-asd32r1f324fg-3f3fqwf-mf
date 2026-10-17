@@ -2,7 +2,7 @@
 -- Master Farmer - Grindbot
 -- Alliance Eastern Kingdoms inns (innkeeper spots)
 -- ============================================================================
--- Version: 3.9.0
+-- Version: 3.9.1
 -- ============================================================================
 -- Positions only: { name, x, y, z }. The recorded inn / flight-path roads
 -- (data/ek_alliance_routes) were removed in 2.266.0 at the user's request and

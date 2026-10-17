@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.1
+-- Version: 4.0.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -19,8 +19,6 @@ local movement = require("movement")
 local rotation = require("rotation")
 local healing = require("healing")
 local grind_zones = require("grind/zone_lookup")
--- 3.9.0: herb / ore nodes seen by the node ESP pull the walk off a recorded path
-local GD = require("gather/detour")
 
 local grind = {}
 
@@ -94,7 +92,6 @@ local lap_pending = 0
 
 function grind.set_profile(path)
     profile = path
-    GD.reset()
     hunt = nil
     state.grind.finished = false
     state.grind.dir = 1
@@ -118,7 +115,6 @@ end
 
 function grind.clear_profile()
     profile = nil
-    GD.reset()
     hunt = nil
     state.grind.finished = false
 end
@@ -644,12 +640,6 @@ function grind.kill_mobs(player)
         state.grind.step = 2
         state.grind.black_until = izi.now() + gui.slider("max_kill", 60)
         state.set_note("Grind", "Closing")
-        return
-    end
-    -- 3.9.0: a herb / ore node the ESP sees near a recorded path: walk to it
-    -- (navigation system), gather it, then rejoin the path where it is nearest
-    if zone and zone.path and GD.tick(player) then
-        gc.list, gp.rejoin = nil, true
         return
     end
     if not zone or type(zone.coords) ~= "table" then

@@ -3,7 +3,7 @@
 -- movement/core.lua - shared state and helpers of the movement layer
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.0
+-- Version: 3.8.1
 -- ============================================================================
 -- 3.0.0 MOVEMENT RECODE. Every walk is AmeisenNav's (_G.AmeisenNav.client,
 -- the 2.0.0 navigation API): it paths on the navmesh, owns the walker

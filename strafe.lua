@@ -3,7 +3,7 @@
 -- strafe.lua - Rogue / Warrior "Strafe Combat": short left / right micro-strafes
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.0
+-- Version: 3.8.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT IT DOES (2.212.0)

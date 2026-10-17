@@ -3,7 +3,7 @@
 -- Gathering mode: patrol a route, gather herb / ore nodes, fight back
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.0
+-- Version: 3.8.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine (MainThread + Gather_Process), PORT_PLAYBOOK.md.
@@ -12,10 +12,11 @@
 --
 --   1. teleport alarm (off by default): moved farther than the alarm yards in
 --      one tick while alive -> stand still 90 s
---   2. fight back: (in combat, health <= fight-back %, Fight While Patrolling
---      on, attacker within fight-back yards and <= 5 levels above) or a fight
---      already latched. The fight is the Grind tab's: targeting + rotation.tick
---      (Spells tab), never a class module of its own.
+--   2. fight back (3.8.1): a mob in combat that targets the player within the
+--      fight-back yards is fought at once with the rotation - on the route
+--      (Fight Attackers on, any health, any level) and always at a node - or a
+--      fight already latched. The fight is the Grind tab's: targeting +
+--      rotation.tick (Spells tab), never a class module of its own.
 --   3. route (gather/route.select, re-checked every minute as ranks rise)
 --   4. profession trainer trips (gather/trainer), then hunter ammo and
 --      route food / drink trips (gather/supply, 2.238.0)
@@ -59,7 +60,6 @@ local LOOT_GAP = 0.3
 local TRACK_GAP = 30
 local ROUTE_CHECK = 60
 local MOUNT_SUPPRESS = 10
-local LEVEL_GAP = 5
 
 -- Settings ids (Gathering tab, gui.lua).
 local ID = {
@@ -72,7 +72,6 @@ local ID = {
     scan = "mfg_gather_scan",
     scan_gap = "mfg_gather_scan_gap",
     max = "mfg_gather_max",
-    fight_hp = "mfg_gather_fight_hp",
     fight_yards = "mfg_gather_fight_yards",
     teleport_yards = "mfg_gather_teleport_yards",
     buy_food = "mfg_gather_buy_food",
@@ -112,6 +111,14 @@ end
 local function now()
     local ok, t = pcall(core.time)                 -- 3.8.0: core API (was izi.now)
     return (ok and type(t) == "number") and t or 0
+end
+
+--- Distance between two game objects from get_position (3.8.1: Core API; distance_to is an izi extension).
+local function unit_dist(a, b)
+    local ok, pa, pb = pcall(function() return a:get_position(), b:get_position() end)
+    if not ok or type(pa) ~= "table" or type(pb) ~= "table" then return nil end
+    local dx, dy, dz = pa.x - pb.x, pa.y - pb.y, (pa.z or 0) - (pb.z or 0)
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
 local function on(id) return gui.is_on(id) == true end
@@ -248,31 +255,16 @@ local function end_fight()
     S.fighting = false
 end
 
-local function level_ok(player, unit)
-    local ul = safe(function() return unit:get_level() end) or 0
-    local pl = safe(function() return player:get_level() end) or 0
-    return (ul - pl) <= LEVEL_GAP
-end
-
----Latch a target when the playbook's trigger holds. `near_node` = step 2 at
----the node: the range alone decides.
+---Latch a target: a mob attacking the player (in combat, targeting the
+---player - targeting.combat_scan) within the fight-back yards. 3.8.1: no
+---health threshold and no level filter any more - whatever attacks the player
+---gets the rotation. `near_node` = step 2 at the node: fought even with Fight
+---Attackers off.
 local function want_fight(player, near_node)
     if S.fighting then return true end
+    if not near_node and not on(ID.fight) then return false end
     if safe(function() return player:is_in_combat() end) ~= true then return false end
-    if not near_node then
-        if not on(ID.fight) then return false end
-        local hp = safe(function() return player:get_health_percentage() end) or 100
-        if hp > num(ID.fight_hp, 50) then return false end
-    end
-    local yards = num(ID.fight_yards, 40)
-    local pack = targeting.combat_scan(player, yards)
-    if not near_node and type(pack) == "table" then
-        local kept = {}
-        for i = 1, #pack do
-            if level_ok(player, pack[i]) then kept[#kept + 1] = pack[i] end
-        end
-        pack = kept
-    end
+    local pack = targeting.combat_scan(player, num(ID.fight_yards, 40))
     local unit = targeting.nearest(player, pack)
     if not unit then return false end
     targeting.set_current(unit, "kill")
@@ -305,7 +297,7 @@ local function fight(player)
         if ok_l and type(lt) == "table" and type(lt.note_kill) == "function" then lt.note_kill(unit) end
         return end_fight()
     end
-    local dist = safe(function() return player:distance_to(unit) end) or 99
+    local dist = unit_dist(player, unit) or 99
     local in_combat = safe(function() return player:is_in_combat() end) == true
     if now() > S.fight_until or (dist > num(ID.fight_yards, 40) and not in_combat) then
         state.mark_killed(state.target.guid)
@@ -526,7 +518,7 @@ local function gather_node(player, p)
         return
     end
     if safe(function() return player:is_moving() end) == true then return end
-    if safe(function() return player:is_channeling_or_casting() end) == true then
+    if (safe(function() return player:is_casting_spell() end) == true or safe(function() return player:is_channelling_spell() end) == true) then
         state.set_note(NOTE, "Gathering " .. tostring(S.node_name))
         return
     end
@@ -556,7 +548,15 @@ local function keep_tracking(player)
     if not name then return end
     local fam = spellbook.family(name)
     if not fam or not fam.id then return end
-    if safe(function() return player:has_buff(fam.ranks or { fam.id }) end) == true then return end
+    -- 3.8.1: the aura is read with get_buffs (declared; has_buff is not in the .api)
+    local ids = { [fam.id] = true }
+    for _, id in ipairs(fam.ranks or {}) do ids[id] = true end
+    local buffs = safe(function() return player:get_buffs() end)
+    if type(buffs) == "table" then
+        for _, b in ipairs(buffs) do
+            if type(b) == "table" and (ids[b.buff_id] or b.buff_name == name) then return end
+        end
+    end
     -- core API cast (spellcheck) by spell id - 3.8.0: no izi spell object either
     pcall(function() require("spellcheck").cast_safe(fam.id, player, "MF gather " .. name) end)
 end

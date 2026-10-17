@@ -3,7 +3,7 @@
 -- Rogue grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.0
+-- Version: 3.8.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- POISONS ARE NOT IMPLEMENTED, AND THIS IS THE REASON

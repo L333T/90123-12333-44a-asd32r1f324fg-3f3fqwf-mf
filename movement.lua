@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -31,6 +31,16 @@ local Rg = require("movement/range")
 local C  = require("movement/combat")
 local L  = require("movement/leash")
 local Pv = require("movement/pivot")   -- 3.2.0: stop and turn on sharp waypoint turns
+local Mt = require("movement/mount")   -- 3.8.0: mount for travel (the 1-60 way)
+
+-- 3.8.0: Gathering uses its own "Use Mount" box; questing / grinding the
+-- General tab one
+Mt.enabled_fn = function()
+    local ok, gui = pcall(require, "gui")
+    if not ok or type(gui) ~= "table" or type(gui.is_on) ~= "function" then return true end
+    local gathering = type(gui.mode) == "function" and type(gui.modes) == "table" and gui.mode() == gui.modes.GATHER
+    return gui.is_on(gathering and "mfg_gather_mount" or "mfg_mount") ~= false
+end
 
 -- 3.2.0: the GUI switch (Path tab, "Stop and Turn on Sharp Turns", on by default)
 Pv.set_enabled_fn(function()

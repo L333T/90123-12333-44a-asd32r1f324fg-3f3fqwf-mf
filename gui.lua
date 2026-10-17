@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -137,6 +137,11 @@ menu:checkbox("mfg_enable", false, {
 })
 -- One switch for all looting, on the always-visible General tab: grinding,
 -- questing and path mode all loot through loot.lua.
+menu:checkbox("mfg_mount", true, {
+    label = "Use Mount",
+    tab = "general",
+    tooltip = "Questing and grinding: mount (or Travel Form) before every walk of 30 yards or more - a class mount spell, a mount in the bags or the mount list, from level 30, outdoors and out of combat. Dismounts for a fight. Gathering has its own Use Mount box.",
+})
 menu:checkbox("mfg_loot", true, {
     label = "Auto Loot Corpses",
     tab = "general",

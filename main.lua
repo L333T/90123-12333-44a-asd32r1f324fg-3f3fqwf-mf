@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -41,7 +41,7 @@ local PLUGIN_MODULES = {
     "targeting",
     "movement",
     -- 3.0.0: the movement layer modules (fresh code on a reload)
-    "movement/core", "movement/zones", "movement/guide_path", "movement/nav", "movement/locks",
+    "movement/core", "movement/zones", "movement/guide_path", "movement/mount", "movement/nav", "movement/locks",
     "movement/range", "movement/combat", "movement/leash", "movement/sight",
     "loot",
     "path_runner",

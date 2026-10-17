@@ -3,12 +3,14 @@
 -- Gathering: 24 herb / mine routes (port of EP_Herb_Mine Path_Information)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
 -- English route data extracted from EP_Herb_Mine.lua Path_Information().
--- Coordinates are copied exactly. Names are the English Check_Client strings.
+-- Coordinates are copied exactly (waypoints, merchant / ammo / food vendors and
+-- the mailbox, mail_coord - kept as the source has it even where its map id looks
+-- off). Names are the English Check_Client strings.
 -- Skill windows keep the source comparison. max_op '<' means rank < max_rank.
 -- max_op '<=' means rank <= max_rank.
 local routes = {
@@ -28,6 +30,7 @@ local routes = {
         ammo_coord = { mapid = 1420, x = 1866, y = 1574, z = 94 },
         food_vendor = "Joshua Kien",
         food_coord = { mapid = 1420, x = 1866, y = 1574, z = 94 },
+        mail_coord = { mapid = 1420, x = -9455, y = 45, z = 56 },
         food = "Tough Hunk of Bread",
         drink = "Refreshing Spring Water",
         waypoints = {
@@ -103,6 +106,7 @@ local routes = {
         ammo_coord = { mapid = 1420, x = 1866, y = 1574, z = 94 },
         food_vendor = "Joshua Kien",
         food_coord = { mapid = 1420, x = 1866, y = 1574, z = 94 },
+        mail_coord = { mapid = 1420, x = -9455, y = 45, z = 56 },
         food = "Tough Hunk of Bread",
         drink = "Refreshing Spring Water",
         waypoints = {
@@ -178,6 +182,7 @@ local routes = {
         ammo_coord = { mapid = 1420, x = 2253, y = 270, z = 34 },
         food_vendor = "Innkeeper Renee",
         food_coord = { mapid = 1420, x = 2269, y = 244, z = 34 },
+        mail_coord = { mapid = 1420, x = 2236, y = 254, z = 34 },
         food = "Forest Mushroom Cap",
         drink = "Refreshing Spring Water",
         waypoints = {
@@ -231,6 +236,7 @@ local routes = {
         ammo_coord = { mapid = 1424, x = -24, y = -935, z = 55 },
         food_vendor = "Innkeeper Shay",
         food_coord = { mapid = 1424, x = -5, y = -942, z = 57 },
+        mail_coord = { mapid = 1424, x = -21, y = -927, z = 55 },
         food = "Haunch of Meat",
         drink = "Ice Cold Milk",
         waypoints = {
@@ -288,6 +294,7 @@ local routes = {
         ammo_coord = { mapid = 1424, x = -24, y = -935, z = 55 },
         food_vendor = "Innkeeper Shay",
         food_coord = { mapid = 1424, x = -5, y = -942, z = 57 },
+        mail_coord = { mapid = 1424, x = -21, y = -927, z = 55 },
         food = "Haunch of Meat",
         drink = "Ice Cold Milk",
         waypoints = {
@@ -345,6 +352,7 @@ local routes = {
         ammo_coord = { mapid = 1417, x = -910, y = -3534, z = 72 },
         food_vendor = "Innkeeper Adegwa",
         food_coord = { mapid = 1417, x = -912, y = -3524, z = 72 },
+        mail_coord = { mapid = 1417, x = -928, y = -3525, z = 70 },
         food = "Dwarven Mild",
         drink = "Ice Cold Milk",
         waypoints = {
@@ -440,6 +448,7 @@ local routes = {
         ammo_coord = { mapid = 1417, x = -910, y = -3534, z = 72 },
         food_vendor = "Innkeeper Adegwa",
         food_coord = { mapid = 1417, x = -912, y = -3524, z = 72 },
+        mail_coord = { mapid = 1417, x = -928, y = -3525, z = 70 },
         food = "Dwarven Mild",
         drink = "Ice Cold Milk",
         waypoints = {
@@ -535,6 +544,7 @@ local routes = {
         ammo_coord = { mapid = 1417, x = -910, y = -3534, z = 72 },
         food_vendor = "Innkeeper Adegwa",
         food_coord = { mapid = 1417, x = -912, y = -3524, z = 72 },
+        mail_coord = { mapid = 1417, x = -928, y = -3525, z = 70 },
         food = "Dwarven Mild",
         drink = "Ice Cold Milk",
         waypoints = {
@@ -602,6 +612,7 @@ local routes = {
         ammo_coord = { mapid = 1427, x = -6524, y = -1188, z = 309 },
         food_vendor = "Master Smith Burninate",
         food_coord = { mapid = 1427, x = -6524, y = -1188, z = 309 },
+        mail_coord = { mapid = 1417, x = -928, y = -3525, z = 70 },
         food = "Roasted Quail",
         drink = "Morning Glory Dew",
         waypoints = {
@@ -682,6 +693,7 @@ local routes = {
         ammo_coord = { mapid = 1427, x = -6524, y = -1188, z = 309 },
         food_vendor = "Master Smith Burninate",
         food_coord = { mapid = 1427, x = -6524, y = -1188, z = 309 },
+        mail_coord = { mapid = 1417, x = -928, y = -3525, z = 70 },
         food = "Roasted Quail",
         drink = "Morning Glory Dew",
         waypoints = {
@@ -762,6 +774,7 @@ local routes = {
         ammo_coord = { mapid = 1944, x = 190.87, y = 2610.92, z = 87.28 },
         food_vendor = "Floyd Pinkus",
         food_coord = { mapid = 1944, x = 190.87, y = 2610.92, z = 87.28 },
+        mail_coord = { mapid = 1944, x = 172.3, y = 2623.74, z = 87.09 },
         food = "Roasted Quail",
         drink = "Morning Glory Dew",
         waypoints = {
@@ -847,6 +860,7 @@ local routes = {
         ammo_coord = { mapid = 1944, x = 190.87, y = 2610.92, z = 87.28 },
         food_vendor = "Floyd Pinkus",
         food_coord = { mapid = 1944, x = 190.87, y = 2610.92, z = 87.28 },
+        mail_coord = { mapid = 1944, x = 172.3, y = 2623.74, z = 87.09 },
         food = "Roasted Quail",
         drink = "Morning Glory Dew",
         waypoints = {
@@ -910,6 +924,7 @@ local routes = {
         ammo_coord = { mapid = 1426, x = -6226, y = 319, z = 383 },
         food_vendor = "Adlin Pridedrift",
         food_coord = { mapid = 1426, x = -6226, y = 319, z = 383 },
+        mail_coord = { mapid = 1426, x = -6104, y = 384, z = 395 },
         food = "Tough Hunk of Bread",
         drink = "Refreshing Spring Water",
         waypoints = {
@@ -970,6 +985,7 @@ local routes = {
         ammo_coord = { mapid = 1426, x = -5597, y = -521, z = 399 },
         food_vendor = "Innkeeper Belm",
         food_coord = { mapid = 1426, x = -5601, y = -531, z = 399 },
+        mail_coord = { mapid = 1426, x = -6104, y = 384, z = 395 },
         food = "Tough Hunk of Bread",
         drink = "Refreshing Spring Water",
         waypoints = {
@@ -1030,6 +1046,7 @@ local routes = {
         ammo_coord = { mapid = 1437, x = -3745, y = -890, z = 11 },
         food_vendor = "Innkeeper Helbrek",
         food_coord = { mapid = 1437, x = -3827, y = -831, z = 10 },
+        mail_coord = { mapid = 1437, x = -3793, y = -838, z = 9 },
         food = "Snapvine Watermelon",
         drink = "Melon Juice",
         waypoints = {
@@ -1095,6 +1112,7 @@ local routes = {
         ammo_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
         food_vendor = "Vikki Lonsav",
         food_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
+        mail_coord = { mapid = 1417, x = -1278, y = -2521, z = 21 },
         food = "Wild Hog Shank",
         drink = "Sweet Nectar",
         waypoints = {
@@ -1152,6 +1170,7 @@ local routes = {
         ammo_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
         food_vendor = "Vikki Lonsav",
         food_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
+        mail_coord = { mapid = 1417, x = -1278, y = -2521, z = 21 },
         food = "Wild Hog Shank",
         drink = "Sweet Nectar",
         waypoints = {
@@ -1209,6 +1228,7 @@ local routes = {
         ammo_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
         food_vendor = "Vikki Lonsav",
         food_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
+        mail_coord = { mapid = 1417, x = -1278, y = -2521, z = 21 },
         food = "Wild Hog Shank",
         drink = "Sweet Nectar",
         waypoints = {
@@ -1292,6 +1312,7 @@ local routes = {
         ammo_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
         food_vendor = "Vikki Lonsav",
         food_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
+        mail_coord = { mapid = 1417, x = -1278, y = -2521, z = 21 },
         food = "Wild Hog Shank",
         drink = "Sweet Nectar",
         waypoints = {
@@ -1390,6 +1411,7 @@ local routes = {
         ammo_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
         food_vendor = "Vikki Lonsav",
         food_coord = { mapid = 1417, x = -1275, y = -2538, z = 21 },
+        mail_coord = { mapid = 1417, x = -1278, y = -2521, z = 21 },
         food = "Wild Hog Shank",
         drink = "Sweet Nectar",
         waypoints = {
@@ -1457,6 +1479,7 @@ local routes = {
         ammo_coord = { mapid = 1427, x = -6524, y = -1188, z = 309 },
         food_vendor = "Master Smith Burninate",
         food_coord = { mapid = 1427, x = -6524, y = -1188, z = 309 },
+        mail_coord = { mapid = 1417, x = -928, y = -3525, z = 70 },
         food = "Roasted Quail",
         drink = "Morning Glory Dew",
         waypoints = {
@@ -1537,6 +1560,7 @@ local routes = {
         ammo_coord = { mapid = 1437, x = -3745, y = -890, z = 11 },
         food_vendor = "Gabrielle Chase",
         food_coord = { mapid = 1428, x = -8354, y = -2734, z = 185 },
+        mail_coord = { mapid = 1437, x = -3793, y = -838, z = 9 },
         food = "Alterac Swiss",
         drink = "Morning Glory Dew",
         waypoints = {
@@ -1617,6 +1641,7 @@ local routes = {
         ammo_coord = { mapid = 1944, x = -707.19, y = 2740.04, z = 94.73 },
         food_vendor = "Sid Limbardi",
         food_coord = { mapid = 1944, x = -707.19, y = 2740.04, z = 94.73 },
+        mail_coord = { mapid = 1944, x = -707.41, y = 2700.37, z = 94.43 },
         food = "Roasted Quail",
         drink = "Morning Glory Dew",
         waypoints = {
@@ -1702,6 +1727,7 @@ local routes = {
         ammo_coord = { mapid = 1944, x = -707.19, y = 2740.04, z = 94.73 },
         food_vendor = "Sid Limbardi",
         food_coord = { mapid = 1944, x = -707.19, y = 2740.04, z = 94.73 },
+        mail_coord = { mapid = 1944, x = -707.41, y = 2700.37, z = 94.43 },
         food = "Roasted Quail",
         drink = "Morning Glory Dew",
         waypoints = {

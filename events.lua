@@ -3,7 +3,7 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS FILE EXISTS
@@ -203,6 +203,9 @@ function handlers.UI_ERROR_MESSAGE(args)
         or text:find("inventory full", 1, true) then
         ui.inv_full_at = ui.UI_ERROR_MESSAGE
     end
+    -- 3.8.0: mount refusals back mounting off (the 1-60 product's events.lua)
+    local mt = package.loaded["movement/mount"]
+    if mt and type(mt.on_error) == "function" then pcall(mt.on_error, ui.error_text) end
     -- Interaction refused for distance: the caller closes in before the next try.
     if (id and TOO_FAR_IDS[id]) or (not id and text:find("too far", 1, true)) then
         ui.too_far_at = ui.UI_ERROR_MESSAGE

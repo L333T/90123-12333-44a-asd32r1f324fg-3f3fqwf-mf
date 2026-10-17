@@ -3,7 +3,7 @@
 -- Gathering mode: patrol a route, gather herb / ore nodes, fight back
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine (MainThread + Gather_Process), PORT_PLAYBOOK.md.
@@ -28,8 +28,6 @@
 -- chunked route follower replaces).
 -- ============================================================================
 
----@type izi_api
-local izi = require("common/izi_sdk")
 
 local gui = require("gui")
 local state = require("state")
@@ -111,7 +109,10 @@ local function safe(fn)
     return nil
 end
 
-local function now() return izi.now() or 0 end
+local function now()
+    local ok, t = pcall(core.time)                 -- 3.8.0: core API (was izi.now)
+    return (ok and type(t) == "number") and t or 0
+end
 
 local function on(id) return gui.is_on(id) == true end
 
@@ -191,7 +192,7 @@ end
 
 ---Selects the route for this character. False plus a reason when none fits.
 function gather.prepare(player)
-    player = player or safe(function() return izi.me() end)
+    player = player or safe(function() return core.object_manager.get_local_player() end)   -- 3.8.0: core API
     if not player then return false, "no player" end
     local need_herb, need_mine = needs()
     if not need_herb and not need_mine then
@@ -556,9 +557,8 @@ local function keep_tracking(player)
     local fam = spellbook.family(name)
     if not fam or not fam.id then return end
     if safe(function() return player:has_buff(fam.ranks or { fam.id }) end) == true then return end
-    local sp = izi.spell(fam.id)
-    -- 2.312.0: core API cast (spellcheck), not izi
-    if sp then pcall(function() require("spellcheck").cast_safe(sp, player, "MF gather " .. name) end) end
+    -- core API cast (spellcheck) by spell id - 3.8.0: no izi spell object either
+    pcall(function() require("spellcheck").cast_safe(fam.id, player, "MF gather " .. name) end)
 end
 
 -- ----------------------------------------------------------------------------

@@ -4,7 +4,7 @@
 -- "Food, drink, ammo")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine BulletRun / BuyBullets / Hunter_Ammo_* and
@@ -32,8 +32,6 @@
 -- empty there), so these trips are off on Forever and say so once.
 -- ============================================================================
 
----@type izi_api
-local izi = require("common/izi_sdk")
 
 local movement = require("movement")
 local targeting = require("targeting")
@@ -80,7 +78,10 @@ local function safe(fn)
     return nil
 end
 
-local function now() return izi.now() or 0 end
+local function now()
+    local ok, t = pcall(core.time)                 -- 3.8.0: core API (was izi.now)
+    return (ok and type(t) == "number") and t or 0
+end
 
 local function log(msg) core.log("[Master Farmer - Grindbot] gather supply: " .. msg) end
 

@@ -3,7 +3,7 @@
 -- Warrior grind filler (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.0
+-- Version: 4.0.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- RAGE IS NOT MANA AND NOT ENERGY

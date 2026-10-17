@@ -3,7 +3,7 @@
 -- Mana, read the same way everywhere
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.0
+-- Version: 4.0.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY (2.202.0). Every module read mana through the izi extensions

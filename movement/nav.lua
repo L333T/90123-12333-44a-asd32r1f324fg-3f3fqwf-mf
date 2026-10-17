@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.0
+-- Version: 4.0.1
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -102,7 +102,7 @@ local fallback_walker = nil
 -- the client
 -- ----------------------------------------------------------------------------
 function N.client()
-    local g = (rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav"))
+    local g = rawget(_G, "ArthasNav")
     local c = type(g) == "table" and g.client or nil
     if c == nil and not warned_no_nav then
         warned_no_nav = true
@@ -297,7 +297,7 @@ end
 --- plain move_to when the client cannot plan or no path comes back.
 local RESTART_GAP = 1.5        -- s: at most one walk restart (a changed window) this often
 
-local function nav_table() return rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav") end
+local function nav_table() return rawget(_G, "ArthasNav") end
 
 --- follow_path from guide.full[from] to the end; guide.base maps the client's
 --- path index back onto guide.full.
@@ -612,7 +612,7 @@ end
 
 --- Per frame: drive the fallback walker when AmeisenNav is missing.
 function N.pulse()
-    if (rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav")) ~= nil then
+    if rawget(_G, "ArthasNav") ~= nil then
         if cur.exact then
             local c = N.client()
             if c then guide_recheck(c) end

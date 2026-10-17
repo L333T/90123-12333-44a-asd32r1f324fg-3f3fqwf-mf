@@ -158,7 +158,7 @@ local function gate()
     local okc, in_combat = pcall(me.is_in_combat, me)
     if not okc or in_combat ~= true then return false end
     -- A cast or channel (a bandage) is broken by moving.
-    local okb, busy = pcall(me.is_channeling_or_casting, me)
+    local okb, busy = pcall(function() return me:is_casting_spell() == true or me:is_channelling_spell() == true end)
     if okb and busy == true then return false end
     return true
 end

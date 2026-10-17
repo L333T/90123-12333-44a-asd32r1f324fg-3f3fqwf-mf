@@ -727,7 +727,7 @@ function targeting.approach_stuck(player, unit, reach)
     -- 2.260.0: nor while an engaged target runs - a fleeing mob is chased
     -- down (the kill timeout still applies), never blacklisted for it.
     if d <= (tonumber(reach) or 5) + 1.5
-        or call(player.is_channeling_or_casting, player) == true
+        or call(player.is_casting_spell, player) == true or call(player.is_channelling_spell, player) == true
         or (call(unit.is_moving, unit) == true and targeting.engaged(unit)) then
         aw.best, aw.best_t = d, now
         return false

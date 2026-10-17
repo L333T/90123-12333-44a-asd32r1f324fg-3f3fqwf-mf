@@ -25,6 +25,6 @@ return {
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.0.2",
+    version = "4.0.3",
     folder = "Master_Farmer_Grindbot",
 }

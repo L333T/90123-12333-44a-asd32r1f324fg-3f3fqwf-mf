@@ -50,9 +50,7 @@ function Rg.face(target)
     last_face = t
     local ok, pos = pcall(target.get_position, target)
     if ok and pos then
-        local h = handler()
-        if h then pcall(h.look_at_position, h, 0.5, 0, pos) end
-        pcall(core.input.look_at, pos)
+        pcall(core.input.look_at, pos)  -- audit 2026-10-17: movement_handler is not pumped here
         return true
     end
     return false

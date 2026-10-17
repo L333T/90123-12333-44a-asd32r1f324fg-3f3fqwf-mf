@@ -975,6 +975,13 @@ local function on_unload()
     pcall(function() core.input.move_backward_stop() end)
     if izi_callbacks and type(izi_callbacks.uninstall) == "function" then pcall(izi_callbacks.uninstall) end
     if adapt_mod and type(adapt_mod.uninstall) == "function" then pcall(adapt_mod.uninstall) end
+    -- audit 2026-10-17 (H2): under the launcher, unload removes the callbacks it
+    -- routed for this load - clear the register-once flags so the next load
+    -- registers the game-event and spell-cast callbacks again
+    if type(MASTER_FARMER) == "table" then
+        NS.events_registered = nil
+        NS.adapt_cast_cb = nil
+    end
     if debuglog and type(debuglog.flush) == "function" then pcall(debuglog.flush, true) end
 end
 

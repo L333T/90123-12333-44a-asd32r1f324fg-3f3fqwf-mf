@@ -26,7 +26,8 @@ plugin["load"] = true
 -- "Tbc", "Forever" and the Forever beta (wow_forever_beta_us), "Mop", "Titan".
 -- The game version is only logged here; the data and rotations are still
 -- written for TBC / Forever / Classic (gamever.lua).
-local BOOT_URL = "http://127.0.0.1:47110/log?src=boot"
+-- audit 2026-10-17 (H1): no HTTP to the navigation engine port - it
+-- accepts one client (MasterArthasNav's bridge); the load line is logged only.
 
 local function call(fn, ...)
     if type(fn) ~= "function" then return false, "missing" end
@@ -39,7 +40,6 @@ local load = true
 
 local line = string.format("Master Farmer %s header: load=%s game_version=%s exact=%s",
     plugin["version"], tostring(load), tostring(version), tostring(oke and exact or exact))
-call(core.http_post, BOOT_URL, line .. "\n", function() end)
 call(core.log, "[Master Farmer - Grindbot] " .. line)
 
 if not load then

@@ -131,7 +131,7 @@ function Pv.tick(t)
         trust.x = nil
         return
     end
-    local okc, casting = pcall(function() return me:is_channeling_or_casting() end)
+    local okc, casting = pcall(function() return me:is_casting_spell() == true or me:is_channelling_spell() == true end)
     if okc and casting == true then
         Pv.release("casting")
         return

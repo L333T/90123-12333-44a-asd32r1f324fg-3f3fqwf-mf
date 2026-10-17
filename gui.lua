@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.1
+-- Version: 3.9.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -188,6 +188,11 @@ menu:checkbox("mfg_use_gather", false, {
 local function gather_on()
     return menu:get("mfg_use_gather") == true
 end
+-- 3.9.0: gather/esp.lua - drawn in every mode while the box is on
+menu:checkbox("mfg_node_esp", true, {
+    label = "Herb / Ore ESP", tab = "gathering",
+    tooltip = "Draw every herb and ore node in sight (name and distance; green herbs, orange ore, grey = cannot gather it now). Lists: gather/nodes.lua + data/gather_db.lua.",
+})
 menu:checkbox("mfg_gather_herb", true, {
     label = "Herbalism", tab = "gathering", visible_if = gather_on,
     tooltip = "Gather herbs and allow the herbalism routes.",
@@ -295,6 +300,24 @@ menu:checkbox("mfg_draw_path", true, {
     label = "Draw Loaded Path",
     tab = "path",
     tooltip = "Draw the loaded travel path in the world.",
+})
+-- 3.9.0: gather/detour.lua - herb / ore nodes along a recorded path
+menu:checkbox("mfg_path_gather", true, {
+    label = "Gather Herbs / Ore Along Path",
+    tab = "path",
+    tooltip = "While a recorded path runs, a herb or ore node the node ESP sees within the Node Detour Range is walked to with the navigation system, gathered (Herbalism or Mining by the node), and the path is rejoined where it is nearest. Needs the profession and its skill.",
+})
+menu:checkbox("mfg_path_gather_herb", true, {
+    label = "Herbs", tab = "path",
+    tooltip = "Leave the path for herbs (Herbalism).",
+})
+menu:checkbox("mfg_path_gather_ore", true, {
+    label = "Ore", tab = "path",
+    tooltip = "Leave the path for ore veins (Mining).",
+})
+menu:slider_int("mfg_path_gather_yards", 10, 100, 50, {
+    label = "Node Detour Range (yd)", tab = "path",
+    tooltip = "How far from the player a node may be to leave the path for it.",
 })
 
 -- 3.2.0: movement/pivot.lua

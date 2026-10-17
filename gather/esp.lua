@@ -3,7 +3,7 @@
 -- gather/esp.lua - herb / ore node ESP and the node cache the detours use
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.0
+-- Version: 3.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- After the Sylvanas object-ESP example (Voltz): an O(1) lookup table of node
@@ -35,6 +35,7 @@ local MAX_DRAW = 60
 -- the database: by_id / by_name -> { kind, min_rank }
 -- ----------------------------------------------------------------------------
 local by_id, by_name, any_id = nil, nil, nil
+local contains, contains_memo = {}, {}     -- 3.9.1: { base, kind } of match = "contains" zones
 
 local function put(map, key, kind, min_rank)
     if key == nil or key == "" then return end
@@ -44,6 +45,7 @@ end
 
 local function build_db()
     by_id, by_name, any_id = {}, {}, {}
+    contains, contains_memo = {}, {}
     local okn, nodes = pcall(require, "gather/nodes")
     if okn and type(nodes) == "table" then
         for kind, rows in pairs({ herb = nodes.herbs or {}, ore = nodes.ore or {} }) do
@@ -58,6 +60,10 @@ local function build_db()
     local okd, db = pcall(require, "data/gather_db")
     if okd and type(db) == "table" then
         for _, z in ipairs(db.zones or {}) do
+            if z.match == "contains" then
+                for _, n in ipairs(z.herbs or {}) do contains[#contains + 1] = { base = n, kind = "herb" } end
+                for _, n in ipairs(z.ore or {}) do contains[#contains + 1] = { base = n, kind = "ore" } end
+            end
             for _, n in ipairs(z.herbs or {}) do put(by_name, n, "herb", 0) end
             for _, n in ipairs(z.ore or {}) do put(by_name, n, "ore", 0) end
             for _, id in ipairs(z.node_ids or {}) do any_id[id] = true end
@@ -70,6 +76,18 @@ function M.classify(id, name)
     if not by_id then build_db() end
     local row = (type(id) == "number" and by_id[id]) or (type(name) == "string" and by_name[name]) or nil
     if row then return row.kind, row.min_rank end
+    -- 3.9.1: a name containing a "contains" zone's base name (memoized per name)
+    if type(name) == "string" and name ~= "" and #contains > 0 then
+        local m = contains_memo[name]
+        if m == nil then
+            m = false
+            for i = 1, #contains do
+                if name:find(contains[i].base, 1, true) then m = contains[i].kind break end
+            end
+            contains_memo[name] = m
+        end
+        if m then return m, 0 end
+    end
     return nil
 end
 

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.0
+-- Version: 3.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -192,6 +192,18 @@ end
 menu:checkbox("mfg_node_esp", true, {
     label = "Herb / Ore ESP", tab = "gathering",
     tooltip = "Draw every herb and ore node in sight (name and distance; green herbs, orange ore, grey = cannot gather it now). Lists: gather/nodes.lua + data/gather_db.lua.",
+})
+-- 3.9.1: patrol a herbing / mining path (grind/paths/gather) instead of the skill route
+local GATHER_PATHS = { "Auto (route by skill)" }
+do
+    local ok, list = pcall(require, "grind/paths/gather/catalog")
+    if ok and type(list) == "table" then
+        for i = 1, #list do GATHER_PATHS[#GATHER_PATHS + 1] = tostring(list[i].label or list[i].id) end
+    end
+end
+menu:combobox("mfg_gather_path", 1, GATHER_PATHS, {
+    label = "Gathering Path", tab = "gathering", visible_if = gather_on,
+    tooltip = "Auto: the herb / ore route for your skill and faction. Or load a herbing / mining path (EMKO: Isle of Dorn) - the patrol walks it and gathers every herb / ore node it sees (Herb / Ore ESP list).",
 })
 menu:checkbox("mfg_gather_herb", true, {
     label = "Herbalism", tab = "gathering", visible_if = gather_on,

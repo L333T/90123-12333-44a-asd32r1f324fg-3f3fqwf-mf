@@ -3,7 +3,7 @@
 -- Herbing + mining paths - path index
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.0
+-- Version: 3.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Index only (modules load on demand, path_format.take_module).

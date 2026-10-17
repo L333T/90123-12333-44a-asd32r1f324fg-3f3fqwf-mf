@@ -3,7 +3,7 @@
 -- data/gather_db.lua - the herbing and mining node database (ESP + gathering)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.0
+-- Version: 3.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- One database of gatherable nodes, read by gather/esp.lua (the node ESP and
@@ -78,6 +78,21 @@ M.zones = {
             "Index of Ranger Corps Recipes Vol. VII",
             "Ranger's Cache",
         },
+    },
+    {
+        -- 3.9.1: Khaz Algar (The War Within) - the EMKO path (Isle of Dorn).
+        -- NOT from a profile file: the base names of the expansion's herbs and
+        -- ore. match = "contains": a node whose name CONTAINS a base name is
+        -- that kind, so every variant counts ("Rich Bismuth", "Bismuth Seam",
+        -- "Lush Mycobloom", "Crystallized Ironclaw", ...).
+        id = "khaz_algar_tww",
+        name = "Khaz Algar herbs and ore",
+        expansion = "The War Within",
+        match = "contains",
+        node_ids = {},
+        ore = { "Bismuth", "Ironclaw", "Aqirite" },
+        herbs = { "Mycobloom", "Luredrop", "Orbinid", "Blessing Blossom", "Arathor's Spear" },
+        other = {},
     },
 }
 

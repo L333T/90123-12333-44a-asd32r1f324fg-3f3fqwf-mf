@@ -3,7 +3,7 @@
 -- Gathering mode: patrol a route, gather herb / ore nodes, fight back
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.9.0
+-- Version: 3.9.1
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Port of EP_Herb_Mine (MainThread + Gather_Process), PORT_PLAYBOOK.md.
@@ -42,6 +42,7 @@ local scan = require("gather/scan")
 local mount = require("gather/mount")
 local trainer = require("gather/trainer")
 local supply = require("gather/supply")
+local esp = require("gather/esp")          -- 3.9.1: nodes of a chosen path (the ESP node database)
 
 local gather = {}
 
@@ -80,6 +81,7 @@ local ID = {
     buy_ammo = "mfg_gather_buy_ammo",
     ammo_low = "mfg_gather_ammo_low",
     ammo_stop = "mfg_gather_ammo_stop",
+    path = "mfg_gather_path",               -- 3.9.1: 1 = Auto, else a herbing / mining path
 }
 
 local S = nil
@@ -149,6 +151,11 @@ local function wp_xyz(r, i)
     local w = r and r.waypoints and r.waypoints[i]
     if type(w) ~= "table" then return nil end
     local x, y, z = w.x or w[1], w.y or w[2], w.z or w[3]
+    -- 3.9.1: a path without heights is walked at the player's height
+    if r.no_z then
+        local here = state.cached_pos
+        z = (here and type(here.z) == "number") and here.z or 0
+    end
     if type(x) ~= "number" or type(y) ~= "number" or type(z) ~= "number" then return nil end
     return { x = x, y = y, z = z }
 end
@@ -197,6 +204,11 @@ local function use_route(r, player)
     log_map(r)
 end
 
+---3.9.1: the Gathering Path dropdown's path as a route, or nil (Auto).
+local function chosen_path()
+    return route.from_path(num(ID.path, 1))
+end
+
 ---Selects the route for this character. False plus a reason when none fits.
 function gather.prepare(player)
     player = player or safe(function() return core.object_manager.get_local_player() end)   -- 3.8.0: core API
@@ -205,6 +217,13 @@ function gather.prepare(player)
     if not need_herb and not need_mine then
         S.reason = "Herbalism and Mining are both off"
         return false, S.reason
+    end
+    local pr = chosen_path()
+    if pr then
+        S.prepare_t, S.route_t = now(), now()
+        S.reason = "path " .. tostring(pr.id)
+        use_route(pr, player)
+        return true, S.reason
     end
     local r, why = route.select(player, need_mine, need_herb)
     S.prepare_t, S.route_t = now(), now()
@@ -356,6 +375,42 @@ local function build_chunk(r)
     return list, idx
 end
 
+-- 3.9.1: a path without heights (EMKO) is never follow_route'd at z = 0:
+-- each move is one nav_to HOP yd ahead along it, from the player's height
+-- (MasterArthasNav's exact server path finds the ground).
+local HOP, HOP_ARRIVE = 30, 4
+
+local function hop_from(r, n, i)
+    local a = wp_xyz(r, i)
+    if not a then return (i % n) + 1 end
+    local k = 1
+    while k < n - 1 do
+        local j = ((i - 1 + k) % n) + 1
+        local b = wp_xyz(r, j)
+        if b and flat(a, b) >= HOP then return j end
+        k = k + 1
+    end
+    return (i % n) + 1
+end
+
+local function hop_patrol(player, p, r, n)
+    local w = wp_xyz(r, S.wp)
+    if not w then S.wp = 1 return end
+    if flat(p, w) <= HOP_ARRIVE then
+        S.wp = hop_from(r, n, S.wp)
+        w = wp_xyz(r, S.wp)
+        S.hop_i = nil
+    end
+    state.set_note(NOTE, string.format("%s  waypoint %d / %d", tostring(r.id), S.wp, n))
+    if mount_up(player, flat(p, w) > mount.TRAVEL_YARDS) then
+        S.hop_i = nil
+        return
+    end
+    if movement.is_moving() and S.hop_i == S.wp then return end
+    S.hop_i = S.wp
+    movement.nav_to(w)
+end
+
 ---Step 1 travel: the route as long chunks (closed loop, wraps to waypoint 1).
 local function patrol(player, p)
     local r = S.route
@@ -384,6 +439,7 @@ local function patrol(player, p)
         return
     end
     S.join_i = nil
+    if r.no_z then return hop_patrol(player, p, r, n) end
     if S.chunk then
         local best_k, best_d = nil, nil
         for k = S.chunk_k, math.min(#S.chunk, S.chunk_k + 8) do
@@ -500,11 +556,14 @@ local function gather_node(player, p)
     if not S.rescanned then
         S.rescanned = true
         state.reset_target()
-        local o = scan.closest(np, RESCAN_RANGE, false)
-        if not o then return back_to_patrol() end
-        if o ~= S.node then
-            S.node = o
-            S.node_guid = scan.guid_of(o)
+        -- 3.9.1: a path route's nodes come from the ESP database, not the EP rows
+        if not (S.route and S.route.from_path) then
+            local o = scan.closest(np, RESCAN_RANGE, false)
+            if not o then return back_to_patrol() end
+            if o ~= S.node then
+                S.node = o
+                S.node_guid = scan.guid_of(o)
+            end
         end
     end
     if safe(function() return player:is_mounted() end) == true then
@@ -605,12 +664,18 @@ function gather.tick(player)
 
     -- 3. Profession trainer (out of combat, step 1 only). Before the route:
     -- a character without the profession has no route until it is learned.
-    if S.step == 1 and trainer.tick(player, { herbalism = need_herb, mining = need_mine }, on(ID.train)) then
+    local path_route = chosen_path()
+    if S.step == 1 and not path_route and trainer.tick(player, { herbalism = need_herb, mining = need_mine }, on(ID.train)) then
         S.chunk = nil
         return
     end
 
-    -- 4. Route.
+    -- 4. Route. 3.9.1: the Gathering Path dropdown changed -> switch at once.
+    if S.step == 1 and S.route and S.route ~= path_route and (path_route or S.route.from_path) then
+        movement.nav_stop()
+        S.route = nil
+        S.prepare_t = -1e9
+    end
     if not S.route then
         if (t - S.prepare_t) >= 5 then gather.prepare(player) end
         if not S.route then
@@ -618,7 +683,7 @@ function gather.tick(player)
             state.set_note(NOTE, tostring(S.reason or "No route"))
             return
         end
-    elseif S.step == 1 and (t - S.route_t) >= ROUTE_CHECK then
+    elseif S.step == 1 and not S.route.from_path and (t - S.route_t) >= ROUTE_CHECK then
         S.route_t = t
         local r, why = route.select(player, need_mine, need_herb)
         S.reason = why
@@ -651,9 +716,17 @@ function gather.tick(player)
     if type(gap) ~= "number" then gap = 2 end
     if (t - S.scan_t) >= gap then
         S.scan_t = t
-        local o, d = scan.closest(p, num(ID.scan, 200))
+        local o, d, op
+        if S.route.from_path then
+            esp.update(player)
+            local e
+            e, d = esp.nearest(p, num(ID.scan, 200), { herb = need_herb, ore = need_mine })
+            if e then o, op = e.obj, { x = e.x, y = e.y, z = e.z } end
+        else
+            o, d = scan.closest(p, num(ID.scan, 200))
+        end
         if o then
-            take_node(o)
+            take_node(o, op)
             movement.nav_stop()
             state.set_note(NOTE, string.format("Node %s  %.0f yd", tostring(S.node_name), d or 0))
             return

@@ -3,7 +3,7 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.1
+-- Version: 3.9.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -37,6 +37,8 @@ local function add_index(mod)
 end
 
 add_index("grind/paths/ally160/catalog")
+-- 3.9.0: herbing + mining paths (tools/build_gather_path.py), listed for both sides
+add_index("grind/paths/gather/catalog")
 
 local novelist_paths = {}
 
@@ -137,7 +139,8 @@ function novelist_paths.entries_for_faction(key)
     local function take(want_ally160)
         for i = 1, #ENTRIES do
             local entry = ENTRIES[i]
-            if factions.of_entry(entry) == key then
+            local side = factions.of_entry(entry)
+            if side == key or side == "both" then
                 local from_ally160 = (entry.source == "ally160")
                 if from_ally160 == want_ally160 then
                     local id = entry.id

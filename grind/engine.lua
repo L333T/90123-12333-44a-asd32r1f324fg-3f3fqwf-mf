@@ -3,7 +3,7 @@
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.1
+-- Version: 3.9.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -19,6 +19,8 @@ local movement = require("movement")
 local rotation = require("rotation")
 local healing = require("healing")
 local grind_zones = require("grind/zone_lookup")
+-- 3.9.0: herb / ore nodes seen by the node ESP pull the walk off a recorded path
+local GD = require("gather/detour")
 
 local grind = {}
 
@@ -92,6 +94,7 @@ local lap_pending = 0
 
 function grind.set_profile(path)
     profile = path
+    GD.reset()
     hunt = nil
     state.grind.finished = false
     state.grind.dir = 1
@@ -115,6 +118,7 @@ end
 
 function grind.clear_profile()
     profile = nil
+    GD.reset()
     hunt = nil
     state.grind.finished = false
 end
@@ -153,6 +157,9 @@ local function path_to_zone(path)
         merchant = path.merchant,
         map_id = path.map_id,
         name = path.name,
+        -- 3.9.0: a path without heights (.gatherprofile): walked at the
+        -- player's height in NO_Z_HOP yd navigation hops, never follow_path
+        no_z = path.no_z == true,
     }
     zone_cache[path] = z
     return z
@@ -339,11 +346,16 @@ local function open_route(zone)
 end
 
 --- x, y, z of node i, without node_row's wrap-around side effect.
+--- 3.9.0: a no_z path answers the player's height (MasterArthasNav finds the ground).
 local function node_xyz(zone, i)
     if zone.flat then
         local k = (i - 1) * 3
         local c = zone.coords
         local x, y, z = c[k + 1], c[k + 2], c[k + 3]
+        if zone.no_z and type(x) == "number" then
+            local here = state.cached_pos
+            z = (here and type(here.z) == "number") and here.z or 0
+        end
         if type(x) == "number" and type(y) == "number" and type(z) == "number" then return x, y, z end
         return nil
     end
@@ -589,6 +601,27 @@ local function rejoin_path(zone, order)
     return true
 end
 
+-- 3.9.0: NO-HEIGHT PATHS (.gatherprofile: x, y only). The recorded points
+-- are ~7 yd apart; walking them one by one stops at each. Each move goes
+-- NO_Z_HOP yd ahead along the path instead, as one nav_to (MasterArthasNav
+-- exact server path from the player's height - the server finds the ground).
+local NO_Z_HOP = 30.0
+local NO_Z_ARRIVE = 4.0
+
+--- How many nodes forward the next hop is (at least 1).
+local function hop_steps(zone, n, i)
+    local ax, ay = node_xyz(zone, i)
+    if not ax then return 1 end
+    local k = 1
+    while k < n - 1 do
+        local j = ((i - 1 + k) % n) + 1
+        local bx, by = node_xyz(zone, j)
+        if bx and math.sqrt((bx - ax) ^ 2 + (by - ay) ^ 2) >= NO_Z_HOP then break end
+        k = k + 1
+    end
+    return k
+end
+
 function grind.kill_mobs(player)
     if not player then
         return
@@ -611,6 +644,12 @@ function grind.kill_mobs(player)
         state.grind.step = 2
         state.grind.black_until = izi.now() + gui.slider("max_kill", 60)
         state.set_note("Grind", "Closing")
+        return
+    end
+    -- 3.9.0: a herb / ore node the ESP sees near a recorded path: walk to it
+    -- (navigation system), gather it, then rejoin the path where it is nearest
+    if zone and zone.path and GD.tick(player) then
+        gc.list, gp.rejoin = nil, true
         return
     end
     if not zone or type(zone.coords) ~= "table" then
@@ -641,7 +680,7 @@ function grind.kill_mobs(player)
         return
     end
     -- A recorded path: walked as long routes, not node by node (2.235.2-ameisen).
-    if zone.path then
+    if zone.path and not zone.no_z then
         local n_nodes = node_count(zone)
         if smooth_walk(zone, n_nodes) then return end
     end
@@ -685,11 +724,12 @@ function grind.kill_mobs(player)
         end
         movement.clear_fail()
     end
-    if movement.arrived(pos, 2) then
+    if movement.arrived(pos, zone.no_z and NO_Z_ARRIVE or 2) then
         local step = 1
         if gui.is_on("random_path") and n > 2 and math.random(1, 10) <= 5 then
             step = 2
         end
+        if zone.no_z then step = hop_steps(zone, n, state.grind.move) end
         -- ALWAYS LOOPING (2.233.0): a grind path is walked until the bot is
         -- paused or stopped. A closed loop wraps to node 1; an open path (loop
         -- = false) turns round at each end and walks back along itself,

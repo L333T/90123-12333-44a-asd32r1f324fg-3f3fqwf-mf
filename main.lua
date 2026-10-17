@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.8.1
+-- Version: 3.9.0
 -- Folder: Master_Farmer_Grindbot
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -41,7 +41,7 @@ local PLUGIN_MODULES = {
     "targeting",
     "movement",
     -- 3.0.0: the movement layer modules (fresh code on a reload)
-    "movement/core", "movement/zones", "movement/guide_path", "movement/mount", "movement/nav", "movement/locks",
+    "movement/core", "movement/zones", "movement/guide_path", "movement/mount", "movement/nav", "gather/esp", "gather/detour", "movement/locks",
     "movement/range", "movement/combat", "movement/leash", "movement/sight",
     "loot",
     "path_runner",
@@ -562,6 +562,11 @@ local function on_update()
     gui.sync_player(player)
     -- 3.0.0: what the windows show is read here, not while drawing
     pcall(gui.refresh_view, player)
+    -- 3.9.0: the herb / ore node ESP cache (gather/esp) is filled here, drawn on render
+    if gui.is_on("mfg_node_esp") then
+        local ok_esp, esp = pcall(require, "gather/esp")
+        if ok_esp and type(esp) == "table" then pcall(esp.update, player) end
+    end
     -- 3.0.0: pet_handler's delayed-command queue (moved off the render pass)
     if pets and type(pets.on_render) == "function" then
         pcall(pets.on_render)
@@ -813,6 +818,10 @@ local function on_render()
     -- write_data_file appends. Without this they never reach scripts_data.
     if debuglog and type(debuglog.tick) == "function" then
         pcall(debuglog.tick)
+    end
+    -- 3.9.0: node ESP - cached names / positions only, no game object read here
+    if gui and gui.is_on("mfg_node_esp") and package.loaded["gather/esp"] then
+        pcall(package.loaded["gather/esp"].draw)
     end
     if gui and gui.is_on("draw_path") and path_runner and type(path_runner.draw) == "function" then
         pcall(function()

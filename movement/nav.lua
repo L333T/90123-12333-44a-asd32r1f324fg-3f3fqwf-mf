@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -44,6 +44,7 @@
 local R = require("movement/core")
 local Z = require("movement/zones")
 local GP = require("movement/guide_path")
+local MT = require("movement/mount")         -- 3.8.0: mount for travel (the 1-60 way)
 
 local N = {}
 
@@ -532,6 +533,11 @@ function N.nav_to(dest, direct, mode)
     end
     if busy and (R.now() - cur.t) < RETARGET_GAP then return true end
     if mode == "combat" then check_combat_mode(c) end
+    -- 3.8.0: before an out-of-combat walk of MIN_WALK yd or more starts, mount
+    -- (or Travel Form) first - the player stands for the cast meanwhile
+    if not busy and mode ~= "combat" and mode ~= "npc" and hx and MT.wants(R.dist2(hx, hy, x, y)) then
+        if MT.step(R.me()) then return true end
+    end
     if mode ~= "combat" then
         -- 3.7.0: every out-of-combat walk follows the exact server path;
         -- a retarget re-plans: at most every REPLAN_GAP s while walking

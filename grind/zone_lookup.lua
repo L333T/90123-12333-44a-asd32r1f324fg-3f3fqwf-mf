@@ -3,7 +3,7 @@
 -- Grind zone lookup by race + level
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

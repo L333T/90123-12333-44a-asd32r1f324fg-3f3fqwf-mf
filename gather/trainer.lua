@@ -3,7 +3,7 @@
 -- Gathering: profession trainer trips (PORT_PLAYBOOK "Vendor, repair, trainers")
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- trainer.lua (the class trainer) refuses every profession service on
@@ -19,8 +19,6 @@
 -- service, one per BUY_GAP. Class spells are never bought here.
 -- ============================================================================
 
----@type izi_api
-local izi = require("common/izi_sdk")
 
 local movement = require("movement")
 local targeting = require("targeting")
@@ -62,7 +60,10 @@ local function safe(fn)
     return nil
 end
 
-local function now() return izi.now() or 0 end
+local function now()
+    local ok, t = pcall(core.time)                 -- 3.8.0: core API (was izi.now)
+    return (ok and type(t) == "number") and t or 0
+end
 
 -- 2.285.0: professions.lua (skill lines, then the profession tabs) - the
 -- primary slots alone missed a profession the client lists only as a skill line.

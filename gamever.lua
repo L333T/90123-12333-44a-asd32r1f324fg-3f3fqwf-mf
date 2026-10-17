@@ -3,7 +3,7 @@
 -- Game version: TBC Classic or WoW Forever
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 3.7.1
+-- Version: 3.8.0
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.get_game_version() answers "Tbc" on TBC Classic (and the TBC 2.5.3

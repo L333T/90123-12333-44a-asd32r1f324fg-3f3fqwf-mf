@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.2
+-- Version: 4.0.3
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -64,8 +64,13 @@ local REACH_TTL, REACH_TTL_BAD, REACH_GAP = 120, 45, 0.25
 local REACH_TRUST_FAR = 150    -- yd: farther answers are guesses, never "unreachable"
 
 local REPLAN_GAP = 2.0         -- s: at most one object re-plan of a guide walk this often
-local OFFMESH = { start_off_mesh = true, end_off_mesh = true, no_path = true, unreachable = true,
-    map_not_loaded = true }
+local OFFMESH = { start_off_mesh = true, end_off_mesh = true, no_path = true, unreachable = true }
+-- audit 2026-10-17: a cold map (map_not_loaded, 2-4 s to load) and the server
+-- codes are not "no path there": no blacklist - a short back-off, then
+-- c:is_server_available() before walking again (MasterArthasNav API.md)
+local SERVER_CODES = { map_not_loaded = true, server_timeout = true, server_down = true }
+local SERVER_BACKOFF = 3.5
+local GIVE_UP_CODES = { max_stuck_exceeded = true, max_repath_exceeded = true }
 local HEIGHT_RETRY = { no_path = true, end_off_mesh = true, unreachable = true }
 
 -- the walk this layer asked for
@@ -189,6 +194,8 @@ function N.mode() return N.busy() and cur.mode or nil end
 
 local function record_fail(code, x, y, z)
     fail.reason, fail.offmesh, fail.t = tostring(code or "failed"), OFFMESH[code] == true, R.now()
+    if SERVER_CODES[code] then fail.server_until = R.now() + SERVER_BACKOFF end
+    fail.give_up = GIVE_UP_CODES[code] == true
     if not x then return end
     local k = key_of(x, y)
     local e = fails_at[k]
@@ -472,8 +479,12 @@ local mode_warned_t = -1e9
 local function check_combat_mode(c)
     local t = R.now()
     if t - mode_warned_t < 60 then return end
-    local ok, cfg = call(c, "get_config")
-    local m = ok and type(cfg) == "table" and cfg.combat_mode or nil
+    -- audit 2026-10-17: the documented read (ArthasNav.settings.get), not get_config
+    local g = rawget(_G, "ArthasNav")
+    local s = type(g) == "table" and g.settings or nil
+    local ok, m = false, nil
+    if type(s) == "table" and type(s.get) == "function" then ok, m = pcall(s.get, "combat_mode") end
+    if not ok then m = nil end
     if m and m ~= "continue" then
         mode_warned_t = t
         R.log("MasterArthasNav 'When combat starts' is '" .. tostring(m) .. "' - set it to Continue "
@@ -514,7 +525,23 @@ function N.nav_to(dest, direct, mode)
     end
     local k = key_of(x, y)
     local fe = fails_at[k]
-    if fe and fe.n > 0 and (R.now() - fe.t) < 5 and fail.offmesh then return false end
+    if fe and fe.n > 0 and (R.now() - fe.t) < 5 and (fail.offmesh or fail.give_up) then return false end
+    -- audit 2026-10-17: server / cold-map back-off, then is_server_available()
+    if fail.server_until then
+        if R.now() < fail.server_until then
+            stats.refused = stats.refused + 1
+            return false
+        end
+        local cs = N.client()
+        local oka, up = false, nil
+        if cs then oka, up = call(cs, "is_server_available") end
+        if oka and up == false then
+            fail.server_until = R.now() + SERVER_BACKOFF
+            stats.refused = stats.refused + 1
+            return false
+        end
+        fail.server_until = nil
+    end
     local c = N.client()
     local busy = N.busy()
     if busy and cur.x and R.dist2(cur.x, cur.y, x, y) <= SAME_DEST and cur.mode ~= "route" then

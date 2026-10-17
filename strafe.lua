@@ -3,7 +3,7 @@
 -- strafe.lua - Rogue / Warrior "Strafe Combat": short left / right micro-strafes
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.2
+-- Version: 4.0.3
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHAT IT DOES (2.212.0)
@@ -158,7 +158,7 @@ local function gate()
     local okc, in_combat = pcall(me.is_in_combat, me)
     if not okc or in_combat ~= true then return false end
     -- A cast or channel (a bandage) is broken by moving.
-    local okb, busy = pcall(me.is_channeling_or_casting, me)
+    local okb, busy = pcall(function() return me:is_casting_spell() == true or me:is_channelling_spell() == true end)
     if okb and busy == true then return false end
     return true
 end

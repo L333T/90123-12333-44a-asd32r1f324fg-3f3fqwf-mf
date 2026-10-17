@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.2
+-- Version: 4.0.3
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- HOW IT WORKS
@@ -734,9 +734,6 @@ function loot.frame()
     elog_probe("loot:fire")
     -- The auto-loot flag is sticky in the core: pass it every time.
     pcall(function() core.input.loot_object(obj, true) end)
-    if movement_handler then
-        pcall(function() movement_handler:pause_movement_light(0.5, 0.0) end)
-    end
     close_at = now + 1.5
 end
 

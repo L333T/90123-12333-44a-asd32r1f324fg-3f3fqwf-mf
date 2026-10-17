@@ -3,7 +3,7 @@
 -- quest/travel.lua - flights: RestedXP ".fly" goals and far-goal flight trips
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.2
+-- Version: 4.0.3
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 2.307.0: SPLIT OUT OF quest/engine.lua, which sat at Lua's hard limit of

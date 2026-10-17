@@ -3,7 +3,7 @@
 -- movement/pivot.lua - stop and turn on sharp waypoint turns
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.2
+-- Version: 4.0.3
 -- ============================================================================
 -- THE RULE (CLAUDE_MOVEMENT_RULES.md, "Sharp turns: stop, turn, go"):
 -- AmeisenNav's walkers keep running forward while they turn, so a sharp
@@ -131,7 +131,7 @@ function Pv.tick(t)
         trust.x = nil
         return
     end
-    local okc, casting = pcall(function() return me:is_channeling_or_casting() end)
+    local okc, casting = pcall(function() return me:is_casting_spell() == true or me:is_channelling_spell() == true end)
     if okc and casting == true then
         Pv.release("casting")
         return

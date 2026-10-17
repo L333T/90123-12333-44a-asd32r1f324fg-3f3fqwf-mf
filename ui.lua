@@ -2331,6 +2331,8 @@ function Menu:draw()
     -- window once its art is loaded (the drawn chrome until then)
     local SK = product_skin()
     if SK then pcall(SK.fit, self) end
+    -- PIXEL SCALE: the theme's control metrics at WoW's UI scale (mf_skin)
+    if SK and type(SK.theme_scale) == "function" then pcall(SK.theme_scale, self) end
     local skinned = SK ~= nil and SK.ready(self) == true
 
     pcall(function()

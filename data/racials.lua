@@ -3,7 +3,7 @@
 -- Racial abilities (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.0
+-- Version: 4.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Only ACTIVE racials are listed. Passives (Diplomacy, Hardiness, The Human

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.0
+-- Version: 4.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -2054,7 +2054,7 @@ menu:set_status({
         -- call), so it is safe on the draw path.
         label = "Navigation",
         value = function()
-            local g = (rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav"))
+            local g = rawget(_G, "ArthasNav")
             local c = type(g) == "table" and g.client or nil
             if type(c) ~= "table" or type(c.is_server_available) ~= "function" then
                 return "MasterArthasNav not loaded"
@@ -2064,7 +2064,7 @@ menu:set_status({
             return "server down - start it from the MasterArthasNav tray icon"
         end,
         color = function()
-            local g = (rawget(_G, "ArthasNav") or rawget(_G, "AmeisenNav"))
+            local g = rawget(_G, "ArthasNav")
             local c = type(g) == "table" and g.client or nil
             local ok, up = false, false
             if type(c) == "table" and type(c.is_server_available) == "function" then

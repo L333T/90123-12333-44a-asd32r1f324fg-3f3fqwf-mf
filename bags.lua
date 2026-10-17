@@ -3,7 +3,7 @@
 -- Bag items with the (bag, slot) pair the container calls actually take
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.0
+-- Version: 4.0.2
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- core.input.use_container_item documents it plainly: the slot index that

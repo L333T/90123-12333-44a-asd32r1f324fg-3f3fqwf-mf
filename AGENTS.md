@@ -41,10 +41,10 @@ runtime by `gamever.lua`.
 | Repo (open this folder) | `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\Master_Farmer_Grindbot` |
 | Local version builds | `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\Grindbot_Versions\Master_Farmer_Grindbot_v<version>\` |
 | Older version archive (builds before 2026-10-16) | `C:\Users\ebene\OneDrive\Desktop\SNES_\` |
-| Active game install (changes between installs — ask if logs look stale) | `C:\Users\ebene\OneDrive\Documents\7bf69871` |
-| Installed loader (the Master Farmer launcher, the only one) | `…\7bf69871\scripts\Master_Farmer\` |
-| Session logs (one per session, `errorlog.lua`) | `…\7bf69871\scripts_log\MASTER_FARMER_ERRORS\` |
-| API stubs (source of truth for every call) | `…\7bf69871\scripts\.api\` |
+| Active game installs (2026-10-17; change between installs — ask if logs look stale) | `C:\Users\ebene\OneDrive\Documents\Loaders-10-17\gb2tZWnvEg\1ae9bb02bb` and `C:\Users\ebene\OneDrive\Documents\Loaders-10-17\lRkCqtLhgR\26e90d7a168f835270c6de36f5` |
+| Installed loader (the Master Farmer launcher, the only one) | `…\scripts\Master_Farmer\` in each install |
+| Session logs (one per session, `errorlog.lua`) | `…\scripts_log\MASTER_FARMER_ERRORS\` in each install |
+| API stubs (source of truth for every call) | `…\scripts\.api\` (either install; identical) |
 | API docs (per game version, incl. Forever notes) | `C:\Users\ebene\Downloads\Sylvanas_coreAPI_IZI_API\` |
 | Sentinel navigation source (v0.0.6; installed client is v0.23) | `C:\Users\ebene\OneDrive\Desktop\SNES_\MF_Navigation\` |
 

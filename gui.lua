@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.4
+-- Version: 4.0.5
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -238,13 +238,13 @@ local function eat_drink_on()
     local v = menu:get("mfg_eat_drink")
     return v == true
 end
-menu:slider_int("mfg_eat_hp", 10, 90, 35, {
+menu:slider_int("mfg_eat_hp", 10, 90, 50, {        -- Zygor 1.7.8: default 50 (the rest starts at 50 % or lower)
     label = "Eat when Health below %",
     tab = "healing",
     visible_if = eat_drink_on,
     tooltip = "Out of combat, sit and eat when health falls to this percentage or lower, and keep eating until health is full.",
 })
-menu:slider_int("mfg_drink_mana", 10, 90, 35, {
+menu:slider_int("mfg_drink_mana", 10, 90, 50, {    -- Zygor 1.7.8: default 50
     label = "Drink when Mana below %",
     tab = "healing",
     visible_if = eat_drink_on,

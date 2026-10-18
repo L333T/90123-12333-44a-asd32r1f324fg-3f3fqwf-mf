@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Purpose: IZI gate (every game version). Not class-locked. Start is gated by rotation registry.
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.4
+-- Version: 4.0.5
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 

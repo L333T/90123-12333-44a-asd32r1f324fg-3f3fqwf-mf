@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.4
+-- Version: 4.0.5
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -247,11 +247,46 @@ end
 -- ============================================================================
 -- PER FRAME / DEBUG
 -- ============================================================================
+-- Zygor 1.7.8 INDOOR JUMP (user: "add a jump on indoor pathing when the player's
+-- position stays on a waypoint for more than 3 seconds, to help with sharp
+-- turns indoors"). While a MasterArthasNav walk runs indoors and the player has
+-- moved less than STILL_YD for STILL_S, one jump (jump = JumpOrAscendStart, so
+-- ascend_stop right after, as quest/engine does); then the window starts again.
+-- Not while the walk is held on purpose: a sharp-turn pivot, a cast / loot
+-- hold, casting, resting, a backpedal, standing at an NPC, or a portal step.
+-- The user's rule; an exception to CLAUDE_MASTERARTHASNAV_RULES R3.1 / R6.2.
+local IJ = { STILL_S = 3.0, STILL_YD = 0.5, x = nil, y = nil, since = 0, jumps = 0 }
+movement.IJ = IJ
+local function indoor_jump(t)
+    local function reset() IJ.x = nil end
+    if not N.busy() or R.turning or R.resting or R.backpedal_until or Lk.holding()
+        or (R.npc_until or 0) > t or N.mode() == "portal" then return reset() end
+    local me = R.me()
+    if not me then return reset() end
+    local okc, casting = pcall(function() return me:is_casting_spell() == true or me:is_channelling_spell() == true end)
+    if okc and casting == true then return reset() end
+    local oki, indoors = pcall(function() return me:is_indoors() == true end)
+    if not (oki and indoors == true) then return reset() end
+    local x, y = R.here()
+    if not x then return reset() end
+    if not IJ.x or R.dist2(IJ.x, IJ.y, x, y) > IJ.STILL_YD then
+        IJ.x, IJ.y, IJ.since = x, y, t
+        return
+    end
+    if t - IJ.since < IJ.STILL_S then return end
+    pcall(function() core.input.jump() end)
+    pcall(function() core.input.ascend_stop() end)
+    IJ.jumps = IJ.jumps + 1
+    IJ.since = t                          -- the next jump only after another STILL_S
+    R.trail("move", "indoors: no movement for %.0f s on the walk - jump", IJ.STILL_S)
+end
+
 --- Once per frame (main.lua), before anything reads movement state.
 function movement.pulse()
     local t = R.now()
     Lk.tick(t)
     N.pulse()
+    indoor_jump(t)                -- Zygor 1.7.8
     Pv.tick(t)                 -- 3.2.0: sharp turn -> hold the walk, turn in place
     Z.prune(t)
     if t - snap_t >= SNAP_EVERY then build_snapshot(t) end

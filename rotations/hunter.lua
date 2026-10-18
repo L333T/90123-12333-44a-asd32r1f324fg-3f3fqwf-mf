@@ -3,7 +3,7 @@
 -- Hunter grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.4
+-- Version: 4.0.5
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Warlock.

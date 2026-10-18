@@ -3,7 +3,7 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.3
+-- Version: 4.0.4
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS FILE EXISTS
@@ -273,6 +273,15 @@ end
 function events.live()
     return ui.seq > 0
 end
+
+-- 4.0.4 (Core_Api lua/master_arthas_nav.lua example, on_game_event): these
+-- events only set flags; movement/nav stops the walk on the next update.
+local navflags = { stop = nil, in_combat = false }
+events.navflags = navflags
+handlers.PLAYER_REGEN_DISABLED = function() navflags.in_combat = true end
+handlers.PLAYER_REGEN_ENABLED = function() navflags.in_combat = false end
+handlers.PLAYER_DEAD = function() navflags.stop = "player died" end
+handlers.PLAYER_ENTERING_WORLD = function() navflags.stop = "loading screen" navflags.in_combat = false end
 
 events.handlers = handlers
 

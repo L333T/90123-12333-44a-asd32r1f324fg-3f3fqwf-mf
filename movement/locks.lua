@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest, cast, channel and loot holds; backpedal
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.3
+-- Version: 4.0.4
 -- ============================================================================
 -- HOLDS go through AmeisenNav's own pause (client:pause(reason) /
 -- resume(reason) - reasons are counted separately, so a cast hold and a loot
@@ -56,6 +56,9 @@ local function face_pos(pos)
     if not x then return end
     local ok, vec3 = pcall(require, "common/geometry/vector_3")
     local p = (ok and vec3 and vec3.new) and vec3.new(x, y, z) or { x = x, y = y, z = z }
+    -- 4.0.4 (R3.1): no look while the walk owns the keys - stopped first
+    if N.busy() then N.stop("face for a cast") end
+    if N.busy() then return end
     pcall(core.input.look_at, p)        -- audit 2026-10-17: movement_handler is not pumped here
 end
 

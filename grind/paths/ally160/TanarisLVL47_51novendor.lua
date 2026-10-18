@@ -3,7 +3,7 @@
 -- Tanaris 47-51
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.3
+-- Version: 4.0.4
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

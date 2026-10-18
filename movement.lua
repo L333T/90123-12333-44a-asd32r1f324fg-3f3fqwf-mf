@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.3
+-- Version: 4.0.4
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -65,6 +65,7 @@ movement.nudge        = function(dest) return N.nav_to(dest) end
 -- 3.5.0: RestedXP waypoints / movement instructions: 3-yard, object-checked walks
 movement.guide_to     = function(dest) return N.nav_to(dest, true, "guide") end
 movement.follow_route = N.follow_route
+movement.want_input_driver = N.want_input_driver      -- 4.0.4 (gui Start / Stop)
 movement.nav_path     = function(points) return N.follow_route(points) end
 -- 3.0.4: callers stop every tick once "near" an NPC (4-5 yd); an approach
 -- movement.interact started (to NPC_REACH) is not cancelled by that
@@ -99,6 +100,7 @@ function movement.halt()
     C.combat_release()
     Lk.clear()
     N.stop("halt")
+    N.release_driver_now()                               -- 4.0.4: unload puts the driver back
 end
 
 -- ============================================================================
@@ -295,6 +297,8 @@ build_snapshot = function(t)
         retreating = false,
         paused = R.resting == true,
         sentinel = N.busy(),
+        -- 4.0.4 (R2.4): the server state, read here on the update tick
+        nav = N.client() == nil and "missing" or (N.nav_ready() and "ready" or "down"),
         quiet = t < (R.quiet_until or 0),
         target_dist = d,
     }

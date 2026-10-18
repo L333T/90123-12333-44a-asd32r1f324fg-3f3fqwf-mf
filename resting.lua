@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.4
+-- Version: 4.0.5
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -78,8 +78,13 @@ local FOOD_ITEM_RANK = consumables.FOOD_ITEM_IDS
 local WATER_ITEM_RANK = consumables.WATER_ITEM_IDS
 
 -- Rest at or below this, unless the rotation says otherwise.
-local REST_DEFAULT = 30
-local REST_DONE = 100
+local REST_DEFAULT = 50
+-- Zygor 1.7.8 (user: "eat and drink when health or mana is below 50 %, resume once
+-- mana and health are above 90 %"): a rest starts at REST_START or lower (the
+-- Resting tab's sliders can only raise that line); once a rest runs, both
+-- health and mana are topped up to REST_DONE before the bot walks on.
+local REST_START = 50
+local REST_DONE = 90                 -- Zygor 1.7.8: was 100
 local REGEN_DONE = 80          -- 2.139.0: no food / water - wait for this much HP and MP
 local regen_wait = false
 local water_stay_logged = false
@@ -682,6 +687,9 @@ local function start_pct(opts, key, fallback)
 end
 
 local function latch_rest(hp, mana, has_mana, eat_at, drink_at)
+    -- Zygor 1.7.8: never later than REST_START
+    if eat_at < REST_START then eat_at = REST_START end
+    if drink_at < REST_START then drink_at = REST_START end
     if hp <= eat_at then
         rest_eat = true
     elseif resource_full(hp) then
@@ -693,6 +701,12 @@ local function latch_rest(hp, mana, has_mana, eat_at, drink_at)
     elseif resource_full(mana) then
         if rest_drink == true then end_kind(drink_state) end
         rest_drink = false
+    end
+    -- Zygor 1.7.8: a rest in progress tops BOTH up to REST_DONE (resume above 90 %
+    -- health AND mana) - the other kind joins while it is under the line
+    if rest_eat == true or rest_drink == true then
+        if hp < REST_DONE then rest_eat = true end
+        if has_mana == true and mana < REST_DONE then rest_drink = true end
     end
 end
 
@@ -774,6 +788,8 @@ function resting_mod.below_line(player)
         local d = gui.slider("drink_mana", nil)
         if type(d) == "number" then drink_at = start_pct({ v = d }, "v", drink_at) end
     end
+    if eat_at < REST_START then eat_at = REST_START end          -- Zygor 1.7.8
+    if drink_at < REST_START then drink_at = REST_START end
     if health_pct(player) <= eat_at then return true end
     return power.has_mana(player) and mana_pct(player) <= drink_at or false
 end
@@ -823,6 +839,8 @@ function resting_mod.tick(player, opts)
     -- NOTHING TO DO (2.240.0): not resting and both above their lines - no
     -- aura reads, no food / water lists (they were built every 0.1 s at full
     -- health and mana: two bag scans, table sorts and a signature per tick).
+    if eat_at < REST_START then eat_at = REST_START end          -- Zygor 1.7.8
+    if drink_at < REST_START then drink_at = REST_START end
     if resting ~= true and rest_eat ~= true and rest_drink ~= true and regen_wait ~= true
         and hp > eat_at and (not has_mana or mana > drink_at) then
         return false
@@ -1059,6 +1077,13 @@ function resting_mod.tick(player, opts)
         consume_one(food_state, "food", foods, eating, now, "FOOD_AURA_IDS")
     end
     return true
+end
+
+--- Test hook (Zygor 1.7.8 port): the start / stop latch alone.
+function resting_mod._test_latch(hp, mana, has_mana, eat_at, drink_at, fresh)
+    if fresh then rest_eat, rest_drink = false, false end
+    latch_rest(hp, mana, has_mana, eat_at, drink_at)
+    return rest_eat == true, rest_drink == true
 end
 
 return resting_mod

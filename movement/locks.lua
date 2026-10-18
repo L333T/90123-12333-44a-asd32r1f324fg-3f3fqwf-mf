@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest, cast, channel and loot holds; backpedal
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.4
+-- Version: 4.0.5
 -- ============================================================================
 -- HOLDS go through AmeisenNav's own pause (client:pause(reason) /
 -- resume(reason) - reasons are counted separately, so a cast hold and a loot
@@ -84,6 +84,9 @@ end
 function Lk.pause_for_loot(seconds)
     hold("loot", seconds or 2)
 end
+
+--- Zygor 1.7.8: a cast / channel / loot hold is on (the walk is paused on purpose).
+function Lk.holding() return next(holds) ~= nil end
 
 --- Lift the cast / channel / loot holds (not rest).
 function Lk.release()

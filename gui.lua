@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.3
+-- Version: 4.0.4
 -- Folder: Master_Farmer_Grindbot
 -- ============================================================================
 
@@ -1766,6 +1766,9 @@ local function start_bot()
         menu:set("mfg_mode", 2)
     end
     set_on("enable", true)
+    -- 4.0.4: MasterArthasNav's input driver while the bot runs (applied on the update tick)
+    local ok_mv, mv = pcall(require, "movement")
+    if ok_mv and type(mv) == "table" and type(mv.want_input_driver) == "function" then pcall(mv.want_input_driver, true) end
     local what = g and "grinding" or "questing"
     state.set_note("Start", g and "Grinding" or "Quest")
     local ok_e, errorlog = pcall(require, "errorlog")
@@ -1810,14 +1813,21 @@ local function off_log(why)
     end
 end
 
+local function release_driver_wish()
+    local ok_mv, mv = pcall(require, "movement")
+    if ok_mv and type(mv) == "table" and type(mv.want_input_driver) == "function" then pcall(mv.want_input_driver, false) end
+end
+
 local function pause_bot()
     off_log("Pause")
     set_on("enable", false)
+    release_driver_wish()
 end
 
 local function stop_bot(why)
     off_log(type(why) == "string" and why or "Stop")
     set_on("enable", false)
+    release_driver_wish()
     local ok, movement = pcall(require, "movement")
     if ok and movement and type(movement.nav_stop) == "function" then
         movement.nav_stop()
@@ -2049,28 +2059,21 @@ menu:set_status({
         end,
     },
     {
-        -- Is out-of-combat travel going through Ameisen?
-        -- Reads AmeisenNav's own connection flag only (plain Lua, no game
-        -- call), so it is safe on the draw path.
+        -- Is out-of-combat travel going through MasterArthasNav?
+        -- (CLAUDE_MASTERARTHASNAV_RULES R2.4): no navigation call on the draw
+        -- path - the state comes from movement's update-tick snapshot.
         label = "Navigation",
         value = function()
-            local g = rawget(_G, "ArthasNav")
-            local c = type(g) == "table" and g.client or nil
-            if type(c) ~= "table" or type(c.is_server_available) ~= "function" then
-                return "MasterArthasNav not loaded"
-            end
-            local ok, up = pcall(c.is_server_available, c)
-            if ok and up == true then return "MasterArthasNav ready" end
-            return "server down - start it from the MasterArthasNav tray icon"
+            local okm, mv = pcall(require, "movement")
+            local snap = okm and type(mv) == "table" and mv.debug_snapshot and mv.debug_snapshot() or {}
+            if snap.nav == "ready" then return "MasterArthasNav ready" end
+            if snap.nav == "down" then return "server down - start it from the MasterArthasNav tray icon" end
+            return "MasterArthasNav not loaded"
         end,
         color = function()
-            local g = rawget(_G, "ArthasNav")
-            local c = type(g) == "table" and g.client or nil
-            local ok, up = false, false
-            if type(c) == "table" and type(c.is_server_available) == "function" then
-                ok, up = pcall(c.is_server_available, c)
-            end
-            if ok and up == true then return C(90, 210, 110, 255) end
+            local okm, mv = pcall(require, "movement")
+            local snap = okm and type(mv) == "table" and mv.debug_snapshot and mv.debug_snapshot() or {}
+            if snap.nav == "ready" then return C(90, 210, 110, 255) end
             return C(210, 78, 78, 255)
         end,
     },

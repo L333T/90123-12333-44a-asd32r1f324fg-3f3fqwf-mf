@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.3
+-- Version: 4.0.4
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -39,6 +39,14 @@
 -- a walker stop - at most every RESTART_GAP s). Combat walks keep move_to
 -- with seamless retargets (a moving target). (3.5.0 - 3.6.1: RestedXP walks
 -- only, 3-yard waypoints.)
+--
+-- 4.0.4 - THE ZYGOR QUESTING 1.7.4 / 1.7.5 NAVIGATION (confirmed in game
+-- 2026-10-18; CLAUDE_MASTERARTHASNAV_RULES.md R4 exception): find_path asks
+-- allow_partial (a partial path is walked exactly), a walk over LONG_FALLBACK
+-- yd never falls back to a plain move_to, MasterArthasNav's driver is "input"
+-- while the bot runs, no new walk while casting / in combat (travel) / with the
+-- server down, and death / a loading screen (event flags) stop the walk on the
+-- update tick.
 -- ============================================================================
 
 local R = require("movement/core")
@@ -101,6 +109,62 @@ local function cache_put(tbl, which, k, v)
 end
 
 local warned_no_nav = false
+
+-- 4.0.4 (Zygor Questing 1.7.4, confirmed in game 2026-10-18): MasterArthasNav's
+-- driver is "input" while the bot runs - its "walker" (simple_movement) driver
+-- ran in every logged navigation crash. An advanced setting (session only), set
+-- again on every Start; applied on the update tick (N.pulse), never from a GUI
+-- callback; the player's value goes back on Stop / Pause / unload.
+N.CLAIM_DRIVER = "input"
+local LONG_FALLBACK = 40       -- yd: farther walks never fall back to a plain move_to
+local drv = { want = false, claimed = false, saved = nil, refused = false, next_t = 0 }
+function N.want_input_driver(on) drv.want = on == true end
+function N.driver_claimed() return drv.claimed end
+local function nav_settings()
+    local g = rawget(_G, "ArthasNav")
+    local s = type(g) == "table" and g.settings or nil
+    if type(s) == "table" and type(s.set) == "function" then return s end
+    return nil
+end
+local function driver_release(s)
+    if not drv.claimed then return end
+    local v = drv.saved
+    if type(v) == "string" then pcall(s.set, "driver", v)
+    elseif type(s.reset) == "function" then pcall(s.reset, "driver") end
+    drv.claimed, drv.saved = false, nil
+end
+local function driver_tick(force)
+    if drv.want == drv.claimed then return end
+    local t = R.now()
+    if not force and t < drv.next_t then return end
+    drv.next_t = t + 2
+    local s = nav_settings()
+    if not s then return end
+    if not drv.want then
+        driver_release(s)
+        R.trail("nav", "MasterArthasNav driver put back")
+        return
+    end
+    if drv.refused then return end
+    if drv.saved == nil and type(s.get) == "function" then
+        local ok, v = pcall(s.get, "driver")
+        drv.saved = (ok and type(v) == "string") and v or false
+    end
+    local ok, res, err = pcall(s.set, "driver", N.CLAIM_DRIVER)
+    if ok and res == true then
+        drv.claimed = true
+        R.trail("nav", "MasterArthasNav driver: %s while the bot runs (was %s)", N.CLAIM_DRIVER, tostring(drv.saved))
+    else
+        drv.refused = true
+        R.log("MasterArthasNav refused driver '" .. N.CLAIM_DRIVER .. "': " .. tostring(err or res))
+    end
+end
+--- Unload: the player's driver back at once.
+function N.release_driver_now()
+    drv.want = false
+    local s = nav_settings()
+    if s then driver_release(s) end
+end
 local fallback_walker = nil
 
 -- ----------------------------------------------------------------------------
@@ -109,6 +173,7 @@ local fallback_walker = nil
 function N.client()
     local g = rawget(_G, "ArthasNav")
     local c = type(g) == "table" and g.client or nil
+    if type(c) ~= "table" or type(c.move_to) ~= "function" then c = nil end      -- R1.1
     if c == nil and not warned_no_nav then
         warned_no_nav = true
         R.log("MasterArthasNav not loaded - walking straight lines without the navmesh "
@@ -255,7 +320,13 @@ end
 
 --- AmeisenNav found no path to (x, y, z): read the ground there and walk again
 --- at that height, once per destination.
+local function swimming()
+    local ok, v = pcall(function() return core.character.is_swimming() end)
+    return ok and v == true
+end
+
 local function retry_at_ground(c, id, x, y, z, code, opts)
+    if swimming() then return false end          -- R9.2 (the probe hits the lake bed)
     local hx, hy = R.here()
     if not hx or R.dist2(hx, hy, x, y) > HEIGHT_RANGE then return false end
     local k = key_of(x, y)
@@ -295,6 +366,38 @@ issue_move = function(c, x, y, z, opts)
         record_fail(code, x, y, z)
     end, { allow_partial = opts.allow_partial ~= false, seamless = opts.seamless == true })
     return ok == true
+end
+
+--- 4.0.4 (CLAUDE_MASTERARTHASNAV_RULES R4.5, the API example's can_start_walk):
+--- why a NEW walk may not start now, or nil. A running walk is held through a
+--- cast by the library (pause_while_casting); a seamless retarget of a running
+--- walk is not a new start.
+local function event_flags()
+    local ev = package.loaded["events"]
+    return type(ev) == "table" and type(ev.navflags) == "table" and ev.navflags or nil
+end
+
+local function start_blocked(c, mode)
+    -- no new travel walk in combat - only the fight's own walks (mode "combat")
+    if mode ~= "combat" then
+        local nf = event_flags()
+        local me0 = R.me()
+        local okc, fighting = pcall(function() return me0 and me0:is_in_combat() == true end)
+        if (nf and nf.in_combat) or (okc and fighting == true) then return "in combat" end
+    end
+    -- no walk on the walker driver while the input driver is being claimed
+    if drv.want and not drv.claimed and not drv.refused and nav_settings() then return "casting" end
+    local me = R.me()
+    if me then
+        local okc, casting = pcall(function() return me:is_casting_spell() == true or me:is_channelling_spell() == true end)
+        if okc and casting == true then return "casting" end
+    end
+    local oka, up = call(c, "is_server_available")
+    if oka and up == false then
+        fail.server_until = R.now() + SERVER_BACKOFF
+        return "server down"
+    end
+    return nil
 end
 
 --- An exact-path walk (3.7.0, movement/guide_path header): ONE find_path ->
@@ -342,10 +445,19 @@ local function guide_move(c, x, y, z, mode)
     cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route, cur.exact = x, y, z, R.now(), mode, nil, true
     guide.planning, guide.full, guide.processing, guide.dirty = true, nil, false, false
     stats.issued = stats.issued + 1
-    local function fallback()
+    local far = R.dist2(hx, hy, x, y) > LONG_FALLBACK
+    local function fallback(code)
         guide.planning, guide.full = false, nil
         GP.stats.fallbacks = GP.stats.fallbacks + 1
-        if cur.id == id then issue_move(c, x, y, z, { seamless = N.busy(), mode = mode }) end
+        if cur.id ~= id then return end
+        if far then
+            -- a long walk never falls back to a plain move_to (Zygor crash 11:26)
+            R.trail("nav", "exact walk to (%.0f, %.0f, %.0f): no path (%s) - no plain move_to for a long walk",
+                x, y, z, tostring(code or "no_path"))
+            record_fail(code or "no_path", x, y, z)
+            return
+        end
+        issue_move(c, x, y, z, { seamless = N.busy(), mode = mode })
     end
     local sent = call(c, "find_path", { x = hx, y = hy, z = hz }, { x = x, y = y, z = z }, function(ok, points, info)
         if cur.id ~= id then return end                 -- a newer walk replaced this one
@@ -353,10 +465,10 @@ local function guide_move(c, x, y, z, mode)
         -- move_to's allow_partial does - it used to fall back to move_to
         local partial = type(info) == "table" and info.partial == true
         if type(points) ~= "table" or #points < 2 or not (ok or partial) then
-            R.trail("nav", "exact walk to (%.0f, %.0f, %.0f): find_path ok=%s points=%s code=%s partial=%s - walking move_to",
+            R.trail("nav", "exact walk to (%.0f, %.0f, %.0f): find_path ok=%s points=%s code=%s partial=%s",
                 x, y, z, tostring(ok), tostring(type(points) == "table" and #points or nil),
                 tostring(type(info) == "table" and info.code or nil), tostring(partial))
-            return fallback()
+            return fallback(type(info) == "table" and info.code or nil)
         end
         local pts = GP.resample(points, GP.SPACING)
         if not partial then
@@ -375,11 +487,12 @@ local function guide_move(c, x, y, z, mode)
             guide.next_check = R.now() + GP.RECHECK_GAP
             guide.restart_at = R.now() + RESTART_GAP
             GP.stats.walks = GP.stats.walks + 1
-            if not start_walk(c, id, 1) then fallback() end
+            if not start_walk(c, id, 1) then fallback("follow_path refused") end
         end)
-    end)
+    end, { allow_partial = true })                       -- a partial path is walked exactly
     if sent ~= true then
         guide.planning = false
+        if far then return false end                     -- no long plain move_to
         return issue_move(c, x, y, z, { seamless = N.busy(), mode = mode })
     end
     return true
@@ -559,6 +672,11 @@ function N.nav_to(dest, direct, mode)
         return ok and r ~= false
     end
     if busy and (R.now() - cur.t) < RETARGET_GAP then return true end
+    if not busy and not guide.planning then
+        local blocked = start_blocked(c, mode)               -- R4.5
+        if blocked == "casting" then return true end         -- started once the cast ends
+        if blocked then stats.refused = stats.refused + 1 return false end
+    end
     if mode == "combat" then check_combat_mode(c) end
     -- 3.8.0: before an out-of-combat walk of MIN_WALK yd or more starts, mount
     -- (or Travel Form) first - the player stands for the cast meanwhile
@@ -639,11 +757,19 @@ end
 
 --- Per frame: drive the fallback walker when AmeisenNav is missing.
 function N.pulse()
-    if rawget(_G, "ArthasNav") ~= nil then
-        if cur.exact then
-            local c = N.client()
-            if c then guide_recheck(c) end
-        end
+    driver_tick()
+    -- death or a loading screen flagged by the event callback: the walk stops
+    -- here, on the update tick, and its "walk started" flags are cleared
+    local nf = event_flags()
+    if nf and nf.stop then
+        local why = nf.stop
+        nf.stop = nil
+        N.stop(why)
+        R.trail("nav", "walk stopped: %s", why)
+    end
+    local c = N.client()
+    if c ~= nil then
+        if cur.exact then guide_recheck(c) end
         return
     end
     local w = walker()

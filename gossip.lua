@@ -3,7 +3,7 @@
 -- Gossip options - find and select an NPC's option by icon, type or wording
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- ONE WAY TO PICK A GOSSIP OPTION (2.144.0). Four modules each found and

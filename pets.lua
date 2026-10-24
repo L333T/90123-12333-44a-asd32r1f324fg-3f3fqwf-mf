@@ -3,7 +3,7 @@
 -- pets.lua - shared pet handling for Hunter and Warlock
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Shared on purpose. Hunter and Warlock both need summon / revive / heal /

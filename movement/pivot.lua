@@ -3,7 +3,7 @@
 -- movement/pivot.lua - stop and turn on sharp waypoint turns
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- ============================================================================
 -- THE RULE (CLAUDE_MOVEMENT_RULES.md, "Sharp turns: stop, turn, go"):
 -- AmeisenNav's walkers keep running forward while they turn, so a sharp

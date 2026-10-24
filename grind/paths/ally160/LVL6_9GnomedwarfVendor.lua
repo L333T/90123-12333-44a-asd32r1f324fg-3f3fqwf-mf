@@ -3,7 +3,7 @@
 -- Gnome/Dwarf 6-9
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

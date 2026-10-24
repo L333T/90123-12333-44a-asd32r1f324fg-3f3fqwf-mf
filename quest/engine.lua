@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2808,6 +2808,12 @@ IS.watch_still = function(pts, must_do, label)
         w.t = now                    -- there: standing is fine
         return
     end
+    -- 4.0.8: a walk still being planned / its floor asked for (a remote nav
+    -- server takes seconds) is not a stand (log 2026-10-24 17:40)
+    if movement.nav_pending() then
+        w.t = now
+        return
+    end
     if (now - w.t) < w.S then return end
     w.t = now
     trail("route", "no movement for %.0f s toward point %d of %d (%.0f yd) for %s - moving %s, owner %s, state %s, last fail %s - fresh path%s",
@@ -2980,6 +2986,13 @@ IS.walk_route = function(player, goal, kind, wps, label)
         -- not only off-mesh, moves on to the next point
         local why = movement.last_fail_reason()
         local cp = pts[g_move].pos
+        -- 4.0.8: the nav server timed out / is down - the point is not
+        -- unreachable: keep it (movement backs off and asks again)
+        if why and movement.server_trouble(why) then
+            movement.clear_fail()
+            trail("route", "point %d of %d: nav server trouble (%s) - kept, asking again", g_move, #pts, tostring(why))
+            why = nil
+        end
         if movement.is_blocked(cp) or why then
             movement.clear_fail()
             trail("route", "point %d of %d unreachable (%s) - next point", g_move, #pts, tostring(why or "blocked"))

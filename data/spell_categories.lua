@@ -3,7 +3,7 @@
 -- Spell categories
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- HOW A SPELL GETS ITS CATEGORY

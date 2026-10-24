@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -22,10 +22,11 @@
 -- MasterArthasNav for the ground there (client:get_height, opts.probe_up
 -- starts its downward ray that far above the guess) and walks again at that
 -- height. 4.0.7 (log 2026-10-24, Plaguewood 38 yd above the guess, 1600+ yd
--- away): any distance - the old 150 yd limit failed every far waypoint - and
--- a ladder of probe heights (HEIGHT_PROBES), one query at a time; a height
--- that still has no path tries the next rung. Far guide walks re-plan with
--- find_path (never a plain move_to). The height found is kept (N.reach_z).
+-- away): any distance - the old 150 yd limit failed every far waypoint. Far
+-- guide walks re-plan with find_path (never a plain move_to). 4.0.8: the
+-- heights are the mesh floors at x, y (c:get_all_heights), nearest the guess
+-- first - the 4.0.7 probe_up ladder never reached the server (its get_height
+-- fallback asks at the guess). The height found is kept (N.reach_z).
 --
 -- FAILURES: the code of the last failed walk is kept (last_fail_reason /
 -- last_fail_offmesh). The same destination failing FAIL_BLACKLIST times in
@@ -65,9 +66,8 @@ local RETARGET_GAP = 0.25      -- s between two seamless retargets
 local UNDERFOOT = 1.0          -- yd: a destination this close is reached
 local QUIET_STOP = 0.3         -- s callers wait after a real stop (is_quiet)
 local HEIGHT_PROBE_UP = 60
--- 4.0.7: probe_up rungs for a no-path destination, lowest first (the nearest
--- ground above the guess wins - see 3.0.6 below); one query per answer
-local HEIGHT_PROBES = { 8, 30, 60, 100, 160, 250 }
+-- 4.0.8: a no-path destination's heights (floor_candidates)
+local FLOOR_LIMIT = 20000      -- |z| above this is not a height
 local HEIGHT_SAME = 2.0        -- yd: a height this close to a tried one is the same
 local HEIGHT_SCAN_HOLD = 10.0  -- s: a scan with no answer holds new walks there no longer
 -- 3.0.6: the ground is looked for just above the guessed height first; only
@@ -98,7 +98,7 @@ GP.stats = { walks = 0, replans = 0, pushed = 0, fallbacks = 0 }
 local fail = { reason = nil, offmesh = false, t = 0 }
 local fails_at = {}            -- dest key -> { n, t }
 local zfix = {}                -- dest key -> corrected z
-local zscan = {}               -- 4.0.7: dest key -> { next = rung, tried = { z, ... }, t, base }
+local zscan = {}               -- 4.0.7: dest key -> { tried = { z, ... }, t, list, asking }
 local stats = { issued = 0, refused = 0 }
 N.stats = stats
 
@@ -334,29 +334,55 @@ local function swimming()
     return ok and v == true
 end
 
---- 4.0.7: the ground at (x, y) on the HEIGHT_PROBES ladder from rung `from`,
---- ONE get_height at a time (a remote server adds latency - never a burst).
---- `accept(hz)` turns down a height already tried. cb(ok, z, rung).
-local function ground_scan(c, x, y, z, from, accept, cb)
-    local i = from
-    local function nxt()
-        local up = HEIGHT_PROBES[i]
-        if not up then cb(false) return end
-        local sent = call(c, "get_height", { x = x, y = y, z = z }, function(ok, hz)
-            local rung = i
-            i = i + 1
-            if ok and R.finite(hz) and accept(hz) then cb(true, hz, rung) return end
-            nxt()
-        end, { probe_up = up })
-        if sent ~= true then cb(false) end
-    end
-    nxt()
+--- 4.0.8: a value from get_all_heights / the game ground as a height, or nil.
+local function floor_value(v)
+    if type(v) == "table" then v = v.z end
+    v = tonumber(v)
+    if R.finite(v) and math.abs(v) < FLOOR_LIMIT then return v end
+    return nil
 end
-N._ground_scan = ground_scan        -- tests
 
---- No path to (x, y, z): find the ground there and walk again at it with
---- `walk(hz)`. Each answer that still has no path tries the next rung of
---- HEIGHT_PROBES; the ladder is spent once per FAIL_WINDOW s per destination.
+--- 4.0.8 (the mesh-floor half of Zygor Questing 1.7.31): the heights worth a
+--- path at (x, y) other than the guess - every mesh floor there
+--- (c:get_all_heights, CONTRACT.md: cb(ok, values) or cb(values)), nearest the
+--- guess first. ONE server request. Never the game ground: no terrain-height
+--- call in this bot (2.311.0, no rays - tests/test_no_rays, test_movement3).
+--- (get_height's server fallback asks /height at the guess itself and the
+--- server only snaps within a few yd of it, so a far floor 38 yd up was never
+--- found - log 2026-10-24 17:40.) cb(list).
+local function floor_candidates(c, x, y, z, cb)
+    local list = {}
+    local function add(v)
+        v = floor_value(v)
+        if not v then return end
+        for i = 1, #list do if math.abs(list[i] - v) <= HEIGHT_SAME then return end end
+        list[#list + 1] = v
+    end
+    if type(c.get_all_heights) ~= "function" then cb(list) return end
+    local answered = false
+    local sent = call(c, "get_all_heights", { x = x, y = y, z = z }, function(a, b)
+        if answered then return end
+        answered = true
+        local vals = type(a) == "table" and a or ((a == true and type(b) == "table") and b or nil)
+        local floors = {}
+        for i = 1, #(vals or {}) do
+            local v = floor_value(vals[i])
+            if v then floors[#floors + 1] = v end
+        end
+        table.sort(floors, function(p, q) return math.abs(p - z) < math.abs(q - z) end)
+        for i = 1, #floors do add(floors[i]) end
+        cb(list)
+    end)
+    if sent ~= true and not answered then
+        answered = true
+        cb(list)
+    end
+end
+N._floor_candidates = floor_candidates   -- tests
+
+--- No path to (x, y, z): walk again with `walk(hz)` at each height found
+--- there (floor_candidates, asked once per destination), one after another
+--- as each still has no path. The list rests FAIL_WINDOW s per destination.
 --- True when the retry is under way (the failure is then reported by it).
 local function retry_at_ground(c, id, x, y, z, code, walk)
     if swimming() then return false end          -- R9.2 (the probe hits the lake bed)
@@ -364,37 +390,65 @@ local function retry_at_ground(c, id, x, y, z, code, walk)
     local st = zscan[k]
     if st and (R.now() - st.t) > FAIL_WINDOW then st = nil end
     if not st then
-        st = { next = 1, tried = {}, t = R.now(), base = z }   -- the ladder stands on the first guess
+        st = { tried = {}, t = R.now(), list = nil, asking = false }
         cache_put(zscan, "zscan", k, st)
     end
-    if st.next > #HEIGHT_PROBES then return false end
     st.tried[#st.tried + 1] = z
-    local from = st.next
-    st.next = #HEIGHT_PROBES + 1                  -- one scan at a time
-    cur.scanning, cur.scan_t = id, R.now()        -- N.move waits for it (same destination)
-    local function fresh(hz)
-        for i = 1, #st.tried do
-            if math.abs(hz - st.tried[i]) <= HEIGHT_SAME then return false end
+    local function untried()
+        for i = 1, #(st.list or {}) do
+            local v, fresh = st.list[i], true
+            for j = 1, #st.tried do
+                if math.abs(v - st.tried[j]) <= HEIGHT_SAME then fresh = false break end
+            end
+            if fresh then return v end
         end
+        return nil
+    end
+    local function go(hz)
+        cache_put(zfix, "zfix", k, hz)
+        R.trail("nav", "(%.0f, %.0f): no path at z %.1f (%s) - walking again at a floor there, z %.1f (%d found)",
+            x, y, z, tostring(code), hz, #st.list)
+        walk(hz)
+    end
+    if st.list then
+        local hz = untried()
+        if not hz then
+            if not st.spent then
+                st.spent = true
+                R.trail("nav", "(%.0f, %.0f): no floor with a path found (%d found) - %s", x, y, #st.list, tostring(code))
+            end
+            return false
+        end
+        go(hz)
         return true
     end
-    ground_scan(c, x, y, st.base, from, fresh, function(okh, hz, rung)
+    if st.asking then return true end
+    st.asking = true
+    cur.scanning, cur.scan_t = id, R.now()        -- N.move waits for it (same destination)
+    floor_candidates(c, x, y, z, function(list)
+        st.asking, st.list = false, list
         if cur.scanning == id then cur.scanning = nil end
-        if cur.id ~= id then st.next = from return end   -- superseded meanwhile
-        if okh then
-            st.next = rung + 1
-            cache_put(zfix, "zfix", k, hz)
-            R.trail("nav", "(%.0f, %.0f): no path at z %.1f (%s) - walking again at the ground, z %.1f (probe %d up)",
-                x, y, z, tostring(code), hz, HEIGHT_PROBES[rung])
-            walk(hz)
+        if cur.id ~= id then return end           -- superseded meanwhile (the list is kept)
+        local hz = untried()
+        if hz then
+            go(hz)
         else
-            R.trail("nav", "(%.0f, %.0f): no ground with a path found (%d heights tried) - %s",
-                x, y, #st.tried, tostring(code))
+            R.trail("nav", "(%.0f, %.0f): no floor with a path found (%d found) - %s", x, y, #list, tostring(code))
             record_fail(code, x, y, z)
         end
     end)
     return true
 end
+
+--- 4.0.8: a walk is being planned or its floor is being asked for - not a
+--- stand (quest/engine's route watchdog waits for it).
+function N.pending()
+    if guide.planning then return true end
+    return cur.scanning ~= nil and cur.scanning == cur.id and (R.now() - (cur.scan_t or 0)) < HEIGHT_SCAN_HOLD
+end
+
+--- 4.0.8: a failure code that is the server's, not the place's.
+function N.server_trouble(code) return SERVER_CODES[code] == true end
 
 issue_move = function(c, x, y, z, opts)
     cur.id = cur.id + 1

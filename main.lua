@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
 -- for long/blocked out-of-combat legs, movement_handler does facing and cast
@@ -141,7 +141,7 @@ local function load_mod(name)
     if ok then
         return mod
     end
-    core.log_error("[Master Farmer - Grindbot] require failed (" .. name .. "): " .. tostring(mod))
+    core.log_error("[restedXP_questing] require failed (" .. name .. "): " .. tostring(mod))
     if errorlog then
         errorlog.error("require " .. name, mod)
     end
@@ -150,7 +150,7 @@ end
 
 local gui = load_mod("gui")
 if not gui then
-    core.log_error("[Master Farmer - Grindbot] GUI module failed - window will not appear.")
+    core.log_error("[restedXP_questing] GUI module failed - window will not appear.")
 else
     core.register_on_render_window_callback(function()
         if is_stale() then
@@ -160,7 +160,7 @@ else
         guarded("gui.draw", gui.draw)
         probe("-")
     end)
-    core.log(string.format("[Master Farmer - Grindbot] v%s GUI ready", identity.version))
+    core.log(string.format("[restedXP_questing] v%s GUI ready", identity.version))
 end
 
 local state = load_mod("state")
@@ -955,7 +955,7 @@ core.register_on_render_callback(function()
     probe("-")
 end)
 
-core.log(string.format("[Master Farmer - Grindbot] v%s loaded by %s", identity.version, identity.authors))
+core.log(string.format("[restedXP_questing] v%s loaded by %s", identity.version, identity.authors))
 
 -- 2.257.0: UNLOAD. The launcher (Master_Farmer loader.lua) calls on_unload and
 -- removes the callbacks it routed for this instance. There is no core API to

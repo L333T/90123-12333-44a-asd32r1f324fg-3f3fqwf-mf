@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Patrol / kill / loot machine
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 
 ---@type izi_api
@@ -535,7 +535,7 @@ local function rejoin_path(zone, order)
         if ni then
             gp.far_node = { i = ni, x = nx, y = ny, z = nz }
             gp.rejoin = true
-            core.log(string.format("[Master Farmer - Grindbot] Back to the grind route: nearest waypoint %d, %.0f yd",
+            core.log(string.format("[restedXP_questing] Back to the grind route: nearest waypoint %d, %.0f yd",
                 ni, nd or -1))
         end
     end
@@ -707,7 +707,7 @@ function grind.kill_mobs(player)
         return
     end
     local function skip_node(why)
-        core.log_warning("[Master Farmer - Grindbot] Grind skip node " .. tostring(state.grind.move) .. " (" .. tostring(why) .. ")")
+        core.log_warning("[restedXP_questing] Grind skip node " .. tostring(state.grind.move) .. " (" .. tostring(why) .. ")")
         state.grind.move = state.grind.move + 1
         if state.grind.move > n then
             state.grind.move = 1

@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Debug log, written to scripts_data
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- Every debug toggle in this project used core.log, which goes to the console
 -- and nowhere else. A console line is gone the moment it scrolls, and there
@@ -123,7 +123,7 @@ function debuglog.flush(force)
     if not ok and not warned then
         warned = true
         core.log_warning(
-            "[Master Farmer - Grindbot] Could not write " .. FILE .. " - debug lines stay in the console only.")
+            "[restedXP_questing] Could not write " .. FILE .. " - debug lines stay in the console only.")
     end
     return ok
 end

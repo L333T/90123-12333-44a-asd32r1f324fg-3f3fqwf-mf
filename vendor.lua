@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
 --
@@ -508,7 +508,7 @@ local function destroy_slot(e, why)
     dtrail("deleted %s x%s (bag %d slot %d) - %s%s", tostring(name), tostring(e.count or 1), e.bag, e.slot,
         tostring(why), ok and "" or " (refused)")
     if ok then
-        core.log(string.format("[Master Farmer - Grindbot] Deleted %s x%s - %s.", tostring(name), tostring(e.count or 1), tostring(why)))
+        core.log(string.format("[restedXP_questing] Deleted %s x%s - %s.", tostring(name), tostring(e.count or 1), tostring(why)))
         pcall(function() bags.food_water_invalidate() end)
     end
     return ok
@@ -648,7 +648,7 @@ local function check_last_sale(player)
             tostring(p.bag), tostring(p.slot), surprise, surprise >= 3 and " - selling stopped" or "")
         if surprise >= 3 then
             selling_off = true
-            core.log_warning("[Master Farmer - Grindbot] Vendor sales keep emptying other slots - "
+            core.log_warning("[restedXP_questing] Vendor sales keep emptying other slots - "
                 .. "selling is off for this session.")
         end
         return
@@ -1091,12 +1091,12 @@ local function hearth_tick(player)
             if ht.want_repair then
                 -- The stone is not ready: walk to the zone merchant instead,
                 -- if this zone has one (the normal trip below).
-                core.log_warning("[Master Farmer - Grindbot] Gear needs repair but the Hearthstone is not ready - walking to a merchant if one is known.")
+                core.log_warning("[restedXP_questing] Gear needs repair but the Hearthstone is not ready - walking to a merchant if one is known.")
                 ht = nil
                 ht_skip_until = now + 120
                 return false
             end
-            core.log_warning("[Master Farmer - Grindbot] Bags full, no merchant known here, and the Hearthstone is not ready - carrying on.")
+            core.log_warning("[restedXP_questing] Bags full, no merchant known here, and the Hearthstone is not ready - carrying on.")
             ht = nil
             state.vendor.done_until = now + 60
             return false
@@ -1104,7 +1104,7 @@ local function hearth_tick(player)
         movement.nav_stop()
         local ok = safe(function() return require("spellcheck").use_item(HEARTH_ID) end) == true   -- 2.312.0: core API
         local why = ht.want_repair and "gear needs repair" or "bags full and no merchant known here"
-        core.log("[Master Farmer - Grindbot] " .. why .. " - Hearthstone to the inn.")
+        core.log("[restedXP_questing] " .. why .. " - Hearthstone to the inn.")
         ht.stage, ht.t = "casting", now
         state.set_note("Vendor", ok and ("Hearthstone - " .. why) or "Hearthstone refused")
         return true
@@ -1135,7 +1135,7 @@ local function hearth_tick(player)
         close_vendor()
     end
     if (now - (ht.started or now)) > FIND_TIMEOUT or (ht.tries or 0) >= max_tries then
-        core.log_warning("[Master Farmer - Grindbot] Hearthed with full bags but found no merchant nearby.")
+        core.log_warning("[restedXP_questing] Hearthed with full bags but found no merchant nearby.")
         ht = nil
         state.vendor.done_until = now + DONE_COOLDOWN
         return false

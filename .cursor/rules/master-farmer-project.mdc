@@ -9,7 +9,7 @@ Read and follow `AGENTS.md` at the repository root before any change. It is the
 single rule set shared by Cursor and Claude Code — edit rules there, not here.
 
 The project home (main folder) is `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\`.
-Open `_MASTER-FARMER_\Master_Farmer_Grindbot` for work. Local version builds go
+Open `_MASTER-FARMER_\products_src\restedXP_questing` for work. Local version builds go
 in `_MASTER-FARMER_\Grindbot_Versions\`; the older ones stay in `Desktop\SNES_\`.
 
 The essentials, so they are never missed:

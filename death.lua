@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Death run — release, path graveyard to corpse, retrieve
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 
 ---@type izi_api
@@ -334,7 +334,7 @@ local function blacklist_killer()
         return
     end
     state.mark_unreachable(guid)
-    core.log("[Master Farmer - Grindbot] Blacklisted the mob that killed us: " .. tostring(guid))
+    core.log("[restedXP_questing] Blacklisted the mob that killed us: " .. tostring(guid))
 end
 
 local function begin_death()

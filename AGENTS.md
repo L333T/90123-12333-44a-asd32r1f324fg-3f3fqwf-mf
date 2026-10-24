@@ -1,4 +1,4 @@
-# Master Farmer - Grindbot — shared agent rules
+# restedXP_questing (was Master Farmer - Grindbot) — shared agent rules
 
 One rule set for every AI tool that works on this project: **Claude Code** reads it
 through `CLAUDE.md`, **Cursor** reads this file directly (plus `.cursor/rules/`).
@@ -6,8 +6,8 @@ When a rule changes, change it HERE so both tools follow the same one.
 
 Master Farmer work lives in `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\`
 (the MAIN FOLDER since 2026-10-16). The repo is
-`_MASTER-FARMER_\Master_Farmer_Grindbot`. New local builds
-(`Master_Farmer_Grindbot_v<version>`) go to `_MASTER-FARMER_\Grindbot_Versions\`;
+`_MASTER-FARMER_\products_src\restedXP_questing`. New local builds
+(`restedXP_questing_v<version>`) go to `_MASTER-FARMER_\Grindbot_Versions\`;
 the version folders built before the move stay in `Desktop\SNES_\` as an archive.
 
 A Sylvanas (Project Sylvanas) Lua plugin: an AFK WoW levelling bot. Targets
@@ -22,7 +22,7 @@ runtime by `gamever.lua`.
 2. **Build the local test folder**: `python make_local.py` → regenerates
    `manifest.lua` (the loader fetches files by Adler-32 hash, so a stale manifest
    means the change never reaches the game), syntax-checks every `.lua`, and copies
-   the build to `Desktop/_MASTER-FARMER_/Grindbot_Versions/Master_Farmer_Grindbot_v<version>/`.
+   the build to `Desktop/_MASTER-FARMER_/Grindbot_Versions/restedXP_questing_v<version>/`.
 3. **Always publish**: commit on `dev` (`vX.Y.Z: <summary>`), push, open the PR to
    `main` **and merge it**. The Master Farmer launcher downloads this repo from GitHub
    `main` (latest commit), so uncommitted or unmerged work is invisible in game. Do not
@@ -38,8 +38,8 @@ runtime by `gamever.lua`.
 | What | Where |
 |---|---|
 | Home folder (all Master Farmer work, MAIN FOLDER) | `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\` |
-| Repo (open this folder) | `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\Master_Farmer_Grindbot` |
-| Local version builds | `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\Grindbot_Versions\Master_Farmer_Grindbot_v<version>\` |
+| Repo (open this folder) | `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\products_src\restedXP_questing` |
+| Local version builds | `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\Grindbot_Versions\restedXP_questing_v<version>\` |
 | Older version archive (builds before 2026-10-16) | `C:\Users\ebene\OneDrive\Desktop\SNES_\` |
 | Active game installs (2026-10-17; change between installs — ask if logs look stale) | `C:\Users\ebene\OneDrive\Documents\Loaders-10-17\gb2tZWnvEg\1ae9bb02bb` and `C:\Users\ebene\OneDrive\Documents\Loaders-10-17\lRkCqtLhgR\26e90d7a168f835270c6de36f5` |
 | Installed loader (the Master Farmer launcher, the only one) | `…\scripts\Master_Farmer\` in each install |

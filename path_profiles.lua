@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Path profiles — save / load / play PathTool JSON from scripts_data
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- Files live in scripts_data/mfg_profiles/*.json (do not prefix scripts_data/).
 -- ============================================================================
 
@@ -286,7 +286,7 @@ local function seed_entry(entry)
     end
     local path, err = path_format.normalize(raw)
     if not path then
-        core.log_warning("[Master Farmer - Grindbot] Profile seed skip " .. filename .. ": " .. tostring(err))
+        core.log_warning("[restedXP_questing] Profile seed skip " .. filename .. ": " .. tostring(err))
         return false
     end
     if type(path.id) ~= "string" or path.id == "" then

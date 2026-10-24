@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
 --   An NPC with quests shows either a GOSSIP frame (get_gossip_*_quests, keyed
@@ -140,7 +140,7 @@ local warned_frame = {}
 local function warn_once(key, fmt, ...)
     if warned_frame[key] then return end
     warned_frame[key] = true
-    core.log_warning(string.format("[Master Farmer - Grindbot] " .. fmt, ...))
+    core.log_warning(string.format("[restedXP_questing] " .. fmt, ...))
 end
 
 local function gossip_open()
@@ -185,7 +185,7 @@ local function quest_debug(fmt, ...)
         return
     end
     local text = select("#", ...) > 0 and string.format(fmt, ...) or tostring(fmt)
-    core.log("[Master Farmer - Grindbot] quest: " .. text)
+    core.log("[restedXP_questing] quest: " .. text)
     local ok, dbg = pcall(require, "debuglog")
     if ok and dbg and type(dbg.line) == "function" then
         dbg.line("quest", "%s", text)
@@ -811,7 +811,7 @@ local function mark_skipped(quest_id, quest_name)
     end
     state.quest.skipped[quest_id] = true
     core.log(string.format(
-        "[Master Farmer - Grindbot] Skipping grey quest %s.", tostring(quest_name or quest_id)))
+        "[restedXP_questing] Skipping grey quest %s.", tostring(quest_name or quest_id)))
 end
 
 --- Select `quest_id` at the NPC, whichever frame it is showing.

@@ -1,9 +1,9 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- merchants.lua - remembered repair NPCs and innkeepers
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
+-- Version: 4.0.6
 -- ============================================================================
 -- The user (2.318.0): "Grinding path should vendor at repair NPC or INN if
 -- bags are full". A grind route without its own merchant record had only the
@@ -274,7 +274,7 @@ function M.tick(player, route_key)
     else
         ok, msg = M.clear_route_vendor(route_key)
     end
-    local line = "[Master Farmer - Grindbot] Route vendor: " .. tostring(msg)
+    local line = "[restedXP_questing] Route vendor: " .. tostring(msg)
     if ok then pcall(core.log, line) else pcall(core.log_warning, line) end
     trail("%s", tostring(msg))
 end

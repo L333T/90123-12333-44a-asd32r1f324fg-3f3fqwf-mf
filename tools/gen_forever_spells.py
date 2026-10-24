@@ -52,7 +52,7 @@ def main():
         "-- ============================================================================",
         "-- Authors: BLIZZ - Anthonyk",
         f"-- Version: {version()}",
-        "-- Folder: Master_Farmer_Grindbot",
+        "-- Folder: restedXP_questing",
         "-- ============================================================================",
         "-- From RXPGuides DB/forever/spells.lua (addon.defaultSpellList). Keys are",
         "-- RestedXP's: class tokens (MAGE...) and race names (Dwarf, NightElf, Scourge).",

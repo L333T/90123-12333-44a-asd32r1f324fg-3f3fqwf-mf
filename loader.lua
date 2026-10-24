@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Lazy grind / quest pack loader (4.0.0: gathering is the Herbing & Mining product). Path tables stay on disk until a mode is checked.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 
 local loader = {}
@@ -47,7 +47,7 @@ function loader.ensure_grind()
     end
     local ok, mod = pcall(require, "grind")
     if not ok or type(mod) ~= "table" then
-        core.log_error("[Master Farmer - Grindbot] grind pack failed: " .. tostring(mod))
+        core.log_error("[restedXP_questing] grind pack failed: " .. tostring(mod))
         return nil
     end
     grind_mod = mod
@@ -62,7 +62,7 @@ function loader.ensure_quest()
     end
     local ok, mod = pcall(require, "quest")
     if not ok or type(mod) ~= "table" then
-        core.log_error("[Master Farmer - Grindbot] quest pack failed: " .. tostring(mod))
+        core.log_error("[restedXP_questing] quest pack failed: " .. tostring(mod))
         return nil
     end
     quest_mod = mod

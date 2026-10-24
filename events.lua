@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHY THIS FILE EXISTS
 --   Four game events are not notifications. They report an action the engine
@@ -82,7 +82,7 @@ function handlers.LOOT_BIND_CONFIRM(args)
         return
     end
     core.log(string.format(
-        "[Master Farmer - Grindbot] Confirming bind-on-pickup loot, slot %d.", slot))
+        "[restedXP_questing] Confirming bind-on-pickup loot, slot %d.", slot))
     safe(function() return core.input.confirm_loot_slot(zero_based) end)
 end
 
@@ -108,10 +108,10 @@ function handlers.CONFIRM_BINDER(args)
     -- the prompt for the player instead of pretending to answer it.
     local ok_g, gamever = pcall(require, "gamever")
     if ok_g and type(gamever) == "table" and gamever.is_forever() then
-        core.log("[Master Farmer - Grindbot] Innkeeper bind prompt: not answerable on WoW Forever - left to you.")
+        core.log("[restedXP_questing] Innkeeper bind prompt: not answerable on WoW Forever - left to you.")
         return
     end
-    core.log("[Master Farmer - Grindbot] Confirming binder: " .. tostring(args and args[1]))
+    core.log("[restedXP_questing] Confirming binder: " .. tostring(args and args[1]))
     safe(function() return core.input.confirm_binder() end)
 end
 
@@ -305,7 +305,7 @@ local function dispatch(event_name, args)
     end
     local ok, err = pcall(handler, args)
     if not ok then
-        core.log_error("[Master Farmer - Grindbot] game event " .. tostring(event_name)
+        core.log_error("[restedXP_questing] game event " .. tostring(event_name)
             .. ": " .. tostring(err))
     end
 end
@@ -318,19 +318,19 @@ function events.install()
         return false
     end
     if type(core.register_on_game_event_callback) ~= "function" then
-        core.log_warning("[Master Farmer - Grindbot] core.register_on_game_event_callback "
+        core.log_warning("[restedXP_questing] core.register_on_game_event_callback "
             .. "is not available; bind-on-pickup loot will not be confirmed.")
         return false
     end
 
     local ok = pcall(core.register_on_game_event_callback, dispatch)
     if not ok then
-        core.log_error("[Master Farmer - Grindbot] failed to register the game event callback.")
+        core.log_error("[restedXP_questing] failed to register the game event callback.")
         return false
     end
 
     NS.events_registered = true
-    core.log("[Master Farmer - Grindbot] Game events armed (bind confirms, NPC and quest windows).")
+    core.log("[restedXP_questing] Game events armed (bind confirms, NPC and quest windows).")
     return true
 end
 

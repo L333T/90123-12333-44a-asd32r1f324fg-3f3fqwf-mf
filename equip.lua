@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
 --
@@ -405,7 +405,7 @@ local function debug_dump(info, item_id)
         return
     end
     debug_done = true
-    core.log("[Master Farmer - Grindbot] get_item_info(" .. tostring(item_id) .. ") fields:")
+    core.log("[restedXP_questing] get_item_info(" .. tostring(item_id) .. ") fields:")
     local keys = {}
     for k in pairs(info) do keys[#keys + 1] = tostring(k) end
     table.sort(keys)
@@ -465,7 +465,7 @@ local function find_upgrade(player)
                             end
                         end
                     elseif gui.is_on("equip_debug") then
-                        core.log(string.format("[Master Farmer - Grindbot] Auto-equip skips %s: %s",
+                        core.log(string.format("[restedXP_questing] Auto-equip skips %s: %s",
                             tostring(info.name or item_id), tostring(why_not)))
                     end
                 end
@@ -632,7 +632,7 @@ local function equip_one_bag(player)
             if n >= MAX_FAILS then
                 failed_ids[bag_attempt.item_id] = true
                 core.log_warning(string.format(
-                    "[Master Farmer - Grindbot] Bag equip: %s would not equip after %d tries - skipping it this session.",
+                    "[restedXP_questing] Bag equip: %s would not equip after %d tries - skipping it this session.",
                     tostring(bag_attempt.label), n))
             end
         else
@@ -693,7 +693,7 @@ local function equip_one_bag(player)
     local slots = best.size > 0 and string.format(" (%d slots)", best.size) or ""
     bag_attempt = { bag = best.bag, slot = best.slot, item_id = best.item_id, label = best.label, t = now }
     state.set_note("Equip", "Equipping " .. best.label)
-    core.log(string.format("[Master Farmer - Grindbot] Bag equip: %s%s into %s",
+    core.log(string.format("[restedXP_questing] Bag equip: %s%s into %s",
         best.label, slots, where))
     local ok, equipped = pcall(core.input.equip_container_item, best.bag, best.slot, dest.inv)
     local pending = safe(function() return core.game_ui.get_pending_equip_slot() end)
@@ -790,7 +790,7 @@ function equip.tick(player)
             if n >= MAX_FAILS then
                 failed_ids[attempt.item_id] = true
                 core.log_warning(string.format(
-                    "[Master Farmer - Grindbot] Auto-equip: %s would not equip after %d tries - skipping it this session.",
+                    "[restedXP_questing] Auto-equip: %s would not equip after %d tries - skipping it this session.",
                     tostring(attempt.label), n))
             end
         else
@@ -819,7 +819,7 @@ function equip.tick(player)
     last_act = now
     attempt = { bag = bag, slot = slot, item_id = item_id, label = label, t = now }
     state.set_note("Equip", "Equipping " .. tostring(label))
-    core.log("[Master Farmer - Grindbot] Auto-equip: " .. tostring(label))
+    core.log("[restedXP_questing] Auto-equip: " .. tostring(label))
     -- By item id (2.80.0): the bag-slot pair is wrong for the backpack on
     -- this client (see bags.use_id). The slot is the fallback only when the
     -- id is unknown.

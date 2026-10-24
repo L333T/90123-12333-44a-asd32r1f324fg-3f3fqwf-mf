@@ -1,9 +1,9 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- movement/mount.lua - mount for travel (the 1-60 product's way)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
+-- Version: 4.0.6
 -- ============================================================================
 -- Port of the 1-60 Grinding product's nav.lua mount_step (itself the AWM
 -- Run() mount block), Core API only. Used by movement/nav before every

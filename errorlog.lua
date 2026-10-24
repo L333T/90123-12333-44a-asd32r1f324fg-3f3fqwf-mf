@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- One file per session:
 --
@@ -191,7 +191,7 @@ function errorlog.start(version)
         return
     end
     write("INFO", "==================================================================")
-    write("INFO", "Master Farmer - Grindbot v" .. tostring(version) .. " session start")
+    write("INFO", "restedXP_questing v" .. tostring(version) .. " session start")
     write("INFO", "==================================================================")
 end
 
@@ -226,7 +226,7 @@ function errorlog.error(where, err, tb)
     end
     context_lines()
     pcall(function()
-        core.log_error("[Master Farmer - Grindbot] " .. tostring(where) .. ": " .. tostring(err)
+        core.log_error("[restedXP_questing] " .. tostring(where) .. ": " .. tostring(err)
             .. "  (details: scripts_log/" .. tostring(path) .. ")")
     end)
 end

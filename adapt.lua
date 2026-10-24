@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Adaptive rotation - learns what kills fastest, per character
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT (2.274.0, GUI "Adaptive Rotation", Spells tab, on by default)
 --   Every class's rotation (smart.lua) reads this module to cast the spells
@@ -45,7 +45,7 @@ local adapt = {}
 local ok_izi, izi = pcall(require, "common/izi_sdk")
 
 local FOLDER = "mfg"
-local PLUGIN = "Master Farmer - Grindbot"
+local PLUGIN = "restedXP_questing"
 local MIN_SAMPLES = 3         -- measured hits before the measured average is trusted
 local ALPHA = 0.2             -- moving-average weight of a new hit
 local LAND_WINDOW = 1.6       -- s after the cast time a health drop still belongs to the cast
@@ -171,7 +171,7 @@ end
 
 local function serialise(p)
     local lines = {
-        "# Master Farmer - Grindbot adaptive rotation. Rewritten automatically.",
+        "# restedXP_questing adaptive rotation. Rewritten automatically.",
         "guid=" .. clean(p.guid),
         "class=" .. tostring(p.class or ""),
         "level=" .. tostring(p.level or ""),

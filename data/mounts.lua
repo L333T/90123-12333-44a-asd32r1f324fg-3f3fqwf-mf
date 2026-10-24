@@ -1,5 +1,5 @@
 -- ============================================================================
--- Master Farmer - Grindbot - MOUNTS (3.8.0, from the 1-60 product's data/mounts)
+-- restedXP_questing - MOUNTS (3.8.0, from the 1-60 product's data/mounts)
 -- ============================================================================
 -- Used by movement/mount.lua (any out-of-combat travel, gathering included):
 --   class_spells - class mounts, best first (cast when known)

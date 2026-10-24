@@ -262,7 +262,7 @@ def main():
         "-- ============================================================================",
         "-- Authors: BLIZZ - Anthonyk",
         f"-- Version: {version()}",
-        "-- Folder: Master_Farmer_Grindbot",
+        "-- Folder: restedXP_questing",
         "-- ============================================================================",
         "-- The mobs RestedXP's target frame shows for a quest objective, read from the",
         "-- guide files' .mob / .target / .unitscan lines and RXP_ENEMY names. The API",

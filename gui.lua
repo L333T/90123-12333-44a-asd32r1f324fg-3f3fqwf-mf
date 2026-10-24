@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 
 ---@type color
@@ -1211,7 +1211,7 @@ function gui.sync_faction(player)
             end
         end
         core.log(string.format(
-            "[Master Farmer - Grindbot] Detected %s (%s), which has no grind routes. %s",
+            "[restedXP_questing] Detected %s (%s), which has no grind routes. %s",
             key, tostring(how),
             fallback and ("Showing " .. fallback .. " routes instead.")
                 or "No routes are available for either side."))
@@ -1220,7 +1220,7 @@ function gui.sync_faction(player)
         end
         key = fallback
     else
-        core.log(string.format("[Master Farmer - Grindbot] Faction: %s (from %s), %d routes.",
+        core.log(string.format("[restedXP_questing] Faction: %s (from %s), %d routes.",
             key, tostring(how), counts[key] or 0))
     end
 
@@ -1724,12 +1724,12 @@ local function start_bot()
     local g = is_on("use_grind")
     local q = is_on("use_quest")
     if ((g and 1 or 0) + (q and 1 or 0)) ~= 1 then
-        core.log("[Master Farmer - Grindbot] Start blocked: check one of Grinding or Questing.")
+        core.log("[restedXP_questing] Start blocked: check one of Grinding or Questing.")
         state.set_note("Start", "Check Grinding or Questing")
         return
     end
     if not can_start() then
-        core.log("[Master Farmer - Grindbot] Start blocked: no rotation for this class.")
+        core.log("[restedXP_questing] Start blocked: no rotation for this class.")
         return
     end
     if g then
@@ -1737,7 +1737,7 @@ local function start_bot()
         gui.sync_profile_list(false)
         local path, err = gui.load_grind_path()
         if not path then
-            core.log("[Master Farmer - Grindbot] Start blocked: choose a grind profile.")
+            core.log("[restedXP_questing] Start blocked: choose a grind profile.")
             state.set_note("Start", err or "Choose a grind profile")
             return
         end
@@ -1759,7 +1759,7 @@ local function start_bot()
     else
         loader.ensure_quest()
         if not gui.has_quest_profile() then
-            core.log("[Master Farmer - Grindbot] Start blocked: RestedXP Guides is not loaded.")
+            core.log("[restedXP_questing] Start blocked: RestedXP Guides is not loaded.")
             state.set_note("Start", "Load the RestedXP Guides addon")
             return
         end
@@ -1809,7 +1809,7 @@ local function off_log(why)
     if is_on("enable") then
         local ok_e, el = pcall(require, "errorlog")
         if ok_e and type(el) == "table" and type(el.info) == "function" then pcall(el.info, "Stop: %s", why) end
-        pcall(core.log, "[Master Farmer - Grindbot] Stopped: " .. tostring(why))
+        pcall(core.log, "[restedXP_questing] Stopped: " .. tostring(why))
     end
 end
 
@@ -2707,10 +2707,10 @@ menu:on_tab("path", function(win, x, y, w, h)
             if path then
                 preview_path(path)
                 state.set_note("Path", "Loaded " .. tostring(path.name) .. " - ready for Play")
-                core.log("[Master Farmer - Grindbot] Loaded path: " .. tostring(path.name))
+                core.log("[restedXP_questing] Loaded path: " .. tostring(path.name))
             else
                 state.set_note("Path", err or "load failed")
-                core.log_warning("[Master Farmer - Grindbot] Profile load failed: " .. tostring(err))
+                core.log_warning("[restedXP_questing] Profile load failed: " .. tostring(err))
             end
         end)
     end
@@ -2727,7 +2727,7 @@ menu:on_tab("path", function(win, x, y, w, h)
                     gui.sync_profile_list(false)
                     preview_path(path)
                     state.set_note("Path", "Saved " .. tostring(saved))
-                    core.log("[Master Farmer - Grindbot] Saved profile: " .. tostring(saved))
+                    core.log("[restedXP_questing] Saved profile: " .. tostring(saved))
                 else
                     state.set_note("Path", saved or "save failed")
                 end
@@ -2749,7 +2749,7 @@ menu:on_tab("path", function(win, x, y, w, h)
                 preview_path(path)
                 if gui.is_on("rotation_only") then
                     state.set_note("Path", "Rotation Only - movement off")
-                    core.log("[Master Farmer - Grindbot] Rotation Only is on; Play does not move.")
+                    core.log("[restedXP_questing] Rotation Only is on; Play does not move.")
                 else
                     play_pending = true
                     state.set_note("Path", "Starting " .. tostring(path.name))
@@ -2959,7 +2959,7 @@ function gui.draw()
     gui.sync_attack_level()
     dprobe("gui:done")
     if not ok then
-        core.log_error("[Master Farmer - Grindbot] GUI draw failed: " .. tostring(err))
+        core.log_error("[restedXP_questing] GUI draw failed: " .. tostring(err))
     end
 end
 

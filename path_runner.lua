@@ -1,5 +1,5 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- PathTool playback — recorded follow_path chunks stay on simple_movement.
 -- Long OOC legs (approach to start, blocked hops) go through movement.nav_to
 -- which may use Sentinel. Leash is disarmed while Sentinel owns a move.
@@ -8,8 +8,8 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 
 ---@type izi_api
@@ -299,11 +299,11 @@ function path_runner.start(path, opts)
         local current = safe(function() return core.get_map_id() end)
         if type(current) == "number" and current ~= 0 and current ~= map_id then
             session.map_warned = true
-            core.log("[Master Farmer - Grindbot] Path map_id " .. tostring(map_id) .. " (current " .. tostring(current) .. ") - running world coords anyway.")
+            core.log("[restedXP_questing] Path map_id " .. tostring(map_id) .. " (current " .. tostring(current) .. ") - running world coords anyway.")
         end
     end
     core.log(string.format(
-        "[Master Farmer - Grindbot] Path start: %s (%d waypoints, index %d%s)",
+        "[restedXP_questing] Path start: %s (%d waypoints, index %d%s)",
         tostring(normalized.name),
         n,
         session.index,
@@ -339,7 +339,7 @@ local function run_action(player, act)
         end
         local spell = spell_of(id)
         if not spell then
-            core.log_warning("[Master Farmer - Grindbot] Path spell missing: " .. tostring(id))
+            core.log_warning("[restedXP_questing] Path spell missing: " .. tostring(id))
             return true
         end
         local learned = true
@@ -347,7 +347,7 @@ local function run_action(player, act)
             learned = spell:is_learned() == true
         end
         if not learned then
-            core.log("[Master Farmer - Grindbot] Path spell not learned, skip: " .. tostring(id))
+            core.log("[restedXP_questing] Path spell not learned, skip: " .. tostring(id))
             return true
         end
         pcall(function()
@@ -459,7 +459,7 @@ end
 local function skip_offmesh(n)
     local jump = math.min(n, session.index + OFFMESH_SKIP)
     core.log_warning(string.format(
-        "[Master Farmer - Grindbot] Path skip off-navmesh waypoints %d-%d (%s)",
+        "[restedXP_questing] Path skip off-navmesh waypoints %d-%d (%s)",
         session.index,
         jump,
         tostring(movement.last_fail_reason() or "navmesh")
@@ -552,14 +552,14 @@ function path_runner.tick(player)
                 session.approach = false
                 session.index = 1
                 reset_hold(session)
-                core.log("[Master Farmer - Grindbot] Reached path start: " .. tostring(path.name))
+                core.log("[restedXP_questing] Reached path start: " .. tostring(path.name))
             else
                 if movement.is_blocked(first) or movement.last_fail_offmesh() then
                     session.approach = false
                     session.index = skip_blocked(path, 1)
                     reset_hold(session)
                     movement.clear_fail()
-                    core.log_warning("[Master Farmer - Grindbot] Path start not on navmesh - skipping to waypoint " .. tostring(session.index))
+                    core.log_warning("[restedXP_questing] Path start not on navmesh - skipping to waypoint " .. tostring(session.index))
                     return true
                 end
                 state.set_note("Path", "Travel to start  " .. tostring(path.name))
@@ -578,10 +578,10 @@ function path_runner.tick(player)
             reset_hold(session)
             session.laps = (session.laps or 0) + 1
             session.lap_pending = (session.lap_pending or 0) + 1
-            core.log("[Master Farmer - Grindbot] Path loop restart: " .. tostring(path.name))
+            core.log("[restedXP_questing] Path loop restart: " .. tostring(path.name))
         else
             state.set_note("Path", "Complete")
-            core.log("[Master Farmer - Grindbot] Path complete: " .. tostring(path.name))
+            core.log("[restedXP_questing] Path complete: " .. tostring(path.name))
             path_runner.stop()
             return false
         end
@@ -600,7 +600,7 @@ function path_runner.tick(player)
         if movement.last_fail_offmesh() then
             if not session.prefer_direct then
                 session.prefer_direct = true
-                core.log("[Master Farmer - Grindbot] Path navmesh miss - walking recorded points directly.")
+                core.log("[restedXP_questing] Path navmesh miss - walking recorded points directly.")
                 pcall(function()
                     movement.nav_stop()
                 end)
@@ -626,7 +626,7 @@ function path_runner.tick(player)
                 if movement.sentinel_active and movement.sentinel_active() then
                     session.stuck_since = now
                 else
-                    core.log_warning("[Master Farmer - Grindbot] Path skip stuck waypoint " .. tostring(session.index))
+                    core.log_warning("[restedXP_questing] Path skip stuck waypoint " .. tostring(session.index))
                     session.index = session.index + 1
                     reset_hold(session)
                 end
@@ -662,11 +662,11 @@ function path_runner.tick(player)
             session.index = 1
             session.laps = (session.laps or 0) + 1
             session.lap_pending = (session.lap_pending or 0) + 1
-            core.log("[Master Farmer - Grindbot] Path loop restart: " .. tostring(path.name))
+            core.log("[restedXP_questing] Path loop restart: " .. tostring(path.name))
             return true
         end
         state.set_note("Path", "Complete")
-        core.log("[Master Farmer - Grindbot] Path complete: " .. tostring(path.name))
+        core.log("[restedXP_questing] Path complete: " .. tostring(path.name))
         path_runner.stop()
         return false
     end

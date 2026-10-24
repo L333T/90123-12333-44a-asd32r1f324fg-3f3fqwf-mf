@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
 --
@@ -191,7 +191,7 @@ local function debug(fmt, ...)
         return
     end
     dbg_last, dbg_at = text, t
-    core.log("[Master Farmer - Grindbot] guide: " .. text)
+    core.log("[restedXP_questing] guide: " .. text)
     local ok, dbg = pcall(require, "debuglog")
     if ok and dbg and type(dbg.line) == "function" then
         dbg.line("guide", "%s", text)
@@ -1098,7 +1098,7 @@ local function prof_goal(player, goal, wps, label)
         end
         local can, why_not_learn = IS.prof.can_learn(prof)
         if not can then
-            core.log_warning("[Master Farmer - Grindbot] Cannot learn " .. prof .. ": " .. tostring(why_not_learn) .. ".")
+            core.log_warning("[restedXP_questing] Cannot learn " .. prof .. ": " .. tostring(why_not_learn) .. ".")
             return prof_done(goal, prof, tostring(why_not_learn), true)
         end
         prof_hold(true)
@@ -1644,7 +1644,7 @@ local function recover_stall(now, goal, label)
         if gv.guid then TK.black["g:" .. gv.guid] = until_t end
         if gv.id then TK.black["id:" .. gv.id] = until_t end
         core.log_warning(string.format(
-            "[Master Farmer - Grindbot] %s: %s did not respond after a retry and a UI reload - blacklisted for 30 minutes.",
+            "[restedXP_questing] %s: %s did not respond after a retry and a UI reload - blacklisted for 30 minutes.",
             tostring(label), tostring(gv.name)))
         g_stall.giver = nil
         g_stall.recoveries = 0
@@ -1667,7 +1667,7 @@ local function recover_stall(now, goal, label)
         TK.gave_up = key
         g_stall.recoveries = 0
         core.log_warning(string.format(
-            "[Master Farmer - Grindbot] Quest goal '%s': no progress after %d recoveries - skipping it.",
+            "[restedXP_questing] Quest goal '%s': no progress after %d recoveries - skipping it.",
             tostring(label), STALL_MAX))
         guide.mark_goal_done(guide.step_num(), goal.index)
         return true
@@ -1785,7 +1785,7 @@ local function dialog_goal(player, goal, kind, wps, label)
         elseif npc.quest_log_state(qid) == "failed" then
             local title = quest_title(goal, kind, qid)
             local a = g_accept_at[qid] or nil
-            core.log_warning(string.format("[Master Farmer - Grindbot] Quest %s has FAILED (its timer ran out)%s.",
+            core.log_warning(string.format("[restedXP_questing] Quest %s has FAILED (its timer ran out)%s.",
                 tostring(title or qid), a and " - abandoning it and taking it again" or " - abandoning it"))
             npc.close()
             npc.abandon(qid)
@@ -2053,7 +2053,7 @@ local function dialog_goal(player, goal, kind, wps, label)
             guide.invalidate()
             if g_not_ready >= NOT_READY_MAX then
                 core.log_warning(string.format(
-                    "[Master Farmer - Grindbot] Quest %s: RestedXP says turn it in, the NPC says it is not complete - skipping the goal.",
+                    "[restedXP_questing] Quest %s: RestedXP says turn it in, the NPC says it is not complete - skipping the goal.",
                     tostring(title or qid)))
                 guide.mark_goal_done(guide.step_num(), goal.index)
                 g_not_ready = 0
@@ -2950,7 +2950,7 @@ IS.walk_route = function(player, goal, kind, wps, label)
             end
             IS.unreach_key = sk
             trail("quest", "every waypoint of goal %d is unreachable - skipping it", goal.index or 0)
-            core.log_warning("[Master Farmer - Grindbot] Quest goal '" .. tostring(label)
+            core.log_warning("[restedXP_questing] Quest goal '" .. tostring(label)
                 .. "': Sentinel reports every waypoint unreachable - skipping it.")
             guide.mark_goal_done(guide.step_num(), goal.index)
             return

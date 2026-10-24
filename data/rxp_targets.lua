@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- RestedXP target mobs per quest (GENERATED - tools/gen_rxp_targets.py)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- The mobs RestedXP's target frame shows for a quest objective, read from the
 -- guide files' .mob / .target / .unitscan lines and RXP_ENEMY names. The API

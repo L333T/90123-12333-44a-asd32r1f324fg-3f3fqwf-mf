@@ -3,7 +3,7 @@
 return {
     version = "4.0.8",
     count   = 131,
-    bytes   = 2630830,
+    bytes   = 2634276,
     files = {
         { path = "adapt.lua",                                                   hash = "4603b556", size = 26120 },
         { path = "auras.lua",                                                   hash = "ddae0b1a", size = 9787 },
@@ -66,7 +66,7 @@ return {
         { path = "data/forever_spells.lua",                                     hash = "33bb6de4", size = 7027 },
         { path = "data/mounts.lua",                                             hash = "c8810dfe", size = 2946 },
         { path = "data/racials.lua",                                            hash = "c590dcfd", size = 5949 },
-        { path = "data/rxp_targets.lua",                                        hash = "9ef3f84c", size = 260969 },
+        { path = "data/rxp_targets.lua",                                        hash = "02d0414b", size = 264415 },
         { path = "data/spell_categories.lua",                                   hash = "cd5957f3", size = 8509 },
         { path = "data/taxi_nodes.lua",                                         hash = "d8afcf1a", size = 16344 },
         { path = "grind/catalog.lua",                                           hash = "20deeff7", size = 10822 },

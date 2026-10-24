@@ -17,7 +17,9 @@ import os
 import re
 import sys
 
-DEFAULT = r"C:\Program Files (x86)\World of Warcraft\_classic_beta_\Interface\AddOns\RXPGuides"
+# 4.0.8: the Classic Anniversary (TBC) install - the client card 1 (RestedXP
+# Questing TBC) runs on; it was the _classic_beta_ copy
+DEFAULT = r"C:\Program Files (x86)\World of Warcraft\_anniversary_\Interface\AddOns\RXPGuides"
 # Retail-era guides use quest ids and mobs this bot never meets.
 SKIP_DIRS = {"Retail", "cata", "mop", "Talents", "Dailies"}
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "rxp_targets.lua")
@@ -257,7 +259,7 @@ def main():
         n += 1
     lines = [
         "-- ============================================================================",
-        "-- Master Farmer - Grindbot",
+        "-- restedXP_questing",
         "-- RestedXP target mobs per quest (GENERATED - tools/gen_rxp_targets.py)",
         "-- ============================================================================",
         "-- Authors: BLIZZ - Anthonyk",

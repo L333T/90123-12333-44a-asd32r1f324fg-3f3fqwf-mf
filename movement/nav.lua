@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through AmeisenNav
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.6
+-- Version: 4.0.7
 -- ============================================================================
 -- Every walk is _G.AmeisenNav.client's (docs/API.md, AmeisenNav 2.0.0):
 --   move_to(target, cb, { allow_partial, seamless })  pathfind and walk
@@ -18,10 +18,14 @@
 -- releasing a key (no stop / start stutter). The same destination (within
 -- SAME_DEST yd) while walking is a no-op, so callers can ask every tick.
 --
--- GUESSED HEIGHTS (RestedXP waypoints are x, y only): a no-path answer for a
--- point within HEIGHT_RANGE yd asks AmeisenNav for the ground there
--- (client:get_height, probe from 60 yd up) and walks again at that height,
--- once per destination. The height found is kept (N.reach_z) for the route.
+-- GUESSED HEIGHTS (RestedXP waypoints are x, y only): a no-path answer asks
+-- MasterArthasNav for the ground there (client:get_height, opts.probe_up
+-- starts its downward ray that far above the guess) and walks again at that
+-- height. 4.0.7 (log 2026-10-24, Plaguewood 38 yd above the guess, 1600+ yd
+-- away): any distance - the old 150 yd limit failed every far waypoint - and
+-- a ladder of probe heights (HEIGHT_PROBES), one query at a time; a height
+-- that still has no path tries the next rung. Far guide walks re-plan with
+-- find_path (never a plain move_to). The height found is kept (N.reach_z).
 --
 -- FAILURES: the code of the last failed walk is kept (last_fail_reason /
 -- last_fail_offmesh). The same destination failing FAIL_BLACKLIST times in
@@ -60,8 +64,12 @@ local SAME_DEST = 2.0          -- yd: the same destination
 local RETARGET_GAP = 0.25      -- s between two seamless retargets
 local UNDERFOOT = 1.0          -- yd: a destination this close is reached
 local QUIET_STOP = 0.3         -- s callers wait after a real stop (is_quiet)
-local HEIGHT_RANGE = 150       -- yd: the ground under nearer points can be read
 local HEIGHT_PROBE_UP = 60
+-- 4.0.7: probe_up rungs for a no-path destination, lowest first (the nearest
+-- ground above the guess wins - see 3.0.6 below); one query per answer
+local HEIGHT_PROBES = { 8, 30, 60, 100, 160, 250 }
+local HEIGHT_SAME = 2.0        -- yd: a height this close to a tried one is the same
+local HEIGHT_SCAN_HOLD = 10.0  -- s: a scan with no answer holds new walks there no longer
 -- 3.0.6: the ground is looked for just above the guessed height first; only
 -- when nothing is found there is it read from HEIGHT_PROBE_UP above. From 60
 -- yd up the probe hit the hill over the Silver Stream Mine (z 366, the mine
@@ -90,13 +98,14 @@ GP.stats = { walks = 0, replans = 0, pushed = 0, fallbacks = 0 }
 local fail = { reason = nil, offmesh = false, t = 0 }
 local fails_at = {}            -- dest key -> { n, t }
 local zfix = {}                -- dest key -> corrected z
+local zscan = {}               -- 4.0.7: dest key -> { next = rung, tried = { z, ... }, t, base }
 local stats = { issued = 0, refused = 0 }
 N.stats = stats
 
 -- 3.0.0: fails_at / zfix are keyed per destination and would grow for a
 -- whole session; past CACHE_MAX keys each is emptied (both are re-learnt).
 local CACHE_MAX = 256
-local cache_n = { fails = 0, zfix = 0 }
+local cache_n = { fails = 0, zfix = 0, zscan = 0 }
 local function cache_put(tbl, which, k, v)
     if tbl[k] == nil then
         cache_n[which] = cache_n[which] + 1
@@ -325,25 +334,66 @@ local function swimming()
     return ok and v == true
 end
 
-local function retry_at_ground(c, id, x, y, z, code, opts)
+--- 4.0.7: the ground at (x, y) on the HEIGHT_PROBES ladder from rung `from`,
+--- ONE get_height at a time (a remote server adds latency - never a burst).
+--- `accept(hz)` turns down a height already tried. cb(ok, z, rung).
+local function ground_scan(c, x, y, z, from, accept, cb)
+    local i = from
+    local function nxt()
+        local up = HEIGHT_PROBES[i]
+        if not up then cb(false) return end
+        local sent = call(c, "get_height", { x = x, y = y, z = z }, function(ok, hz)
+            local rung = i
+            i = i + 1
+            if ok and R.finite(hz) and accept(hz) then cb(true, hz, rung) return end
+            nxt()
+        end, { probe_up = up })
+        if sent ~= true then cb(false) end
+    end
+    nxt()
+end
+N._ground_scan = ground_scan        -- tests
+
+--- No path to (x, y, z): find the ground there and walk again at it with
+--- `walk(hz)`. Each answer that still has no path tries the next rung of
+--- HEIGHT_PROBES; the ladder is spent once per FAIL_WINDOW s per destination.
+--- True when the retry is under way (the failure is then reported by it).
+local function retry_at_ground(c, id, x, y, z, code, walk)
     if swimming() then return false end          -- R9.2 (the probe hits the lake bed)
-    local hx, hy = R.here()
-    if not hx or R.dist2(hx, hy, x, y) > HEIGHT_RANGE then return false end
     local k = key_of(x, y)
-    if zfix[k] ~= nil then return false end
-    cache_put(zfix, "zfix", k, false)             -- asked once
-    local ok = ground_near(c, x, y, z, function(okh, hz)
-        if cur.id ~= id then return end           -- superseded meanwhile
-        if okh and R.finite(hz) and math.abs(hz - z) > 2 then
-            zfix[k] = hz
-            R.trail("nav", "(%.0f, %.0f): no path at z %.1f (%s) - walking again at the ground, z %.1f",
-                x, y, z, tostring(code), hz)
-            issue_move(c, x, y, hz, opts)
+    local st = zscan[k]
+    if st and (R.now() - st.t) > FAIL_WINDOW then st = nil end
+    if not st then
+        st = { next = 1, tried = {}, t = R.now(), base = z }   -- the ladder stands on the first guess
+        cache_put(zscan, "zscan", k, st)
+    end
+    if st.next > #HEIGHT_PROBES then return false end
+    st.tried[#st.tried + 1] = z
+    local from = st.next
+    st.next = #HEIGHT_PROBES + 1                  -- one scan at a time
+    cur.scanning, cur.scan_t = id, R.now()        -- N.move waits for it (same destination)
+    local function fresh(hz)
+        for i = 1, #st.tried do
+            if math.abs(hz - st.tried[i]) <= HEIGHT_SAME then return false end
+        end
+        return true
+    end
+    ground_scan(c, x, y, st.base, from, fresh, function(okh, hz, rung)
+        if cur.scanning == id then cur.scanning = nil end
+        if cur.id ~= id then st.next = from return end   -- superseded meanwhile
+        if okh then
+            st.next = rung + 1
+            cache_put(zfix, "zfix", k, hz)
+            R.trail("nav", "(%.0f, %.0f): no path at z %.1f (%s) - walking again at the ground, z %.1f (probe %d up)",
+                x, y, z, tostring(code), hz, HEIGHT_PROBES[rung])
+            walk(hz)
         else
+            R.trail("nav", "(%.0f, %.0f): no ground with a path found (%d heights tried) - %s",
+                x, y, #st.tried, tostring(code))
             record_fail(code, x, y, z)
         end
     end)
-    return ok == true
+    return true
 end
 
 issue_move = function(c, x, y, z, opts)
@@ -361,7 +411,8 @@ issue_move = function(c, x, y, z, opts)
             return
         end
         if code == "cancelled" then return end
-        if HEIGHT_RETRY[code] and retry_at_ground(c, id, x, y, z, code, opts) then return end
+        if HEIGHT_RETRY[code] and retry_at_ground(c, id, x, y, z, code,
+            function(hz) issue_move(c, x, y, hz, opts) end) then return end
         R.trail("nav", "walk to (%.0f, %.0f, %.0f) ended: %s", x, y, z, tostring(code))
         record_fail(code, x, y, z)
     end, { allow_partial = opts.allow_partial ~= false, seamless = opts.seamless == true })
@@ -408,6 +459,7 @@ end
 local RESTART_GAP = 1.5        -- s: at most one walk restart (a changed window) this often
 
 local function nav_table() return rawget(_G, "ArthasNav") end
+local guide_move               -- 4.0.7: a height retry re-plans the exact walk
 
 --- follow_path from guide.full[from] to the end; guide.base maps the client's
 --- path index back onto guide.full.
@@ -417,21 +469,24 @@ local function start_walk(c, id, from)
     if #list < 1 then return false end
     guide.base = math.max(1, from)
     cur.leg_t = R.now()
-    local x, y, z = cur.x, cur.y, cur.z
+    local x, y, z, mode = cur.x, cur.y, cur.z, cur.mode
     local okf = call(c, "follow_path", list, function(arrived, _, detail)
         if cur.id ~= id then return end
         if arrived and N.false_arrival(x, y) then return end
         if arrived then fail.reason, fail.offmesh = nil, false return end
         local code = type(detail) == "table" and detail.code or nil
         if code == "cancelled" then return end
-        if HEIGHT_RETRY[code] and retry_at_ground(c, id, x, y, z, code, { mode = "move" }) then return end
+        -- 4.0.7: re-planned as an exact walk (it was a plain move_to, which a
+        -- long walk must never fall back to)
+        if HEIGHT_RETRY[code] and retry_at_ground(c, id, x, y, z, code,
+            function(hz) guide_move(c, x, y, hz, mode) end) then return end
         R.trail("nav", "exact walk to (%.0f, %.0f, %.0f) ended: %s", x, y, z, tostring(code))
         record_fail(code, x, y, z)
     end)
     return okf == true
 end
 
-local function guide_move(c, x, y, z, mode)
+guide_move = function(c, x, y, z, mode)
     mode = mode or "move"
     if type(c.find_path) ~= "function" or type(c.follow_path) ~= "function" then
         return issue_move(c, x, y, z, { seamless = N.busy(), mode = mode })
@@ -452,9 +507,13 @@ local function guide_move(c, x, y, z, mode)
         if cur.id ~= id then return end
         if far then
             -- a long walk never falls back to a plain move_to (Zygor crash 11:26)
+            local why = code or "no_path"
             R.trail("nav", "exact walk to (%.0f, %.0f, %.0f): no path (%s) - no plain move_to for a long walk",
-                x, y, z, tostring(code or "no_path"))
-            record_fail(code or "no_path", x, y, z)
+                x, y, z, tostring(why))
+            -- 4.0.7: the guessed height first - find the ground and plan again
+            if HEIGHT_RETRY[why] and retry_at_ground(c, id, x, y, z, why,
+                function(hz) guide_move(c, x, y, hz, mode) end) then return end
+            record_fail(why, x, y, z)
             return
         end
         issue_move(c, x, y, z, { seamless = N.busy(), mode = mode })
@@ -662,6 +721,11 @@ function N.nav_to(dest, direct, mode)
     end
     -- the guide walk to this spot is still being planned (not busy yet)
     if guide.planning and cur.exact and cur.x and R.dist2(cur.x, cur.y, x, y) <= SAME_DEST then
+        return true
+    end
+    -- 4.0.7: its ground height is being looked for (retry_at_ground)
+    if cur.scanning and cur.scanning == cur.id and (R.now() - (cur.scan_t or 0)) < HEIGHT_SCAN_HOLD
+        and cur.x and R.dist2(cur.x, cur.y, x, y) <= SAME_DEST then
         return true
     end
     if not c then

@@ -3,7 +3,7 @@
 -- movement/guide_path.lua - the exact server path, checked 15 yd ahead
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.6
+-- Version: 4.0.7
 -- ============================================================================
 -- 3.7.0 EXACT PATH. Every out-of-combat walk (movement/nav modes nil, move,
 -- guide, npc) follows the server's own path, not a smoothed one:

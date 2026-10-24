@@ -3,7 +3,7 @@
 -- Game version: TBC Classic or WoW Forever
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.6
+-- Version: 4.0.7
 -- Folder: restedXP_questing
 -- ============================================================================
 -- core.get_game_version() answers "Tbc" on TBC Classic (and the TBC 2.5.3

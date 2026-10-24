@@ -3,7 +3,7 @@
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.6
+-- Version: 4.0.7
 -- Folder: restedXP_questing
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE

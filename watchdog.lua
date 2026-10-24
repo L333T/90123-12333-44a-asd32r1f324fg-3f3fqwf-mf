@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- NPC-stuck watchdog
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHY NOT A GAME RELOAD
 --   The Sylvanas API has no way to reload the UI or restart the client - no
@@ -72,7 +72,7 @@ end
 
 local function log(fmt, ...)
     local text = string.format(fmt, ...)
-    pcall(function() core.log_warning("[Master Farmer - Grindbot] " .. text) end)
+    pcall(function() core.log_warning("[restedXP_questing] " .. text) end)
     local elog = req("errorlog")
     if elog and type(elog.warn) == "function" then
         elog.warn("%s", text)

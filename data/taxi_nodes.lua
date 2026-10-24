@@ -1,9 +1,9 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Flight points (taxi nodes) - positions and faction
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
+-- Version: 4.0.6
 -- ============================================================================
 -- Trimmed from SentinelCore's kernel/catalogs/taxi_nodes.lua, which is
 -- generated from the client's TaxiNodes.dbc (2.4.3). Kept: Eastern Kingdoms

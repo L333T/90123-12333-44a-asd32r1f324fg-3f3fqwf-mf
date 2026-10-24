@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- PathTool format — { name, map_id, loop, waypoints[{x,y,z,wait,combo,actions}] }
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 
 local path_format = {}

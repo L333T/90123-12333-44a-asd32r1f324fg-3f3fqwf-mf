@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
 -- files without being written nine times for every race. The class rotations

@@ -2,10 +2,10 @@
 """
 Build a local, versioned copy of the plugin to test in game BEFORE pushing.
 
-    python make_local.py                # -> Desktop/_MASTER-FARMER_/Grindbot_Versions/Master_Farmer_Grindbot_v<version>/
+    python make_local.py                # -> Desktop/_MASTER-FARMER_/Grindbot_Versions/restedXP_questing_v<version>/
     python make_local.py --force        # rebuild a version folder that exists
     python make_local.py --check        # syntax check only, copy nothing
-    python make_local.py --dest D:/wow/scripts/Master_Farmer_Grindbot_test
+    python make_local.py --dest D:/wow/scripts/restedXP_questing_test
 
 Steps, in order, stopping at the first failure:
 
@@ -110,7 +110,7 @@ def syntax_check(paths):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    ap.add_argument("--dest", help="target folder (default ../Master_Farmer_Grindbot_v<version>)")
+    ap.add_argument("--dest", help="target folder (default ../restedXP_questing_v<version>)")
     ap.add_argument("--force", action="store_true", help="replace an existing target folder")
     ap.add_argument("--check", action="store_true", help="syntax check only")
     args = ap.parse_args()
@@ -125,12 +125,12 @@ def main():
 
     subprocess.run([sys.executable, os.path.join(ROOT, "make_manifest.py")], cwd=ROOT, check=True)
 
-    # 2026-10-16: the repo lives in the main Master Farmer folder
-    # (Desktop/_MASTER-FARMER_/Master_Farmer_Grindbot); new version folders go
+    # 2026-10-24: the repo lives in _MASTER-FARMER_/products_src/restedXP_questing
+    # (was _MASTER-FARMER_/Master_Farmer_Grindbot); new version folders go
     # to _MASTER-FARMER_/Grindbot_Versions. The older ones stay in Desktop/SNES_.
-    parent = os.path.dirname(ROOT)
+    parent = os.path.dirname(os.path.dirname(ROOT))
     home = os.path.join(parent, "Grindbot_Versions")
-    dest = args.dest or os.path.join(home, "Master_Farmer_Grindbot_v" + version)
+    dest = args.dest or os.path.join(home, "restedXP_questing_v" + version)
     dest = os.path.abspath(dest)
     if os.path.exists(dest):
         if not args.force:

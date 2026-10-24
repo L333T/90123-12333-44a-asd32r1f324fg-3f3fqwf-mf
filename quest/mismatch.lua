@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- quest/mismatch.lua - guide / character zone mismatch
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHY (2.281.0). A dwarf in Coldridge Valley with the HUMAN RestedXP guide
 -- loaded (step 3: accept "A Threat Within", Northshire, 2733 yd away) asked
@@ -150,7 +150,7 @@ function M.check(key, wps, me)
         there, here)
     if not st.logged then
         st.logged = true
-        local msg = string.format("[Master Farmer - Grindbot] Guide mismatch: the current RestedXP step is in %s "
+        local msg = string.format("[restedXP_questing] Guide mismatch: the current RestedXP step is in %s "
             .. "(%.0f yd away, no path on foot) but this character is in %s. Load the RestedXP guide for "
             .. "this character's race / start zone, or move the guide to a step in %s. Questing waits here.",
             there, best_d, here, here)

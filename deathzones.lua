@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- deathzones.lua - areas to avoid after dying there 3 times
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHY (2.247.0)
 --   death.lua blacklisted the GUID of the mob that killed us. A respawn has a
@@ -256,7 +256,7 @@ function M.record_death(killer, pos)
     local msg = string.format("Died %d times to %s here - avoiding the area (%.0f, %.0f), %.0f yd, for %d min.",
         #same, tostring(z.name), cx, cy, z.r, mins(z.until_t - t))
     trail("%s", msg)
-    pcall(function() core.log_warning("[Master Farmer - Grindbot] " .. msg) end)
+    pcall(function() core.log_warning("[restedXP_questing] " .. msg) end)
     save()
 end
 
@@ -338,7 +338,7 @@ local function ts_hold()
     end
     local ok, ts = pcall(require, "common/utility/ts_override_helper")
     if not ok or type(ts) ~= "table" or type(ts.create_session) ~= "function" then return end
-    local ok_s, sess = pcall(ts.create_session, ts, "Master Farmer - Grindbot death zones")
+    local ok_s, sess = pcall(ts.create_session, ts, "restedXP_questing death zones")
     if not ok_s or type(sess) ~= "table" then return end
     ts_session = sess
     pcall(sess.set_pull_allowed, sess, false)

@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- callbacks.lua - combat finished, spell cancelled (core API polling, 2.315.0)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHY (2.271.0)
 --   The end of a fight and a cancelled cast were only noticed by polling:
@@ -126,7 +126,7 @@ local function call(h, ev)
     if not f then return end
     local ok, err = pcall(f, ev)
     if not ok then
-        pcall(core.log_error, "[Master Farmer - Grindbot] callback " .. h .. ": " .. tostring(err))
+        pcall(core.log_error, "[restedXP_questing] callback " .. h .. ": " .. tostring(err))
     end
 end
 

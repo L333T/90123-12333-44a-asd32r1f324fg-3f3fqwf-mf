@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
 --
@@ -141,7 +141,7 @@ local function debug_dump(entry, index)
         return
     end
     debug_done = true
-    core.log("[Master Farmer - Grindbot] get_vendor_item_info(" .. tostring(index) .. ") fields:")
+    core.log("[restedXP_questing] get_vendor_item_info(" .. tostring(index) .. ") fields:")
     if type(entry) ~= "table" then
         core.log("    returned a " .. type(entry) .. ", not a table - buying cannot work on this build")
         return
@@ -227,7 +227,7 @@ local function find_on_vendor(ids)
     if n > 0 and readable == 0 then
         if not missing.blind then
             missing.blind = true
-            core.log("[Master Farmer - Grindbot] This merchant's items read as empty (core older than "
+            core.log("[restedXP_questing] This merchant's items read as empty (core older than "
                 .. "2026-10-06?) - buying food and water is off; selling and repair still work.")
             trail("vendor rows unreadable (%d items, all item id 0) - buying off", n)
         end
@@ -336,7 +336,7 @@ local function restock(ids, target, reason, player)
     pcall(function() core.input.buy_item(index, qty) end)
     if type(price) == "number" then
         local c = price * qty
-        core.log(string.format("[Master Farmer - Grindbot] Bought %dx %s for %dg %ds %dc", qty,
+        core.log(string.format("[restedXP_questing] Bought %dx %s for %dg %ds %dc", qty,
             tostring(item_name or reason), math.floor(c / 10000), math.floor((c % 10000) / 100), c % 100))
     end
     return true

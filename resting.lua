@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
 --   Each class owns its resting decision - when to sit down, and at what
@@ -162,7 +162,7 @@ local function rest_debug(fmt, ...)
         return
     end
     dbg_last_msg, dbg_last_t = msg, t
-    core.log("[Master Farmer - Grindbot] rest: " .. msg)
+    core.log("[restedXP_questing] rest: " .. msg)
 end
 
 -- The session log (2.67.0). rest_debug only reaches the in-game console,
@@ -735,7 +735,7 @@ local function consume_one(st, kind, ids, aura_up, now, aura_list)
     if st.pending and not st.warned then
         st.warned = true
         core.log_warning(string.format(
-            "[Master Farmer - Grindbot] Used %s but no %s aura appeared within %.1fs. "
+            "[restedXP_questing] Used %s but no %s aura appeared within %.1fs. "
             .. "consumables.%s is probably missing this item's aura id - "
             .. "capping at %d uses this rest instead of consuming the stack.",
             kind, kind, USE_COMMIT, aura_list, MAX_USES))
@@ -761,7 +761,7 @@ local function consume_one(st, kind, ids, aura_up, now, aura_list)
         st.use_failed = why
         rtrail("%s: %s", kind, tostring(why))
         core.log_warning(string.format(
-            "[Master Farmer - Grindbot] Tried to use %s and nothing happened: %s.", kind, tostring(why)))
+            "[restedXP_questing] Tried to use %s and nothing happened: %s.", kind, tostring(why)))
     end
     rest_debug("%s blocked - %s", kind, tostring(why))
     return false
@@ -884,7 +884,7 @@ function resting_mod.tick(player, opts)
         rest_eat = false
         if miss_logged ~= true then
             miss_logged = true
-            core.log_warning("[Master Farmer - Grindbot] Eat/drink skipped - no usable food in bags.")
+            core.log_warning("[restedXP_questing] Eat/drink skipped - no usable food in bags.")
         end
         rtrail("HP %.0f is at the eat line but there is no usable food in the bags - not resting", hp)
     end
@@ -893,7 +893,7 @@ function resting_mod.tick(player, opts)
         rest_drink = false
         if miss_logged ~= true then
             miss_logged = true
-            core.log_warning("[Master Farmer - Grindbot] Eat/drink skipped - no usable water in bags.")
+            core.log_warning("[restedXP_questing] Eat/drink skipped - no usable water in bags.")
         end
         rtrail("MP %.0f is at the drink line but there is no usable water in the bags - not resting", mana)
     end

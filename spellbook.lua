@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan on a level-up or a trainer visit (60 s safety net). DEFS are rank-1 IDs; highest matching ID wins.
 -- ============================================================================
@@ -265,7 +265,7 @@ local function extract_ids(raw)
         if #ids > 0 and not name_fallback_warned then
             name_fallback_warned = true
             core.log_warning(
-                "[Master Farmer - Grindbot] Spellbook: this client confirms no spell ownership "
+                "[restedXP_questing] Spellbook: this client confirms no spell ownership "
                 .. "(has_spell / is_spell_learned / is_spell_known all answer false), so the book "
                 .. "falls back to every id the game can name and the Spells tab may list abilities "
                 .. "your class cannot use.")
@@ -679,7 +679,7 @@ function spellbook.tick()
         end
         run_scan()
         core.log(string.format(
-            "[Master Farmer - Grindbot] Spellbook scanned (%d entries, %d rotation spells watched).",
+            "[restedXP_questing] Spellbook scanned (%d entries, %d rotation spells watched).",
             book_count,
             #watched
         ))

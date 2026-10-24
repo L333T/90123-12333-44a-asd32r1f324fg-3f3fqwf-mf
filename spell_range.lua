@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Spell range checks - one implementation, used by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- Not to be confused with movement/range.lua, which answers navigation
 -- questions - facing, line of sight, whether a point is reachable. This file
 -- answers one question only: can this spell reach this unit right now.

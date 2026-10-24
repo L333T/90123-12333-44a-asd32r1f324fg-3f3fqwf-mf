@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
 --   Eating and drinking now belong to the class rotations: each one decides

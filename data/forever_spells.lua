@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- WoW Forever trainer spell ids (GENERATED - tools/gen_forever_spells.py)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- From RXPGuides DB/forever/spells.lua (addon.defaultSpellList). Keys are
 -- RestedXP's: class tokens (MAGE...) and race names (Dwarf, NightElf, Scourge).

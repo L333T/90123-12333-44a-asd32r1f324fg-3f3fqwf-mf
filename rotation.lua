@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================
 
@@ -74,13 +74,13 @@ local function module_for_class(class_id)
     local ok, loaded = pcall(require, name)
     if not ok or type(loaded) ~= "table" then
         load_failed[class_id] = true
-        core.log_warning("[Master Farmer - Grindbot] Could not load " .. tostring(name))
+        core.log_warning("[restedXP_questing] Could not load " .. tostring(name))
         return nil
     end
 
     by_class[class_id] = loaded
     local label = enums.class_id_to_name and enums.class_id_to_name[class_id] or tostring(class_id)
-    core.log("[Master Farmer - Grindbot] Loaded rotation for " .. tostring(label))
+    core.log("[restedXP_questing] Loaded rotation for " .. tostring(label))
     return loaded
 end
 

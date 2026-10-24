@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
 --   The Spells tab lists every class spell the character knows, from
@@ -283,7 +283,7 @@ local function report_book(cls, n_class, rows, other_names)
         #other_names, #other_names > 0 and table.concat(other_names, ", ") or "none")
     if text == book_report then return end
     book_report = text
-    core.log(string.format("[Master Farmer - Grindbot] %s (book: %d ids, %d spells, class %s).",
+    core.log(string.format("[restedXP_questing] %s (book: %d ids, %d spells, class %s).",
         text, book_n or 0, fam_n or 0, tostring(cls)))
     local el = mod("errorlog")
     if el and type(el.trail) == "function" then
@@ -316,7 +316,7 @@ local function build(player)
     -- abilities on the page.
     if built.class ~= cls then
         core.log(string.format(
-            "[Master Farmer - Grindbot] Class %s -> %s spell catalog (%d entries).",
+            "[restedXP_questing] Class %s -> %s spell catalog (%d entries).",
             tostring(cls), tostring(catalog.class_key(cls) or "none"), #defs))
     end
     for i = 1, #defs do
@@ -2358,7 +2358,7 @@ function smart.combat(player, target, ctx)
     local cq = queue_on()
     if cq and type(cq.check_stuck) == "function" then
         local purged = cq.check_stuck(function(msg)
-            core.log_warning("[Master Farmer - Grindbot] " .. msg)
+            core.log_warning("[restedXP_questing] " .. msg)
             local el = mod("errorlog")
             if el and type(el.trail) == "function" then pcall(el.trail, "rotation", "%s", msg) end
         end)

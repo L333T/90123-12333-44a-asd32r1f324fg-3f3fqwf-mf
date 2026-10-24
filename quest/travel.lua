@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- quest/travel.lua - flights: RestedXP ".fly" goals and far-goal flight trips
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- 2.307.0: SPLIT OUT OF quest/engine.lua, which sat at Lua's hard limit of
 -- 200 locals per chunk (audit LUA-5) - the next `local` there would have

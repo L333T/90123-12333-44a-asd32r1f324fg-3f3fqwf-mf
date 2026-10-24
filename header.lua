@@ -1,11 +1,11 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Header — load gate
 -- ============================================================================
 -- Purpose: IZI gate (every game version). Not class-locked. Start is gated by rotation registry.
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 
 local identity = require("version")
@@ -40,7 +40,7 @@ local load = true
 
 local line = string.format("Master Farmer %s header: load=%s game_version=%s exact=%s",
     plugin["version"], tostring(load), tostring(version), tostring(oke and exact or exact))
-call(core.log, "[Master Farmer - Grindbot] " .. line)
+call(core.log, "[restedXP_questing] " .. line)
 
 if not load then
     plugin["load"] = false
@@ -49,7 +49,7 @@ end
 
 local izi_ok, izi = pcall(require, "common/izi_sdk")
 if (not izi_ok) or type(izi) ~= "table" then
-    core.log_error("[Master Farmer - Grindbot] common/izi_sdk is unavailable - plugin not loaded.")
+    core.log_error("[restedXP_questing] common/izi_sdk is unavailable - plugin not loaded.")
     plugin["load"] = false
     return plugin
 end
@@ -69,7 +69,7 @@ for i = 1, #required_izi do
     end
 end
 if #missing > 0 then
-    core.log_error("[Master Farmer - Grindbot] izi_sdk missing: " .. table.concat(missing, ", "))
+    core.log_error("[restedXP_questing] izi_sdk missing: " .. table.concat(missing, ", "))
     plugin["load"] = false
     return plugin
 end

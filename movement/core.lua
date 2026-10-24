@@ -1,9 +1,9 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- movement/core.lua - shared state and helpers of the movement layer
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
+-- Version: 4.0.6
 -- ============================================================================
 -- 3.0.0 MOVEMENT RECODE. Every walk is AmeisenNav's (_G.AmeisenNav.client,
 -- the 2.0.0 navigation API): it paths on the navmesh, owns the walker
@@ -28,7 +28,7 @@
 
 local R = {}
 
-R.TAG = "[Master Farmer - Grindbot]"
+R.TAG = "[restedXP_questing]"
 
 -- shared runtime state (one table; modules read and write their own keys)
 R.debug_on = false

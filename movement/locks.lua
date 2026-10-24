@@ -1,9 +1,9 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- movement/locks.lua - rest, cast, channel and loot holds; backpedal
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
+-- Version: 4.0.6
 -- ============================================================================
 -- HOLDS go through AmeisenNav's own pause (client:pause(reason) /
 -- resume(reason) - reasons are counted separately, so a cast hold and a loot

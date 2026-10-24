@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Arathi Highlands 30-35 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.
 --   source folder : LVL30_35ArathiHighlandsVendor

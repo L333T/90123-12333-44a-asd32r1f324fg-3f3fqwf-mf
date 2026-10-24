@@ -6,7 +6,7 @@
 -- Consuming projects supply name, logo, tabs, controls, and theme overrides.
 -- Authors: BLIZZ - Anthonyk
 -- Version: 4.0.0
--- Folder: Master_Farmer_Grindbot
+-- Folder: restedXP_questing
 -- ============================================================================
 
 ---@type color
@@ -458,7 +458,7 @@ local function log_assets_once()
     end
     _assets_logged = true
     core.log(string.format(
-        "[MFG] assets zip=%s hashed=%s dir=%s logo=%s font=%s",
+        "[restedXP_questing] assets zip=%s hashed=%s dir=%s logo=%s font=%s",
         tostring(zip_size),
         tostring(hashed_size),
         listed,
@@ -600,7 +600,7 @@ local _logo_warned = {}
 local function logo_warn(key, text)
     if _logo_warned[key] then return end
     _logo_warned[key] = true
-    pcall(function() core.log_warning("[Master Farmer - Grindbot] Logo: " .. text) end)
+    pcall(function() core.log_warning("[restedXP_questing] Logo: " .. text) end)
     elog("logo: %s", text)
 end
 
@@ -2211,7 +2211,7 @@ function Menu:draw_popup_window(popup)
                 self:draw_tab_scroll_area(win, popup.tab, 16, inner_y, w - 32, (content_y + content_h) - inner_y - 8)
             end)
             if not ok then
-                core.log_error("[Master Farmer - Grindbot] popup " .. tostring(popup.id) .. ": " .. tostring(err))
+                core.log_error("[restedXP_questing] popup " .. tostring(popup.id) .. ": " .. tostring(err))
             end
         end
     )
@@ -2404,7 +2404,7 @@ function Menu:draw()
                 end
             end)
             if not ok then
-                core.log_error("[Master Farmer - Grindbot] UI chrome: " .. tostring(err))
+                core.log_error("[restedXP_questing] UI chrome: " .. tostring(err))
             end
         end
     )

@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Gossip options - find and select an NPC's option by icon, type or wording
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- ONE WAY TO PICK A GOSSIP OPTION (2.144.0). Four modules each found and
 -- selected options their own way, and two of them (trainer before 2.125.0,

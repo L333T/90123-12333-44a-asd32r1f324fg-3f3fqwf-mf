@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Racial abilities (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- Only ACTIVE racials are listed. Passives (Diplomacy, Hardiness, The Human
 -- Spirit, weapon specialisations, resistances) need no toggle and no cast, so

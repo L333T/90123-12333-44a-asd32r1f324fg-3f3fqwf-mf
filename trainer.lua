@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Class trainer - buy trainable spell ranks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- IT DOES NOT TRAVEL, AND THAT IS DELIBERATE
 --   There is no trainer location data in this project. The zone tables carry a
@@ -640,14 +640,14 @@ function trainer.tick(player)
             pending = nil
             if gold() < p.gold or not still_available(p.name) then
                 trained_this_visit = trained_this_visit + 1
-                core.log("[Master Farmer - Grindbot] Trained " .. tostring(p.name))
+                core.log("[restedXP_questing] Trained " .. tostring(p.name))
                 trail("trained %s", tostring(p.name))
             elseif (attempts[p.name] or 0) < BUY_TRIES then
                 bought[p.name] = nil          -- not learned: try it again
-                core.log_warning("[Master Farmer - Grindbot] " .. tostring(p.name)
+                core.log_warning("[restedXP_questing] " .. tostring(p.name)
                     .. " was not learned - retrying.")
             else
-                core.log_warning("[Master Farmer - Grindbot] Could not train " .. tostring(p.name)
+                core.log_warning("[restedXP_questing] Could not train " .. tostring(p.name)
                     .. " after " .. BUY_TRIES .. " tries - skipping it.")
             end
         end
@@ -660,7 +660,7 @@ function trainer.tick(player)
             last_act = now
             state.set_note("Trainer", string.format("Training %s", tostring(name)))
             core.log(string.format(
-                "[Master Farmer - Grindbot] Training %s for %d.%02dg",
+                "[restedXP_questing] Training %s for %d.%02dg",
                 tostring(name), math.floor(cost / 10000), math.floor((cost % 10000) / 100)))
             bought[name] = true
             attempts[name] = (attempts[name] or 0) + 1
@@ -692,7 +692,7 @@ function trainer.tick(player)
         end
         state.set_note("Trainer", msg)
         trainer.last_msg = msg              -- 2.292.0: the quest engine's skip reason
-        core.log(string.format("[Master Farmer - Grindbot] %s - next trainer check at level %d.",
+        core.log(string.format("[restedXP_questing] %s - next trainer check at level %d.",
             msg, (checked_level or 0) + CHECK_EVERY))
         trail("%s - next check at level %d", msg, (checked_level or 0) + CHECK_EVERY)
         pcall(function() core.quests.close_trainer() end)

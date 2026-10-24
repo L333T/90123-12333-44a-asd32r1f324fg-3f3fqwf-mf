@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Identity — single source of truth for name / authors / version
 -- ============================================================================
--- Version: 4.0.5
+-- Version: 4.0.6
 -- Authors: BLIZZ - Anthonyk
--- Folder: Master_Farmer_Grindbot
+-- Folder: restedXP_questing
 -- ============================================================================
 
 -- `folder` is the key for NS._sessions, which is how a freshly loaded
@@ -20,11 +20,11 @@
 --
 -- The on-disk folder can be called whatever you like; nothing reads it.
 return {
-    name = "Master Farmer - Grindbot",
-    short_tag = "MFG",
+    name = "restedXP_questing",
+    short_tag = "restedXP_questing",
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.0.5",
-    folder = "Master_Farmer_Grindbot",
+    version = "4.0.6",
+    folder = "restedXP_questing",
 }

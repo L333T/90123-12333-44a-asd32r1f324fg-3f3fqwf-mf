@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Per-character settings, saved to scripts_data/
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT THIS IS FOR, AND WHAT IT IS NOT FOR
 --   core.menu elements already persist. Every checkbox, slider and combobox in
@@ -162,7 +162,7 @@ end
 -- ----------------------------------------------------------------------------
 local function serialise(guid)
     local lines = {
-        "# Master Farmer - Grindbot settings. Rewritten automatically.",
+        "# restedXP_questing settings. Rewritten automatically.",
         "format=" .. tostring(FORMAT),
         "guid=" .. escape(guid),
     }
@@ -223,7 +223,7 @@ function settings.load(player)
 
     local size = safe(function() return core.get_data_file_size(path) end)
     if type(size) ~= "number" or size <= 0 then
-        core.log("[Master Farmer - Grindbot] No saved settings for this character yet.")
+        core.log("[restedXP_questing] No saved settings for this character yet.")
         return false
     end
 
@@ -238,7 +238,7 @@ function settings.load(player)
     -- otherwise apply another character's route and buffs to this one.
     if data.guid ~= guid then
         core.log_warning(string.format(
-            "[Master Farmer - Grindbot] %s belongs to %s, not this character. Ignoring it.",
+            "[restedXP_questing] %s belongs to %s, not this character. Ignoring it.",
             path, tostring(data.guid)))
         return false
     end
@@ -252,12 +252,12 @@ function settings.load(player)
             if ok then
                 applied = applied + 1
             else
-                core.log_warning("[Master Farmer - Grindbot] settings: could not apply " .. key)
+                core.log_warning("[restedXP_questing] settings: could not apply " .. key)
             end
         end
     end
 
-    core.log(string.format("[Master Farmer - Grindbot] Restored %d setting group(s) for this character.", applied))
+    core.log(string.format("[restedXP_questing] Restored %d setting group(s) for this character.", applied))
     dirty = false
     return applied > 0
 end
@@ -282,7 +282,7 @@ function settings.save(player)
         last_save = izi.now()
         return true
     end
-    core.log_warning("[Master Farmer - Grindbot] could not write " .. path)
+    core.log_warning("[restedXP_questing] could not write " .. path)
     return false
 end
 

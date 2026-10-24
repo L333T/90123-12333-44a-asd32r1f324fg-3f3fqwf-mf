@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 
 local path_format = require("path_format")
@@ -22,12 +22,12 @@ local function add_index(mod)
     if not ok then
         -- Saying nothing here produces an empty path menu and no clue why, so
         -- this is loud on purpose.
-        core.log_warning("[Master Farmer - Grindbot] Path index " .. tostring(mod)
+        core.log_warning("[restedXP_questing] Path index " .. tostring(mod)
             .. " failed to load: " .. tostring(list))
         return
     end
     if type(list) ~= "table" then
-        core.log_warning("[Master Farmer - Grindbot] Path index " .. tostring(mod)
+        core.log_warning("[restedXP_questing] Path index " .. tostring(mod)
             .. " is not a table.")
         return
     end

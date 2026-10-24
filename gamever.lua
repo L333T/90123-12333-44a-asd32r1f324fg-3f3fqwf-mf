@@ -1,10 +1,10 @@
 -- ============================================================================
--- Master Farmer - Grindbot
+-- restedXP_questing
 -- Game version: TBC Classic or WoW Forever
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.5
--- Folder: Master_Farmer_Grindbot
+-- Version: 4.0.6
+-- Folder: restedXP_questing
 -- ============================================================================
 -- core.get_game_version() answers "Tbc" on TBC Classic (and the TBC 2.5.3
 -- private-server client) and "Forever" on WoW Forever. The beta client is

@@ -3,7 +3,7 @@
 The project rules are shared with Cursor and live in `AGENTS.md` — edit them there,
 not here, so both tools stay in sync.
 
-Work from `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\Master_Farmer_Grindbot`
+Work from `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\products_src\restedXP_questing`
 (`_MASTER-FARMER_` is the main folder). New version folders go to
 `_MASTER-FARMER_\Grindbot_Versions\`; the older ones stay in `C:\Users\ebene\OneDrive\Desktop\SNES_\`.
 

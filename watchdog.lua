@@ -3,7 +3,7 @@
 -- NPC-stuck watchdog
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.6
+-- Version: 4.0.7
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY NOT A GAME RELOAD

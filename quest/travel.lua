@@ -3,7 +3,7 @@
 -- quest/travel.lua - flights: RestedXP ".fly" goals and far-goal flight trips
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.6
+-- Version: 4.0.7
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 2.307.0: SPLIT OUT OF quest/engine.lua, which sat at Lua's hard limit of
@@ -88,9 +88,21 @@ local FLY_FAIL_MAX = 3
 local FLY_TAKEOFF = 8.0        -- seconds for a take-off to show movement
 local FLY_SPEED = 10.0         -- yd/s: faster than this is a flight
 local FLY_LANDED = 2.5         -- seconds still before a flight counts as landed
+-- 4.0.7 (log 2026-10-24 16:55-17:03): a flight the bot did not take itself (the
+-- player took it, or the bot was started / the UI reloaded mid-air) was never
+-- seen - is_flying is false on a taxi - so the bot "walked" for the whole flight
+-- and spent its stall recoveries in the air. Any flight is now seen by speed:
+-- level ground speed over FLY_SEEN_SPEED (no ground mount reaches it - epic 14
+-- yd/s) for FLY_SEEN_TIME s (a Charge / Blink / knock-back is shorter); it ends
+-- after FLY_LANDED s under FLY_SPEED.
+local FLY_SEEN_SPEED = 20.0
+local FLY_SEEN_TIME = 1.0
+local FLY_SEEN_GAP = 2.0       -- s: a longer gap between reads (loading screen) measures nothing
 
 -- { dest, taken, from, last, last_t, still_since, airborne, step, goal }
 local g_flight = nil
+-- the speed watch for any flight: { last, last_t, fast_since, still_since, on }
+local g_seen = { on = false }
 local g_trip = nil             -- 2.115.0: flight trip toward a far goal (see far_travel)
 
 local function clean_text(text)
@@ -224,11 +236,64 @@ local function dist3(a, b)
     return math.sqrt(dx * dx + dy * dy + dz * dz)
 end
 
+--- 4.0.7: any flight, seen by level ground speed (header of FLY_SEEN_SPEED).
+--- True from FLY_SEEN_TIME s of flight speed until FLY_LANDED s under FLY_SPEED.
+local function seen_flight(player, now)
+    local here = pos_of(player)
+    if not here then return g_seen.on end
+    local last = g_seen.last
+    if not last then
+        g_seen.last, g_seen.last_t = here, now
+        return g_seen.on
+    end
+    local dt = now - g_seen.last_t
+    if dt < 0.25 then return g_seen.on end
+    g_seen.last, g_seen.last_t = here, now
+    if dt > FLY_SEEN_GAP then
+        g_seen.fast_since = nil
+        return g_seen.on
+    end
+    local dx, dy = here.x - last.x, here.y - last.y
+    local speed = math.sqrt(dx * dx + dy * dy) / dt
+    if speed > FLY_SEEN_SPEED then
+        g_seen.fast_since = g_seen.fast_since or (now - dt)
+        g_seen.still_since = nil
+        if not g_seen.on and (now - g_seen.fast_since) >= FLY_SEEN_TIME then
+            g_seen.on = true
+            trail("travel", "on a flight (%.0f yd/s) - waiting for it to land", speed)
+        end
+    else
+        g_seen.fast_since = nil
+        if g_seen.on then
+            if speed > FLY_SPEED then
+                g_seen.still_since = nil
+            else
+                g_seen.still_since = g_seen.still_since or now
+                if (now - g_seen.still_since) >= FLY_LANDED then
+                    g_seen.on, g_seen.still_since = false, nil
+                    trail("travel", "the flight has landed")
+                end
+            end
+        end
+    end
+    return g_seen.on
+end
+
 --- On a flight path? Tracked from the take-off: is_flying, or moving faster
 --- than a character can run. Ends FLY_LANDED seconds after the movement stops.
+--- 4.0.7: a flight the bot did not take itself is seen by speed (seen_flight).
+--- main.lua skips the tick while this is true, so the quest engine's stall
+--- timer (reset after a gap in its ticks) never counts flight time.
 function TR.in_flight(player)
-    if not g_flight or not player then return false end
+    if not player then return false end
     local now = izi.now()
+    local unplanned = seen_flight(player, now)
+    local planned = g_flight ~= nil and TR.planned_flight(player, now)
+    return planned or unplanned
+end
+
+--- The flight the bot took itself (g_flight): true until it lands.
+function TR.planned_flight(player, now)
     local here = pos_of(player)
     if not here then return true end
     if safe(function() return player:is_flying() end) == true then

@@ -4,7 +4,7 @@
 -- ============================================================================
 -- Purpose: IZI gate (every game version). Not class-locked. Start is gated by rotation registry.
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 

@@ -3,7 +3,7 @@
 -- Combat engine - pack scan, target latch, kill-first priority, class hooks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Shared by every class rotation. Class modules opt in by exposing interrupt,

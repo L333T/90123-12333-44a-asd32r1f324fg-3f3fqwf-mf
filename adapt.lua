@@ -3,7 +3,7 @@
 -- Adaptive rotation - learns what kills fastest, per character
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT (2.274.0, GUI "Adaptive Rotation", Spells tab, on by default)

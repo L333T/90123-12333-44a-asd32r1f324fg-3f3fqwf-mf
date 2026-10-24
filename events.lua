@@ -3,7 +3,7 @@
 -- Game events - the confirmations the client holds open until answered
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY THIS FILE EXISTS

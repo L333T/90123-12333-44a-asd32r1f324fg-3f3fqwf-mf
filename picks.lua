@@ -3,7 +3,7 @@
 -- Spell picks - what the Spells tab has switched on
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- One registry of "the user ticked this spell", keyed by spell NAME, filled

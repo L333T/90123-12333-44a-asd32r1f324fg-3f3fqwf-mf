@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -109,6 +109,8 @@ end
 movement.last_fail_reason  = N.last_fail_reason
 movement.last_fail_offmesh = N.last_fail_offmesh
 movement.clear_fail        = N.clear_fail
+movement.nav_pending       = N.pending            -- 4.0.8: planning / asking a floor
+movement.server_trouble    = N.server_trouble     -- 4.0.8: a server code, not the place
 
 -- ============================================================================
 -- COMBAT

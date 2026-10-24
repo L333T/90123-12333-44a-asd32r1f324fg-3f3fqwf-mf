@@ -3,7 +3,7 @@
 -- Self-buff upkeep
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHEN A BUFF IS MAINTAINED

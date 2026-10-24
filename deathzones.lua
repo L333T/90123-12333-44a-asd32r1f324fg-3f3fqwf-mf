@@ -3,7 +3,7 @@
 -- deathzones.lua - areas to avoid after dying there 3 times
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.7
+-- Version: 4.0.8
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY (2.247.0)

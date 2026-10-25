@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through Sentinel Navigation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.7.0
+-- Version: 4.8.0
 -- ============================================================================
 -- 4.2.0 SENTINEL PORT (branch sentinel-nav; docs/SENTINEL_API.md = the official
 -- v0.0.8 page, docs/SENTINEL_V024.md = what the installed v0.24 really does).
@@ -610,6 +610,139 @@ function N.pulse()
             record_fail("failed", cur.x, cur.y, cur.z)
         end
     end
+    N.ahead_tick(c)
+end
+
+-- ----------------------------------------------------------------------------
+-- 4.8.0 THE PATH AHEAD (user: trace line / raycast hits -> re-path round them
+-- while walking; avoid height and collisions in the path; regenerate the
+-- path ahead without stalling the player). Every AHEAD.GAP s while a walk
+-- follows its path (never while it waits for one or recovers):
+--   * COLLISIONS: Sentinel's own obstacle probe (movement/sentinel
+--     S.probe_ahead: 3 game trace lines a segment, doodad collision) on the
+--     path BEYOND the AHEAD.SKIP segments Sentinel already probes itself
+--     (its proactive scan, 3 by default), AHEAD.SEGS more;
+--   * HEIGHT: a path segment climbing steeper than AHEAD.STEEP (rise / run,
+--     segments of AHEAD.STEEP_MIN yd and more, within AHEAD.STEEP_YD of the
+--     player) - Sentinel's probes do not see the slope (the 2026-10-24
+--     Plaguewood slope: Stuck 1-3/7 again and again);
+--   * STALLS: a place where Sentinel's stuck recovery starts a second time
+--     within AHEAD.STALL_R yd in AHEAD.STALL_S s.
+-- Each puts a Sentinel avoidance zone there (S.add_zone, AHEAD.ZONE_R yd;
+-- the library ages them out) and asks for a SOFT re-path (S.soft_replan:
+-- the new path is blended in, the character keeps walking). At most one
+-- re-path every AHEAD.REPLAN_GAP s; a spot is zoned once.
+-- ----------------------------------------------------------------------------
+local AHEAD = { GAP = 1.0, SKIP = 3, SEGS = 5, STEEP = 1.0, STEEP_MIN = 2.0, STEEP_YD = 40,
+    STALL_R = 8, STALL_S = 60, ZONE_R = 4, REPLAN_GAP = 3.0, SAME = 3.0,
+    t = -1e9, replan_t = -1e9, zones = {}, recover_at = nil, stalls = {}, was_recovering = false }
+N.AHEAD = AHEAD
+
+local function zoned(x, y)
+    for i = #AHEAD.zones, 1, -1 do
+        local z = AHEAD.zones[i]
+        if (R.now() - z.t) > 120 then table.remove(AHEAD.zones, i)
+        elseif R.dist2(z.x, z.y, x, y) <= AHEAD.SAME then return true end
+    end
+    return false
+end
+
+--- Zone the spot and re-path softly. True when a re-path went out.
+local function avoid(c, p, why)
+    if zoned(p.x, p.y) then return false end
+    AHEAD.zones[#AHEAD.zones + 1] = { x = p.x, y = p.y, t = R.now() }
+    stats.zones = (stats.zones or 0) + 1
+    if not S.add_zone(c, p, AHEAD.ZONE_R) then
+        R.trail("nav", "%s at (%.0f, %.0f): Sentinel has no avoidance zones here - not re-pathed", why, p.x, p.y)
+        return false
+    end
+    if (R.now() - AHEAD.replan_t) < AHEAD.REPLAN_GAP then
+        R.trail("nav", "%s at (%.0f, %.0f): zoned (re-path waits)", why, p.x, p.y)
+        return false
+    end
+    AHEAD.replan_t = R.now()
+    local ok = S.soft_replan(c, "mf_" .. why:gsub("%s", "_"))
+    stats.soft_replans = (stats.soft_replans or 0) + (ok and 1 or 0)
+    R.trail("nav", "%s at (%.0f, %.0f): avoidance zone %.0f yd, %s", why, p.x, p.y, AHEAD.ZONE_R,
+        ok and "path regenerated ahead (soft, no stop)" or "re-path refused")
+    return ok
+end
+
+--- The walk's path from the current waypoint on (player first), as {x,y,z}.
+local function ahead_points()
+    local pts, i = N.path_points(), N.path_index()
+    if type(pts) ~= "table" or #pts == 0 then return nil end
+    i = (type(i) == "number" and i >= 1) and math.floor(i) or 1
+    local hx, hy, hz = R.here()
+    if not hx then return nil end
+    local out = { { x = hx, y = hy, z = hz } }
+    for k = i, #pts do
+        local x, y, z = R.xyz(pts[k])
+        if x then out[#out + 1] = { x = x, y = y, z = z } end
+    end
+    return out
+end
+
+function N.ahead_tick(c)
+    local now = R.now()
+    local fs = S.full_state(c) or ""
+    local recovering = fs:find("recovering", 1, true) ~= nil
+    -- stalls: each start of Sentinel's stuck recovery is noted where it began
+    if recovering and not AHEAD.was_recovering then
+        local hx, hy, hz = R.here()
+        if hx then
+            for i = #AHEAD.stalls, 1, -1 do
+                local s = AHEAD.stalls[i]
+                if (now - s.t) > AHEAD.STALL_S then
+                    table.remove(AHEAD.stalls, i)
+                elseif R.dist2(s.x, s.y, hx, hy) <= AHEAD.STALL_R then
+                    table.remove(AHEAD.stalls, i)
+                    AHEAD.recover_at = { x = hx, y = hy, z = hz }
+                end
+            end
+            AHEAD.stalls[#AHEAD.stalls + 1] = { x = hx, y = hy, t = now }
+        end
+    end
+    AHEAD.was_recovering = recovering
+    if (now - AHEAD.t) < AHEAD.GAP then return end
+    if not cur.x or cur.done or cur.mode == "npc" or not S.moving(c) then return end
+    if S.path_pending(c) or recovering then return end
+    AHEAD.t = now
+    if AHEAD.recover_at then
+        local p = AHEAD.recover_at
+        AHEAD.recover_at = nil
+        if avoid(c, p, "repeated stall") then return end
+    end
+    local pts = ahead_points()
+    if not pts or #pts < 2 then return end
+    -- height: too steep to climb, near the player
+    local along = 0
+    for k = 1, #pts - 1 do
+        local a, b = pts[k], pts[k + 1]
+        local run = R.dist2(a.x, a.y, b.x, b.y)
+        if run >= AHEAD.STEEP_MIN and (b.z - a.z) / run > AHEAD.STEEP then
+            stats.steep = (stats.steep or 0) + 1
+            if avoid(c, { x = (a.x + b.x) / 2, y = (a.y + b.y) / 2, z = (a.z + b.z) / 2 },
+                string.format("too steep (%.0f deg)", math.deg(math.atan((b.z - a.z) / run)))) then return end
+        end
+        along = along + run
+        if along > AHEAD.STEEP_YD then break end
+    end
+    -- collisions: Sentinel's probe, past the segments it probes itself
+    if #pts > AHEAD.SKIP + 1 then
+        local far = {}
+        for k = AHEAD.SKIP + 1, #pts do far[#far + 1] = pts[k] end
+        local hit = S.probe_ahead(c, far, AHEAD.SEGS)
+        stats.probes = (stats.probes or 0) + 1
+        if hit then avoid(c, hit, "obstacle ahead") end
+    end
+end
+
+--- 4.8.0: the navmesh raycast (server, no game call) - cb(ok, hit, t).
+function N.nav_raycast(from, to, cb)
+    local c = N.client()
+    if not c then return false end
+    return S.raycast(c, R.point(from), R.point(to), cb)
 end
 
 -- ----------------------------------------------------------------------------
@@ -744,6 +877,8 @@ function N._reset()
     cache_n = { fails = 0, zfix = 0, zscan = 0 }
     stop_req, held = nil, { reasons = {}, dest = nil }
     warned = nil
+    AHEAD.t, AHEAD.replan_t, AHEAD.zones, AHEAD.recover_at, AHEAD.stalls, AHEAD.was_recovering =
+        -1e9, -1e9, {}, nil, {}, false
 end
 
 return N

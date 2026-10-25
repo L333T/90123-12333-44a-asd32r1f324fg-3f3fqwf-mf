@@ -4,7 +4,7 @@
 -- sight? Answered by AmeisenNav's navmesh, never by a game raycast.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.7.0
+-- Version: 4.8.0
 -- ============================================================================
 -- The user (2.313.0): "ensure enemy target is in LoS and not underground or
 -- unreachable" - after 2.311.0 removed every game raycast (los_to, trace_line,
@@ -43,6 +43,8 @@ local NEAR     = 5.0     -- yd: closer than this needs no answer (melee)
 local MAX_N    = 200
 
 Sg.TTL_OK, Sg.TTL_BAD, Sg.END_XY, Sg.END_Z, Sg.STRAIGHT, Sg.NEAR = TTL_OK, TTL_BAD, END_XY, END_Z, STRAIGHT, NEAR
+Sg.RAY_Z = 1.5       -- 4.8.0: yd above the feet the navmesh raycast runs at
+Sg.RAY_PAD = 3.0     -- 4.8.0: yd short of the enemy a raycast hit still counts as in sight
 
 local cache, cache_n = {}, 0
 local next_ask = 0
@@ -140,7 +142,32 @@ function Sg.verdict(player, unit)
             entry.v = nil                -- server trouble: no answer, not "unreachable"
             return
         end
-        entry.v = Sg.judge(px, py, pz, ux, uy, uz, pts)
+        local v = Sg.judge(px, py, pz, ux, uy, uz, pts)
+        -- 4.8.0 (user: no attack without line of sight): a "clear" walk is
+        -- checked with Sentinel's NAVMESH raycast (a server request, no game
+        -- ray) from the player to the enemy, at chest height. Blocked more
+        -- than RAY_PAD yd short of the enemy: something walkable-round stands
+        -- between (a rock, a wall corner) - "around", no attack until the
+        -- walk round it gives sight. No raycast answer: the walk's verdict.
+        if v == "clear" and straight > NEAR and type(N.nav_raycast) == "function" then
+            local a = { x = px, y = py, z = pz + Sg.RAY_Z }
+            local b = { x = ux, y = uy, z = uz + Sg.RAY_Z }
+            local asked = N.nav_raycast(a, b, function(okr, hit, t)
+                entry.pending = false
+                entry.t = izi.now()
+                local blocked = okr and hit and type(t) == "number" and (straight * (1 - t)) > Sg.RAY_PAD
+                entry.v = blocked and "around" or "clear"
+                if blocked then
+                    trail("%s at %.0f yd: the navmesh line is cut %.0f yd short - no line of sight", name, straight,
+                        straight * (1 - t))
+                end
+            end)
+            if asked then
+                entry.pending = true             -- the earlier verdict stands until the raycast answers
+                return
+            end
+        end
+        entry.v = v
         if entry.v ~= old and entry.v ~= "clear" then
             trail("%s at %.0f yd: %s", name, straight, entry.v)
         end

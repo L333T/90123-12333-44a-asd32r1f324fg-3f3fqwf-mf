@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.7.0
+-- Version: 4.8.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- HOW IT WORKS
@@ -601,7 +601,11 @@ tick_inner = function(player)
             -- ALREADY LOOTED (2.56.0). Seen lootable once and not any more:
             -- someone emptied it - the bot, or the player by hand. Done, no
             -- walk and no attempt.
-            if not can and e.seen_lootable then
+            -- 4.8.0 (user: every kill looted; logs showed "already looted
+            -- after 0 loot request(s)"): the flag drops for a moment while
+            -- walking up - our OWN kill counts as already looted only after a
+            -- loot request of ours, or when the game says it is empty.
+            if not can and e.seen_lootable and (not e.mine or (e.calls or 0) > 0 or empty(obj)) then
                 gone, why = true, "already looted"
             -- Nothing on it, in so many words, once the flag has had its grace.
             elseif (now - e.added) > FLAG_GRACE and empty(obj) then

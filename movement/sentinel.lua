@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.7.0
+-- Version: 4.8.0
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -230,6 +230,55 @@ function S.find_path(c, a, b, cb)
         local pts = (type(data) == "table" and type(data.waypoints) == "table") and data.waypoints or nil
         local info = { partial = type(data) == "table" and data.partial == true or false }
         pcall(cb, (pts and #pts >= 2) and pts or nil, okp == true, info)
+    end)
+    return ok == true
+end
+
+-- ----------------------------------------------------------------------------
+-- 4.8.0: OBSTACLES AHEAD, SOFT RE-PATH, NAVMESH RAYCAST (user: "use Sentinel
+-- navigation API to find trace line and / or raycast hits to re-path the
+-- player around these objects ... regenerate pathing ahead of the player
+-- without stalling"). Signatures read from the readable v0.0.6 library
+-- source (C:\SentinelNav\SentinelCore\SentinelNavClient); not yet recorded on
+-- v0.24, so every call is pcall'd and a missing one answers nil / false:
+--   client.obstacle:probe_path_ahead(waypoints, max_segments) -> hit {x,y,z}|nil, segment
+--       3 game trace lines per segment (core.graphics.trace_line, doodad
+--       collision), run by Sentinel's own ObstacleService
+--   client.obstacle:add_zone(pos, radius)  an avoidance zone (FIFO, TTL in the
+--       Sentinel UI); every path request after it avoids it (path-avoid)
+--   client:replan(reason, { soft = true }) a new path from here without
+--       stopping (SoftRepath: no movement:stop)
+--   client.nav_client:raycast(a, b, cb(ok, { hit, t }))  the SERVER's navmesh
+--       raycast (no game call): hit = the straight line leaves the walkable mesh
+-- ----------------------------------------------------------------------------
+function S.probe_ahead(c, points, n)
+    local oko, ob = pcall(function() return c.obstacle end)
+    if not oko or type(ob) ~= "table" or type(ob.probe_path_ahead) ~= "function" then return nil end
+    local list = {}
+    for i = 1, #points do list[i] = pt(points[i]) end
+    local ok, hit, seg = pcall(ob.probe_path_ahead, ob, list, n)
+    if ok and type(hit) == "table" and type(hit.x) == "number" then return hit, seg end
+    return nil
+end
+
+function S.add_zone(c, p, radius)
+    local oko, ob = pcall(function() return c.obstacle end)
+    if not oko or type(ob) ~= "table" or type(ob.add_zone) ~= "function" then return false end
+    return pcall(ob.add_zone, ob, pt(p), radius) == true
+end
+
+function S.soft_replan(c, reason)
+    local ok, r = pcall(function() return c:replan(reason, { soft = true }) end)
+    return ok and r == true
+end
+
+function S.raycast(c, a, b, cb)
+    local okn, nc = pcall(function() return c.nav_client end)
+    if not okn or type(nc) ~= "table" or type(nc.raycast) ~= "function" then return false end
+    local ok = pcall(nc.raycast, nc, pt(a), pt(b), function(okr, data)
+        local hit = type(data) == "table" and data.hit == true or false
+        local t = type(data) == "table" and tonumber(data.t) or nil
+        pcall(cb, okr == true, hit, t)
     end)
     return ok == true
 end

@@ -3,7 +3,7 @@
 -- quest/objguard.lua - world objects that crash the game when used
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.27.0
+-- Version: 4.28.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.23.0 (user: "Check logs for what is causing disconnection during
@@ -149,11 +149,50 @@ function O.before(obj, method)
     write(OBJGUARD_FILE, method .. "|" .. n .. "\n")
 end
 
---- Every tick: a journal entry older than CLEAR_S s is cleared (the call lived).
-function O.tick()
+-- 4.28.0 INTERACTION LOCK (user: "When interacting with a object, pause ALL
+-- other actions if enemy target attacks stop interacting kill enemy target or
+-- targets then begin interacting with object again until step is complete").
+-- An accepted use_object locks for LOCK_S s, kept on while the player casts /
+-- channels (the "Opening" cast) or a loot window is open. While locked,
+-- main.lua runs nothing but the quest step - no other corpses, conjure,
+-- rest, buffs, trainer, vendor or equip. Anything attacking the player or the
+-- pet (or the player in combat) releases it at once: the quest engine's
+-- fight-back kills the attackers, then the step's object goal (still not
+-- complete) opens the object again - and locks again.
+O.LOCK_S = 8.0
+local lock = nil            -- { t, name, until_t }
+
+--- Is an object interaction holding every other action off?
+function O.locked()
+    return lock ~= nil and now() < lock.until_t
+end
+
+--- End the lock (attacked, goal done ...).
+function O.release(why)
+    if lock then
+        local el = package.loaded["errorlog"]
+        if type(el) == "table" and type(el.trail) == "function" then
+            pcall(el.trail, "act", "object interaction with %s released: %s", tostring(lock.name), tostring(why))
+        end
+    end
+    lock = nil
+end
+
+--- Every tick: a journal entry older than CLEAR_S s is cleared (the call lived);
+--- the interaction lock is kept on while the open is still running.
+function O.tick(player)
     if pending and (now() - pending.t) >= O.CLEAR_S then
         pending = nil
         write(OBJGUARD_FILE, "")
+    end
+    if lock then
+        local t = now()
+        if t >= lock.until_t then lock = nil return end
+        local casting = player and safe(function() return player:is_channeling_or_casting() end) == true
+        local n = safe(function() return core.game_ui.get_loot_item_count() end)
+        if casting or (type(n) == "number" and n > 0) then
+            lock.until_t = math.max(lock.until_t, t + 2.0)
+        end
     end
 end
 
@@ -169,13 +208,16 @@ function O.open(obj)
     end
     O.before(obj, "use")
     local ok = safe(function() return core.input.use_object(obj) end)
-    if ok == true then return true, "use" end
+    if ok == true then
+        lock = { t = now(), name = name_of(obj), until_t = now() + O.LOCK_S }      -- 4.28.0
+        return true, "use"
+    end
     -- NEVER interact_with_object on a world object (4.27.0): the call that crashed
     pending = nil
     write(OBJGUARD_FILE, "")
     return false, "refused"
 end
 
-function O._reset() crashed, pending, said = nil, nil, {} end
+function O._reset() crashed, pending, said, lock = nil, nil, {}, nil end
 
 return O

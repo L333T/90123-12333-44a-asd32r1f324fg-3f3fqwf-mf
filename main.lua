@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.27.0
+-- Version: 4.28.0
 -- Folder: restedXP_questing
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -555,7 +555,7 @@ local function on_update()
     -- 4.23.0: the object-use crash journal clears itself once a use lived
     do
         local og = package.loaded["quest/objguard"]
-        if type(og) == "table" and type(og.tick) == "function" then pcall(og.tick) end
+        if type(og) == "table" and type(og.tick) == "function" then pcall(og.tick, player) end
     end
     if loot and type(loot.frame) == "function" then
         probe("u:loot.frame")
@@ -711,18 +711,35 @@ local function on_update()
     -- any other action - conjuring, eating and drinking, buffs, trainer,
     -- vendor, equip, the next pull. loot.tick still steps aside for anything
     -- attacking the player.
+    -- 4.28.0 OBJECT INTERACTION LOCK (quest/objguard.lua): while an object is
+    -- being opened nothing else runs but the quest step; an attack releases it
+    -- (the fight-back kills the attackers, then the object is opened again)
+    local obj_lock = false
+    do
+        local og = package.loaded["quest/objguard"]
+        if type(og) == "table" and type(og.locked) == "function" and og.locked() then
+            local attacked = (targeting and type(targeting.attackers) == "function" and targeting.attackers(player) > 0)
+                or safe(function() return player:is_in_combat() end) == true
+            if attacked then
+                og.release("attacked - fighting first, then the object again")
+            else
+                obj_lock = true
+                state.set_note("Quest", "Interacting with the object - everything else waits")
+            end
+        end
+    end
     probe("u:loot")
-    if loot and loot.tick(player) then
+    if not obj_lock and loot and loot.tick(player) then
         return
     end
     probe("u:conjure")
-    if conjure and type(conjure.tick) == "function" and conjure.tick(player) then
+    if not obj_lock and conjure and type(conjure.tick) == "function" and conjure.tick(player) then
         return
     end
     probe("u:healing")
     -- REST PROBE (2.193.0): time this call; a slow one writes a SPIKE line.
     if errorlog and type(errorlog.spike_begin) == "function" then errorlog.spike_begin("u:healing") end
-    local rested = healing.tick(player)
+    local rested = not obj_lock and healing.tick(player)
     if errorlog and type(errorlog.spike_end) == "function" then errorlog.spike_end() end
     if rested then
         return
@@ -731,15 +748,15 @@ local function on_update()
     -- same question, and after healing.tick so a rest is never interrupted
     -- to refresh something.
     probe("u:buffs")
-    if buffs and type(buffs.tick) == "function" and buffs.tick(player) then
+    if not obj_lock and buffs and type(buffs.tick) == "function" and buffs.tick(player) then
         return
     end
     probe("u:buffs_ooc")
-    if rotation.buffs_ooc(player) then
+    if not obj_lock and rotation.buffs_ooc(player) then
         return
     end
     probe("u:busy")
-    if player_is_busy(player) then
+    if not obj_lock and player_is_busy(player) then
         state.set_note("Wait", "Casting")
         return
     end
@@ -748,11 +765,11 @@ local function on_update()
     -- selecting the trainer option replaces whatever is open. Training is the
     -- rarer opportunity, and vendor.tick re-opens the merchant by itself.
     probe("u:trainer")
-    if trainer and type(trainer.tick) == "function" and trainer.tick(player) then
+    if not obj_lock and trainer and type(trainer.tick) == "function" and trainer.tick(player) then
         return
     end
     probe("u:vendor")
-    if vendor and vendor.tick(player) then
+    if not obj_lock and vendor and vendor.tick(player) then
         return
     end
 
@@ -760,7 +777,7 @@ local function on_update()
     -- call (use_container_item), so this must be unreachable while a merchant
     -- window is open or an upgrade gets sold instead of worn.
     probe("u:equip")
-    if equip and type(equip.tick) == "function" and equip.tick(player) then
+    if not obj_lock and equip and type(equip.tick) == "function" and equip.tick(player) then
         return
     end
 

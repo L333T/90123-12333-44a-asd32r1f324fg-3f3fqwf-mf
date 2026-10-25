@@ -3,7 +3,7 @@
 -- quest/actions.lua - guide step actions the bot carries out itself
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.27.0
+-- Version: 4.28.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.25.0 (user: "Always check the step action that should be completed and

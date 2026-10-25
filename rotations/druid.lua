@@ -3,7 +3,7 @@
 -- Druid grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.16.0
+-- Version: 4.17.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- The reference grindbot's Druid branch is two lines - Mark of the Wild and

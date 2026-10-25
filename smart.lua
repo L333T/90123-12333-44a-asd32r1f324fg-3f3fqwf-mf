@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.16.0
+-- Version: 4.17.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1942,7 +1942,7 @@ end
 -- ============================================================================
 local COMBAT_ORDER = {
     { "heal", COND.heal }, { "defensive", COND.defensive }, { "interrupt", COND.interrupt },
-    "racials", "trinkets", "upkeep",
+    "poly", "racials", "trinkets", "upkeep",
     { "seal", COND.seal },
     "adapt_kill",
     { "resource", COND.resource }, { "opener", COND.opener }, { "execute", COND.execute },
@@ -2535,6 +2535,13 @@ function smart.combat(player, target, ctx)
             local racials = mod("racials")
             xprobe("sm:racials")
             if racials and type(racials.tick) == "function" and racials.tick(player, target, ctx) then
+                return true
+            end
+        elseif step == "poly" then
+            -- 4.17.0: Mage - Polymorph an add while the target is killed (mage_poly.lua)
+            local mp = mod("mage_poly")
+            xprobe("sm:poly")
+            if mp and type(mp.tick) == "function" and mp.tick(player, target, PACK) then
                 return true
             end
         elseif step == "trinkets" then

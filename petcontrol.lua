@@ -3,7 +3,7 @@
 -- petcontrol.lua - pet abilities in a fight (Mage, Warlock, Hunter)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.16.0
+-- Version: 4.17.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.6.0 (user: "correctly control pets for player classes who have pets -

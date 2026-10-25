@@ -3,7 +3,7 @@
 -- trinkets.lua - on-use trinkets in the rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.16.0
+-- Version: 4.17.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.16.0 (user: "Create GUI options to enable/disable trinket slots, When

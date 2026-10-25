@@ -3,7 +3,7 @@
 -- predict.lua - Sylvanas spell_prediction for the class rotations
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.16.0
+-- Version: 4.17.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY (2.248.0)

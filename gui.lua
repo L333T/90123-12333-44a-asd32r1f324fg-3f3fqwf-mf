@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.16.0
+-- Version: 4.17.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -524,6 +524,15 @@ menu:checkbox("mfg_hunter_pet_aggro", false, {
         .. "(or attacks you, or 6 s pass). If the mob gets within 5 yd of you, you walk backward for 2.5 s with a jump "
         .. "0.5 s in, then stop (at most once every 4 s).",
 })
+-- 4.17.0: Mage - Polymorph an add while the target is killed (mage_poly.lua)
+menu:checkbox("mfg_mage_poly", true, {
+    label = "Polymorph an Add",
+    tab = "class",
+    class_id = enums.class_id.MAGE,
+    tooltip = "With 2 or more enemies on you and your health OR mana under 50 %: Polymorph one of the other enemies "
+        .. "(at or above your level, a Humanoid / Beast / Critter, not immune) while you keep killing your target. "
+        .. "AoE and Frost Nova hold off while it is sheeped; a sheep that breaks is cast again.",
+})
 -- 2.294.0: the same for Warriors, in their own box (a menu element is saved
 -- per account: one shared box ticked on a rogue would switch warriors on).
 menu:checkbox("mfg_strafe_combat_warrior", false, {
@@ -714,6 +723,7 @@ local aliases = {
     delete_junk = "mfg_delete_junk",
     spell_queue = "mfg_spell_queue",
     hunter_pet_aggro = "mfg_hunter_pet_aggro",  -- 2.284.0
+    mage_poly = "mfg_mage_poly",                -- 4.17.0 (mage_poly.lua)
     adaptive = "mfg_adaptive",                 -- 2.274.0
     trinket1 = "mfg_trinket1",                 -- 4.16.0 (trinkets.lua)
     trinket2 = "mfg_trinket2",

@@ -26,6 +26,7 @@ OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 
 
 TARGET_TAGS = ("mob", "target", "unitscan")
 ENEMY_RE = re.compile(r"\|cRXP_ENEMY_([^|]+)\|r")
+PICK_RE = re.compile(r"\|cRXP_PICK_([^|]+)\|r")     # 4.4.0: objects to click / use an item at
 FRIENDLY_RE = re.compile(r"\|cRXP_FRIENDLY_([^|:]+)(?:::\d+)?\|r")
 MAP_RE = re.compile(r'\["([^"]+)"\]\s*=\s*(\d+)\s*,')
 MAP_IDS = {}            # zone name -> UiMapID (RXPGuides DB/*/db.lua addon.mapId)
@@ -95,7 +96,7 @@ def guide_files(root):
 ITEM_NAME_RE = re.compile(r"\[([^\]|]+)\]")
 
 
-def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, items=None):
+def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, items=None, picks=None):
     try:
         text = open(path, encoding="utf-8", errors="ignore").read()
     except OSError:
@@ -131,6 +132,10 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
                 names = names or step["text_friendly"]
                 if names:
                     givers.setdefault(e[2], {}).setdefault(e[1], set()).update(names)
+        # 4.4.0: the step's RXP_PICK objects ("Open the Large Termite Mounds")
+        if picks is not None and step["picks"]:
+            for q, _ in step["quests"]:
+                picks.setdefault(q, set()).update(step["picks"])
         if not step["quests"] or not (step["names"] or step["ids"]):
             return
         for q, obj in step["quests"]:
@@ -147,7 +152,7 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
                 flush(step)
             step = {"quests": [], "names": set(), "ids": set(), "anchors": [], "wanchors": [], "vendor": None,
                     "trainer": None, "gossip": set(), "skip": None, "dialog": set(), "friendly": set(),
-                    "events": [], "text_friendly": set()}
+                    "events": [], "text_friendly": set(), "picks": set()}
             continue
         if step is None:
             continue
@@ -219,6 +224,10 @@ def parse(path, by_quest, by_obj, ids_by_quest, steps_out=None, givers=None, ite
             if len(name) >= 3:
                 step["friendly"].add(name)
                 step["text_friendly"].add(name)
+        for name in PICK_RE.findall(raw):
+            name = name.strip()
+            if len(name) >= 3:
+                step["picks"].add(plural_to_singular(name))
         for name in ENEMY_RE.findall(raw):
             name = name.strip()
             if len(name) >= 3:
@@ -269,11 +278,11 @@ def lua_str(s):
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else DEFAULT
     by_quest, by_obj, ids_by_quest = {}, {}, {}
-    steps, givers, items = [], {}, {}
+    steps, givers, items, picks = [], {}, {}, {}
     load_map_ids(root)
     n = 0
     for f in guide_files(root):
-        parse(f, by_quest, by_obj, ids_by_quest, steps, givers, items)
+        parse(f, by_quest, by_obj, ids_by_quest, steps, givers, items, picks)
         n += 1
     lines = [
         "-- ============================================================================",
@@ -369,6 +378,14 @@ def main():
               "M.use_items = {"]
     for q in sorted(use_items):
         lines.append(f"    [{q}] = {use_items[q]},")
+    lines += ["}", "",
+              "-- 4.4.0: quest id -> { object names } the guide's step says to click / use an",
+              "-- item at (|cRXP_PICK_...|r, singular: \"Large Termite Mound\")",
+              "M.picks = {"]
+    for q in sorted(picks):
+        names = dedupe(picks[q])
+        if names:
+            lines.append(f"    [{q}] = {{ " + ", ".join(lua_str(x) for x in names) + " },")
     lines += ["}", "", "return M", ""]
     with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines))

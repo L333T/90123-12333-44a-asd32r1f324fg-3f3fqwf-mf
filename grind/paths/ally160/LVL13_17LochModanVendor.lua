@@ -3,7 +3,7 @@
 -- Loch Modan 13-17 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.3.0
+-- Version: 4.4.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

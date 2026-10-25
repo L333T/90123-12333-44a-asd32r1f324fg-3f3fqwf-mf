@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.3.0
+-- Version: 4.4.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1487,6 +1487,12 @@ compute_targets = function(goal, primary)
                     if type(list) == "table" then
                         for m = 1, #list do names[list[m]] = true end
                     end
+                    -- 4.4.0: the step's RXP_PICK objects ("Open the Large Termite
+                    -- Mounds"): the objective names the loot, not the object
+                    local pk = rxp.picks and rxp.picks[qids[k]]
+                    if type(pk) == "table" then
+                        for m = 1, #pk do names[pk[m]] = true end
+                    end
                     local nids = rxp.ids_by_quest and rxp.ids_by_quest[qids[k]]
                     if type(nids) == "table" then
                         for m = 1, #nids do ids[nids[m]] = true end
@@ -1680,6 +1686,34 @@ function guide.find_named_object(player, range, needle, skip)
         end
     end
     return best, best_d
+end
+
+--- 4.4.0: the RXP_PICK object names (data/rxp_targets M.picks) for the goal's
+--- quests and the other quests of its step, as an array (may be empty).
+function guide.pick_names(goal)
+    local d = rxp_data()
+    local out, seen = {}, {}
+    if not d or type(d.picks) ~= "table" then return out end
+    local qs = {}
+    local function add_q(g)           -- quest_id only: a .use goal's ids are item ids
+        local q = type(g) == "table" and tonumber(g.quest_id) or nil
+        if q and q > 0 then qs[#qs + 1] = q end
+    end
+    add_q(goal)
+    local st = guide.step()
+    if st and type(st.goals) == "table" then
+        for i = 1, #st.goals do add_q(st.goals[i]) end
+    end
+    for i = 1, #qs do
+        local list = d.picks[tonumber(qs[i]) or -1]
+        if type(list) == "table" then
+            for k = 1, #list do
+                local n = list[k]
+                if not seen[n] then seen[n] = true out[#out + 1] = n end
+            end
+        end
+    end
+    return out
 end
 
 --- Can the bot fight this unit? Alive, not a player, attackable.

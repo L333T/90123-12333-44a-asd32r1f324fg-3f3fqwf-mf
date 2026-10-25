@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.3.0
+-- Version: 4.4.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2301,6 +2301,11 @@ local function item_goal(player, goal, label)
     if not entry then
         return false
     end
+    -- 4.4.0: never used blind - with RXP_PICK objects named for the step, only
+    -- next to one (quest/useitem.lua U.spot)
+    local gate = IS.use_spot and IS.use_spot(player, goal, label, walk_to, entry)
+    if gate == "walking" then return true end
+    if gate == "none" then return false end
     local now = izi.now()
     if now >= g_act_until then
         g_act_until = now + ACT_GAP
@@ -2863,6 +2868,7 @@ end
 -- bot holds with a note instead of walking at it forever.
 IS.mm = require("quest/mismatch")
 IS.use_item = require("quest/useitem").goal   -- 4.3.0: RestedXP quest items (quest/useitem.lua)
+IS.use_spot = require("quest/useitem").spot   -- 4.4.0: a .use goal waits for its RXP_PICK object
 IS.mismatch = function(player, goal, wps)
     local me = safe(function() return player:get_position() end)
     local key = tostring(guide.step_num()) .. "|" .. tostring(goal and goal.index)

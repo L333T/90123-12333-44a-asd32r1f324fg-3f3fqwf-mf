@@ -1,35 +1,37 @@
 -- ============================================================================
 -- restedXP_questing
--- quest/useitem.lua - RestedXP quest items (the quest-item button's item)
+-- quest/useitem.lua - RestedXP quest items, used only at the object they are for
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.3.0
+-- Version: 4.4.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.3.0 (in-game log 2026-10-24 20:01, Eastern Plaguelands): "Plagueland
--- Termites" (quest 5903) stayed 0/100 - the bot rode the guide's route past
--- the termite mounds and never used the Empty Termite Jar (15042). RestedXP
--- does not put a .use line on that step: its quest-item button takes the item
--- from addon.questCompleteItems (DB/tbc/quest.lua), now generated into
--- data/rxp_targets.lua M.use_items (quest id -> item id).
+-- Termites" (quest 5903) stayed 0/100 - the Empty Termite Jar (15042) was
+-- never used. RestedXP's quest-item button takes it from
+-- addon.questCompleteItems (data/rxp_targets.lua M.use_items).
 --
--- For a kill / collect / object goal whose quest has such an item in the
--- bags, near the goal's waypoints (AREA yd):
---   * the spot the item needs is learnt from the game: the first use is made
---     where the character stands, and a "Requires <name>" refusal
---     (UI_ERROR_MESSAGE) names the object (a spell focus such as "Termite
---     Mound"). Learnt once per item for the session.
---   * with a spot known: the nearest visible object of that name within SCAN
---     yd is walked to (within USE_NEAR yd), the character dismounts and uses
---     the item; no new mount while it works the area. An object used TRIES
---     times with no change in the goal's count is skipped for SKIP_S s.
---     No such object in sight: false - the guide's route walk goes on and
---     the next one comes into sight.
---   * no refusal: the item works where it is used - used every GAP s.
---   * any other refusal (a target needed, ...): left to the engine's own
---     item / marked-unit handling, probed again after PROBE_RETRY s.
--- Public: U.goal(player, goal, kind, wps, label, walk_to) -> true when this
--- tick was spent on it; U.item_for(goal); U.reset().
+-- 4.4.0 (user rule): A QUEST ITEM IS NEVER USED UNLESS THE OBJECT IT IS FOR IS
+-- IN SIGHT. The TBC guide (Guides/tbc/A-58Boost.lua) says "Open the
+-- |cRXP_PICK_Large Termite Mounds|r ... Loot them": the step's RXP_PICK names
+-- (data/rxp_targets.lua M.picks, guide.pick_names) are the objects. The 4.3.0
+-- "first use where it stands" probe is gone. With no object named for the
+-- step (and none learnt), the item is not used here.
+--
+-- U.goal - a kill / collect / object goal whose quest has a RestedXP quest
+-- item in the bags:
+--   * the nearest visible object of the step's RXP_PICK names (or a name the
+--     game asked for: "Requires <name>") within SCAN yd is walked to (within
+--     USE_NEAR yd); none in sight: false - the route walk goes on;
+--   * there: stop, dismount (no remount for NO_MOUNT_S), then one CYCLE: open
+--     the object as the guide says (use_object); a loot window -> the engine's
+--     object goal loots it; no loot window in WAIT_LOOT s -> the quest item is
+--     used, next to the object;
+--   * TRIES cycles with no change in the goal's count: the object is skipped
+--     for SKIP_S s.
+-- U.spot - the same rule for a ".use" goal (kind "item"): with RXP_PICK
+-- objects named for the step, the item waits until one is in reach.
+-- Public: U.goal, U.spot, U.item_for, U.reset.
 -- ============================================================================
 
 ---@type izi_api
@@ -40,22 +42,19 @@ local guide = require("quest/guide")
 
 local U = {}
 
-U.AREA = 150          -- yd from a goal waypoint / route point: the item's area
-U.SCAN = 60           -- yd: objects of the learnt name looked for this far
-U.USE_NEAR = 3.5      -- yd: used from this close to the object
-U.GAP = 2.5           -- s between two uses
-U.WAIT_ERR = 1.5      -- s a use waits for its refusal before it counts
-U.TRIES = 3           -- uses at one object without the count moving
+U.SCAN = 60           -- yd: objects of the step's names looked for this far
+U.USE_NEAR = 3.5      -- yd: opened / used from this close
+U.WAIT_LOOT = 1.5     -- s an open waits for its loot window
+U.WAIT_USE = 1.5      -- s after a use (and its cast) before the next cycle
+U.TRIES = 3           -- cycles at one object without the count moving
 U.SKIP_S = 120        -- s an object that gave nothing is skipped
-U.PROBE_RETRY = 60    -- s before a refused (not "Requires") item is probed again
-U.NO_MOUNT_S = 20     -- s no mount while working the area
+U.NO_MOUNT_S = 20     -- s no mount while working the objects
 
-local focus = {}      -- item id -> lower-case object name, or false = works anywhere
-local refused = {}    -- item id -> izi.now() of a refusal that names no object
+local learnt = {}     -- item id -> lower-case name from "Requires <name>"
 local skip = {}       -- object guid -> until
-local cur = { guid = nil, uses = 0, count = nil }
-local pend = nil      -- { item, t } a use waiting for its refusal
+local cur = { guid = nil, phase = nil, t = 0, cycles = 0, count = nil }
 local next_t = 0
+local said = {}       -- item id -> true: "no object named" logged
 
 local function safe(fn)
     local ok, res = pcall(fn)
@@ -66,6 +65,16 @@ end
 local function trail(tag, fmt, ...)
     local el = package.loaded["errorlog"]
     if type(el) == "table" and type(el.trail) == "function" then pcall(el.trail, tag, fmt, ...) end
+end
+
+local names = {}      -- item id -> name (core.quests.get_item_info), for the log
+local function iname(id)
+    if names[id] == nil then
+        local info = safe(function() return core.quests.get_item_info(id) end)
+        names[id] = (type(info) == "table" and type(info.name) == "string" and info.name ~= "")
+            and info.name or ("item " .. tostring(id))
+    end
+    return names[id]
 end
 
 local function rxp_items()
@@ -106,66 +115,67 @@ function U.item_for(goal)
     return nil
 end
 
---- Within AREA yd of any of the goal's waypoints / route points.
-local function in_area(player, goal, kind, wps)
-    local me = safe(function() return player:get_position() end)
-    if not me then return false end
-    local pts = wps
-    if type(guide.route) == "function" then pts = guide.route(goal, kind, wps) or wps end
-    for _, list in ipairs({ wps, pts }) do
-        if type(list) == "table" then
-            for i = 1, #list do
-                local p = list[i] and list[i].pos
-                if p and type(p.x) == "number" then
-                    local dx, dy = p.x - me.x, p.y - me.y
-                    if dx * dx + dy * dy <= U.AREA * U.AREA then return true end
-                end
-            end
-        end
+--- Lower-case object names the item is for: the step's RXP_PICK names, then a learnt one.
+local function spots(goal, item)
+    local out = {}
+    local names = type(guide.pick_names) == "function" and guide.pick_names(goal) or {}
+    for i = 1, #names do out[#out + 1] = string.lower(names[i]) end
+    if item and learnt[item] then out[#out + 1] = learnt[item] end
+    return out
+end
+
+--- The nearest visible object of these names, not skipped, within SCAN yd.
+local function nearest(player, needles, now)
+    for g, t in pairs(skip) do if now >= t then skip[g] = nil end end
+    local best, bd, bn = nil, nil, nil
+    for i = 1, #needles do
+        local o, d = guide.find_named_object(player, U.SCAN, needles[i], skip)
+        if o and type(d) == "number" and (not bd or d < bd) then best, bd, bn = o, d, needles[i] end
     end
-    return false
+    return best, bd, bn
 end
 
---- The "N/M" count in the goal text, for "did the use bring anything".
 local function count_of(label)
-    local a = tostring(label or ""):match("(%d+)%s*/%s*%d+")
-    return tonumber(a)
+    return tonumber(tostring(label or ""):match("(%d+)%s*/%s*%d+"))
 end
 
---- The refusal text since `t`, or nil.
-local function refusal_since(t)
-    local ev = package.loaded["events"]
-    if type(ev) ~= "table" or type(ev.since) ~= "function" or not ev.since("UI_ERROR_MESSAGE", t) then return nil end
-    local txt = ev.ui and ev.ui.error_text
-    return type(txt) == "string" and txt or ""
+local function ev() return package.loaded["events"] end
+
+local function since(name, t)
+    local e = ev()
+    return type(e) == "table" and type(e.since) == "function" and e.since(name, t) == true
 end
 
-local function use(entry)
-    return guide.use_bag_item(entry, nil) == true
+local function loot_open()
+    local n = safe(function() return core.game_ui.get_loot_item_count() end)
+    return type(n) == "number" and n > 0
 end
 
-local function stand_and_use(player, item, entry, label)
+--- Stand still and off the mount next to the object. True while not yet standing.
+local function settle(player, label)
     movement.nav_stop()
     if safe(function() return player:is_mounted() end) == true then
         pcall(core.input.dismount)
         next_t = izi.now() + 0.6
-        state.set_note("Quest", "Guide: dismount to use the item for " .. label)
+        state.set_note("Quest", "Guide: dismount for " .. label)
         return true
     end
     if movement.is_moving() then
-        state.set_note("Quest", "Guide: stopping to use the item for " .. label)
+        state.set_note("Quest", "Guide: stopping for " .. label)
         return true
     end
-    local now = izi.now()
-    if use(entry) then
-        pend = { item = item, t = now }
-        next_t = now + U.GAP
-        state.set_note("Quest", "Guide: use the quest item for " .. label)
-    else
-        next_t = now + U.GAP
-        state.set_note("Quest", "Guide: could not use the quest item for " .. label)
+    return false
+end
+
+--- Walk to the object (true while walking).
+local function approach(obj, d, name, label, walk_to)
+    if type(d) ~= "number" or d <= U.USE_NEAR then return false end
+    local p = safe(function() return obj:get_position() end)
+    if p and type(walk_to) == "function" and walk_to(p, label, U.USE_NEAR - 1.0, true) then
+        state.set_note("Quest", string.format("Guide: to the %s (%.0f yd) for %s", name, d, label))
+        return true
     end
-    return true
+    return false
 end
 
 --- One tick of a goal with a RestedXP quest item. True when the tick was spent here.
@@ -173,101 +183,135 @@ function U.goal(player, goal, kind, wps, label, walk_to)
     if kind ~= "kill" and kind ~= "collect" and kind ~= "object" then return false end
     local item, entry = U.item_for(goal)
     if not item then return false end
-    local now = izi.now()
-
-    -- a use waiting for its answer: a "Requires X" refusal names the spot
-    if pend and pend.item == item then
-        local txt = refusal_since(pend.t)
-        if txt then
-            local need = txt:match("^[Rr]equires (.+)$")
-            pend = nil
-            if need and need ~= "" then
-                need = need:gsub("%.$", "")
-                if focus[item] ~= need:lower() then
-                    trail("act", "quest item %d needs %s - looking for one", item, need)
-                end
-                focus[item] = need:lower()
-            elseif focus[item] == nil then
-                refused[item] = now
-                trail("act", "quest item %d refused here (%s) - left to the target / item handling for %d s",
-                    item, txt, U.PROBE_RETRY)
-                return false
-            end
-        elseif now - pend.t >= U.WAIT_ERR then
-            if focus[item] == nil then
-                focus[item] = false
-                trail("act", "quest item %d works where it is used", item)
-            end
-            pend = nil
-        else
-            state.set_note("Quest", "Guide: use the quest item for " .. label)
-            return true
-        end
-    end
-
-    if refused[item] and (now - refused[item]) < U.PROBE_RETRY then return false end
+    if loot_open() then return false end                 -- the object goal loots it
     if safe(function() return player:is_in_combat() end) == true then return false end
+    local now = izi.now()
     if safe(function() return player:is_channeling_or_casting() end) == true then
+        if cur.phase == "used" then cur.t = now end
         state.set_note("Quest", "Guide: using the quest item for " .. label)
         return true
     end
-    if not in_area(player, goal, kind, wps) then return false end
+
+    -- the last use's refusal may name the object it needs
+    if cur.phase == "used" and since("UI_ERROR_MESSAGE", cur.t - U.WAIT_USE) then
+        local e = ev()
+        local need = type(e.ui) == "table" and type(e.ui.error_text) == "string"
+            and e.ui.error_text:match("^[Rr]equires (.+)$") or nil
+        if need and need ~= "" then
+            need = need:gsub("%.$", ""):lower()
+            if learnt[item] ~= need then
+                learnt[item] = need
+                trail("act", "%s needs %s", iname(item), need)
+            end
+        end
+    end
+
+    local needles = spots(goal, item)
+    if #needles == 0 then
+        if not said[item] then
+            said[item] = true
+            trail("act", "%s: the guide names no object for it - not used blind", iname(item))
+        end
+        return false
+    end
+    local obj, d, name = nearest(player, needles, now)
+    if not obj then return false end                     -- route walk: the next one comes into sight
     local mt = package.loaded["movement/mount"]
     if mt and type(mt.suppress) == "function" then pcall(mt.suppress, U.NO_MOUNT_S) end
 
-    local need = focus[item]
-    if need == nil or need == false then
-        -- first use (learns the spot), or the item works anywhere
-        if now < next_t then
-            state.set_note("Quest", "Guide: use the quest item for " .. label)
-            return true
-        end
-        if need == nil then trail("act", "quest item %d: first use here (to learn where it works)", item) end
-        return stand_and_use(player, item, entry, label)
-    end
-
-    for g, t in pairs(skip) do if now >= t then skip[g] = nil end end
-    local obj, d = guide.find_named_object(player, U.SCAN, need, skip)
-    if not obj then return false end
     local guid = safe(function() return obj:get_guid() end)
     local c = count_of(label)
     if guid ~= cur.guid then
-        cur.guid, cur.uses, cur.count = guid, 0, c
+        cur.guid, cur.phase, cur.cycles, cur.count = guid, nil, 0, c
     elseif c and cur.count and c > cur.count then
-        cur.uses, cur.count = 0, c
+        cur.cycles, cur.count = 0, c
     end
-    if cur.uses >= U.TRIES then
+    if cur.cycles >= U.TRIES then
         if guid then skip[guid] = now + U.SKIP_S end
-        trail("act", "%s: %d uses, the count did not move - next one", need, cur.uses)
-        cur.guid, cur.uses = nil, 0
+        trail("act", "%s: %d tries, the count did not move - next one", name, cur.cycles)
+        cur.guid, cur.phase, cur.cycles = nil, nil, 0
         return true
     end
-    if type(d) == "number" and d > U.USE_NEAR then
-        local p = safe(function() return obj:get_position() end)
-        if p and type(walk_to) == "function" and walk_to(p, label, U.USE_NEAR - 1.0, true) then
-            state.set_note("Quest", string.format("Guide: to the %s (%.0f yd) for %s", need, d, label))
-            return true
-        end
-    end
+    if approach(obj, d, name, label, walk_to) then return true end
+    if settle(player, label) then return true end
     if now < next_t then
-        state.set_note("Quest", "Guide: use the quest item for " .. label)
+        state.set_note("Quest", "Guide: at the " .. name .. " for " .. label)
         return true
     end
-    cur.uses = cur.uses + 1
-    return stand_and_use(player, item, entry, label)
+
+    if cur.phase == nil then
+        -- open it, as the guide says
+        local ok = safe(function() return core.input.use_object(obj) end)
+        if ok ~= true then pcall(function() core.input.interact_with_object(obj) end) end
+        cur.phase, cur.t = "opened", now
+        next_t = now + U.WAIT_LOOT
+        trail("act", "open %s (%.1f yd) for %s", name, d or -1, label)
+        state.set_note("Quest", "Guide: open the " .. name .. " for " .. label)
+        return true
+    elseif cur.phase == "opened" then
+        if since("LOOT_OPENED", cur.t) then
+            cur.phase = nil                                  -- the object goal loots it
+            cur.cycles = cur.cycles + 1
+            return false
+        end
+        -- no loot window: the quest item, next to the object
+        if guide.use_bag_item(entry, nil) then
+            trail("act", "use %s (%d) at the %s (%.1f yd)", iname(item), item, name, d or -1)
+            state.set_note("Quest", "Guide: use the quest item at the " .. name .. " for " .. label)
+        else
+            state.set_note("Quest", "Guide: could not use the quest item for " .. label)
+        end
+        cur.phase, cur.t = "used", now
+        next_t = now + U.WAIT_USE
+        return true
+    end
+    -- "used": the cycle is over
+    cur.phase = nil
+    cur.cycles = cur.cycles + 1
+    return true
+end
+
+local world_items = nil   -- item id -> true: RestedXP quest-complete items (used at a spot)
+local function is_world_item(id)
+    if not world_items then
+        world_items = {}
+        for _, it in pairs(rxp_items() or {}) do world_items[it] = true end
+    end
+    return id ~= nil and world_items[id] == true
+end
+
+--- A ".use" goal (kind "item") with bag entry `entry`: when the item is one of
+--- RestedXP's quest-complete items (used at a spot in the world, not a bag
+--- combine like Pamela's Doll) and RXP_PICK objects are named for the step,
+--- it waits until one is in reach. nil = no gate (use as before), "walking",
+--- "none" (none in sight - walk the route), "ok" (in reach, standing).
+function U.spot(player, goal, label, walk_to, entry)
+    local id = type(entry) == "table" and entry.object and safe(function() return entry.object:get_item_id() end) or nil
+    if not is_world_item(id) then return nil end
+    local needles = spots(goal, id)
+    if #needles == 0 then return nil end
+    local obj, d, name = nearest(player, needles, izi.now())
+    if not obj then
+        state.set_note("Quest", "Guide: looking for a " .. tostring(needles[1]) .. " for " .. label)
+        return "none"
+    end
+    if approach(obj, d, name, label, walk_to) then return "walking" end
+    if settle(player, label) then return "walking" end
+    return "ok"
 end
 
 function U.reset()
-    cur.guid, cur.uses, cur.count = nil, 0, nil
-    pend, next_t = nil, 0
+    cur.guid, cur.phase, cur.t, cur.cycles, cur.count = nil, nil, 0, 0, nil
+    next_t = 0
 end
 
---- Test hook.
-function U._state() return { focus = focus, refused = refused, skip = skip, cur = cur } end
+--- Test hooks.
+function U._state() return { learnt = learnt, skip = skip, cur = cur } end
 function U._wipe()
-    for k in pairs(focus) do focus[k] = nil end
-    for k in pairs(refused) do refused[k] = nil end
+    for k in pairs(learnt) do learnt[k] = nil end
     for k in pairs(skip) do skip[k] = nil end
+    for k in pairs(said) do said[k] = nil end
+    world_items = nil
     U.reset()
 end
 

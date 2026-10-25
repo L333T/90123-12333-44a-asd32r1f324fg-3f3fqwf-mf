@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.10.0
+-- Version: 4.11.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1515,7 +1515,7 @@ local function resolve_quest(goal, kind)
         local id = ids[i]
         -- 2.286.0: the quest log by id list and title too (npc.in_log)
         local on = npc.in_log(id, quest_title(goal, kind, id))
-        local done = safe(function() return core.quests.is_quest_flagged_completed(id) end) == true
+        local done = IS.DONE.done(id)                 -- 4.11.0: the completed-quest set
         if kind == "accept" then
             if on ~= true and not done and not skipped[id] then
                 return id
@@ -2876,6 +2876,26 @@ end
 -- bot holds with a note instead of walking at it forever.
 IS.mm = require("quest/mismatch")
 IS.QO = require("quest/objects")              -- 4.5.0: quest objects by id
+
+IS.DONE = require("quest/done")               -- 4.11.0: the completed-quest set
+IS.done_said = {}
+--- 4.11.0: a goal for quests this character has completed (and none in the
+--- log) is skipped at once, with one line; the step it belongs to is noted
+--- (IS.done_step) so the step-complete branch can skip it in the guide.
+IS.done_skip = function(goal, kind)
+    local yes, ids = IS.DONE.skip(goal, kind)
+    if not yes then return false end
+    local key = tostring(guide.step_num()) .. "|" .. tostring(goal.index)
+    if not IS.done_said[key] then
+        IS.done_said[key] = true
+        trail("quest", "step %d goal %d: quest %s already completed - goal skipped", guide.step_num(),
+            goal.index or 0, table.concat(ids, ", "))
+    end
+    guide.mark_goal_done(guide.step_num(), goal.index)
+    IS.done_step = guide.step_num()
+    state.set_note("Quest", "Guide: quest already completed - skipped")
+    return true
+end
 IS.TH = require("quest/threat")               -- 4.7.0: mobs whose aggro range the walk crosses
 --- 4.7.0: attack a mob the walk is about to walk into, or detour round one
 --- that is 3+ levels above the player or elite (quest/threat.lua).
@@ -3193,6 +3213,14 @@ tick_inner = function(player)
         -- marks are forgotten and the goals are tried again.
         local now_c = izi.now()
         if guide.has_local_done() then
+            -- 4.11.0: goals of this step were skipped as already completed
+            -- (IS.done_skip): the guide moves on now, not after STEP_RETRY
+            if IS.done_step == guide.step_num() and type(guide.skip_current) == "function"
+                and guide.skip_current("every quest of this step is already completed") then
+                IS.done_step = nil
+                state.set_note("Quest", "Guide: skipped a step of completed quests")
+                return
+            end
             -- 2.292.0: the step's train goal was all we could do (TRAINED ALL WE
             -- COULD in train_goal): skip it in RestedXP 3 s after the visit
             if g_train.done_step == guide.step_num() and g_train.done_t
@@ -3232,6 +3260,7 @@ tick_inner = function(player)
 
     probe("q:classify")
     local kind = guide.classify(goal)
+    if IS.done_skip(goal, kind) then return end      -- 4.11.0: completed quests
     probe("q:goal_waypoints")
     local wps = guide.goal_waypoints(goal)
     local label = goal_label(goal, wps)

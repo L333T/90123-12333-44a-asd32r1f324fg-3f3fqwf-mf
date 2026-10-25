@@ -3,7 +3,7 @@
 -- Spell range checks - one implementation, used by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.10.0
+-- Version: 4.11.0
 -- Folder: restedXP_questing
 -- Not to be confused with movement/range.lua, which answers navigation
 -- questions - facing, line of sight, whether a point is reachable. This file

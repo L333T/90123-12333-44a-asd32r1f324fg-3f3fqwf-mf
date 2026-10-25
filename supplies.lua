@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.10.0
+-- Version: 4.11.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.

@@ -3,7 +3,7 @@
 -- movement/combat.lua - closing on a target and standing in range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.10.0
+-- Version: 4.11.0
 -- ============================================================================
 -- combat_engage(player, unit, yards) is called every tick of a fight.
 --   * OWNERSHIP: each call holds travel off for COMBAT_HOLD s

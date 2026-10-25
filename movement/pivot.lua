@@ -3,7 +3,7 @@
 -- movement/pivot.lua - stop and turn on sharp waypoint turns
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.2.0
+-- Version: 4.2.1
 -- ============================================================================
 -- THE RULE (CLAUDE_MOVEMENT_RULES.md, "Sharp turns: stop, turn, go"):
 -- AmeisenNav's walkers keep running forward while they turn, so a sharp
@@ -25,6 +25,12 @@
 -- started is finished toward its point even when the walk ended meanwhile,
 -- no new travel leg starts while it runs (R.turning, movement/nav), and a
 -- leg younger than movement/nav FRESH_LEG is never held.
+-- 4.2.1 (in-game log 2026-10-24 19:53, Eastern Plaguelands): on Sentinel the
+-- hold did harm - it stopped Sentinel's own stuck recovery (Stuck detected
+-- 1-3/7, then our stop -> idle -> a new path from the same spot, stuck again)
+-- and every corner cost a stop + a new path request. Sentinel steers its own
+-- corners and recoveries, so Pv.HOLD is off: no new turn is started; the
+-- release path stays for a turn in progress.
 -- FACING TRUST: the facing (get_rotation) is only used once it has matched
 -- the running direction TRUST_N times (as AmeisenNav's own use_facing does);
 -- a client whose facing never matches never pivots.
@@ -40,6 +46,7 @@ Pv.OFF_DEG  = 15      -- turned to within this: walk on
 Pv.MAX_S    = 1.5     -- a turn never takes longer
 Pv.MIN_DIST = 1.5     -- yd: closer points are never turned to
 Pv.GAP_S    = 0.4     -- s after a turn before the next one can start
+Pv.HOLD     = false   -- 4.2.1: Sentinel steers its own corners (see above)
 
 local REASON = "mf_turn"
 local TRUST_N, SAMPLE_YD, MATCH_DEG = 3, 1.5, 25
@@ -165,6 +172,7 @@ function Pv.tick(t)
         return
     end
 
+    if not Pv.HOLD then return end                    -- 4.2.1: Sentinel steers
     if t < next_ok or math.abs(diff) <= math.rad(Pv.ON_DEG) then return end
     if not busy or N.leg_fresh() then return end      -- 3.7.1: never hold a fresh leg
     -- sharp: hold the walk (4.2.0 Sentinel: stopped, walked again after the

@@ -3,7 +3,7 @@
 -- STV 35-39 Rebel Camp
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.12.0
+-- Version: 4.13.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

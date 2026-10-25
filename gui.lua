@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.12.0
+-- Version: 4.13.0
 -- Folder: restedXP_questing
 -- ============================================================================
 

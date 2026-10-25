@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Alliance Eastern Kingdoms inns (innkeeper spots)
 -- ============================================================================
--- Version: 4.12.0
+-- Version: 4.13.0
 -- ============================================================================
 -- Positions only: { name, x, y, z }. The recorded inn / flight-path roads
 -- (data/ek_alliance_routes) were removed in 2.266.0 at the user's request and

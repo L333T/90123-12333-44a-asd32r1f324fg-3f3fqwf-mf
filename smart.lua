@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.12.0
+-- Version: 4.13.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -604,15 +604,52 @@ function c.moving()
 end
 
 --- Enemies in the pack within `r` yards of the player.
+-- 4.13.0 AOE COUNTS BY SPLASH RANGE (improvement 6 of the API-dump review):
+-- izi's unit:get_enemies_in_splash_range(r) (.api common/izi_sdk.lua: enemies
+-- within r yd PLUS their hit radius - a big mob at 11 yd centre is inside a
+-- 10 yd Arcane Explosion) counted for the pack being fought only: a mob in the
+-- splash list that is not in PACK (an unpulled one beside the fight) never
+-- counts, so AoE never pulls more. Without izi's call: the old centre-distance
+-- count. Memoised per tick like before.
+local function pack_set()
+    local s = memo.pack_set
+    if s then return s end
+    s = {}
+    if type(PACK) == "table" then
+        for i = 1, #PACK do
+            local g = safe(PACK[i].get_guid, PACK[i])
+            if g ~= nil then s[g] = true end
+        end
+    end
+    memo.pack_set = s
+    return s
+end
+
+--- Pack members in `unit`'s splash range `r` (izi), or nil without the call.
+local function splash_in_pack(unit, r)
+    if not unit then return nil end
+    local list = safe(unit.get_enemies_in_splash_range, unit, r)
+    if type(list) ~= "table" then return nil end
+    local s, n, seen = pack_set(), 0, {}
+    for i = 1, #list do
+        local g = safe(list[i].get_guid, list[i])
+        if g ~= nil and s[g] and not seen[g] then seen[g] = true n = n + 1 end
+    end
+    return n, seen
+end
+
 function c.near(r)
     local key = "n" .. r
     local v = memo[key]
     if v ~= nil then return v end
-    local n = 0
-    if type(PACK) == "table" then
-        for i = 1, #PACK do
-            local d = safe(P.distance_to, P, PACK[i])
-            if type(d) == "number" and d <= r then n = n + 1 end
+    local n = splash_in_pack(P, r)
+    if n == nil then
+        n = 0
+        if type(PACK) == "table" then
+            for i = 1, #PACK do
+                local d = safe(P.distance_to, P, PACK[i])
+                if type(d) == "number" and d <= r then n = n + 1 end
+            end
         end
     end
     memo[key] = n
@@ -624,12 +661,18 @@ function c.near_target(r)
     local key = "t" .. r
     local v = memo[key]
     if v ~= nil then return v end
-    local n = 0
-    if T and type(PACK) == "table" then
-        for i = 1, #PACK do
-            local u = PACK[i]
-            local d = safe(T.distance_to, T, u)
-            if type(d) == "number" and d <= r then n = n + 1 end
+    local n, seen = splash_in_pack(T, r)
+    if n ~= nil then
+        local tg = T and safe(T.get_guid, T) or nil
+        if T and not (tg ~= nil and seen[tg]) then n = n + 1 end     -- the target itself
+    else
+        n = 0
+        if T and type(PACK) == "table" then
+            for i = 1, #PACK do
+                local u = PACK[i]
+                local d = safe(T.distance_to, T, u)
+                if type(d) == "number" and d <= r then n = n + 1 end
+            end
         end
     end
     if n == 0 and T then n = 1 end

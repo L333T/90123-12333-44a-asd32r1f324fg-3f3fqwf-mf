@@ -3,7 +3,7 @@
 -- combatcheck.lua - time to death, crowd control, immunities, facing
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.14.0
+-- Version: 4.15.0
 -- ============================================================================
 -- 4.14.0 (improvements 7, 9 and 10 of the API-dump review). The izi unit
 -- extensions (.api common/izi_sdk.lua), every call pcall-guarded; an answer

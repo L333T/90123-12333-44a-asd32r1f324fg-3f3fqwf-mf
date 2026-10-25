@@ -3,7 +3,7 @@
 -- quest/objects.lua - quest game objects by id (data/quest_objects.lua)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.14.0
+-- Version: 4.15.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.5.0 (user: "create tables with the object IDs that are needed to be
@@ -20,6 +20,16 @@
 -- is_valid(). Units are never matched (npc and object ids share numbers).
 -- Public: O.objective_ids(goal), O.giver_ids(qid), O.nearest(player, ids,
 -- range, skip) -> obj, dist, name; O.name(id); O._reset().
+--
+-- 4.15.0 OBJECTS BY NAME (user: "Player not interacting with objects to turn
+-- in quests"). Zygor writes many object hand-ins with no id ("click Scourge
+-- Cauldron" / turnin Target: Dalson's Tears##5219) and the 23:32 log stood at
+-- the cauldron: "turnin: at the door, no giver within 40 yd". M.giver_names
+-- (the generator's name-only giver clicks) and any name the caller passes
+-- (RestedXP's waypoint title, the guide's giver names) are matched against
+-- the objects' get_name(), case-insensitive: O.giver_names(qid),
+-- O.nearest_named(player, names, range, skip) -> obj, dist, name. Units are
+-- never matched; the name scan has its own CACHE_S cache.
 -- ============================================================================
 
 local O = {}
@@ -87,6 +97,63 @@ function O.giver_ids(qid)
     return set
 end
 
+--- Object names that give / take quest `qid` (a list, may be empty).
+function O.giver_names(qid)
+    local d = load_data()
+    local l = d and d.giver_names and d.giver_names[tonumber(qid) or -1]
+    return type(l) == "table" and l or {}
+end
+
+local named = { t = -1e9, key = nil, list = {} }
+
+--- The nearest non-unit object whose name is one of `names` (case-insensitive)
+--- within `range` yd, not in `skip` (guid -> true): obj, distance, name.
+function O.nearest_named(player, names, range, skip)
+    if type(names) ~= "table" or #names == 0 or not player then return nil end
+    local want, parts = {}, {}
+    for i = 1, #names do
+        local n = type(names[i]) == "string" and string.lower(names[i]) or nil
+        if n and n ~= "" then want[n] = true parts[#parts + 1] = n end
+    end
+    if #parts == 0 then return nil end
+    table.sort(parts)
+    local key = table.concat(parts, "|")
+    local t = now()
+    if key ~= named.key or (t - named.t) >= O.CACHE_S then
+        named.key, named.t = key, t
+        local out = {}
+        local list = safe(function() return core.object_manager.get_all_objects() end)
+        if type(list) == "table" then
+            for i = 1, #list do
+                local o = list[i]
+                if o and safe(function() return o:is_valid() end) == true
+                    and safe(function() return o:is_unit() end) ~= true then
+                    local n = safe(function() return o:get_name() end)
+                    if type(n) == "string" and want[string.lower(n)] then out[#out + 1] = o end
+                end
+            end
+        end
+        named.list = out
+    end
+    local me = safe(function() return player:get_position() end)
+    if not me then return nil end
+    local best, bd = nil, nil
+    for i = 1, #named.list do
+        local o = named.list[i]
+        if o and safe(function() return o:is_valid() end) == true
+            and not (skip and skip[safe(function() return o:get_guid() end) or false]) then
+            local p = safe(function() return o:get_position() end)
+            if p then
+                local dx, dy, dz = p.x - me.x, p.y - me.y, (p.z or 0) - (me.z or 0)
+                local d = math.sqrt(dx * dx + dy * dy + dz * dz)
+                if d <= (tonumber(range) or 80) and (not bd or d < bd) then best, bd = o, d end
+            end
+        end
+    end
+    if not best then return nil end
+    return best, bd, tostring(safe(function() return best:get_name() end) or "object")
+end
+
 function O.name(id)
     local d = load_data()
     return d and d.names and d.names[id] or nil
@@ -143,6 +210,7 @@ end
 
 function O._reset()
     data, all_ids, cache, last_scan = nil, nil, {}, -1e9
+    named = { t = -1e9, key = nil, list = {} }
 end
 
 return O

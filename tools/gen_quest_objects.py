@@ -11,6 +11,8 @@ click in a step is paired with every quest of that step:
     M.givers[quest]         = { object id, ... }   a click step that accepts / turns in the
                                                    quest and talks to no NPC (Wanted Poster)
     M.names[object id]      = "Large Termite Mound"
+    M.giver_names[quest]    = { name, ... }        4.15.0: such a giver / taker click with NO id
+                                                   ("click Scourge Cauldron" - Target: Dalson's Tears)
     M.names_by_quest[quest] = { name, ... }        click lines with no id
 
 The bot matches objects by game_object:get_npc_id() (the object's entry id,
@@ -40,7 +42,7 @@ def guide_files(root):
                 yield os.path.join(dirpath, f)
 
 
-def parse(path, by_quest, names, names_by_quest, givers):
+def parse(path, by_quest, names, names_by_quest, givers, giver_names):
     try:
         text = open(path, encoding="utf-8", errors="ignore").read()
     except OSError:
@@ -52,10 +54,12 @@ def parse(path, by_quest, names, names_by_quest, givers):
         # an object that gives / takes the quest: the step clicks it and talks to nobody
         if dialog and not talks:
             for name, oid in clicks:
-                if oid:
-                    for q in dialog:
+                for q in dialog:
+                    if oid:
                         givers.setdefault(q, set()).add(oid)
                         names.setdefault(oid, name)
+                    else:
+                        giver_names.setdefault(q, set()).add(name)
         for name, oid in clicks:
             for q in quests:
                 if oid:
@@ -101,10 +105,10 @@ def lua_str(s):
 
 def main():
     root = sys.argv[1] if len(sys.argv) > 1 else DEFAULT
-    by_quest, names, names_by_quest, givers = {}, {}, {}, {}
+    by_quest, names, names_by_quest, givers, giver_names = {}, {}, {}, {}, {}
     n = 0
     for f in guide_files(root):
-        parse(f, by_quest, names, names_by_quest, givers)
+        parse(f, by_quest, names, names_by_quest, givers, giver_names)
         n += 1
     lines = [
         "-- ============================================================================",
@@ -136,11 +140,15 @@ def main():
     lines += ["}", "", "-- quest id -> { object names } (click lines with no id)", "M.names_by_quest = {"]
     for q in sorted(names_by_quest):
         lines.append(f"    [{q}] = {{ " + ", ".join(lua_str(x) for x in sorted(names_by_quest[q])) + " },")
+    lines += ["}", "", "-- quest id -> { object names } that give / take the quest (click lines with no id)",
+              "M.giver_names = {"]
+    for q in sorted(giver_names):
+        lines.append(f"    [{q}] = {{ " + ", ".join(lua_str(x) for x in sorted(giver_names[q])) + " },")
     lines += ["}", "", "return M", ""]
     with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines))
     print(f"{n} guide files -> {OUT}: {len(by_quest)} quests, {len(names)} objects, "
-          f"{len(givers)} object-given quests, {len(names_by_quest)} quests with unnamed-id clicks, {os.path.getsize(OUT):,} bytes")
+          f"{len(givers)} object-given quests, {len(giver_names)} by name only, {len(names_by_quest)} quests with unnamed-id clicks, {os.path.getsize(OUT):,} bytes")
 
 
 if __name__ == "__main__":

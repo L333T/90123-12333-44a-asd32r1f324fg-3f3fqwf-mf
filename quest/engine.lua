@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.14.0
+-- Version: 4.15.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1361,6 +1361,13 @@ local function find_giver(player, goal, kind, wps, qid)
         if obj and not bad(obj) then
             return obj, "quest object '" .. tostring(oname) .. "'"
         end
+        -- 4.15.0: an object hand-in the guide names but gives no id ("click
+        -- Scourge Cauldron" - Target: Dalson's Tears), found by its name at
+        -- the goal's waypoint
+        local nobj, _, nname = IS.QO.nearest_named(player, IS.QO.giver_names(qid), 80, TK.excl())
+        if nobj and not bad(nobj) and at_goal(nobj, wps) then
+            return nobj, "quest object '" .. tostring(nname) .. "' (by name)"
+        end
     end
     -- THE GUIDE FILE'S NPC (2.206.0): a ".vendor <npc>" / ".trainer <npc>"
     -- step names its NPC by id (data/rxp_targets M.steps, matched by the
@@ -1416,6 +1423,20 @@ local function find_giver(player, goal, kind, wps, qid)
             if unit and not bad(unit) and at_goal(unit, wps) then
                 return unit, "guide giver '" .. names[i] .. "'"
             end
+        end
+    end
+    -- 4.15.0: no NPC by those names - the waypoint title or a guide giver name
+    -- may be an OBJECT (RestedXP's turn-in at a cauldron, a diary, a cabinet)
+    if (kind == "accept" or kind == "turnin") and IS.QO then
+        local onames = {}
+        for i = 1, #wps do if wps[i].title then onames[#onames + 1] = wps[i].title end end
+        if type(guide.rxp_quest_givers) == "function" then
+            local gn = guide.rxp_quest_givers(qid, kind)
+            for i = 1, #gn do onames[#onames + 1] = gn[i] end
+        end
+        local obj, _, oname = IS.QO.nearest_named(player, onames, 80, TK.excl())
+        if obj and not bad(obj) and at_goal(obj, wps) then
+            return obj, "quest object '" .. tostring(oname) .. "' (guide name)"
         end
     end
     -- NO GUESSING AFTER THE RIGHT NPC (2.215.0). Once the goal's identified

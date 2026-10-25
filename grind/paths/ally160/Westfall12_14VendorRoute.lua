@@ -3,7 +3,7 @@
 -- Westfall 12-14 Vendor Route
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.0
+-- Version: 4.1.1
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

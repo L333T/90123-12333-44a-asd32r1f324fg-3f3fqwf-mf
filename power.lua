@@ -3,7 +3,7 @@
 -- Mana, read the same way everywhere
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.0
+-- Version: 4.1.1
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY (2.202.0). Every module read mana through the izi extensions

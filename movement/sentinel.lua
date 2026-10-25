@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.1.0
+-- Version: 4.1.1
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -379,10 +379,16 @@ function S.selftest_tick(bot_started)
             pcall(core.log, "[restedXP_questing] " .. T.note)
             return false
         end
-        T.active, T.lines, T.step, T.t0, T.wait_until, T.watch = true, {}, 0, now(), 0, nil
+        T.active, T.lines, T.step, T.t0, T.wait_until, T.watch, T.shown = true, {}, 0, now(), 0, nil, nil
         T.no_moves, T.leg_t = false, nil
         T.note = "Sentinel self-test running - do not move"
         rec("restedXP_questing Sentinel self-test")
+        -- 4.1.1: announced, and the file is saved after every step (a run cut
+        -- short still leaves what it recorded)
+        local _, path = data_path()
+        pcall(core.log, string.format("[restedXP_questing] Sentinel self-test started (%d steps, about 40 s) - do not move; "
+            .. "results: scripts_data/%s", #steps, path))
+        flush()
     end
     if not T.active then return false end
     local c = S.client()
@@ -407,12 +413,18 @@ function S.selftest_tick(bot_started)
         pcall(core.log, "[restedXP_questing] " .. T.note)
         return false
     end
+    local first = T.shown ~= T.step
+    if first then
+        T.shown = T.step
+        pcall(core.log, string.format("[restedXP_questing] Sentinel self-test step %d/%d", T.step, #steps))
+    end
     local ok, wait = pcall(steps[T.step], c)
     if not ok then rec("step %d error: %s", T.step, tostring(wait)) wait = 0 end
     if wait == false then
         T.step = T.step - 1                    -- not yet: the same step next tick
         return true
     end
+    flush()
     T.wait_until = t + (tonumber(wait) or 0)
     return true
 end

@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.4.1
+-- Version: 4.5.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- TWO FRAMES, NOT ONE

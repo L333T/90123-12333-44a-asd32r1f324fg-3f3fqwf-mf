@@ -3,7 +3,7 @@
 -- quest/useitem.lua - the guide's RXP_PICK objects; quest items only at them
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.4.1
+-- Version: 4.5.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.3.0 (in-game log 2026-10-24 20:01, Eastern Plaguelands): "Plagueland
@@ -41,6 +41,7 @@ local izi = require("common/izi_sdk")
 local state = require("state")
 local movement = require("movement")
 local guide = require("quest/guide")
+local QO = require("quest/objects")     -- 4.5.0: quest objects by id
 
 local U = {}
 
@@ -187,19 +188,28 @@ end
 --- Jar is never used, the mound is just opened (user, 2026-10-24).
 --- True when the tick was spent here.
 function U.goal(player, goal, kind, wps, label, walk_to)
-    if kind ~= "collect" and kind ~= "object" then return false end
+    -- 4.5.0: the goal's quest object ids (data/quest_objects) - an "explore /
+    -- event" objective (kind goto) done at an object counts too
+    local ids = QO.objective_ids(goal)
+    local has_ids = next(ids) ~= nil
+    if kind ~= "collect" and kind ~= "object" and not (kind == "goto" and has_ids) then return false end
     if loot_open() then return false end                 -- the object goal loots it
     if safe(function() return player:is_in_combat() end) == true then return false end
     local needles = spots(goal, nil)
-    if #needles == 0 then return false end
+    if #needles == 0 and not has_ids then return false end
     local now = izi.now()
     if safe(function() return player:is_channeling_or_casting() end) == true then
         if cur.phase == "opened" then cur.t = now end    -- an "Opening" cast: its loot comes after it
         state.set_note("Quest", "Guide: opening for " .. label)
         return true
     end
-    local obj, d, name = nearest(player, needles, now)
+    for g, t in pairs(skip) do if now >= t then skip[g] = nil end end
+    -- by id first (exact), then by the guide's RXP_PICK name
+    local obj, d, name = nil, nil, nil
+    if has_ids then obj, d, name = QO.nearest(player, ids, U.SCAN, skip) end
+    if not obj and #needles > 0 then obj, d, name = nearest(player, needles, now) end
     if not obj then return false end                     -- route walk: the next one comes into sight
+    name = string.lower(tostring(name))
     local mt = package.loaded["movement/mount"]
     if mt and type(mt.suppress) == "function" then pcall(mt.suppress, U.NO_MOUNT_S) end
 

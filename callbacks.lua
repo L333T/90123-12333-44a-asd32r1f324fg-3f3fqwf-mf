@@ -3,7 +3,7 @@
 -- callbacks.lua - combat finished, spell cancelled (core API polling, 2.315.0)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.4.1
+-- Version: 4.5.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY (2.271.0)

@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.4.1
+-- Version: 4.5.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1354,6 +1354,14 @@ end
 
 local function find_giver(player, goal, kind, wps, qid)
     qid = qid or goal.quest_id
+    -- 4.5.0: a quest given / taken by an OBJECT (a Wanted Poster): its object id
+    -- from data/quest_objects M.givers (quest/objects.lua), found by id
+    if (kind == "accept" or kind == "turnin") and IS.QO then
+        local obj, _, oname = IS.QO.nearest(player, IS.QO.giver_ids(qid), 80)
+        if obj and not bad(obj) then
+            return obj, "quest object '" .. tostring(oname) .. "'"
+        end
+    end
     -- THE GUIDE FILE'S NPC (2.206.0): a ".vendor <npc>" / ".trainer <npc>"
     -- step names its NPC by id (data/rxp_targets M.steps, matched by the
     -- step's waypoint). Ids work where names do not (blank on WoW Forever).
@@ -2867,6 +2875,7 @@ end
 -- no path on foot - the guide for another race / start zone is loaded. The
 -- bot holds with a note instead of walking at it forever.
 IS.mm = require("quest/mismatch")
+IS.QO = require("quest/objects")              -- 4.5.0: quest objects by id
 IS.use_item = require("quest/useitem").goal   -- 4.4.1: open the step's RXP_PICK objects (quest/useitem.lua)
 IS.use_spot = require("quest/useitem").spot   -- 4.4.0: a .use goal waits for its RXP_PICK object
 IS.mismatch = function(player, goal, wps)

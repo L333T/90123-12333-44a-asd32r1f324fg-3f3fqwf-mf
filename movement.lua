@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.4.1
+-- Version: 4.5.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -211,6 +211,13 @@ function movement.interact(unit)
     end
     npc_walk.until_t = 0
     movement.npc_hold()
+    -- 4.5.0: a game object (a Wanted Poster giving a quest) is opened with
+    -- use_object - interact_with_object does not cover every object
+    local okq, is_unit = pcall(unit.is_unit, unit)
+    if okq and is_unit == false then
+        local oku, used = pcall(function() return core.input.use_object(unit) end)
+        if oku and used == true then return true end
+    end
     local ok = pcall(function() core.input.interact_with_object(unit) end)
     return ok
 end

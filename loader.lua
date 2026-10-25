@@ -3,7 +3,7 @@
 -- Lazy grind / quest pack loader (4.0.0: gathering is the Herbing & Mining product). Path tables stay on disk until a mode is checked.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.4.1
+-- Version: 4.5.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -24,6 +24,7 @@ local GRIND_PACK = {
 local QUEST_PACK = {
     "quest/npc",
     "quest/travel",     -- 2.307.0: split out of quest/engine (flights)
+    "quest/objects",    -- 4.5.0: quest objects by id (data/quest_objects)
     "quest/useitem",    -- 4.3.0: RestedXP quest items
     "quest/engine",
     "quest",

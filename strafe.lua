@@ -3,7 +3,7 @@
 -- strafe.lua - Rogue / Warrior "Strafe Combat": short left / right micro-strafes
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.24.0
+-- Version: 4.25.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT IT DOES (2.212.0)

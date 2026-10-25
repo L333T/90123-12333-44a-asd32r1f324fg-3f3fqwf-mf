@@ -3,7 +3,7 @@
 -- Shared runtime state (no leaked globals)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.24.0
+-- Version: 4.25.0
 -- Folder: restedXP_questing
 -- ============================================================================
 

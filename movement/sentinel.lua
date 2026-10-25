@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.24.0
+-- Version: 4.25.0
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================

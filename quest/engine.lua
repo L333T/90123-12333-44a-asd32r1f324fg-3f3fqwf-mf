@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.24.0
+-- Version: 4.25.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2899,6 +2899,7 @@ end
 -- bot holds with a note instead of walking at it forever.
 IS.mm = require("quest/mismatch")
 IS.QO = require("quest/objects")              -- 4.5.0: quest objects by id
+IS.ACT = require("quest/actions")             -- 4.25.0: step actions (cast, abandon, emote, tame ...)
 
 IS.DONE = require("quest/done")               -- 4.11.0: the completed-quest set
 IS.done_said = {}
@@ -3404,6 +3405,11 @@ tick_inner = function(player)
         end
     elseif kind == "item" then
         if item_goal(player, goal, label) then
+            return
+        end
+    elseif IS.ACT.KINDS[kind] then
+        -- 4.25.0: cast / abandon / emote / tame / bank / deathskip (quest/actions.lua)
+        if IS.ACT.goal(player, goal, kind, wps, label, walk_to) then
             return
         end
     elseif kind == "hs" then

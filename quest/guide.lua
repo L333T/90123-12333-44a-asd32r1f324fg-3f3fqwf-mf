@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.24.0
+-- Version: 4.25.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -944,8 +944,18 @@ local ACTIONS = {
 
     -- use something already carried
     ["use"]         = "item",
-    usespell        = "item",
     addquestitem    = "item",
+
+    -- 4.25.0: step actions carried out by quest/actions.lua (ids from the goal,
+    -- else data/rxp_steps.lua - tools/gen_rxp_steps.py)
+    cast            = "cast",
+    usespell        = "cast",
+    abandon         = "abandon",
+    emote           = "emote",
+    tame            = "tame",
+    bankdeposit     = "bank",
+    bankwithdraw    = "bank",
+    deathskip       = "deathskip",
 
     -- ".complete <quest>,<objective>": the most common instruction in a
     -- RestedXP guide, and it says nothing about HOW. The quest's own
@@ -1022,7 +1032,20 @@ classify_raw = function(goal)
     if type(a) ~= "string" or a == "" then
         return "goto"
     end
-    local kind = ACTIONS[a] or ACTIONS[string.lower(a)] or "goto"
+    local kind = ACTIONS[a] or ACTIONS[string.lower(a)]
+    -- 4.25.0: "always check the step action" - an action with no handler is
+    -- named once per action in the log (it is walked to, as before)
+    if not kind then
+        guide._unmapped = guide._unmapped or {}
+        if not guide._unmapped[a] then
+            guide._unmapped[a] = true
+            local el = package.loaded["errorlog"]
+            if type(el) == "table" and type(el.trail) == "function" then
+                pcall(el.trail, "quest", "step action '.%s' has no handler - walking to its point (goal: %s)", a, tostring(goal.text))
+            end
+        end
+        kind = "goto"
+    end
     -- A ".goto" whose line is a grind ("Grind to 1130+/1400xp") is an xp
     -- step: walk the camp and pull, do not sit waiting for the addon.
     if kind == "goto" then

@@ -3,7 +3,7 @@
 -- quest/threat.lua - mobs whose aggro range the walk is about to cross
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.24.0
+-- Version: 4.25.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.7.0 (user): "preemptively attack enemy targets that the player's path will

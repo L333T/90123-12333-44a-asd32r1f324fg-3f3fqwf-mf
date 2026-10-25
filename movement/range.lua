@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, line of sight, arrival, fight range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.24.0
+-- Version: 4.25.0
 -- ============================================================================
 -- FACING: a POSITION, never the unit object (2.72.0: the movement handler
 -- keeps whatever it is given across frames, and a freed mob read later is a

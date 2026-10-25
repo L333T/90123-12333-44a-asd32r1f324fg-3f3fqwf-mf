@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.15.0
+-- Version: 4.16.0
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -632,8 +632,96 @@ function S.selftest_tick(bot_started)
     return true
 end
 
+-- 4.16.0 INDOOR PROFILE (user: "When player is indoors, use tighter pathing
+-- ensure player doesnt get stuck, or fall off of stairs and is able to path
+-- through tight areas"). While the player is indoors (player:is_indoors(),
+-- the same answer INDOOR_HOLD s running) Sentinel's movement config gets
+-- INDOOR (client:update_config({ movement = ... }) - the v0.0.6 source
+-- writes each key to the blackboard "config.<key>", where the MF Start Dump
+-- read them on v0.24):
+--   waypoint_tolerance 3 -> 1.2     each waypoint is reached, corners and
+--                                   stair landings are not cut
+--   wall_clearance 2 -> 0.75,       paths fit doorways and narrow halls
+--   string_pull_wall_dist 2 -> 0.8
+--   use_corridor_indoor -> true     the path is centred in the corridor
+--   max_deviation 3 -> 1.5,         drifting off the path (the edge of a
+--   deviation_threshold 2.8 -> 1.6  stair) re-paths sooner
+--   deviation_vertical_repath -> true, deviation_vertical_threshold 2.2 -> 1.5
+--                                   dropping below the path (off the stairs)
+--                                   re-paths at once
+-- The values Sentinel had before are read back first (blackboard get) and
+-- put back when the player is outdoors again, and on unload. Reapplied
+-- every INDOOR_REAPPLY s while indoors (the Sentinel UI may write its own).
+local INDOOR = { waypoint_tolerance = 1.2, wall_clearance = 0.75, string_pull_wall_dist = 0.8,
+    use_corridor_indoor = true, max_deviation = 1.5, deviation_threshold = 1.6,
+    deviation_vertical_repath = true, deviation_vertical_threshold = 1.5 }
+S.INDOOR = INDOOR
+local INDOOR_HOLD, INDOOR_REAPPLY = 1.5, 5.0
+local IN = { on = false, seen = nil, since = 0, saved = nil, applied_t = -1e9, client = nil }
+
+local function bb_get(c, key)
+    local ok, v = pcall(function() return c:get_blackboard():get("config." .. key) end)
+    if ok then return v end
+    return nil
+end
+
+local function apply_movement(c, cfg)
+    local f = c and c.update_config
+    if type(f) ~= "function" then return false end
+    return pcall(f, c, { movement = cfg }) == true
+end
+
+local function player_indoors()
+    local ok, v = pcall(function()
+        local p = core.object_manager.get_local_player()
+        return p and p:is_indoors() == true
+    end)
+    return ok and v == true
+end
+
+--- Is the indoor profile on?
+function S.indoors() return IN.on == true end
+
+--- Put Sentinel's own values back (outdoors / unload).
+local function indoor_restore(why)
+    local c = IN.client or S.client()
+    if IN.on and c and IN.saved then
+        apply_movement(c, IN.saved)
+        pcall(core.log, "[restedXP_questing] Sentinel indoor pathing off (" .. tostring(why) .. ")")
+    end
+    IN.on, IN.saved, IN.client = false, nil, nil
+end
+S.indoor_restore = indoor_restore
+
+--- Every movement pulse: switch the indoor profile on / off.
+function S.indoor_tick(c, t)
+    if not c then return end
+    local inside = player_indoors()
+    if inside ~= IN.seen then IN.seen, IN.since = inside, t end
+    local steady = (t - IN.since) >= INDOOR_HOLD
+    if inside and steady then
+        if not IN.on then
+            local saved = {}
+            for k in pairs(INDOOR) do
+                local v = bb_get(c, k)
+                if v ~= nil then saved[k] = v end
+            end
+            if apply_movement(c, INDOOR) then
+                IN.on, IN.saved, IN.client, IN.applied_t = true, saved, c, t
+                pcall(core.log, "[restedXP_questing] Sentinel indoor pathing on: tighter waypoints / clearance, stair re-path")
+            end
+        elseif (t - IN.applied_t) >= INDOOR_REAPPLY then
+            IN.applied_t = t
+            apply_movement(c, INDOOR)
+        end
+    elseif not inside and steady and IN.on then
+        indoor_restore("outdoors")
+    end
+end
+
 ---Unload: the self-test's listeners go, and a running test stops its walk.
 function S.on_unload()
+    indoor_restore("unload")                      -- 4.16.0
     if T.active then
         local c = S.client()
         if c then pcall(function() c:stop() end) end

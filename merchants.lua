@@ -3,7 +3,7 @@
 -- merchants.lua - remembered repair NPCs and innkeepers
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.15.0
+-- Version: 4.16.0
 -- ============================================================================
 -- The user (2.318.0): "Grinding path should vendor at repair NPC or INN if
 -- bags are full". A grind route without its own merchant record had only the
@@ -175,6 +175,92 @@ function M.nearest(player, want_repair)
         repair = best.repair, inn = best.inn, from_book = true }, best_d
 end
 
+-- ============================================================================
+-- 4.16.0 RESTEDXP GUIDE VENDORS (user: "Get all vendor locations from the
+-- addon RXPGuides. When bags are full, make vendor run"). data/rxp_vendors
+-- (tools/gen_rxp_vendors.py): every .vendor step of the guides - NPC name,
+-- npc id when named, UiMapID + 0-1 map point, faction. Each point is turned
+-- into world x / y + continent ONCE by core.game_ui.get_world_pos_from_map_pos
+-- (a conversion, no terrain ray) and cached. M.rxp_nearest(player): the
+-- nearest one of the player's faction (or both) and game (a Forever-only
+-- guide vendor never on TBC; Forever, vanilla's world, takes them all) on the player's
+-- continent within RXP_MAX yd, as a merchant record { npc_id, name, x, y, z,
+-- flat = true } - z is the player's (Sentinel walks at the floor there), so
+-- vendor.lua judges the arrival flat.
+-- ============================================================================
+local RXP_MAX = 2500
+M.RXP_MAX = RXP_MAX
+local ALLIANCE = { [1] = true, [3] = true, [4] = true, [7] = true, [11] = true }
+local HORDE = { [2] = true, [5] = true, [6] = true, [8] = true, [10] = true }
+local rxp = nil                -- the data rows, or false
+local rxp_world = {}           -- row index -> { x, y, cont } | false
+
+local function rxp_rows()
+    if rxp == nil then
+        local ok, d = pcall(require, "data/rxp_vendors")
+        rxp = (ok and type(d) == "table") and d or false
+    end
+    return rxp or nil
+end
+
+local function rxp_point(i, row)
+    local w = rxp_world[i]
+    if w ~= nil then return w or nil end
+    w = false
+    local okv, v2 = pcall(require, "common/geometry/vector_2")
+    local mp = okv and type(v2) == "table" and type(v2.new) == "function" and safe(function() return v2.new(row.x, row.y) end)
+    if mp then
+        local ok, pos, cont = pcall(core.game_ui.get_world_pos_from_map_pos, row.m, mp)
+        local x = ok and pos and tonumber(safe(function() return pos.x end)) or nil
+        local y = ok and pos and tonumber(safe(function() return pos.y end)) or nil
+        if x and y and x == x and y == y and not (x == 0 and y == 0) and math.abs(x) < 20000 and math.abs(y) < 20000 then
+            w = { x = x, y = y, cont = tonumber(cont) }
+        end
+    end
+    rxp_world[i] = w
+    return w or nil
+end
+M._rxp_point = rxp_point
+
+local function faction_ok(f, race)
+    if f == "N" or f == nil then return true end
+    if f == "A" then return not HORDE[race] end
+    if f == "H" then return not ALLIANCE[race] end
+    return true
+end
+
+local function forever_game()
+    local ok, gv = pcall(require, "gamever")
+    return ok and type(gv) == "table" and type(gv.is_forever) == "function" and gv.is_forever() == true
+end
+
+--- The nearest RestedXP guide vendor for this character (see above) and its
+--- flat distance, or nil. `skip` = { [name] = true } leaves vendors out.
+function M.rxp_nearest(player, skip)
+    local rows = rxp_rows()
+    if not rows then return nil end
+    local me = safe(function() return player:get_position() end)
+    if not me then return nil end
+    local race = safe(function() return player:get_race_id() end)
+    local fv = forever_game()
+    local cont = continent(me)
+    local best, best_d = nil, nil
+    for i = 1, #rows do
+        local r = rows[i]
+        if type(r) == "table" and faction_ok(r.f, race) and (fv or not r.fv)
+            and not (skip and skip[r.n]) then
+            local w = rxp_point(i, r)
+            if w and (w.cont == nil or w.cont == cont or cont == nil) then
+                local d = math.sqrt((w.x - me.x) ^ 2 + (w.y - me.y) ^ 2)
+                if d <= RXP_MAX and (not best_d or d < best_d) then best, best_d = { r = r, w = w }, d end
+            end
+        end
+    end
+    if not best then return nil end
+    return { npc_id = best.r.id, name = best.r.n, x = best.w.x, y = best.w.y, z = me.z, flat = true,
+        from_rxp = true }, best_d
+end
+
 function M.count()
     if not loaded then load() end
     return book_n
@@ -282,6 +368,7 @@ end
 --- Test hook.
 function M._reset()
     book, book_n, loaded, dirty, next_scan = {}, 0, true, false, -1e9
+    rxp, rxp_world = nil, {}
 end
 
 return M

@@ -3,7 +3,7 @@
 -- professions.lua - which professions the character has (Profession API)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.15.0
+-- Version: 4.16.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- One place that answers "does this character know <profession>, at what

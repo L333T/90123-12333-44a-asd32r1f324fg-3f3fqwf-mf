@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.15.0
+-- Version: 4.16.0
 -- Folder: restedXP_questing
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -87,6 +87,17 @@ local ht = nil                -- hearth trip: { stage, t, tried = {}, cur, tries
 local ht_skip_until = 0       -- stone not ready: do not try to hearth again before this
 local ARRIVE = 5.0
 local FIND_RANGE = 12.0
+-- 4.16.0: RestedXP guide vendors (merchants.rxp_nearest) - a vendor the bot
+-- went to and did not find is left out for RXP_SKIP_S s
+local RXP_SKIP_S = 1800
+local rxp_skip, rxp_skip_t = {}, {}
+local function rxp_skips()
+    local t = izi.now()
+    for n, at in pairs(rxp_skip_t) do
+        if t - at > RXP_SKIP_S then rxp_skip[n], rxp_skip_t[n] = nil, nil end
+    end
+    return rxp_skip
+end
 
 local function safe(fn)
     local ok, result = pcall(fn)
@@ -472,6 +483,15 @@ local function should_sell_item(player, item_id, greys_only)
     end
     if greys_only then
         return info.quality == 0, "not grey"
+    end
+    -- 4.16.0 (user: "When bags are full ... Sell all greys and non-quest items
+    -- from bags"): on a full-bags trip with "Sell All Non-Quest Items When
+    -- Bags Are Full" ticked, every item up to blue (quality 3) goes, whatever
+    -- the white / green toggles say. Kept as above: the keep list, food /
+    -- water, consumables, ammo, quest items; and bags (class 1), epics and up.
+    if state.vendor.reason == "bags" and gui.is_on("sell_all_full") and info.class_id ~= 1
+        and type(info.quality) == "number" and info.quality <= 3 then
+        return true
     end
     if quality_ok(info.quality) then
         return true
@@ -1524,6 +1544,32 @@ function vendor.tick(player)
                 return true
             end
         end
+        -- 4.16.0: RESTEDXP GUIDE VENDORS (user: "When bags are full, make
+        -- vendor run"). No route merchant: the nearest vendor RestedXP's guides
+        -- send this faction to on this continent (merchants.rxp_nearest,
+        -- data/rxp_vendors) - in quest and grind mode alike, before the
+        -- Hearthstone / zone merchant / inn. Not for a food / water run (a
+        -- guide vendor may sell neither: supplies picks an innkeeper).
+        if not state.vendor.active and not path_merchant() and state.vendor.reason ~= "supplies" then
+            local okm, mer = pcall(require, "merchants")
+            local pick, pd = nil, nil
+            if okm and type(mer) == "table" and type(mer.rxp_nearest) == "function" then
+                pick, pd = mer.rxp_nearest(player, rxp_skips())
+            end
+            if pick then
+                state.vendor.active = true
+                supplies.reset()
+                state.vendor.repaired = false
+                state.vendor.sold = 0
+                state.vendor.wait_npc = 0
+                state.vendor.tries = 0
+                state.vendor.book_pick = pick
+                trail("vendor run (%s): RestedXP guide vendor %s %.0f yd away, %d free slot(s)",
+                    tostring(state.vendor.reason or "repair"), tostring(pick.name), pd or -1, bag_free())
+                state.set_note("Vendor", "Going to " .. tostring(pick.name))
+                return true
+            end
+        end
         -- LOW DURABILITY -> HEARTHSTONE AND REPAIR (2.49.0). Out of combat,
         -- stop questing and hearth to the inn to find a merchant that can
         -- repair - even when a zone merchant is known. A stone not ready
@@ -1731,7 +1777,11 @@ function vendor.tick(player)
         return false
     end
 
-    if not movement.arrived(dest, ARRIVE) then
+    -- 4.16.0: a guide vendor's point has no height (the player's z stands in):
+    -- arrival is judged flat
+    local here = info and info.flat and safe(function() return player:get_position() end) or nil
+    local flat_d = here and math.sqrt((here.x - dest.x) ^ 2 + (here.y - dest.y) ^ 2) or nil
+    if (flat_d and flat_d > ARRIVE) or (not flat_d and not movement.arrived(dest, ARRIVE)) then
         -- Claim the tick only if movement took the request; combat still owning
         -- the player (post-fight settle) must not stall the rest of the cascade.
         if not nav_place(player, dest) then
@@ -1766,6 +1816,11 @@ function vendor.tick(player)
             state.vendor.wait_npc = now
         end
         if now - started > 20 then
+            if info and info.from_rxp and info.name then        -- 4.16.0: the next trip picks another
+                rxp_skip[info.name], rxp_skip_t[info.name] = true, now
+                trail("RestedXP guide vendor %s not found at its point - left out for %d min", tostring(info.name),
+                    RXP_SKIP_S / 60)
+            end
             finish_trip("Merchant not found nearby")
             return false
         end

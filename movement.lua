@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.15.0
+-- Version: 4.16.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -132,6 +132,7 @@ movement.clear_combat_profile = C.clear_combat_profile
 -- ============================================================================
 movement.face           = Rg.face
 movement.has_los        = Rg.has_los
+movement.stuck_ahead    = N.stuck_ahead      -- 4.16.0: zone the ground ahead and re-path round it
 movement.in_fight_range = Rg.in_fight_range
 movement.arrived        = Rg.arrived
 movement.line_blocked   = Rg.line_blocked

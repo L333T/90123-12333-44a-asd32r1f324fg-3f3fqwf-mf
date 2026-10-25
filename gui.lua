@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.15.0
+-- Version: 4.16.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -359,6 +359,13 @@ menu:checkbox("mfg_repair", true, {
     tab = "vendor",
     tooltip = "Walk to the zone merchant when equipped durability is at or below the trigger.",
 })
+menu:checkbox("mfg_sell_all_full", true, {      -- 4.16.0
+    label = "Sell All Non-Quest Items When Bags Are Full",
+    tab = "vendor",
+    tooltip = "When the bags are full the bot walks to the nearest vendor from RestedXP's guides and sells every grey and every "
+        .. "non-quest item up to blue quality, whatever the white / green boxes say. Always kept: quest items, food and water, "
+        .. "potions and other consumables, ammo, bags, the Hearthstone, epics and better.",
+})
 menu:checkbox("mfg_sell_grey", true, {
     label = "Sell Grey",
     tab = "vendor",
@@ -543,6 +550,20 @@ menu:checkbox("mfg_spell_queue", true, {
     tooltip = "Cast the rotation through the spell queue (priority 1): the next spell is queued in the last 0.35 s of a cast so it goes out the moment the cast ends, and off-GCD spells use the fast queue. Untick to cast through izi directly.",
 })
 
+-- 4.16.0: on-use trinkets in the rotation (trinkets.lua)
+menu:checkbox("mfg_trinket1", false, {
+    label = "Use Top Trinket (slot 13)",
+    tab = "class",
+    tooltip = "In a fight, use the trinket in the top trinket slot whenever it is off cooldown - only trinkets with a 'Use:' effect; "
+        .. "passive ones are never pressed. Not on a target about to die (30 % health or less) unless 2+ enemies are on you or you are under 50 % health.",
+})
+menu:checkbox("mfg_trinket2", false, {
+    label = "Use Bottom Trinket (slot 14)",
+    tab = "class",
+    tooltip = "In a fight, use the trinket in the bottom trinket slot whenever it is off cooldown - only trinkets with a 'Use:' effect; "
+        .. "passive ones are never pressed. Not on a target about to die (30 % health or less) unless 2+ enemies are on you or you are under 50 % health.",
+})
+
 -- 2.274.0: adaptive rotation (adapt.lua)
 menu:checkbox("mfg_adaptive", true, {
     label = "Adaptive Rotation",
@@ -687,12 +708,15 @@ local aliases = {
     sell = "mfg_vendor_sell",
     repair = "mfg_repair",
     sell_grey = "mfg_sell_grey",
+    sell_all_full = "mfg_sell_all_full",      -- 4.16.0
     sell_white = "mfg_sell_white",
     sell_green = "mfg_sell_green",
     delete_junk = "mfg_delete_junk",
     spell_queue = "mfg_spell_queue",
     hunter_pet_aggro = "mfg_hunter_pet_aggro",  -- 2.284.0
     adaptive = "mfg_adaptive",                 -- 2.274.0
+    trinket1 = "mfg_trinket1",                 -- 4.16.0 (trinkets.lua)
+    trinket2 = "mfg_trinket2",
     path_loop = "mfg_path_loop",
     path_reverse = "mfg_path_reverse",
     path_combat = "mfg_path_combat",

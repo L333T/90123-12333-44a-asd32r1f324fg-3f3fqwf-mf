@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through Sentinel Navigation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.15.0
+-- Version: 4.16.0
 -- ============================================================================
 -- 4.2.0 SENTINEL PORT (branch sentinel-nav; docs/SENTINEL_API.md = the official
 -- v0.0.8 page, docs/SENTINEL_V024.md = what the installed v0.24 really does).
@@ -610,6 +610,7 @@ function N.pulse()
             record_fail("failed", cur.x, cur.y, cur.z)
         end
     end
+    S.indoor_tick(c, R.now())        -- 4.16.0: tighter Sentinel pathing indoors
     N.ahead_tick(c)
 end
 
@@ -633,19 +634,65 @@ end
 -- the new path is blended in, the character keeps walking). At most one
 -- re-path every AHEAD.REPLAN_GAP s; a spot is zoned once.
 -- ----------------------------------------------------------------------------
+--
+-- 4.16.0 STEEP / STUCK AREAS (user: "stuck attempting to move over steep
+-- inclines, attempt re-pathing to path around steep map areas"). The 00:08
+-- log zoned 4 yd circles on one slope six times (2539,-1783 -> 2461,-1750:
+-- every new path hugged the same slope) and then stood "no movement for 6 s"
+-- with Sentinel recovering while the engine only flipped between its two
+-- points. Now:
+--   * a zone starts at AHEAD.ZONE_R (7) yd and GROWS: a new steep / stall spot
+--     within AHEAD.AREA_R yd of an area zoned in the last AHEAD.AREA_S s
+--     zones AHEAD.GROW times that area's radius (up to AHEAD.ZONE_MAX), so the
+--     path is pushed off the whole slope, not one step of it;
+--   * the same spot again after AHEAD.DEBOUNCE s counts as "not avoided" and
+--     grows the area too (it used to be skipped for 120 s);
+--   * N.stuck_ahead(why): the player is not moving (the quest walk's 6 s
+--     watch, Sentinel recovering for AHEAD.RECOVER_S s) - the ground AHEAD of
+--     the player along the path (radius yd on, so the player stands at the
+--     zone's edge) is zoned the same way and the path re-planned round it.
 local AHEAD = { GAP = 1.0, SKIP = 3, SEGS = 5, STEEP = 1.0, STEEP_MIN = 2.0, STEEP_YD = 40,
-    STALL_R = 8, STALL_S = 60, ZONE_R = 4, REPLAN_GAP = 3.0, SAME = 3.0,
-    t = -1e9, replan_t = -1e9, zones = {}, recover_at = nil, stalls = {}, was_recovering = false }
+    STALL_R = 8, STALL_S = 60, ZONE_R = 7, REPLAN_GAP = 3.0, SAME = 3.0,
+    AREA_R = 15, AREA_S = 180, GROW = 1.6, ZONE_MAX = 20, DEBOUNCE = 6.0, RECOVER_S = 3.0,
+    ZONE_R_IN = 2.5, ZONE_MAX_IN = 5,        -- 4.16.0: indoors (S.indoors) - no steep check there (stairs)
+    t = -1e9, replan_t = -1e9, zones = {}, areas = {}, recover_at = nil, stalls = {}, was_recovering = false,
+    recover_t = nil, recover_zoned = false }
 N.AHEAD = AHEAD
 
+--- A zone at (x, y) made within DEBOUNCE s (the re-path has not had time to
+--- show whether it worked): the spot is not zoned again yet.
 local function zoned(x, y)
     for i = #AHEAD.zones, 1, -1 do
         local z = AHEAD.zones[i]
         if (R.now() - z.t) > 120 then table.remove(AHEAD.zones, i)
-        elseif R.dist2(z.x, z.y, x, y) <= AHEAD.SAME then return true end
+        elseif R.dist2(z.x, z.y, x, y) <= AHEAD.SAME and (R.now() - z.t) < AHEAD.DEBOUNCE then return true end
     end
     return false
 end
+
+--- 4.16.0: the radius for a zone at (x, y): `base` for a new area, the
+--- area's radius x GROW (up to ZONE_MAX) when the spot is in an area zoned
+--- before - the slope was not avoided. Returns radius, hits in the area.
+local function area_radius(x, y, base)
+    local t = R.now()
+    -- 4.16.0: indoors a zone stays small (a hall, a doorway - not the building)
+    local cap = AHEAD.ZONE_MAX
+    if S.indoors() then base, cap = math.min(base, AHEAD.ZONE_R_IN), AHEAD.ZONE_MAX_IN end
+    local hit = nil
+    for i = #AHEAD.areas, 1, -1 do
+        local a = AHEAD.areas[i]
+        if (t - a.t) > AHEAD.AREA_S then table.remove(AHEAD.areas, i)
+        elseif not hit and R.dist2(a.x, a.y, x, y) <= math.max(AHEAD.AREA_R, a.r + 8) then hit = a end
+    end
+    if hit then
+        hit.r = math.min(cap, math.max(hit.r * AHEAD.GROW, base))
+        hit.n, hit.t = hit.n + 1, t
+        return hit.r, hit.n
+    end
+    AHEAD.areas[#AHEAD.areas + 1] = { x = x, y = y, r = base, n = 1, t = t }
+    return base, 1
+end
+N._area_radius = area_radius
 
 --- Zone the spot (`radius` yd, default AHEAD.ZONE_R) and re-path softly.
 --- True when a re-path went out.
@@ -653,7 +700,9 @@ local function avoid(c, p, why, radius)
     if zoned(p.x, p.y) then return false end
     AHEAD.zones[#AHEAD.zones + 1] = { x = p.x, y = p.y, t = R.now() }
     stats.zones = (stats.zones or 0) + 1
-    radius = radius or AHEAD.ZONE_R
+    local hits
+    radius, hits = area_radius(p.x, p.y, radius or AHEAD.ZONE_R)     -- 4.16.0: grows in a known area
+    if hits > 1 then why = string.format("%s (area hit %d times)", why, hits) end
     if not S.add_zone(c, p, radius) then
         R.trail("nav", "%s at (%.0f, %.0f): Sentinel has no avoidance zones here - not re-pathed", why, p.x, p.y)
         return false
@@ -706,6 +755,16 @@ function N.ahead_tick(c)
         end
     end
     AHEAD.was_recovering = recovering
+    -- 4.16.0: still recovering RECOVER_S s on - the ground ahead is zoned (once a recovery)
+    if recovering then
+        AHEAD.recover_t = AHEAD.recover_t or now
+        if not AHEAD.recover_zoned and (now - AHEAD.recover_t) >= AHEAD.RECOVER_S then
+            AHEAD.recover_zoned = true
+            N.stuck_ahead("stuck (Sentinel recovering)")
+        end
+    else
+        AHEAD.recover_t, AHEAD.recover_zoned = nil, false
+    end
     if (now - AHEAD.t) < AHEAD.GAP then return end
     if not cur.x or cur.done or cur.mode == "npc" or not S.moving(c) then return end
     if S.path_pending(c) or recovering then return end
@@ -717,9 +776,11 @@ function N.ahead_tick(c)
     end
     local pts = ahead_points()
     if not pts or #pts < 2 then return end
-    -- height: too steep to climb, near the player
+    -- height: too steep to climb, near the player (4.16.0: not indoors -
+    -- stairs are steep and walkable; the indoor profile's vertical re-path
+    -- catches a fall off them)
     local along = 0
-    for k = 1, #pts - 1 do
+    for k = 1, S.indoors() and 0 or (#pts - 1) do
         local a, b = pts[k], pts[k + 1]
         local run = R.dist2(a.x, a.y, b.x, b.y)
         if run >= AHEAD.STEEP_MIN and (b.z - a.z) / run > AHEAD.STEEP then
@@ -738,6 +799,63 @@ function N.ahead_tick(c)
         stats.probes = (stats.probes or 0) + 1
         if hit then avoid(c, hit, "obstacle ahead") end
     end
+end
+
+--- 4.16.0: the point `yd` yards ahead of the player along the running path
+--- (else toward the walk's destination), or nil.
+local function point_ahead(yd)
+    local hx, hy, hz = R.here()
+    if not hx then return nil end
+    local pts = ahead_points()
+    if pts and #pts >= 2 then
+        local left = yd
+        for k = 1, #pts - 1 do
+            local a, b = pts[k], pts[k + 1]
+            local seg = R.dist2(a.x, a.y, b.x, b.y)
+            if seg >= left and seg > 0 then
+                local f = left / seg
+                return { x = a.x + (b.x - a.x) * f, y = a.y + (b.y - a.y) * f, z = a.z + (b.z - a.z) * f }
+            end
+            left = left - seg
+        end
+        local last = pts[#pts]
+        return { x = last.x, y = last.y, z = last.z }
+    end
+    if cur.x then
+        local d = R.dist2(hx, hy, cur.x, cur.y)
+        if d > 0.5 then
+            local f = math.min(1, yd / d)
+            return { x = hx + (cur.x - hx) * f, y = hy + (cur.y - hy) * f, z = hz }
+        end
+    end
+    return nil
+end
+N._point_ahead = point_ahead
+
+--- 4.16.0: the player is not getting anywhere - zone the ground just AHEAD
+--- of the player (grown in a known area; the player at the zone's edge) and
+--- re-plan round it. True when a zone was placed.
+function N.stuck_ahead(why)
+    local c = N.client()
+    if not c then return false end
+    local hx, hy = R.here()
+    if not hx then return false end
+    local r0, hits = area_radius(hx, hy, AHEAD.ZONE_R)
+    local p = point_ahead(r0 + 1)
+    if not p or zoned(p.x, p.y) then return false end
+    AHEAD.zones[#AHEAD.zones + 1] = { x = p.x, y = p.y, t = R.now() }
+    stats.zones = (stats.zones or 0) + 1
+    if not S.add_zone(c, p, r0) then
+        R.trail("nav", "%s at (%.0f, %.0f): Sentinel has no avoidance zones here - not re-pathed", tostring(why), p.x, p.y)
+        return false
+    end
+    stats.stuck_zones = (stats.stuck_zones or 0) + 1
+    AHEAD.replan_t = R.now()
+    local ok = S.moving(c) and S.soft_replan(c, "mf_stuck") or false
+    R.trail("nav", "%s: avoidance zone %.0f yd on the ground ahead (%.0f, %.0f)%s, %s", tostring(why), r0, p.x, p.y,
+        hits > 1 and string.format(" (area hit %d times)", hits) or "",
+        ok and "path re-planned round it" or "the next path goes round it")
+    return true
 end
 
 --- 4.9.0: a mob 3+ levels above the player or an elite (quest/threat.lua):

@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.15.0
+-- Version: 4.16.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2880,6 +2880,9 @@ IS.watch_still = function(pts, must_do, label)
         w.S, g_move, #pts, d, tostring(label), tostring(movement.is_moving()),
         tostring(safe(movement.owner)), tostring(safe(movement.state)),
         tostring(movement.last_fail_reason()), (#pts > 1 and not must_do) and ", next point" or "")
+    -- 4.16.0: standing still (a slope too steep to climb): the ground ahead is
+    -- zoned (grown on repeats) so the fresh path goes round that area
+    if type(movement.stuck_ahead) == "function" then pcall(movement.stuck_ahead, "no movement on the walk") end
     movement.clear_fail()
     g_force_path = true
     if #pts > 1 and not must_do then IS.next_wp(#pts) end

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.22.0
+-- Version: 4.23.0
 -- Folder: restedXP_questing
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -552,6 +552,11 @@ local function on_update()
         end
     end
     -- 2.198.0: the loot burst runs every frame (attempts one frame apart).
+    -- 4.23.0: the object-use crash journal clears itself once a use lived
+    do
+        local og = package.loaded["quest/objguard"]
+        if type(og) == "table" and type(og.tick) == "function" then pcall(og.tick) end
+    end
     if loot and type(loot.frame) == "function" then
         probe("u:loot.frame")
         pcall(loot.frame)

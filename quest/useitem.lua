@@ -3,7 +3,7 @@
 -- quest/useitem.lua - the guide's RXP_PICK objects; quest items only at them
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.22.0
+-- Version: 4.23.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.3.0 (in-game log 2026-10-24 20:01, Eastern Plaguelands): "Plagueland
@@ -236,12 +236,21 @@ function U.goal(player, goal, kind, wps, label, walk_to)
         cur.phase = nil
         cur.cycles = cur.cycles + 1
     end
-    -- open it, as the guide says (use_object: the entry point for world objects)
-    local ok = safe(function() return core.input.use_object(obj) end)
-    if ok ~= true then pcall(function() core.input.interact_with_object(obj) end) end
+    -- open it, as the guide says - 4.23.0: through quest/objguard (journalled; an
+    -- object whose use_object crashed the game is interacted with instead, one that
+    -- crashed both ways is skipped)
+    local OG = require("quest/objguard")
+    local sent, how = OG.open(obj)
+    if not sent then
+        if guid then skip[guid] = now + 3600 end
+        trail("act", "%s: %s", name, tostring(how))
+        state.set_note("Quest", "Guide: " .. name .. " crashed the game before - open it by hand")
+        cur.guid, cur.phase, cur.cycles = nil, nil, 0
+        return true
+    end
     cur.phase, cur.t = "opened", now
     next_t = now + U.WAIT_LOOT
-    trail("act", "open %s (%.1f yd) for %s", name, d or -1, label)
+    trail("act", "open %s (%.1f yd, %s) for %s", name, d or -1, tostring(how), label)
     state.set_note("Quest", "Guide: open the " .. name .. " for " .. label)
     return true
 end

@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.22.0
+-- Version: 4.23.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1672,7 +1672,10 @@ function guide.find_named_object(player, range, needle, skip)
     for i = 1, #list do
         local o = list[i]
         if indexable(o) and call(o.is_valid, o) ~= false and call(o.is_unit, o) ~= true
-            and call(o.is_player, o) ~= true and not (skip and skip[call(o.get_guid, o) or false]) then
+            and call(o.is_player, o) ~= true and not (skip and skip[call(o.get_guid, o) or false])
+            -- 4.23.0: never an item (a bag / inventory item object of the same name) nor
+            -- an object the game says cannot be used (Zygor's find_object rule)
+            and call(o.is_item, o) ~= true and call(o.can_be_used, o) ~= false then
             local n = call(o.get_name, o)
             if type(n) == "string" and string.find(string.lower(n), needle, 1, true) then
                 local pos = call(o.get_position, o)

@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.22.0
+-- Version: 4.23.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2564,12 +2564,11 @@ local function object_goal(player, goal, label)
             g_obj.uses = g_obj.uses + 1
             g_obj.used_t = now
             g_obj.need = nil
-            local ok = safe(function() return core.input.use_object(obj) end)
-            if ok ~= true then
-                pcall(function() core.input.interact_with_object(obj) end)
-            end
-            trail("act", "use quest object %s (%.1f yd, use %d)",
-                tostring(safe(function() return obj:get_name() end)), odist, g_obj.uses)
+            -- 4.23.0: through quest/objguard (crash journal; see there)
+            local sent_o, how_o = require("quest/objguard").open(obj)
+            if not sent_o and guid then g_obj_skip[guid] = now + 3600 end
+            trail("act", "use quest object %s (%.1f yd, use %d, %s)",
+                tostring(safe(function() return obj:get_name() end)), odist, g_obj.uses, tostring(how_o))
         end
         state.set_note("Quest", "Guide: click " .. label)
         return true

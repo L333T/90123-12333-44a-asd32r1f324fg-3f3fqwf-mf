@@ -3,7 +3,7 @@
 -- Error log, written to scripts_log/MASTER_FARMER_ERRORS
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.25.0
+-- Version: 4.26.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- One file per session:

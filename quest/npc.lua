@@ -3,7 +3,7 @@
 -- Quest NPC interact / gossip / accept / turn-in
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.25.0
+-- Version: 4.26.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- TWO FRAMES, NOT ONE
@@ -904,10 +904,34 @@ end
 -- REWARD CHOICE
 -- ----------------------------------------------------------------------------
 local MAX_REWARD_CHOICES = 10
+local REWARD_SETTLE = 0.6     -- 4.26.0: s the reward panel gets to fill before "no choice" is believed
 
 --- The reward choices currently on offer, as { index, link } pairs.
 --- An index past the last choice returns "", which ends the list.
-local function reward_choices()
+---
+--- 4.26.0 (user: "Not choosing quest reward when turning in a quest. Check
+--- restedXP API and Core quest API to choose the correct reward"): the reward
+--- PANEL's links (get_quest_item_link) and count (get_num_quest_choices)
+--- read empty / 0 until the panel has filled ("0 with no reward panel open",
+--- .api core.lua) - so the hand-in decided "no choice" and sent
+--- get_quest_reward(0), which the game refuses while a choice is pending.
+--- The QUEST LOG knows the choices by quest id before the panel opens
+--- (get_quest_log_item_link("choice", i, quest_id)): those links are read
+--- too, and used when the panel has none yet (same items, same order).
+local function log_choices(quest_id)
+    local out = {}
+    if not quest_id or type(core.quests.get_quest_log_item_link) ~= "function" then return out end
+    for i = 1, MAX_REWARD_CHOICES do
+        local link = safe(function() return core.quests.get_quest_log_item_link("choice", i, quest_id) end)
+        if type(link) ~= "string" or link == "" then
+            break
+        end
+        out[#out + 1] = { index = i, link = link }
+    end
+    return out
+end
+
+local function reward_choices(quest_id)
     local out = {}
     for i = 1, MAX_REWARD_CHOICES do
         local link = safe(function() return core.quests.get_quest_item_link("choice", i) end)
@@ -916,8 +940,10 @@ local function reward_choices()
         end
         out[#out + 1] = { index = i, link = link }
     end
+    if #out == 0 then out = log_choices(quest_id) end
     return out
 end
+npc._reward_choices = reward_choices
 
 --- Best choice index for this character.
 ---
@@ -931,14 +957,20 @@ end
 --- INFO_WAIT seconds (`waited`) before the choice is made on what is known.
 ---
 --- Returns (index or nil, number of choices, ready).
-local function best_choice(player, waited)
-    local choices = reward_choices()
+local function best_choice(player, waited, quest_id)
+    local choices = reward_choices(quest_id)
     -- 2.258.0: get_num_quest_choices is the game's count (get_quest_reward
     -- takes 1..n). With n > 0 the reward is never 0, even before the item
     -- links load; RestedXP's goal.reward wins when it is in range.
     local n = nil
     if type(core.quests.get_num_quest_choices) == "function" then
         n = tonumber(safe(function() return core.quests.get_num_quest_choices() end))
+    end
+    -- 4.26.0: the quest log's count when the panel says 0 (not filled yet)
+    if (n == nil or n == 0) and #choices > 0 then n = #choices end
+    -- 4.26.0: "no choice" only once the panel has had REWARD_SETTLE s to fill
+    if (n == nil or n == 0) and #choices == 0 and waited < REWARD_SETTLE then
+        return nil, 0, false
     end
     local hint = tonumber(dlg.reward_hint) or 0
     if n and n > 0 and hint >= 1 and hint <= n then
@@ -1331,7 +1363,7 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit, reward)
             end
         end
         dlg.info_t = dlg.info_t or now
-        local idx, _, ready = best_choice(player, now - dlg.info_t)
+        local idx, _, ready = best_choice(player, now - dlg.info_t, quest_id)
         if not ready then
             return
         end
@@ -1340,6 +1372,7 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit, reward)
             dlg_to("reward", now)
             return
         end
+        trail("turn in %s: no reward choice - completing", dlg.label)
         pcall(function() core.quests.get_quest_reward(0) end)
         dlg_to("verify", now)
         return
@@ -1349,6 +1382,7 @@ function npc.turn_in(player, quest_id, quest_name, npc_id, unit, reward)
         -- get_quest_reward SELECTS the choice and completes the quest.
         -- complete_quest is not called as well: they are alternatives.
         local idx = dlg.picked
+        trail("turn in %s: reward choice %d sent", dlg.label, tonumber(idx) or -1)
         pcall(function() core.quests.get_quest_reward(idx) end)
         dlg_to("verify", now)
         return

@@ -3,7 +3,7 @@
 -- Class rotation dispatcher
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.25.0
+-- Version: 4.26.0
 -- Folder: restedXP_questing
 -- Adding a class: create rotations/<class>.lua and register it here.
 -- ============================================================================

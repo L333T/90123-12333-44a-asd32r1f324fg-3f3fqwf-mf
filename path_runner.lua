@@ -8,7 +8,7 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.25.0
+-- Version: 4.26.0
 -- Folder: restedXP_questing
 -- ============================================================================
 

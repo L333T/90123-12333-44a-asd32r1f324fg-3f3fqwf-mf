@@ -3,13 +3,13 @@
 -- Vendors from RestedXP's guides (GENERATED - tools/gen_rxp_vendors.py)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.20.0
+-- Version: 4.21.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Every guide step with a .vendor line: n = NPC name, id = npc id (when the
 -- line names one), m = UiMapID, x / y = 0-1 map position (the step's last
 -- .goto), f = faction A / H / N (both), fv = true: a WoW Forever guide only.
--- 98 guide files, 1240 vendor steps, 172 vendors.
+-- 98 guide files, 1244 vendor steps, 172 vendors.
 -- ============================================================================
 
 return {
@@ -176,11 +176,11 @@ return {
     { n = "Beega", m = 1950, x = 0.5332, y = 0.5667, f = "A" },
     { n = "Clopper Wizbang", m = 1950, x = 0.4215, y = 0.2122, f = "A" },
     { n = "Belandiel Farflight::254360", id = 254360, m = 2521, x = 0.4478, y = 0.4505, f = "N", fv = true },
+    { n = "Belann Windwood::256507", id = 256507, m = 2521, x = 0.6396, y = 0.7415, f = "N", fv = true },
     { n = "Daeann Steelwind::252479", id = 252479, m = 2521, x = 0.6547, y = 0.8029, f = "N", fv = true },
-    { n = "Destin Thriceforged::251364", id = 251364, m = 2521, x = 0.4337, y = 0.2399, f = "N", fv = true },
+    { n = "Destin Thriceforged::251364", id = 251364, m = 2521, x = 0.4342, y = 0.2351, f = "N", fv = true },
     { n = "Donaal Downbreeze::255940", id = 255940, m = 2521, x = 0.6218, y = 0.7262, f = "N", fv = true },
     { n = "Falfaan Halfwind::271465", id = 271465, m = 2521, x = 0.5939, y = 0.7573, f = "N", fv = true },
-    { n = "Railee Thriceforged::257422", id = 257422, m = 2521, x = 0.5899, y = 0.7546, f = "N", fv = true },
     { n = "Uualia Suncrest::251537", id = 251537, m = 2521, x = 0.4275, y = 0.245, f = "N", fv = true },
     { n = "Veena Vericloud", id = 254358, m = 2521, x = 0.4472, y = 0.4547, f = "N", fv = true },
     { n = "Veena Vericloud::254358", id = 254358, m = 2521, x = 0.4471, y = 0.4548, f = "N", fv = true },

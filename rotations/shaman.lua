@@ -3,7 +3,7 @@
 -- Shaman grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.20.0
+-- Version: 4.21.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WEAPON IMBUES - THE BUG NOT COPIED

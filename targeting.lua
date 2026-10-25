@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.20.0
+-- Version: 4.21.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -232,6 +232,38 @@ end
 -- Cached SCAN_TTL.
 local LEVEL_CAP = 5
 local SCAN_TTL = 0.25
+
+-- 4.21.0 LOW-LEVEL ENEMIES IGNORED (user: "Player should ignore low level
+-- enemy targets =< 15 Levels below player level unless they are within melee
+-- distance of player and are attacking player"). A unit LOW_GAP or more
+-- levels below the player is left out of every enemy list here - the scan
+-- below (pulls, attackers(), the 4.14.0 any-level fight-back) and the SDK list
+-- (threats(), combat_scan(), the rotation's pack) - unless it is attacking the
+-- player or the pet (in combat, its target is one of them) AND stands within
+-- LOW_MELEE yd (melee reach + hit boxes). quest/threat.lua's path check
+-- skips them the same way.
+local LOW_GAP, LOW_MELEE = 15, 7
+targeting.LOW_GAP, targeting.LOW_MELEE = LOW_GAP, LOW_MELEE
+
+--- Is `u` a low-level enemy to ignore (see above)?
+function targeting.ignore_low(player, u)
+    if not player or not u then return false end
+    local my = call(player.get_level, player)
+    local lvl = call(u.get_level, u)
+    if type(my) ~= "number" or type(lvl) ~= "number" or (my - lvl) < LOW_GAP then return false end
+    if call(u.is_in_combat, u) == true then
+        local tar = call(u.get_target, u)
+        local tg = indexable(tar) and call(tar.get_guid, tar) or nil
+        local me_g = call(player.get_guid, player)
+        local pet = call(player.get_pet, player)
+        local pet_g = (indexable(pet) and call(pet.is_valid, pet) == true) and call(pet.get_guid, pet) or nil
+        if tg ~= nil and (tg == me_g or (pet_g ~= nil and tg == pet_g)) then
+            local d = call(player.distance_to, player, u)
+            if type(d) == "number" and d <= LOW_MELEE then return false end
+        end
+    end
+    return true
+end
 local scan = { t = -1, attack = {}, avoid = {} }
 
 function targeting.scan_enemies(player)
@@ -256,7 +288,7 @@ function targeting.scan_enemies(player)
                 and call(u.is_dead_or_ghost, u) ~= true and call(u.is_player, u) ~= true
                 and call(player.can_attack, player, u) == true then
                 local up = call(u.get_position, u)
-                if up then
+                if up and not targeting.ignore_low(player, u) then        -- 4.21.0
                     local dx, dy, dz = up.x - pos.x, up.y - pos.y, up.z - pos.z
                     if dx * dx + dy * dy + dz * dz <= range * range then
                         local lvl = call(u.get_level, u) or 1
@@ -367,6 +399,15 @@ local function id_wanted(npc_id, mobs)
 end
 
 local THREAT_RANGE_DEFAULT = 40
+local function without_low(player, list)
+    local out = {}
+    for i = 1, #list do
+        local u = list[i]
+        if not (indexable(u) and targeting.ignore_low(player, u)) then out[#out + 1] = u end
+    end
+    return out
+end
+
 local function enemy_units(player, pos, range)
     range = cap(range)
     if pos then
@@ -374,14 +415,14 @@ local function enemy_units(player, pos, range)
             return unit_helper:get_enemy_list_around(pos, range, true, false, false, false)
         end)
         if type(around) == "table" and #around > 0 then
-            return around
+            return without_low(player, around)                 -- 4.21.0
         end
     end
     local list = safe(function()
         return izi.enemies(range)
     end)
     if type(list) == "table" then
-        return list
+        return without_low(player, list)                       -- 4.21.0
     end
     return {}
 end

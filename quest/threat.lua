@@ -3,7 +3,7 @@
 -- quest/threat.lua - mobs whose aggro range the walk is about to cross
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.20.0
+-- Version: 4.21.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.7.0 (user): "preemptively attack enemy targets that the player's path will
@@ -129,6 +129,11 @@ local function path_ahead(me)
     return out, pts[#pts]
 end
 
+local function low_ignored(player, u)
+    local okt, tg = pcall(require, "targeting")
+    return okt and type(tg) == "table" and type(tg.ignore_low) == "function" and tg.ignore_low(player, u) == true
+end
+
 local function hostile_mobs(player, me)
     local list = safe(function() return core.object_manager.get_visible_objects() end)
     local out = {}
@@ -137,7 +142,8 @@ local function hostile_mobs(player, me)
         local u = list[i]
         if u and safe(function() return u:is_valid() end) == true and safe(function() return u:is_unit() end) == true
             and safe(function() return u:is_player() end) ~= true and safe(function() return u:is_dead() end) ~= true
-            and safe(function() return u:is_enemy_with(player) end) == true then
+            and safe(function() return u:is_enemy_with(player) end) == true
+            and not low_ignored(player, u) then                   -- 4.21.0: 15+ levels below
             local x, y, z = xyz(safe(function() return u:get_position() end))
             if x and (x - me.x) ^ 2 + (y - me.y) ^ 2 <= T.SCAN * T.SCAN then
                 out[#out + 1] = { u = u, x = x, y = y, z = z }

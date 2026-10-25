@@ -3,7 +3,7 @@
 -- mage_poly.lua - Mage: Polymorph an add while the target is killed
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.20.0
+-- Version: 4.21.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.17.0 (user: "if player == Mage create a gui option to enable/disable

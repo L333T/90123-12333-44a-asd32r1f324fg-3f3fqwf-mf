@@ -52,7 +52,7 @@ Server: the Master Farmer SentinelNavServer (`game=tbc`), set by launcher 2.15.0
 
 ## Run 2 - 2026-10-24 19:37 (restedXP_questing 4.1.3, TBC, Eastern Plaguelands)
 
-`MASTER_FARMER.nav` = `{ kind = "sentinel", game = "tbc", base_url = "http://46.224.135.139:47110", supported = true }`
+`MASTER_FARMER.nav` = `{ kind = "sentinel", game = "tbc", base_url = "http://5.161.160.108:47110", supported = true }`
 (the 4.1.3 lookup fix works). Callback shapes, heights and events as in run 1.
 
 ### A second `move_to` while walking (A 30 yd ahead, B sent 1.6 s later)

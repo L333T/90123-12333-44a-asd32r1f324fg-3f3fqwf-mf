@@ -77,3 +77,26 @@ EventBus `client:get_event_bus()`: `on(event, cb, opts?)`, `once`, `on_pattern(p
   `is_moving`, `strafe`, `apply_dynamic_speed` - not driven by this product.
 - `client.obstacle`: `probe_forward`, `probe_segment`, `probe_path_ahead`, `add_zone`,
   `remove_zone`, `get_avoidance_zones`, `get_zone_count`, `clear`.
+
+## Verified on v0.24 by the MF API Dump (2026-10-24, tools/api_dump)
+
+Every member the products call exists on the installed v0.24 (argument counts include `self`):
+`move_to` 4, `move_direct` 3, `follow_path` 4, `stop` 1, `is_moving` 1, `get_state` / `get_full_state` 1,
+`get_current_path` / `get_path_index` 1, `get_height` 3, `get_all_heights` 4, `validate_destination` 3,
+`plan_route` 4, `replan(self, reason, opts)` 3, `update_config` 2, `on` / `off` 3, `get_event_bus` 1,
+`health_check` 2; `nav_client:find_path` 5, `nav_client:raycast` 5; `obstacle:probe_path_ahead` 3,
+`obstacle:probe_forward` 3, `obstacle:add_zone` 3 (ObstacleService.lua lines 61 / 178 / 201 - the same
+lines as the readable v0.0.6 source). Live answers (sentinel_live.txt):
+
+- `health_check` -> `(true, { status = "ok" }, nil)`
+- `nav_client:find_path` 10 yd -> `(true, { waypoints (5, ~2.3 yd apart), distance, partial = false, computation_time_ms }, nil)`
+- `nav_client:raycast` clear -> `(true, { hit = false, t = 3.4028235e+38 }, nil)` - **t is FLT_MAX when nothing is hit**
+  (not 1.0); 4.8.0's line-of-sight test reads t only when hit = true
+- `get_height` -> `(true, { height = N }, nil)`; `get_all_heights` -> `(true, { count, heights = { { flags, height } } }, nil)`
+- `validate_destination` -> `(true, nil, distance)`
+- `obstacle:probe_forward` / `probe_path_ahead` with nothing in the way -> nil
+
+Not used yet, present: `nav_client:check_path`, `find_path_avoid`, `find_path_corridor`, `find_path_flexible`,
+`find_route_tsp`, `find_route_multi`, `flee`, `kite` (5), `random_point`, `get_consecutive_failures`, `is_indoor`;
+`client:get_destination`, `get_corridor_widths`, `get_corridor_opts`, `get_blackboard`; `obstacle:get_avoidance_zones`,
+`get_zone_count`, `remove_zone`, `probe_segment`, `prune`, `clear`; `movement:*` (internal).

@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through Sentinel Navigation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.9.0
+-- Version: 4.10.0
 -- ============================================================================
 -- 4.2.0 SENTINEL PORT (branch sentinel-nav; docs/SENTINEL_API.md = the official
 -- v0.0.8 page, docs/SENTINEL_V024.md = what the installed v0.24 really does).
@@ -862,9 +862,39 @@ function N.nav_ready()
     return c ~= nil and S.server_up(c)
 end
 
---- Kite point for a ranged retreat: nav_client:kite exists, but its callback
---- shape is neither documented nor recorded on v0.24 - off until verified.
-function N.kite(_, _, _) return false end
+--- 4.10.0 KITE: a ranged retreat point from Sentinel's nav_client:kite (a path
+--- round the target at KITE.RADIUS yd; the walk goes to its last point).
+--- cb(point | nil). The FIRST answer of an unexpected shape switches kiting
+--- off for the session (logged with what came back) - the call was read from
+--- the v0.0.6 source, so its v0.24 answer is checked live. True when asked.
+local KITE = { RADIUS = 15, off = false, said = false }
+N.KITE = KITE
+function N.kite(from, target, cb)
+    if KITE.off then return false end
+    local c = N.client()
+    if not c then return false end
+    return S.kite(c, R.point(from), R.point(target), KITE.RADIUS, function(pts, ok, info)
+        if info and info.shape_bad then
+            KITE.off = true
+            if not KITE.said then
+                KITE.said = true
+                R.log("Sentinel kite answered in an unknown shape (" .. tostring(info.got) .. ") - kiting off for this session")
+            end
+            pcall(cb, nil)
+            return
+        end
+        local last = pts and pts[#pts] or nil
+        local x, y, z                          -- (not `last and R.xyz(last)`: that keeps one value)
+        if last then x, y, z = R.xyz(last) end
+        if x then
+            stats.kites = (stats.kites or 0) + 1
+            pcall(cb, { x = x, y = y, z = z })
+        else
+            if info and info.error then R.trail("nav", "kite: no point (%s)", info.error) end
+            pcall(cb, nil)
+        end
+    end)
+end
 
 -- ----------------------------------------------------------------------------
 -- built-in grind zones (not recorded paths): a short visiting order

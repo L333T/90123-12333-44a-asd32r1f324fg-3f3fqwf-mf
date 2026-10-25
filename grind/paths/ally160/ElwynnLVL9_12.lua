@@ -3,7 +3,7 @@
 -- Elwynn Forest 9-12 (Vendor)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.9.0
+-- Version: 4.10.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

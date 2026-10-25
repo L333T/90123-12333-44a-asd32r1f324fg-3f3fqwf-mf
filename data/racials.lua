@@ -3,7 +3,7 @@
 -- Racial abilities (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.9.0
+-- Version: 4.10.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Only ACTIVE racials are listed. Passives (Diplomacy, Hardiness, The Human

@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.9.0
+-- Version: 4.10.0
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -640,6 +640,24 @@ function S.on_unload()
         T.active = false
     end
     unsub_events()
+end
+
+-- KITE (nav_client:kite, present on v0.24 with 5 args - MF API Dump
+-- 2026-10-24; its answer read from the readable v0.0.6 source, the same
+-- (true, { waypoints, ... }, nil) shape as find_path, which v0.24 confirmed):
+--   kite(player_pos, target_pos, cb(ok, { waypoints, waypoint_count }, err), { kite_radius })
+-- cb(points | nil, ok, info): info.shape_bad = an answer of another shape
+-- (the caller switches kiting off), info.error = the library's error text.
+function S.kite(c, from, target, radius, cb)
+    local okn, nc = pcall(function() return c.nav_client end)
+    if not okn or type(nc) ~= "table" or type(nc.kite) ~= "function" then return false end
+    local ok = pcall(nc.kite, nc, pt(from), pt(target), function(okp, data, err)
+        local pts = (type(data) == "table" and type(data.waypoints) == "table") and data.waypoints or nil
+        local info = { error = err ~= nil and tostring(err) or nil,
+            shape_bad = okp == true and pts == nil, got = type(data) }
+        pcall(cb, (pts and #pts >= 1) and pts or nil, okp == true, info)
+    end, { kite_radius = radius })
+    return ok == true
 end
 
 return S

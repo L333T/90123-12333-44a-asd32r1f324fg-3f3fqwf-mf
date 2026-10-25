@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.18.0
+-- Version: 4.19.0
 -- Folder: restedXP_questing
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -84,6 +84,20 @@ local FIND_MAX_REPAIR = 12
 local FIND_TIMEOUT = 90.0
 local TALK_WAIT = 1.5         -- seconds after an interact before judging it
 local ht = nil                -- hearth trip: { stage, t, tried = {}, cur, tries, started, want_repair }
+-- 4.19.0 FULL FOR 5 MINUTES -> HEARTHSTONE + REPAIR (user: "If bags are full
+-- for more than 5 mins. use hearthstone and find nearest repair vendor, run
+-- the vendoring and repair logic. Then resume questing logic"). The time the
+-- bags have had no free slot is clocked on every vendor tick; at FULL_HEARTH_S
+-- (Vendor tab "Hearth When Bags Full 5 Min", on) - out of combat, no merchant
+-- window open, the Hearthstone ready - whatever trip is running is dropped
+-- and a REPAIR hearth trip starts (want_repair: the merchant found at the inn
+-- must repair; repairers in sight - npc flag 0x1000 - are talked to first).
+-- The merchant window then sells (the full-bags rules, 4.16.0) and repairs as
+-- every trip does. No walk back to the paused quest spot (it is a hearth
+-- away): the quest engine takes over and travels to its step. Once per full
+-- spell: the clock restarts when a slot frees.
+local FULL_HEARTH_S = 300
+local full = { since = nil, hearthed = false }
 local ht_skip_until = 0       -- stone not ready: do not try to hearth again before this
 local ARRIVE = 5.0
 local FIND_RANGE = 12.0
@@ -856,6 +870,12 @@ function vendor.merchant_open()
     return merchant_open()
 end
 
+--- 4.19.0: seconds the bags have been full (nil: a slot is free).
+function vendor.full_for()
+    return full.since and (izi.now() - full.since) or nil
+end
+vendor._full = full
+
 function vendor.reset()
     ht = nil
     state.vendor.returning, state.vendor.return_pos = false, nil
@@ -1145,6 +1165,7 @@ local function hearth_tick(player)
         local can_fix = safe(function() return core.inventory.can_merchant_repair() end) == true
         if not ht.want_repair or can_fix then
             ht = nil           -- the merchant-window trip takes over below
+            state.vendor.reason = state.vendor.reason or "bags"     -- 4.19.0: sell by the full-bags rules
             return false
         end
         -- A merchant that cannot repair (an innkeeper): not this one.
@@ -1176,6 +1197,19 @@ local function hearth_tick(player)
         close_vendor()
     end
     local npcs = friendly_npcs(player, ht.tried, ht.want_repair and FIND_RADIUS_REPAIR or FIND_RADIUS)
+    -- 4.19.0: on a repair trip a repairer in sight (npc flag 0x1000) is asked first
+    if ht.want_repair and #npcs > 1 then
+        local function repairs(e)
+            local f = safe(function() return e.unit:get_npc_flags() end)
+            return type(f) == "number" and math.floor(f / 0x1000) % 2 == 1
+        end
+        local first, rest = {}, {}
+        for i = 1, #npcs do
+            if repairs(npcs[i]) then first[#first + 1] = npcs[i] else rest[#rest + 1] = npcs[i] end
+        end
+        for i = 1, #rest do first[#first + 1] = rest[i] end
+        npcs = first
+    end
     local n = npcs[1]
     if not n then
         ht.tries = max_tries
@@ -1400,6 +1434,23 @@ function vendor.tick(player)
         end
     end
     vendor.cap_soul_shards(player)      -- 2.208.0
+    -- 4.19.0: full for FULL_HEARTH_S -> Hearthstone and repair (see `full`)
+    if bag_free() == 0 then
+        full.since = full.since or izi.now()
+    else
+        full.since, full.hearthed = nil, false
+    end
+    if full.since and not full.hearthed and not ht and gui.is_on("full_hearth")
+        and (izi.now() - full.since) >= FULL_HEARTH_S
+        and safe(function() return player:is_in_combat() end) ~= true and not merchant_open() and hearth_ready() then
+        full.hearthed = true
+        if state.vendor.active then vendor.reset() end
+        state.vendor.reason = "bags"
+        state.vendor.returning, state.vendor.return_pos = false, nil
+        trail("bags full for %.0f min - Hearthstone to the inn, then sell and repair; questing resumes from there",
+            (izi.now() - full.since) / 60)
+        ht = { stage = "cast", t = izi.now(), tried = {}, tries = 0, want_repair = true }
+    end
     if not vendor.level_ok(player) and bag_free() > 0 then
         if state.vendor.active then
             vendor.reset()

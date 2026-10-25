@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.18.0
+-- Version: 4.19.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -379,6 +379,12 @@ menu:checkbox("mfg_sell_green", false, {
     tab = "vendor",
     tooltip = "Off by default. Greens can be upgrades.",
 })
+menu:checkbox("mfg_full_hearth", true, {        -- 4.19.0
+    label = "Hearth When Bags Full 5 Min",
+    tab = "vendor",
+    tooltip = "Bags full for 5 minutes (no vendor trip could empty them): use the Hearthstone, find the nearest repair NPC at the inn, "
+        .. "sell and repair there, then carry on questing from the inn. Once per full spell; only when the Hearthstone is ready.",
+})
 menu:checkbox("mfg_delete_junk", true, {
     label = "Delete Junk When Full",
     tab = "vendor",
@@ -721,6 +727,7 @@ local aliases = {
     sell_white = "mfg_sell_white",
     sell_green = "mfg_sell_green",
     delete_junk = "mfg_delete_junk",
+    full_hearth = "mfg_full_hearth",           -- 4.19.0
     spell_queue = "mfg_spell_queue",
     hunter_pet_aggro = "mfg_hunter_pet_aggro",  -- 2.284.0
     mage_poly = "mfg_mage_poly",                -- 4.17.0 (mage_poly.lua)

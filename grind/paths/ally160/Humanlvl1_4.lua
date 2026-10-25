@@ -3,7 +3,7 @@
 -- Human 1-4
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.18.0
+-- Version: 4.19.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

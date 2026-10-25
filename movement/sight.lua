@@ -4,7 +4,7 @@
 -- sight? Answered by AmeisenNav's navmesh, never by a game raycast.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.18.0
+-- Version: 4.19.0
 -- ============================================================================
 -- The user (2.313.0): "ensure enemy target is in LoS and not underground or
 -- unreachable" - after 2.311.0 removed every game raycast (los_to, trace_line,

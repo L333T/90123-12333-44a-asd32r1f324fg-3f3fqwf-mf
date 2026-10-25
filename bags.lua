@@ -3,7 +3,7 @@
 -- Bag items with the (bag, slot) pair the container calls actually take
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.18.0
+-- Version: 4.19.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- core.input.use_container_item documents it plainly: the slot index that

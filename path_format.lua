@@ -3,7 +3,7 @@
 -- PathTool format — { name, map_id, loop, waypoints[{x,y,z,wait,combo,actions}] }
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.18.0
+-- Version: 4.19.0
 -- Folder: restedXP_questing
 -- ============================================================================
 

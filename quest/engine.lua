@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.11.0
+-- Version: 4.12.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2471,7 +2471,7 @@ local function object_goal(player, goal, label)
     -- 1. The object's loot window: take everything, close it.
     local open, n = loot_window_open()
     if open then
-        for i = 0, n - 1 do
+        for _, i in ipairs(require("lootorder").order(n)) do   -- quest items first (lootorder.lua)
             pcall(function() core.input.loot_item(i) end)
         end
         pcall(function() core.input.close_loot() end)

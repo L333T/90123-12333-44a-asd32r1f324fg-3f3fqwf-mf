@@ -3,7 +3,7 @@
 -- Aura queries - one implementation, used by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.11.0
+-- Version: 4.12.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Everything in this project asked about auras the same way:

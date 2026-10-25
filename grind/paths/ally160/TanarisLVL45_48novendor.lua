@@ -3,7 +3,7 @@
 -- Tanaris 45-48
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.11.0
+-- Version: 4.12.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.11.0
+-- Version: 4.12.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- HOW IT WORKS
@@ -542,7 +542,7 @@ tick_inner = function(player)
             end
             -- Auto loot left items behind: take each slot (0 based), then
             -- close the window.
-            for i = 0, n - 1 do
+            for _, i in ipairs(require("lootorder").order(n)) do   -- quest items first (lootorder.lua)
                 pcall(function() core.input.loot_item(i) end)
             end
             pcall(function() core.input.close_loot() end)

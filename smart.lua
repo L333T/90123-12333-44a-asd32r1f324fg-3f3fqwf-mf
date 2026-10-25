@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.11.0
+-- Version: 4.12.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -2190,7 +2190,7 @@ local function pick_pocket_loot()
     if (SO.pp_loot or 0) < izi.now() then return end
     local n = safe(function() return core.game_ui.get_loot_item_count() end)
     if type(n) ~= "number" or n <= 0 then return end
-    for i = 0, n - 1 do
+    for _, i in ipairs(require("lootorder").order(n)) do   -- quest items first (lootorder.lua)
         pcall(function() core.input.loot_item(i) end)
     end
     pcall(function() core.input.close_loot() end)

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.3
+-- Version: 4.2.0
 -- Folder: restedXP_questing
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -41,7 +41,7 @@ local PLUGIN_MODULES = {
     "targeting",
     "movement",
     -- 3.0.0: the movement layer modules (fresh code on a reload)
-    "movement/core", "movement/zones", "movement/guide_path", "movement/mount", "movement/nav", "movement/locks",
+    "movement/core", "movement/zones", "movement/sentinel", "movement/mount", "movement/nav", "movement/locks",
     "movement/range", "movement/combat", "movement/leash", "movement/sight",
     "loot",
     "path_runner",
@@ -851,7 +851,7 @@ if errorlog then
     end)
 end
 
--- AmeisenNav walks asked for since the last MEM line (movement/nav stats).
+-- Sentinel walks asked for since the last MEM line (movement/nav stats).
 if errorlog then
     errorlog.set_mem_extra(function()
         local okm, mv = pcall(require, "movement")
@@ -860,8 +860,9 @@ if errorlog then
         end
         local s = mv.nav_stats()
         if type(s) ~= "table" then return nil end
-        local text = string.format("ameisen walks %d issued, %d refused", s.issued or 0, s.refused or 0)
-        s.issued, s.refused = 0, 0
+        local text = string.format("sentinel walks %d issued, %d refused, %d floor queries, %d deferred stops",
+            s.issued or 0, s.refused or 0, s.floors or 0, s.deferred_stops or 0)
+        s.issued, s.refused, s.floors, s.deferred_stops = 0, 0, 0, 0
         return text
     end)
 end
@@ -979,7 +980,7 @@ core.log(string.format("[restedXP_questing] v%s loaded by %s", identity.version,
 local function on_unload()
     NS._sessions[identity.folder] = (NS._sessions[identity.folder] or MY_SESSION) + 1
     if path_runner then pcall(path_runner.stop) end
-    if movement then pcall(movement.halt) end      -- AmeisenNav client stop + walker halt
+    if movement then pcall(movement.halt) end      -- Sentinel stop (4.2.0)
     local sn = package.loaded["movement/sentinel"]    -- 4.1.0: self-test listeners / walk
     if type(sn) == "table" and type(sn.on_unload) == "function" then pcall(sn.on_unload) end
     if strafe then pcall(strafe.stop) end

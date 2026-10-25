@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.3
+-- Version: 4.2.0
 -- Folder: restedXP_questing
 -- ============================================================================
 

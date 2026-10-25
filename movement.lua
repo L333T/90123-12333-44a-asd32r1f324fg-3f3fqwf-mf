@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.3
+-- Version: 4.2.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -305,12 +305,7 @@ function movement.owner()
 end
 
 function movement.state()
-    local c = N.client()
-    if c and type(c.get_full_state) == "function" then
-        local ok, s = pcall(c.get_full_state, c)
-        if ok then return s end
-    end
-    return N.busy() and "navigating" or "idle"
+    return N.full_state() or (N.busy() and "navigating" or "idle")     -- 4.2.0: Sentinel, through movement/nav
 end
 
 -- The GUI movement panel is drawn on the RENDER path, where no game call
@@ -336,6 +331,7 @@ build_snapshot = function(t)
         sentinel = N.busy(),
         -- 4.0.4 (R2.4): the server state, read here on the update tick
         nav = N.client() == nil and "missing" or (N.nav_ready() and "ready" or "down"),
+        nav_why = N.unavailable(),                        -- 4.2.0: why Sentinel cannot navigate (GUI)
         quiet = t < (R.quiet_until or 0),
         target_dist = d,
     }

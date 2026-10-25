@@ -57,6 +57,16 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 
 ## Architecture in one page
 
+- **SENTINEL NAVIGATION (branch sentinel-nav, 4.1.0+)** - this branch walks with Sentinel Navigation (`_G.SentinelNavClient`), NOT
+  MasterArthasNav: every Sentinel call is in `movement/sentinel.lua`; `movement/nav.lua` keeps the old `N.*` interface. API sources:
+  `docs/SENTINEL_API.md` (official v0.0.8 page) and `docs/SENTINEL_V024.md` (what the installed v0.24 really does, from the
+  Settings-tab Sentinel Self-Test). Facts that shape the code: a replaced or stopped walk gets NO callback; no pause / resume / is_busy;
+  get_height answers `{ height }`; off-mesh targets cost ~6 s of retries before Sentinel snaps them. The server / map set come from
+  the launcher (`MASTER_FARMER.nav`, which lives in the product env - never `rawget(_G, ...)`). Native `core.menu.button`s do not
+  paint in this skinned window. The ArthasNav notes below describe `dev`; tests built on an ArthasNav mock (test_movement3,
+  test_fresh_leg, test_grind_pivot, test_far_height, test_grind_handoff, test_audit_fixes LOGIC-1) do not apply here - use
+  tests/test_sentinel_nav.lua and test_sentinel_selftest.lua.
+
 - **Targets** (2.226.0): a target being fought (`targeting.engaged`: alive, in combat or wounded) is kept until it dies -
   `combat.acquire`, `targeting.attacker_to_switch` and the quest fight-back never swap it for an add or a closer mob.
 - **Approach / grind path** (2.230.0): `targeting.approach_stuck` drops a target the character cannot get 3 yd closer to in 8 s

@@ -3,7 +3,7 @@
 -- movement/pivot.lua - stop and turn on sharp waypoint turns
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.3
+-- Version: 4.2.0
 -- ============================================================================
 -- THE RULE (CLAUDE_MOVEMENT_RULES.md, "Sharp turns: stop, turn, go"):
 -- AmeisenNav's walkers keep running forward while they turn, so a sharp
@@ -82,12 +82,13 @@ local function enabled()
     return not ok or v ~= false
 end
 
----The next point of AmeisenNav's walk at least MIN_DIST yd away, or nil.
-local function next_point(c, px, py)
-    local okp, pts = pcall(c.get_current_path, c)
-    local oki, i = pcall(c.get_path_index, c)
-    if not okp or type(pts) ~= "table" or #pts == 0 then return nil end
-    i = (oki and type(i) == "number" and i >= 1) and math.floor(i) or 1
+---The next point of the walk at least MIN_DIST yd away, or nil. 4.2.0: read
+---through movement/nav (Sentinel get_current_path / get_path_index, docs/SENTINEL_API.md).
+local function next_point(_, px, py)
+    local pts = N.path_points()
+    local i = N.path_index()
+    if type(pts) ~= "table" or #pts == 0 then return nil end
+    i = (type(i) == "number" and i >= 1) and math.floor(i) or 1
     for k = i, #pts do
         local p = pts[k]
         if type(p) == "table" and type(p.x) == "number" then
@@ -166,7 +167,8 @@ function Pv.tick(t)
 
     if t < next_ok or math.abs(diff) <= math.rad(Pv.ON_DEG) then return end
     if not busy or N.leg_fresh() then return end      -- 3.7.1: never hold a fresh leg
-    -- sharp: hold the walk (AmeisenNav lets go of its keys), turn on the spot
+    -- sharp: hold the walk (4.2.0 Sentinel: stopped, walked again after the
+    -- turn - movement/nav N.pause / N.resume), turn on the spot
     N.pause(REASON)
     pcall(function() core.input.move_forward_stop() end)
     keys_off()

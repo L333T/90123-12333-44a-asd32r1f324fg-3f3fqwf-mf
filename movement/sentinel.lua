@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.1.3
+-- Version: 4.2.0
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -103,6 +103,135 @@ function S.unavailable()
     local ok, up = pcall(function() return c:is_server_available() end)
     if not ok or up ~= true then return "the navigation server is not answering" end
     return nil
+end
+
+-- ----------------------------------------------------------------------------
+-- 4.2.0 RUNTIME CALLS - the only Sentinel calls the bot makes. Arguments and
+-- answers as documented (docs/SENTINEL_API.md, the official v0.0.8 page) and
+-- as recorded on v0.24 (docs/SENTINEL_V024.md). Every call is pcall-guarded;
+-- callbacks are wrapped so the bot sees one fixed shape.
+-- ----------------------------------------------------------------------------
+local function m(c, name, ...)
+    local f = c and c[name]
+    if type(f) ~= "function" then return false end
+    return pcall(f, c, ...)
+end
+
+local function pt(p)
+    return { x = p.x, y = p.y, z = p.z }
+end
+
+---move_to: cb(success, reason) - reason "unreachable" | "server_timeout" |
+---"max_stuck_exceeded" | "max_repath_exceeded" (doc). A walk replaced by a
+---newer move_to, or stopped, gets NO callback (recorded on v0.24). A second
+---move_to while walking re-plans without stopping (0.12 s, recorded).
+function S.move_to(c, p, cb)
+    local ok = m(c, "move_to", pt(p), function(success, reason)
+        if cb then pcall(cb, success == true, reason ~= nil and tostring(reason) or nil) end
+    end)
+    return ok == true
+end
+
+---follow_path: precomputed waypoints in order; cb(success, reason) (doc).
+function S.follow_path(c, points, cb)
+    local list = {}
+    for i = 1, #points do list[i] = pt(points[i]) end
+    local ok = m(c, "follow_path", list, function(success, reason)
+        if cb then pcall(cb, success == true, reason ~= nil and tostring(reason) or nil) end
+    end)
+    return ok == true
+end
+
+---stop(): stops all movement (doc); no callback for the stopped walk (v0.24).
+function S.stop(c) return m(c, "stop") == true end
+
+---is_moving(): true only while the top-level state is navigating (doc).
+function S.moving(c)
+    local ok, v = m(c, "is_moving")
+    return ok and v == true
+end
+
+---get_state(): "idle" | "navigating" | "arrived" | "failed" (doc), or nil.
+function S.state(c)
+    local ok, v = m(c, "get_state")
+    return ok and type(v) == "string" and v or nil
+end
+
+---get_full_state(): dotted ("navigating.awaiting_path", ...) or nil.
+function S.full_state(c)
+    local ok, v = m(c, "get_full_state")
+    return ok and type(v) == "string" and v or nil
+end
+
+---The walk is still waiting for (or re-requesting) its path.
+function S.path_pending(c)
+    local f = S.full_state(c) or ""
+    return f:find("awaiting_path", 1, true) ~= nil or f:find("repathing", 1, true) ~= nil
+end
+
+function S.server_up(c)
+    local ok, v = m(c, "is_server_available")
+    return ok and v == true
+end
+
+---get_current_path() -> vec3[] | nil, get_path_index() -> number (doc).
+function S.current_path(c)
+    local ok, v = m(c, "get_current_path")
+    return (ok and type(v) == "table") and v or nil
+end
+function S.path_index(c)
+    local ok, v = m(c, "get_path_index")
+    return (ok and type(v) == "number") and v or nil
+end
+
+---Every navmesh floor at (x, y): cb(list of heights, nearest `p.z` first).
+---v0.24 answers (true, { count, heights = { { height, flags }, ... } }, nil).
+---False when the query could not be sent (cb is not called then).
+function S.floors(c, p, cb)
+    local done = false
+    local ok = m(c, "get_all_heights", pt(p), function(okh, data)
+        if done then return end
+        done = true
+        local out = {}
+        local hs = (okh == true and type(data) == "table") and data.heights or nil
+        for i = 1, #(type(hs) == "table" and hs or {}) do
+            local h = hs[i]
+            local v = type(h) == "table" and tonumber(h.height) or tonumber(h)
+            if v and v == v and math.abs(v) < 20000 then out[#out + 1] = v end
+        end
+        local z = tonumber(p.z) or 0
+        table.sort(out, function(a, b) return math.abs(a - z) < math.abs(b - z) end)
+        pcall(cb, out)
+    end)
+    return ok == true
+end
+
+---validate_destination: cb(reachable, reason, distance) (doc, recorded).
+function S.validate(c, p, cb)
+    local ok = m(c, "validate_destination", pt(p), function(reachable, reason, distance)
+        pcall(cb, reachable == true, reason, distance)
+    end)
+    return ok == true
+end
+
+---plan_route: cb(success, data) - data.visit_order on success (doc).
+function S.plan_route(c, nodes, cb)
+    local ok = m(c, "plan_route", nodes, function(success, data) pcall(cb, success == true, data) end)
+    return ok == true
+end
+
+---One path query, no movement (advanced: client.nav_client:find_path).
+---v0.24 answers (true, { waypoints, distance, partial, computation_time_ms }, nil).
+---cb(points or nil, ok, info) where info.partial says the path stops short.
+function S.find_path(c, a, b, cb)
+    local okn, nc = pcall(function() return c.nav_client end)
+    if not okn or type(nc) ~= "table" or type(nc.find_path) ~= "function" then return false end
+    local ok = pcall(nc.find_path, nc, pt(a), pt(b), function(okp, data)
+        local pts = (type(data) == "table" and type(data.waypoints) == "table") and data.waypoints or nil
+        local info = { partial = type(data) == "table" and data.partial == true or false }
+        pcall(cb, (pts and #pts >= 2) and pts or nil, okp == true, info)
+    end)
+    return ok == true
 end
 
 -- ----------------------------------------------------------------------------

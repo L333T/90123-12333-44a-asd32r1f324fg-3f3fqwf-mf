@@ -3,7 +3,7 @@
 -- movement/combat.lua - closing on a target and standing in range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.3
+-- Version: 4.2.0
 -- ============================================================================
 -- combat_engage(player, unit, yards) is called every tick of a fight.
 --   * OWNERSHIP: each call holds travel off for COMBAT_HOLD s
@@ -79,13 +79,13 @@ end
 
 local function start_retreat(player, unit)
     if st.kite_pending then return end
-    local c = N.client()
-    if not c or type(c.kite) ~= "function" then return end
+    -- 4.2.0: through movement/nav (Sentinel nav_client:kite is off until its
+    -- callback is verified - N.kite answers false, no retreat walk)
     local okp, pp = pcall(player.get_position, player)
     local oku, up = pcall(unit.get_position, unit)
     if not okp or not oku or not pp or not up then return end
     st.kite_pending = true
-    local ok = pcall(c.kite, c, R.point(pp), R.point(up), function(point)
+    local ok = N.kite(R.point(pp), R.point(up), function(point)
         st.kite_pending = false
         if point and N.nav_to(point, true, "combat") then
             st.retreat_until = R.now() + RETREAT_TIME

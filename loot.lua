@@ -3,7 +3,7 @@
 -- Auto loot - a GUID queue, resolved fresh every tick
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.23.0
+-- Version: 4.24.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- HOW IT WORKS

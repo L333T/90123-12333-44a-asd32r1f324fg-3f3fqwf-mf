@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.23.0
+-- Version: 4.24.0
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -652,11 +652,18 @@ end
 -- The values Sentinel had before are read back first (blackboard get) and
 -- put back when the player is outdoors again, and on unload. Reapplied
 -- every INDOOR_REAPPLY s while indoors (the Sentinel UI may write its own).
-local INDOOR = { waypoint_tolerance = 1.2, wall_clearance = 0.75, string_pull_wall_dist = 0.8,
-    use_corridor_indoor = true, max_deviation = 1.5, deviation_threshold = 1.6,
-    deviation_vertical_repath = true, deviation_vertical_threshold = 1.5 }
+-- 4.24.0 (user: "Leave the indoor Profile on, Lower the number of movements
+-- to the same as outdoors" - the indoor crash may have come from too many
+-- movement actions): only the PATH SHAPE stays tighter indoors (clearance,
+-- string pull, corridor centring - they change where the path goes, not how
+-- often the player is steered). Waypoint tolerance and the deviation /
+-- vertical re-path settings are no longer overridden: indoors steers and
+-- re-paths exactly as outdoors. Applied once on entering (no re-apply).
+local INDOOR = { wall_clearance = 0.75, string_pull_wall_dist = 0.8, use_corridor_indoor = true }
 S.INDOOR = INDOOR
 local INDOOR_HOLD, INDOOR_REAPPLY = 1.5, 5.0
+S.INDOOR_PROFILE = true       -- 4.24.0: on (path shape only - see INDOOR)
+INDOOR_REAPPLY = math.huge    -- 4.24.0: applied once on entering, never re-sent
 local IN = { on = false, seen = nil, since = 0, saved = nil, applied_t = -1e9, client = nil }
 
 local function bb_get(c, key)
@@ -699,6 +706,11 @@ function S.indoor_tick(c, t)
     local inside = player_indoors()
     if inside ~= IN.seen then IN.seen, IN.since = inside, t end
     local steady = (t - IN.since) >= INDOOR_HOLD
+    if not S.INDOOR_PROFILE then
+        if IN.saved then indoor_restore("indoor profile off") end
+        IN.on = inside and steady or (IN.on and not (not inside and steady))
+        return
+    end
     if inside and steady then
         if not IN.on then
             local saved = {}

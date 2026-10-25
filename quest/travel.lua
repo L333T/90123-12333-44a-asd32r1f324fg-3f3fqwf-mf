@@ -3,7 +3,7 @@
 -- quest/travel.lua - flights: RestedXP ".fly" goals and far-goal flight trips
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.23.0
+-- Version: 4.24.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 2.307.0: SPLIT OUT OF quest/engine.lua, which sat at Lua's hard limit of
@@ -733,6 +733,89 @@ local function far_travel(player, goal, kind, wps, label)
     end
     state.set_note("Travel", "Talking to the flight master")
     return true
+end
+
+-- 4.24.0 HEARTH (user: "When item is needed to be used from bag it doesn't
+-- do the action" - step 93 "Hearth to Southshore" stood "waiting at" for
+-- good). RestedXP's .hs goal (functions.lua addon.functions.hs) completes on
+-- the player's UNIT_SPELLCAST_SUCCEEDED of the Hearthstone (8690) or Astral
+-- Recall (556); it was mapped to "goto", so the bot walked to the step's
+-- point and waited. TR.hs_goal: out of combat, stop, dismount, use the
+-- Hearthstone from the bags (spellcheck.use_item - core API), stand for the
+-- 10 s cast (HS.CAST_HOLD); RestedXP ticks the step when it lands. On
+-- cooldown: a Shaman's Astral Recall, else wait while it is ready within
+-- HS.WAIT_MAX s, else (or with no Hearthstone in the bags) the step is
+-- skipped (guide.skip_current) - the next steps travel on.
+local HS = { ID = 6948, RECALL = 556, CAST_HOLD = 12.0, RETRY = 15.0, WAIT_MAX = 300, t = -1e9, said = nil }
+TR.HS = HS
+
+local function has_hearthstone(player)
+    local okb, bags = pcall(require, "bags")
+    local list = okb and type(bags) == "table" and type(bags.list) == "function" and safe(function() return bags.list(player) end) or nil
+    if type(list) ~= "table" then return nil end
+    for i = 1, #list do
+        if list[i].item_id == HS.ID then return true end
+    end
+    return false
+end
+
+--- One tick of a RestedXP ".hs" goal. True while the tick is spent here.
+function TR.hs_goal(player, goal, label)
+    if not player then return false end
+    if safe(function() return player:is_in_combat() end) == true then return false end
+    local now = izi.now()
+    local casting = safe(function() return player:is_channeling_or_casting() end) == true
+    if casting or (now - HS.t) < HS.CAST_HOLD then
+        movement.nav_stop()
+        state.set_note("Quest", "Guide: hearthstone - " .. tostring(label))
+        return true
+    end
+    local sc = package.loaded["spellcheck"] or safe(function() return require("spellcheck") end)
+    local have = has_hearthstone(player)
+    local cd = tonumber(safe(function() return player:get_item_cooldown(HS.ID) end)) or 0
+    if have ~= false and cd <= 0.05 then
+        if (now - HS.t) < HS.RETRY and HS.t > 0 then
+            state.set_note("Quest", "Guide: waiting for the hearth to land")
+            return true
+        end
+        movement.nav_stop()
+        if safe(function() return player:is_mounted() end) == true then
+            pcall(core.input.dismount)
+            state.set_note("Quest", "Guide: dismount to hearth")
+            return true
+        end
+        if movement.is_moving() then
+            state.set_note("Quest", "Guide: stopping to hearth")
+            return true
+        end
+        local ok = type(sc) == "table" and type(sc.use_item) == "function" and sc.use_item(HS.ID) == true
+        HS.t = now
+        trail("act", "hearthstone for '%s'%s", tostring(label), ok and "" or " - the client refused, again soon")
+        state.set_note("Quest", "Guide: hearthstone - " .. tostring(label))
+        return true
+    end
+    -- the stone is not ready (or not in the bags): a Shaman's Astral Recall
+    local recall_ok = type(sc) == "table" and type(sc.core_cast) == "function" and type(sc.core_castable) == "function"
+        and sc.core_castable(HS.RECALL, player) == true
+    if recall_ok then
+        movement.nav_stop()
+        if sc.core_cast(HS.RECALL, player) == true then
+            HS.t = now
+            trail("act", "Astral Recall for '%s' (hearthstone %s)", tostring(label), have == false and "not in the bags" or "on cooldown")
+            return true
+        end
+    end
+    if have ~= false and cd <= HS.WAIT_MAX then
+        state.set_note("Quest", string.format("Guide: hearthstone ready in %.0f s - %s", cd, tostring(label)))
+        return true
+    end
+    local why = have == false and "no Hearthstone in the bags" or string.format("Hearthstone on cooldown (%.0f min)", cd / 60)
+    if HS.said ~= why then
+        HS.said = why
+        trail("act", "%s - skipping '%s'", why, tostring(label))
+    end
+    if type(guide.skip_current) == "function" then guide.skip_current(why) end
+    return false
 end
 
 --- A new goal: the flight-master bookkeeping of the last one is dropped.

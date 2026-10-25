@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.23.0
+-- Version: 4.24.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -3404,6 +3404,11 @@ tick_inner = function(player)
         end
     elseif kind == "item" then
         if item_goal(player, goal, label) then
+            return
+        end
+    elseif kind == "hs" then
+        -- 4.24.0: RestedXP ".hs" - the Hearthstone is used from the bags
+        if TR.hs_goal(player, goal, label) then
             return
         end
     elseif kind == "object" then

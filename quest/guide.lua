@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.23.0
+-- Version: 4.24.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -928,7 +928,7 @@ local ACTIONS = {
     waypoint        = "goto",
     zone            = "goto",
     home            = "talk",       -- 2.134.0: speak to the innkeeper and bind
-    hs              = "goto",
+    hs              = "hs",         -- 4.24.0: use the Hearthstone (quest/travel.lua TR.hs_goal)
 
     -- click a thing in the world
     treasure        = "object",

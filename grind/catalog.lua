@@ -3,7 +3,7 @@
 -- Grind path catalog: Alliance 1-60 Elwynn / Westfall
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.2
+-- Version: 4.1.3
 -- Folder: restedXP_questing
 -- ============================================================================
 

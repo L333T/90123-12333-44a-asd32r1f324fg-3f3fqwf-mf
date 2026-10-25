@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.2
+-- Version: 4.1.3
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES

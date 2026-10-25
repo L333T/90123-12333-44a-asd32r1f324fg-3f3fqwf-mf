@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.1.2
+-- Version: 4.1.3
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -28,7 +28,8 @@
 -- answer - callback arguments, a second move_to while moving, stop(), the
 -- height payloads, the EventBus payloads - to
 --     scripts_data/<MASTER_FARMER.data_dir>/sentinel_selftest.txt
--- It walks the character a few yards (8 - 12 yd) and back.
+-- It walks the character up to 30 yd away and back (4.1.3: an 8 yd walk
+-- arrived in 0.7 s, before the second move_to / stop() could be tried).
 -- SAFE TIMING (the crash pattern of 2.181.0 / 3.7.1, v0.23 era: stopping a
 -- leg still awaiting its path, or under ~1.6 s old, came right before game
 -- crashes): the second move_to and the stop() wait until the walk is
@@ -76,9 +77,17 @@ function S.version()
     return (ok and v ~= nil) and tostring(v) or ""
 end
 
+---The launcher's MASTER_FARMER table, or nil. 4.1.3: it lives in this
+---product's environment (mfcore/loader.lua env.MASTER_FARMER), NOT in the
+---real _G - rawget(_G, ...) never saw it (the 4.1.2 self-test read kind "none").
+function S.master_farmer()
+    local mf = MASTER_FARMER
+    return type(mf) == "table" and mf or nil
+end
+
 ---MASTER_FARMER.nav from the launcher, or a table saying it is missing.
 function S.info()
-    local mf = rawget(_G, "MASTER_FARMER")
+    local mf = S.master_farmer()
     local n = type(mf) == "table" and mf.nav or nil
     if type(n) == "table" and n.kind == "sentinel" then return n end
     return { kind = "none", game = nil, supported = false }
@@ -151,7 +160,7 @@ local function cb_recorder(label)
 end
 
 local function data_path()
-    local mf = rawget(_G, "MASTER_FARMER")
+    local mf = S.master_farmer()
     local dir = (type(mf) == "table" and type(mf.data_dir) == "string") and mf.data_dir or DEFAULT_DIR
     return dir, dir .. "/" .. FILE_NAME
 end
@@ -202,6 +211,12 @@ local function safe_to_touch(c, since)
     local ok, full = pcall(function() return c:get_full_state() end)
     full = ok and tostring(full) or ""
     return full:find("following_path", 1, true) ~= nil
+end
+
+---The walk is still navigating (any navigating.* sub-state).
+local function navigating(c)
+    local ok, full = pcall(function() return c:get_full_state() end)
+    return ok and tostring(full):find("navigating", 1, true) == 1
 end
 
 local OWNER = {}
@@ -281,8 +296,8 @@ local steps = {
     end,
     -- 3. move_to A, then a second move_to (B) while it walks
     function(c)
-        A = ahead(8, 0)
-        rec("move_to A %s  (8 yd ahead)", describe(A))
+        A = ahead(30, 0)
+        rec("move_to A %s  (30 yd ahead)", describe(A))
         local ok, r = pcall(function() return c:move_to(A, cb_recorder("move_to A")) end)
         rec("move_to A returned %s  %s", ok and describe(r) or ("error " .. tostring(r)), state_text(c))
         T.leg_t = now()
@@ -291,12 +306,17 @@ local steps = {
     end,
     function(c)
         if not safe_to_touch(c, T.leg_t) then
+            if not navigating(c) then
+                rec("second move_to NOT tried: walk A ended after %.1f s, before it was %.1f s old (%s)",
+                    now() - T.leg_t, SAFE_LEG, state_text(c))
+                return 0
+            end
             if now() - T.leg_t < SAFE_WAIT then return false end
             rec("SKIPPED second move_to: walk A never reached following_path (%s) - no more moves are sent", state_text(c))
             T.no_moves = true
             return 0
         end
-        B = ahead(8, 45)
+        B = ahead(25, 45)
         rec("SECOND move_to B %s while moving (%s)", describe(B), state_text(c))
         local ok, r = pcall(function() return c:move_to(B, cb_recorder("move_to B")) end)
         rec("move_to B returned %s  %s", ok and describe(r) or ("error " .. tostring(r)), state_text(c))
@@ -306,8 +326,8 @@ local steps = {
     -- 4. move_to C, then stop() while it walks
     function(c)
         if T.no_moves then rec("SKIPPED move_to C (a walk is still waiting for its path)") return 0 end
-        C = ahead(10, 180)
-        rec("move_to C %s (10 yd back), stop() once it follows its path and is %.1f s old", describe(C), SAFE_LEG)
+        C = ahead(30, 180)
+        rec("move_to C %s (30 yd back), stop() once it follows its path and is %.1f s old", describe(C), SAFE_LEG)
         pcall(function() c:move_to(C, cb_recorder("move_to C")) end)
         T.leg_t = now()
         T.watch = { until_t = now() + SAFE_WAIT, label = "after move_to C" }
@@ -316,6 +336,11 @@ local steps = {
     function(c)
         if T.no_moves then return 0 end
         if not safe_to_touch(c, T.leg_t) then
+            if not navigating(c) then
+                rec("stop() NOT tried: walk C ended after %.1f s, before it was %.1f s old (%s)",
+                    now() - T.leg_t, SAFE_LEG, state_text(c))
+                return 0
+            end
             if now() - T.leg_t < SAFE_WAIT then return false end
             rec("SKIPPED stop(): walk C never reached following_path (%s) - no more moves are sent", state_text(c))
             T.no_moves = true

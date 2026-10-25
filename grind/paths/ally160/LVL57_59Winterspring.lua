@@ -3,7 +3,7 @@
 -- Winterspring 57-59
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.26.0
+-- Version: 4.27.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Generated from PathTool JSON. Do not hand-edit: regenerate instead.

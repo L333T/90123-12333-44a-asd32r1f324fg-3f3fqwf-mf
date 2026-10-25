@@ -3,7 +3,7 @@
 -- quest/objguard.lua - world objects that crash the game when used
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.26.0
+-- Version: 4.27.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.23.0 (user: "Check logs for what is causing disconnection during
@@ -21,7 +21,16 @@
 --   * O.method(obj): the call to use - "use" (use_object), "interact"
 --     (interact_with_object) once "use" crashed on it, nil once both did (the
 --     object is skipped; the note says to open it by hand).
--- SEEDED with the three Pamela's Doll pieces (use_object crashed 3 times).
+-- 4.27.0 (user: "Check crash logs and correct crashing issue"): the 03:05
+-- crash left the journal "interact|joseph redpath's monument" - use_object
+-- was NOT accepted (4 yd: not yet in reach) and the old fallback,
+-- core.input.interact_with_object on a WORLD OBJECT, is what died. The 4.22
+-- Pamela's Doll crashes went the same way (use_object, then the same
+-- fallback). So: a world object (not a unit) gets use_object ONLY - never
+-- interact_with_object; not accepted = "refused" (the caller steps closer and
+-- tries again). Units (NPCs) keep interact_with_object. The journal guards
+-- use_object: an object it crashed on is skipped for good. The 4.23 seed
+-- (Doll pieces -> interact) is gone - it pointed at the call that crashed.
 -- Names are compared lower-case.
 -- ============================================================================
 
@@ -32,11 +41,7 @@ local OBJGUARD_FILE = FOLDER .. "/objguard_pending.txt"
 local CRASH_FILE = FOLDER .. "/objguard_crashed.txt"
 O.CLEAR_S = 4.0
 
-local SEED = {
-    ["pamela's doll's left side"] = { use = true },
-    ["pamela's doll's right side"] = { use = true },
-    ["pamela's doll's head"] = { use = true },
-}
+local SEED = {}
 
 local crashed = nil        -- name -> { use = true, interact = true }
 local pending = nil        -- { t, name, method } written to the file
@@ -113,17 +118,21 @@ local function load()
     end
 end
 
---- The safe call for `obj`: "use", "interact", or nil (both crashed: skip it).
+local function is_unit(obj)
+    return safe(function() return obj:is_unit() end) == true
+end
+
+--- The safe call for `obj`: "interact" for a unit (an NPC), "use" for a world
+--- object, nil when use_object crashed the game on it before (skip it).
 function O.method(obj)
     load()
+    if is_unit(obj) then return "interact" end
     local n = name_of(obj)
     local e = n and crashed[n] or nil
-    if not e then return "use" end
-    if not e.use then return "use" end
-    if not e.interact then return "interact" end
+    if not e or not e.use then return "use" end
     if n and not said[n] then
         said[n] = true
-        warn("'" .. n .. "' crashed the game with use_object and interact_with_object - skipped; open it by hand")
+        warn("'" .. n .. "' crashed the game with use_object - skipped; open it by hand")
     end
     return nil
 end
@@ -148,21 +157,23 @@ function O.tick()
     end
 end
 
---- Open `obj` the safe way: journal + the right call. true when a call went out.
+--- Open `obj` the safe way. Returns sent, how: true + "use" / "interact";
+--- false + "refused" (use_object not accepted - step closer, try again);
+--- false + "crashed before - skipped".
 function O.open(obj)
     local m = O.method(obj)
-    if not m then return false, "both ways crashed the game - skipped" end
-    O.before(obj, m)
-    if m == "use" then
-        local ok = safe(function() return core.input.use_object(obj) end)
-        if ok == true then return true, m end
-        -- not accepted: the other call, journalled as such
-        O.before(obj, "interact")
+    if not m then return false, "crashed before - skipped" end
+    if m == "interact" then                       -- a unit (NPC): the normal interact
         pcall(function() core.input.interact_with_object(obj) end)
-        return true, "interact"
+        return true, m
     end
-    pcall(function() core.input.interact_with_object(obj) end)
-    return true, m
+    O.before(obj, "use")
+    local ok = safe(function() return core.input.use_object(obj) end)
+    if ok == true then return true, "use" end
+    -- NEVER interact_with_object on a world object (4.27.0): the call that crashed
+    pending = nil
+    write(OBJGUARD_FILE, "")
+    return false, "refused"
 end
 
 function O._reset() crashed, pending, said = nil, nil, {} end

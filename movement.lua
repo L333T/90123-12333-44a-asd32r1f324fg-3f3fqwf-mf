@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.26.0
+-- Version: 4.27.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -228,7 +228,7 @@ function movement.interact(unit)
             return sent == true
         end
         local oku, used = pcall(function() return core.input.use_object(unit) end)
-        if oku and used == true then return true end
+        return oku and used == true            -- 4.27.0: never interact_with_object on a world object
     end
     local ok = pcall(function() core.input.interact_with_object(unit) end)
     return ok

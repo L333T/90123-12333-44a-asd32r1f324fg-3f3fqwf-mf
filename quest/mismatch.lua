@@ -3,7 +3,7 @@
 -- quest/mismatch.lua - guide / character zone mismatch
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.26.0
+-- Version: 4.27.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY (2.281.0). A dwarf in Coldridge Valley with the HUMAN RestedXP guide

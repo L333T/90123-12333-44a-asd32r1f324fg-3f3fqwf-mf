@@ -3,7 +3,7 @@
 -- quest/useitem.lua - the guide's RXP_PICK objects; quest items only at them
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.26.0
+-- Version: 4.27.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.3.0 (in-game log 2026-10-24 20:01, Eastern Plaguelands): "Plagueland
@@ -47,6 +47,7 @@ local U = {}
 
 U.SCAN = 60           -- yd: objects of the step's names looked for this far
 U.USE_NEAR = 3.5      -- yd: opened / used from this close
+U.USE_CLOSE = 2.0     -- 4.27.0: yd after use_object was not accepted (never interact_with_object)
 U.WAIT_LOOT = 1.5     -- s an open waits for its loot window
 U.WAIT_USE = 1.5      -- s after a use (and its cast) before the next cycle
 U.TRIES = 3           -- cycles at one object without the count moving
@@ -172,9 +173,10 @@ end
 
 --- Walk to the object (true while walking).
 local function approach(obj, d, name, label, walk_to)
-    if type(d) ~= "number" or d <= U.USE_NEAR then return false end
+    local near = cur.close and U.USE_CLOSE or U.USE_NEAR          -- 4.27.0: closer after a refusal
+    if type(d) ~= "number" or d <= near then return false end
     local p = safe(function() return obj:get_position() end)
-    if p and type(walk_to) == "function" and walk_to(p, label, U.USE_NEAR - 1.0, true) then
+    if p and type(walk_to) == "function" and walk_to(p, label, math.max(1.0, near - 1.0), true) then
         state.set_note("Quest", string.format("Guide: to the %s (%.0f yd) for %s", name, d, label))
         return true
     end
@@ -216,7 +218,7 @@ function U.goal(player, goal, kind, wps, label, walk_to)
     local guid = safe(function() return obj:get_guid() end)
     local c = count_of(label)
     if guid ~= cur.guid then
-        cur.guid, cur.phase, cur.cycles, cur.count = guid, nil, 0, c
+        cur.guid, cur.phase, cur.cycles, cur.count, cur.close = guid, nil, 0, c, nil
     elseif c and cur.count and c > cur.count then
         cur.cycles, cur.count = 0, c
     end
@@ -241,6 +243,13 @@ function U.goal(player, goal, kind, wps, label, walk_to)
     -- crashed both ways is skipped)
     local OG = require("quest/objguard")
     local sent, how = OG.open(obj)
+    if not sent and how == "refused" then
+        -- 4.27.0: not in reach yet - step closer (USE_CLOSE yd) and try again
+        cur.close = true
+        next_t = now + 0.5
+        trail("act", "%s: use_object not accepted at %.1f yd - closing in", name, d or -1)
+        return true
+    end
     if not sent then
         if guid then skip[guid] = now + 3600 end
         trail("act", "%s: %s", name, tostring(how))

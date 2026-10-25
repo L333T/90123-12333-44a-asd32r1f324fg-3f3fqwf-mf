@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through Sentinel Navigation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.8.0
+-- Version: 4.9.0
 -- ============================================================================
 -- 4.2.0 SENTINEL PORT (branch sentinel-nav; docs/SENTINEL_API.md = the official
 -- v0.0.8 page, docs/SENTINEL_V024.md = what the installed v0.24 really does).
@@ -647,12 +647,14 @@ local function zoned(x, y)
     return false
 end
 
---- Zone the spot and re-path softly. True when a re-path went out.
-local function avoid(c, p, why)
+--- Zone the spot (`radius` yd, default AHEAD.ZONE_R) and re-path softly.
+--- True when a re-path went out.
+local function avoid(c, p, why, radius)
     if zoned(p.x, p.y) then return false end
     AHEAD.zones[#AHEAD.zones + 1] = { x = p.x, y = p.y, t = R.now() }
     stats.zones = (stats.zones or 0) + 1
-    if not S.add_zone(c, p, AHEAD.ZONE_R) then
+    radius = radius or AHEAD.ZONE_R
+    if not S.add_zone(c, p, radius) then
         R.trail("nav", "%s at (%.0f, %.0f): Sentinel has no avoidance zones here - not re-pathed", why, p.x, p.y)
         return false
     end
@@ -663,7 +665,7 @@ local function avoid(c, p, why)
     AHEAD.replan_t = R.now()
     local ok = S.soft_replan(c, "mf_" .. why:gsub("%s", "_"))
     stats.soft_replans = (stats.soft_replans or 0) + (ok and 1 or 0)
-    R.trail("nav", "%s at (%.0f, %.0f): avoidance zone %.0f yd, %s", why, p.x, p.y, AHEAD.ZONE_R,
+    R.trail("nav", "%s at (%.0f, %.0f): avoidance zone %.0f yd, %s", why, p.x, p.y, radius,
         ok and "path regenerated ahead (soft, no stop)" or "re-path refused")
     return ok
 end
@@ -736,6 +738,29 @@ function N.ahead_tick(c)
         stats.probes = (stats.probes or 0) + 1
         if hit then avoid(c, hit, "obstacle ahead") end
     end
+end
+
+--- 4.9.0: a mob 3+ levels above the player or an elite (quest/threat.lua):
+--- a Sentinel avoidance zone the size of its aggro range + a soft re-path
+--- (the same zone memory and re-path gap as the path-ahead check). True
+--- when the area is avoided (now, or zoned before and still standing).
+function N.avoid_area(p, radius, why)
+    local x, y, z = R.xyz(p)
+    if not x then return false end
+    if zoned(x, y) then return true end
+    local c = N.client()
+    if not c or not S.add_zone(c, { x = x, y = y, z = z }, radius) then return false end
+    AHEAD.zones[#AHEAD.zones + 1] = { x = x, y = y, t = R.now() }
+    stats.zones = (stats.zones or 0) + 1
+    local replanned = false
+    if S.moving(c) and (R.now() - AHEAD.replan_t) >= AHEAD.REPLAN_GAP then
+        AHEAD.replan_t = R.now()
+        replanned = S.soft_replan(c, "mf_avoid")
+        stats.soft_replans = (stats.soft_replans or 0) + (replanned and 1 or 0)
+    end
+    R.trail("nav", "avoid %s: Sentinel avoidance zone %.0f yd at (%.0f, %.0f)%s", tostring(why), radius, x, y,
+        replanned and ", path re-planned (soft, no stop)" or "")
+    return true
 end
 
 --- 4.8.0: the navmesh raycast (server, no game call) - cb(ok, hit, t).

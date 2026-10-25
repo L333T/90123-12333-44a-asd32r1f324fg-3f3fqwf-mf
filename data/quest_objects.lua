@@ -3,7 +3,7 @@
 -- Quest -> game object ids to interact with (GENERATED - tools/gen_quest_objects.py)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.8.0
+-- Version: 4.9.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- From Zygor's TBC Anniversary guides ("click Large Termite Mound##177464" with

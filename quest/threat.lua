@@ -3,7 +3,7 @@
 -- quest/threat.lua - mobs whose aggro range the walk is about to cross
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.8.0
+-- Version: 4.9.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.7.0 (user): "preemptively attack enemy targets that the player's path will
@@ -23,7 +23,11 @@
 --
 -- WHAT IS DONE (one mob at a time, the first crossing along the path):
 --   * DANGEROUS - level >= player + DANGER_LEVELS, or elite / rare elite /
---     world boss (get_classification 1 / 2 / 3): AVOID. A detour point is put
+--     world boss (get_classification 1 / 2 / 3): AVOID. 4.9.0: first a
+--     Sentinel avoidance zone of its aggro range (+ DETOUR_PAD) at the mob and a
+--     soft re-path (movement.avoid_area) - Sentinel plans the whole walk round
+--     it. Only when no zone can be made, or the path still crosses the mob
+--     ZONE_GRACE s later, the 4.7.0 fallback: a detour point is put
 --     outside its circle (the path's closest point pushed out to radius +
 --     DETOUR_PAD) and walked first; then the normal walk re-plans from there
 --     (and is checked again). At most DETOUR_MAX detours per mob in
@@ -52,10 +56,11 @@ T.DETOUR_ARRIVE = 4     -- yd: the detour point is reached
 T.DETOUR_TIMEOUT = 15   -- s a detour is walked at most
 T.GAP = 0.25            -- s between two checks
 T.SCAN = 60             -- yd: mobs looked at
+T.ZONE_GRACE = 4.0      -- 4.9.0: s a Sentinel re-path round a zoned mob gets before the detour
 
 local DANGER_CLASS = { [1] = true, [2] = true, [3] = true }
 
-local st = { t = -1e9, res = nil, detour = nil, counts = {}, said = {} }
+local st = { t = -1e9, res = nil, detour = nil, counts = {}, said = {}, zoned = {} }
 
 local function safe(fn)
     local ok, res = pcall(fn)
@@ -249,6 +254,23 @@ function T.check(player)
             end
             return nil
         end
+        -- 4.9.0: a SENTINEL AVOIDANCE ZONE first - the size of its aggro range
+        -- (+ DETOUR_PAD) at the mob, and a soft re-path: Sentinel plans the
+        -- whole walk round it, no stop. ZONE_GRACE s for the new path; still
+        -- crossing it after that (or no zone possible): the detour below.
+        local zwhy = string.format("%s (%s), aggro %.0f yd", name(u), danger, hit.r)
+        local zt = st.zoned[g]
+        if not zt then
+            local mv = mov()
+            if mv and type(mv.avoid_area) == "function"
+                and mv.avoid_area({ x = hit.mob.x, y = hit.mob.y, z = hit.mob.z }, hit.r + T.DETOUR_PAD, zwhy) then
+                st.zoned[g] = t
+                trail("avoid %s: Sentinel avoidance zone %.0f yd, path re-planned round it", zwhy, hit.r + T.DETOUR_PAD)
+                return nil
+            end
+        elseif (t - zt) < T.ZONE_GRACE then
+            return nil
+        end
         local c = st.counts[g]
         if not c or (t - c.t) > T.DETOUR_WINDOW then c = { n = 0, t = t } st.counts[g] = c end
         if c.n >= T.DETOUR_MAX then
@@ -282,6 +304,6 @@ function T.check(player)
 end
 
 function T._state() return st end
-function T._reset() st.t, st.res, st.detour, st.counts, st.said = -1e9, nil, nil, {}, {} end
+function T._reset() st.t, st.res, st.detour, st.counts, st.said, st.zoned = -1e9, nil, nil, {}, {}, {} end
 
 return T

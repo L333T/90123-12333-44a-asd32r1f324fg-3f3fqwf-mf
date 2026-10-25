@@ -3,7 +3,7 @@
 -- geometry.lua - object and position helpers, on the vec3 API
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.8.0
+-- Version: 4.9.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- The handful of helpers every bot ends up writing - what is this object, how

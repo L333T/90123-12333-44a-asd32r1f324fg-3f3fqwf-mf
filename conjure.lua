@@ -3,7 +3,7 @@
 -- Conjured food and water, for mages
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.21.0
+-- Version: 4.22.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- A mage never has to buy food or water, and until now the bot made it do

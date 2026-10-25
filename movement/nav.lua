@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through Sentinel Navigation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.21.0
+-- Version: 4.22.0
 -- ============================================================================
 -- 4.2.0 SENTINEL PORT (branch sentinel-nav; docs/SENTINEL_API.md = the official
 -- v0.0.8 page, docs/SENTINEL_V024.md = what the installed v0.24 really does).
@@ -655,9 +655,93 @@ local AHEAD = { GAP = 1.0, SKIP = 3, SEGS = 5, STEEP = 1.0, STEEP_MIN = 2.0, STE
     STALL_R = 8, STALL_S = 60, ZONE_R = 7, REPLAN_GAP = 3.0, SAME = 3.0,
     AREA_R = 15, AREA_S = 180, GROW = 1.6, ZONE_MAX = 20, DEBOUNCE = 6.0, RECOVER_S = 3.0,
     ZONE_R_IN = 2.5, ZONE_MAX_IN = 5,        -- 4.16.0: indoors (S.indoors) - no steep check there (stairs)
+    -- 4.22.0 STAIRS, CAVES, STRUCTURES (see below)
+    SUSPECT_S = 30, SUSPECT_R = 8, VERT_YD = 10, VERT_DZ = 2.5, VERT_FREE = 2, ZONE_R_VERT = 3, ZONE_MAX_VERT = 6,
+    GOAL_KEEP = 4, suspects = {}, vert_stalls = {},
     t = -1e9, replan_t = -1e9, zones = {}, areas = {}, recover_at = nil, stalls = {}, was_recovering = false,
     recover_t = nil, recover_zoned = false }
 N.AHEAD = AHEAD
+
+-- 4.22.0 STAIRS, CAVES AND STRUCTURES (user: "allow the player to go
+-- upstairs, downstairs, inside caves and other structures"). The 02:33 log
+-- zoned the stairs down to Zaeldarr's crypt ten times ("too steep 46-55 deg")
+-- and grew the zone to 20 yd across the entrance; Sentinel then refused the
+-- walk (13 refused). Sentinel's navmesh only plans over walkable ground, so a
+-- steep path segment is a stair / ramp far more often than a wall. Now:
+--   * a steep segment is a SUSPECT (remembered SUSPECT_S s), never zoned on
+--     sight; it is zoned only when the player really stalls within
+--     SUSPECT_R yd of it;
+--   * a stall where the path ahead climbs or drops (VERT_DZ yd within
+--     VERT_YD yd - stairs, a ramp, a cave or crypt slope) is re-planned
+--     WITHOUT a zone the first VERT_FREE times in that spot (Sentinel's own
+--     stuck recovery gets its go); after that a small zone only - ZONE_R_VERT
+--     yd, at most ZONE_MAX_VERT - never the 20 yd wall;
+--   * no zone ever covers the walk's goal: a zone is shrunk to end GOAL_KEEP
+--     yd short of it, or not placed.
+local ahead_points            -- (defined below: the walk's points from the player on)
+local function vertical_ahead()
+    local pts = ahead_points and ahead_points() or nil
+    if not pts or #pts < 2 then return false end
+    local z0, along = pts[1].z, 0
+    for k = 1, #pts - 1 do
+        local a, b = pts[k], pts[k + 1]
+        along = along + R.dist2(a.x, a.y, b.x, b.y)
+        if math.abs(b.z - z0) >= AHEAD.VERT_DZ then return true end
+        if along > AHEAD.VERT_YD then break end
+    end
+    return false
+end
+
+--- The radius a zone at `p` may have without covering the goal (nil: none).
+local function goal_safe_radius(p, radius)
+    if not cur.x then return radius end
+    local d = R.dist2(p.x, p.y, cur.x, cur.y)
+    local r = math.min(radius, d - AHEAD.GOAL_KEEP)
+    if r < 1.5 then return nil end
+    return r
+end
+
+--- A steep segment near the player: remembered (see above).
+local function suspect(p, deg)
+    local t = R.now()
+    for i = #AHEAD.suspects, 1, -1 do
+        local s = AHEAD.suspects[i]
+        if (t - s.t) > AHEAD.SUSPECT_S then table.remove(AHEAD.suspects, i)
+        elseif R.dist2(s.x, s.y, p.x, p.y) <= 3 then s.t = t return end
+    end
+    AHEAD.suspects[#AHEAD.suspects + 1] = { x = p.x, y = p.y, z = p.z, t = t, deg = deg }
+    stats.suspects = (stats.suspects or 0) + 1
+    R.trail("nav", "steep path ahead (%.0f deg) at (%.0f, %.0f): watched, not zoned (stairs / a ramp?)", deg, p.x, p.y)
+end
+
+--- The steep suspect within SUSPECT_R yd of the player, or nil.
+local function suspect_here()
+    local hx, hy = R.here()
+    if not hx then return nil end
+    local t = R.now()
+    for i = #AHEAD.suspects, 1, -1 do
+        local s = AHEAD.suspects[i]
+        if (t - s.t) > AHEAD.SUSPECT_S then table.remove(AHEAD.suspects, i)
+        elseif R.dist2(s.x, s.y, hx, hy) <= AHEAD.SUSPECT_R then return s, i end
+    end
+    return nil
+end
+
+--- A stall at the player's spot on stairs / a slope: how many so far (this one counted).
+local function vert_stall_count(x, y)
+    local t = R.now()
+    for i = #AHEAD.vert_stalls, 1, -1 do
+        local v = AHEAD.vert_stalls[i]
+        if (t - v.t) > AHEAD.AREA_S then table.remove(AHEAD.vert_stalls, i)
+        elseif R.dist2(v.x, v.y, x, y) <= AHEAD.STALL_R then
+            v.n, v.t = v.n + 1, t
+            return v.n
+        end
+    end
+    AHEAD.vert_stalls[#AHEAD.vert_stalls + 1] = { x = x, y = y, n = 1, t = t }
+    return 1
+end
+N._vertical_ahead, N._goal_safe_radius, N._suspect_here = vertical_ahead, goal_safe_radius, suspect_here
 
 --- A zone at (x, y) made within DEBOUNCE s (the re-path has not had time to
 --- show whether it worked): the spot is not zoned again yet.
@@ -673,11 +757,13 @@ end
 --- 4.16.0: the radius for a zone at (x, y): `base` for a new area, the
 --- area's radius x GROW (up to ZONE_MAX) when the spot is in an area zoned
 --- before - the slope was not avoided. Returns radius, hits in the area.
-local function area_radius(x, y, base)
+local function area_radius(x, y, base, vertical)
     local t = R.now()
     -- 4.16.0: indoors a zone stays small (a hall, a doorway - not the building)
     local cap = AHEAD.ZONE_MAX
     if S.indoors() then base, cap = math.min(base, AHEAD.ZONE_R_IN), AHEAD.ZONE_MAX_IN end
+    -- 4.22.0: on stairs / a slope too (a crypt entrance, a cave mouth, a tower stair)
+    if vertical then base, cap = math.min(base, AHEAD.ZONE_R_VERT), math.min(cap, AHEAD.ZONE_MAX_VERT) end
     local hit = nil
     for i = #AHEAD.areas, 1, -1 do
         local a = AHEAD.areas[i]
@@ -696,12 +782,19 @@ N._area_radius = area_radius
 
 --- Zone the spot (`radius` yd, default AHEAD.ZONE_R) and re-path softly.
 --- True when a re-path went out.
-local function avoid(c, p, why, radius)
+local function avoid(c, p, why, radius, vertical)
     if zoned(p.x, p.y) then return false end
+    local hits
+    radius, hits = area_radius(p.x, p.y, radius or AHEAD.ZONE_R, vertical)     -- 4.16.0: grows in a known area
+    -- 4.22.0: never over the goal
+    local safe_r = goal_safe_radius(p, radius)
+    if not safe_r then
+        R.trail("nav", "%s at (%.0f, %.0f): not zoned - the goal is there", why, p.x, p.y)
+        return false
+    end
+    radius = safe_r
     AHEAD.zones[#AHEAD.zones + 1] = { x = p.x, y = p.y, t = R.now() }
     stats.zones = (stats.zones or 0) + 1
-    local hits
-    radius, hits = area_radius(p.x, p.y, radius or AHEAD.ZONE_R)     -- 4.16.0: grows in a known area
     if hits > 1 then why = string.format("%s (area hit %d times)", why, hits) end
     if not S.add_zone(c, p, radius) then
         R.trail("nav", "%s at (%.0f, %.0f): Sentinel has no avoidance zones here - not re-pathed", why, p.x, p.y)
@@ -720,7 +813,7 @@ local function avoid(c, p, why, radius)
 end
 
 --- The walk's path from the current waypoint on (player first), as {x,y,z}.
-local function ahead_points()
+function ahead_points()
     local pts, i = N.path_points(), N.path_index()
     if type(pts) ~= "table" or #pts == 0 then return nil end
     i = (type(i) == "number" and i >= 1) and math.floor(i) or 1
@@ -772,7 +865,21 @@ function N.ahead_tick(c)
     if AHEAD.recover_at then
         local p = AHEAD.recover_at
         AHEAD.recover_at = nil
-        if avoid(c, p, "repeated stall") then return end
+        -- 4.22.0: stalled at a steep suspect -> that spot; on stairs / a slope -> re-plan first, small zone later
+        local sus = suspect_here()
+        local vert = vertical_ahead()
+        if vert and vert_stall_count(p.x, p.y) <= AHEAD.VERT_FREE then
+            if (now - AHEAD.replan_t) >= AHEAD.REPLAN_GAP then
+                AHEAD.replan_t = now
+                local okr = S.soft_replan(c, "mf_stairs")
+                R.trail("nav", "stalled on stairs / a slope at (%.0f, %.0f): re-planned, no zone%s", p.x, p.y,
+                    okr and "" or " (re-plan refused)")
+            end
+            return
+        end
+        if sus then
+            if avoid(c, sus, string.format("too steep (%.0f deg), stalled there", sus.deg or 0), nil, vert) then return end
+        elseif avoid(c, p, "repeated stall", nil, vert) then return end
     end
     local pts = ahead_points()
     if not pts or #pts < 2 then return end
@@ -785,8 +892,9 @@ function N.ahead_tick(c)
         local run = R.dist2(a.x, a.y, b.x, b.y)
         if run >= AHEAD.STEEP_MIN and (b.z - a.z) / run > AHEAD.STEEP then
             stats.steep = (stats.steep or 0) + 1
-            if avoid(c, { x = (a.x + b.x) / 2, y = (a.y + b.y) / 2, z = (a.z + b.z) / 2 },
-                string.format("too steep (%.0f deg)", math.deg(math.atan((b.z - a.z) / run)))) then return end
+            -- 4.22.0: watched, zoned only if the player stalls there (stairs are steep and walkable)
+            suspect({ x = (a.x + b.x) / 2, y = (a.y + b.y) / 2, z = (a.z + b.z) / 2 },
+                math.deg(math.atan((b.z - a.z) / run)))
         end
         along = along + run
         if along > AHEAD.STEEP_YD then break end
@@ -840,9 +948,24 @@ function N.stuck_ahead(why)
     if not c then return false end
     local hx, hy = R.here()
     if not hx then return false end
-    local r0, hits = area_radius(hx, hy, AHEAD.ZONE_R)
-    local p = point_ahead(r0 + 1)
+    -- 4.22.0: on stairs / a slope (a crypt, a cave, a tower) the first stalls re-plan only
+    local vert = vertical_ahead()
+    if vert and vert_stall_count(hx, hy) <= AHEAD.VERT_FREE then
+        local okr = S.moving(c) and S.soft_replan(c, "mf_stairs") or false
+        AHEAD.replan_t = R.now()
+        R.trail("nav", "%s on stairs / a slope at (%.0f, %.0f): re-planned, no zone%s", tostring(why), hx, hy,
+            okr and "" or " (the next path tries again)")
+        return false
+    end
+    local r0, hits = area_radius(hx, hy, AHEAD.ZONE_R, vert)
+    local sus = suspect_here()
+    local p = sus and { x = sus.x, y = sus.y, z = sus.z } or point_ahead(r0 + 1)
     if not p or zoned(p.x, p.y) then return false end
+    r0 = goal_safe_radius(p, r0)
+    if not r0 then
+        R.trail("nav", "%s at (%.0f, %.0f): not zoned - the goal is there", tostring(why), p.x, p.y)
+        return false
+    end
     AHEAD.zones[#AHEAD.zones + 1] = { x = p.x, y = p.y, t = R.now() }
     stats.zones = (stats.zones or 0) + 1
     if not S.add_zone(c, p, r0) then

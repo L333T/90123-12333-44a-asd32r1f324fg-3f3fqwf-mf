@@ -3,7 +3,7 @@
 -- quest/objects.lua - quest game objects by id (data/quest_objects.lua)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.21.0
+-- Version: 4.22.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.5.0 (user: "create tables with the object IDs that are needed to be

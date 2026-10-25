@@ -3,7 +3,7 @@
 -- Vendors from RestedXP's guides (GENERATED - tools/gen_rxp_vendors.py)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.21.0
+-- Version: 4.22.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Every guide step with a .vendor line: n = NPC name, id = npc id (when the

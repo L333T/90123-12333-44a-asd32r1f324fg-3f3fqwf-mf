@@ -3,7 +3,7 @@
 -- movement/range.lua - facing, line of sight, arrival, fight range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.13.0
+-- Version: 4.14.0
 -- ============================================================================
 -- FACING: a POSITION, never the unit object (2.72.0: the movement handler
 -- keeps whatever it is given across frames, and a freed mob read later is a
@@ -16,6 +16,17 @@
 --   * the navmesh says the walk to it bends round something, or it is
 --     underground / unreachable (movement/sight.lua).
 -- 3 yd and closer: always in sight. Cached per unit for LOS_TTL.
+--
+-- 4.14.0 LINE OF SIGHT BY THE GAME (improvement 12 of the API-dump review,
+-- the user's OK 2026-10-24 to lift the no-game-ray rule for this): the game's
+-- own answer - izi player:los_to(unit), else core.graphics.is_line_of_sight
+-- (player, unit) - decides first. false = out of sight; true = in sight even
+-- when the navmesh walk bends round something (a fence, a low rock: you can
+-- see over it). The navmesh still rules out underground / unreachable enemies
+-- and the game's "not in line of sight" refusal still applies. Each unit is
+-- asked at most every GAME_TTL s, only within GAME_MAX yd; GAME_ERRORS call
+-- errors switch the game check off for the session (logged) and the navmesh
+-- verdict takes over again. Rg.GAME_LOS = false turns it off.
 -- ============================================================================
 
 local R = require("movement/core")
@@ -29,6 +40,10 @@ local LOS_HOLD = 2.5
 local ARRIVE = 2.0
 
 local last_face = 0
+Rg.GAME_LOS = true
+local GAME_TTL, GAME_MAX, GAME_ERRORS, GAME_CACHE_MAX = 0.3, 60, 3, 64
+local game = { errors = 0, off = false, cache = {}, n = 0, said = false }
+Rg._game = game
 local los_cache = { guid = nil, t = -1, v = true }
 local ev_mod, sight_mod, handler_mod = nil, nil, nil
 
@@ -56,15 +71,61 @@ function Rg.face(target)
     return false
 end
 
+--- The game's line of sight from `player` to `unit`: true / false, or nil
+--- (off, too far, no call, or the call failed).
+local function game_los(player, unit, range)
+    if not Rg.GAME_LOS or game.off then return nil end
+    if type(range) ~= "number" or range > GAME_MAX then return nil end
+    local g = R.guid(unit)
+    local t = R.now()
+    local e = g ~= nil and game.cache[g] or nil
+    if e and (t - e.t) < GAME_TTL then return e.v end
+    local v, failed = nil, false
+    if type(player.los_to) == "function" then
+        local ok, r = pcall(player.los_to, player, unit)
+        if ok and type(r) == "boolean" then v = r elseif not ok then failed = true end
+    end
+    if v == nil then
+        local gr = core and core.graphics
+        if gr and type(gr.is_line_of_sight) == "function" then
+            local ok, r = pcall(gr.is_line_of_sight, player, unit)
+            if ok and type(r) == "boolean" then v = r failed = false elseif not ok then failed = true end
+        end
+    end
+    if failed and v == nil then
+        game.errors = game.errors + 1
+        if game.errors >= GAME_ERRORS then
+            game.off = true
+            if not game.said then
+                game.said = true
+                R.log("game line-of-sight check failed " .. game.errors .. " times - navmesh line of sight only for this session")
+            end
+        end
+        return nil
+    end
+    if g ~= nil and v ~= nil then
+        if not game.cache[g] then
+            game.n = game.n + 1
+            if game.n > GAME_CACHE_MAX then game.cache, game.n = {}, 1 end
+        end
+        game.cache[g] = { t = t, v = v }
+    end
+    return v
+end
+Rg.game_los = game_los
+
 local function raw_los(player, unit, range)
     if type(range) == "number" and range <= 3 then return true end
     if sight_mod == nil then
         local ok, m = pcall(require, "movement/sight")
         sight_mod = (ok and type(m) == "table") and m or false
     end
+    local seen = game_los(player, unit, range)       -- 4.14.0: the game's answer first
+    if seen == false then return false end
     if sight_mod then
         local okv, v = pcall(sight_mod.verdict, player, unit)
-        if okv and (v == "around" or v == "underground" or v == "unreachable") then return false end
+        if okv and (v == "underground" or v == "unreachable") then return false end
+        if okv and v == "around" and seen ~= true then return false end
     end
     if ev_mod == nil then
         local ok, m = pcall(require, "events")

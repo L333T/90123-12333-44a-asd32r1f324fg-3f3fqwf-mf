@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.13.0
+-- Version: 4.14.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1442,9 +1442,64 @@ local function dies_before(e)
     -- 2.274.0: health_prediction's incoming damage kills it first (adapt.lua)
     local ad = mod("adapt")
     if ad and ad.dies_first(T, ct) == true then return true end
+    -- 4.14.0 (improvement 7): izi's own forecast, only with real damage data
+    local ck = mod("combatcheck")
+    if ck and ct > 0 and ck.dies_within(T, ct + 0.2) == true then return true end
     -- 2.315.0: IZI's time_to_die is fed by izi.on_update (no longer called);
     -- the health_prediction answer above stands alone
     return false
+end
+
+-- 4.14.0 (improvements 7, 9 and 10 of the API-dump review, combatcheck.lua):
+--   * CROWD CONTROL: a control / sap spell or a snare is never cast into a
+--     target immune to it, a snare never onto a target already slowed or
+--     held; an AoE / control spell never goes off where a crowd-controlled
+--     pack member (a sheep, a sap - CC that breaks on damage) would be hit.
+--   * TIME TO DEATH: no DoT on a target izi forecasts dead within DOT_TTD s
+--     (only with real data, has_time_to_die_data).
+--   * FACING: the player is turned to the target first when izi says it is
+--     not in front (is_looking_at_unit) - for at most FACE.MAX s per target,
+--     then the cast goes out anyway (a wrong answer never blocks a fight).
+local CK = {
+    CC_ROLES = { control = true, sap = true },
+    SNARES = { ["Wing Clip"] = true, ["Hamstring"] = true, ["Concussive Shot"] = true, ["Piercing Howl"] = true },
+    DOT_TTD = 6,
+    FACE = { guid = nil, since = 0, MAX = 0.8 },
+}
+local function ck_refuse(e)
+    local ck = mod("combatcheck")
+    if not ck or not T then return nil end
+    local def, role = e.def, e.role
+    if CK.CC_ROLES[role] or CK.SNARES[e.name] then
+        if ck.cc_immune(T) == true then return "target immune to crowd control" end
+    end
+    if CK.SNARES[e.name] then
+        if ck.slow_immune(T) == true then return "target immune to slows" end
+        if ck.held(T) == true or ck.slowed(T) == true then return "target already slowed / held" end
+    end
+    if role == "aoe" or role == "control" then
+        local centre = (def.center == "self" or def.self) and P or T
+        local u = ck.breaks_cc(centre, def.r or 10, PACK, T)
+        if u then return "would break crowd control on " .. tostring(safe(u.get_name, u)) end
+    end
+    if role == "debuff" and ck.dies_within(T, CK.DOT_TTD) == true then return "target dies before the DoT ticks" end
+    if not e.self and not def.ground and e.name ~= "Auto Shot" then
+        local f = ck.facing(P, T)
+        local F = CK.FACE
+        if f == false then
+            local g = safe(T.get_guid, T)
+            local t = izi.now()
+            if g ~= F.guid then F.guid, F.since = g, t end
+            if (t - F.since) < F.MAX then
+                local mv = mod("movement")
+                if mv and type(mv.face) == "function" then pcall(mv.face, T) end
+                return "turning to face the target"
+            end
+        elseif f == true then
+            F.guid = nil
+        end
+    end
+    return nil
 end
 
 local function try(e, role_cond)
@@ -1459,6 +1514,10 @@ local function try(e, role_cond)
     if not e.self and e.role ~= "heal" and T then
         if target_immune() then why_not[e.name] = "target immune" return false end
         if dies_before(e) then why_not[e.name] = "target dies before the cast lands" return false end
+    end
+    if e.role ~= "heal" and T then
+        local why = ck_refuse(e)                 -- 4.14.0: CC / immunity / DoT / facing
+        if why then why_not[e.name] = why return false end
     end
     -- 2.293.0: NEXT-SWING ABILITIES (Heroic Strike, Cleave, Maul, Raptor
     -- Strike) replace the next melee swing; pressed again while queued they

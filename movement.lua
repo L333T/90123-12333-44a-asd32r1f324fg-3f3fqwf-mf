@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.13.0
+-- Version: 4.14.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -343,6 +343,7 @@ build_snapshot = function(t)
         -- 4.0.4 (R2.4): the server state, read here on the update tick
         nav = N.client() == nil and "missing" or (N.nav_ready() and "ready" or "down"),
         nav_why = N.unavailable(),                        -- 4.2.0: why Sentinel cannot navigate (GUI)
+        nav_status = N.status_text(N.status()),           -- 4.14.0: live progress / zones / failures (GUI)
         quiet = t < (R.quiet_until or 0),
         target_dist = d,
     }

@@ -3,7 +3,7 @@
 -- movement/combat.lua - closing on a target and standing in range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.13.0
+-- Version: 4.14.0
 -- ============================================================================
 -- combat_engage(player, unit, yards) is called every tick of a fight.
 --   * OWNERSHIP: each call holds travel off for COMBAT_HOLD s
@@ -20,6 +20,12 @@
 --     (state.mark_unreachable), which grind / quest check to drop it.
 --   * RETREAT: a class profile's should_retreat(ctx) (mage, priest) sends
 --     the player to AmeisenNav's kite point (client:kite) for RETREAT_TIME s.
+--     4.14.0: ctx.approaching (izi is_moving_towards_me) and ctx.slowed /
+--     ctx.casting go to the profile too, for an earlier back-off.
+--   * FLEE (4.14.0, improvement 3 of the API-dump review): FLEE_HP % health
+--     or less with FLEE_N+ enemies inside FLEE_YD yd -> Sentinel's flee path
+--     (movement/nav N.flee - away from all of them) for FLEE_TIME s, at most
+--     once per FLEE_GAP s; nothing is attacked while it runs.
 -- ============================================================================
 
 local R = require("movement/core")
@@ -38,6 +44,8 @@ local CHASE_GAIN, CHASE_STALL = 2.0, 10.0
 -- chase stutter and fall behind (log 01:44, 48 -> 53 yd while "Closing").
 local CHASE_REPATH, CHASE_GAP = 4.0, 0.75
 local RETREAT_TIME = 2.5
+local FLEE_HP, FLEE_N, FLEE_YD, FLEE_TIME, FLEE_GAP = 20, 3, 10, 5.0, 45.0
+C.FLEE_HP, C.FLEE_N = FLEE_HP, FLEE_N
 local DEFAULT_MELEE_DANGER = 8
 
 local st = {
@@ -45,6 +53,7 @@ local st = {
     latched = false,
     best = nil, best_t = 0,
     retreat_until = 0, kite_pending = false,
+    flee_until = 0, flee_t = -1e9, flee_pending = false,
     profile = nil,
 }
 
@@ -68,8 +77,16 @@ local function want_retreat(player, unit, range)
     local enemies = {}
     local oke, list = pcall(player.get_enemies_in_range, player, tonumber(p.melee_danger) or DEFAULT_MELEE_DANGER, false)
     if oke and type(list) == "table" then enemies = list end
+    local ck = nil
+    do
+        local okc, m = pcall(require, "combatcheck")
+        if okc and type(m) == "table" then ck = m end
+    end
     local ctx = {
         player = player, target = unit, distance = range, melee_count = #enemies, enemies = enemies,
+        approaching = ck and ck.approaching(unit, player) == true or false,
+        slowed = ck and (ck.slowed(unit) == true or ck.held(unit) == true) or false,
+        casting = select(2, pcall(player.is_channeling_or_casting, player)) == true,
         last_spell_id = R.last_spell_id, last_spell_target = R.last_spell_target,
         last_spell_age = R.now() - (R.last_spell_t or 0),
     }
@@ -94,6 +111,36 @@ local function start_retreat(player, unit)
     end)
     if not ok then st.kite_pending = false end
 end
+
+--- 4.14.0 FLEE: overwhelmed - low health and a crowd in melee - walk
+--- Sentinel's flee path away from all of them. True while fleeing.
+local function flee_check(player, t)
+    if t < st.flee_until or st.flee_pending then return true end
+    if (t - st.flee_t) < FLEE_GAP then return false end
+    local okh, hp = pcall(player.get_health_percentage, player)
+    if not okh or type(hp) ~= "number" or hp > FLEE_HP then return false end
+    local oke, list = pcall(player.get_enemies_in_range, player, FLEE_YD, false)
+    if not oke or type(list) ~= "table" or #list < FLEE_N then return false end
+    local threats = {}
+    for i = 1, #list do
+        local okp, p = pcall(list[i].get_position, list[i])
+        if okp and p then threats[#threats + 1] = R.point(p) end
+    end
+    local okp, pp = pcall(player.get_position, player)
+    if not okp or not pp or #threats < FLEE_N then return false end
+    st.flee_t, st.flee_pending = t, true
+    local asked = N.flee(R.point(pp), threats, function(point)
+        st.flee_pending = false
+        if point and N.nav_to(point, true, "combat") then
+            st.flee_until = R.now() + FLEE_TIME
+            R.trail("move", "flee: %.0f%% health, %d enemies within %d yd - to (%.0f, %.0f)", hp, #threats, FLEE_YD,
+                point.x or 0, point.y or 0)
+        end
+    end)
+    if not asked then st.flee_pending = false return false end
+    return true
+end
+C._flee_check = flee_check
 
 --- True when in position to attack `unit` from `yards`; false while closing.
 function C.combat_engage(player, unit, yards)
@@ -120,6 +167,8 @@ function C.combat_engage(player, unit, yards)
     local hold = melee and (yards + 1) or yards
     local ready = los and range <= hold
 
+    -- 4.14.0: fleeing - the flee walk runs, nothing is attacked
+    if flee_check(player, t) then return false end
     -- retreating: the kite walk runs, the caller casts what it can
     if t < st.retreat_until then return ready end
     if want_retreat(player, unit, range) then
@@ -177,7 +226,7 @@ end
 --- Latched in position against a live target while combat is asked for.
 function C.in_position()
     if not st.latched or not C.in_combat_movement() then return false end
-    if R.resting or R.backpedal_until or R.now() < st.retreat_until then return false end
+    if R.resting or R.backpedal_until or R.now() < st.retreat_until or R.now() < st.flee_until then return false end
     return C.combat_unit() ~= nil
 end
 
@@ -185,7 +234,7 @@ end
 function C.combat_release()
     R.combat_until = 0
     st.latched = false
-    st.retreat_until = 0
+    st.retreat_until, st.flee_until = 0, 0
     if N.mode() == "combat" then N.stop("combat over") end
 end
 

@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.13.0
+-- Version: 4.14.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -366,6 +366,7 @@ local function id_wanted(npc_id, mobs)
     return false
 end
 
+local THREAT_RANGE_DEFAULT = 40
 local function enemy_units(player, pos, range)
     range = cap(range)
     if pos then
@@ -384,6 +385,43 @@ local function enemy_units(player, pos, range)
     end
     return {}
 end
+
+-- 4.14.0 EVERY ATTACKER, ANY LEVEL (user 2026-10-24: "Attack low level
+-- enemies that are attacking the player"). The SDK's enemy list
+-- (get_enemy_list_around) leaves some units out - the 22:57 log lost 18 %
+-- health on "Guide: holding - combat not over" / "looting before the next
+-- pull": attackers() (the 360-degree object scan) counted an attacker that
+-- threats() / combat_scan() (the SDK list only) never saw, so nothing was
+-- fought. Both now add the object scan's units (attack AND avoid lists, any
+-- level, neutral ones too) within `range` that the SDK list missed (by GUID).
+local function all_enemy_units(player, pos, range)
+    local list = enemy_units(player, pos, range)
+    local out, seen = {}, {}
+    for i = 1, #list do
+        local u = list[i]
+        out[#out + 1] = u
+        local g = indexable(u) and call(u.get_guid, u) or nil
+        if g ~= nil then seen[g] = true end
+    end
+    if not pos then return out end
+    local attack, avoid = targeting.scan_enemies(player)
+    local r2 = (tonumber(range) or THREAT_RANGE_DEFAULT) ^ 2
+    for _, l in ipairs({ attack or {}, avoid or {} }) do
+        for i = 1, #l do
+            local u = l[i]
+            local g = indexable(u) and call(u.get_guid, u) or nil
+            if g ~= nil and not seen[g] then
+                local up = call(u.get_position, u)
+                if up and (up.x - pos.x) ^ 2 + (up.y - pos.y) ^ 2 + (up.z - pos.z) ^ 2 <= r2 then
+                    seen[g] = true
+                    out[#out + 1] = u
+                end
+            end
+        end
+    end
+    return out
+end
+targeting._all_enemy_units = all_enemy_units
 
 --- 2.247.0: a mob in an area the player died in 3 times (deathzones.lua).
 local dz_mod = nil
@@ -566,7 +604,7 @@ function targeting.threats(player, range)
     if indexable(pet) and call(pet.is_valid, pet) == true then
         pet_guid = call(pet.get_guid, pet)
     end
-    local list = enemy_units(player, pos, cap(range) or THREAT_RANGE)
+    local list = all_enemy_units(player, pos, cap(range) or THREAT_RANGE)   -- 4.14.0: any level
     for i = 1, #list do
         local u = list[i]
         if indexable(u) and call(u.is_valid, u) == true
@@ -792,7 +830,7 @@ function targeting.combat_scan(player, range)
     if not pos then
         return found
     end
-    local list = enemy_units(player, pos, range or 40)
+    local list = all_enemy_units(player, pos, range or 40)                  -- 4.14.0: any level
     if type(list) ~= "table" then
         return found
     end

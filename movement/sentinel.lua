@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.13.0
+-- Version: 4.14.0
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -658,6 +658,76 @@ function S.kite(c, from, target, radius, cb)
         pcall(cb, (pts and #pts >= 1) and pts or nil, okp == true, info)
     end, { kite_radius = radius })
     return ok == true
+end
+
+
+-- 4.14.0 FLEE (nav_client:flee, present on v0.24 - MF API Dump 2026-10-24;
+-- argument order from the official page: flee(player_pos, threats, cb, opts)):
+--   flee(player_pos, { threat_pos, ... }, cb(ok, { waypoints, ... }, err), { flee_distance })
+-- The answer is expected in find_path's shape and checked live like kite's:
+-- cb(points | nil, ok, info) - info.shape_bad = another shape (the caller
+-- switches fleeing off), info.error = the library's error text.
+function S.flee(c, from, threats, distance, cb)
+    local okn, nc = pcall(function() return c.nav_client end)
+    if not okn or type(nc) ~= "table" or type(nc.flee) ~= "function" then return false end
+    local list = {}
+    for i = 1, #threats do list[i] = pt(threats[i]) end
+    local ok = pcall(nc.flee, nc, pt(from), list, function(okp, data, err)
+        local pts = (type(data) == "table" and type(data.waypoints) == "table") and data.waypoints or nil
+        local info = { error = err ~= nil and tostring(err) or nil,
+            shape_bad = okp == true and pts == nil, got = type(data) }
+        pcall(cb, (pts and #pts >= 1) and pts or nil, okp == true, info)
+    end, { flee_distance = distance })
+    return ok == true
+end
+
+-- 4.14.0 LIVE STATUS for the GUI and the route progress (improvements 5 and
+-- 11 of the API-dump review). Shapes recorded on v0.24 by the MF Start Dump:
+--   get_progress()        { current_index, percent, total_waypoints, waypoints_remaining }
+--   get_route_progress()  nothing while no recorded route runs (its shape when
+--                         one runs is not recorded: a number or a table with
+--                         percent / index / total is read, anything else ignored)
+--   get_destination()     vec3 | nothing
+--   obstacle:get_zone_count()             number
+--   nav_client:get_consecutive_failures() number
+-- Read on the update tick only (never on the render path).
+local function num(v) v = tonumber(v) if v and v == v then return v end return nil end
+function S.progress(c)
+    local ok, v = m(c, "get_progress")
+    if not ok or type(v) ~= "table" then return nil end
+    return { index = num(v.current_index), percent = num(v.percent),
+        total = num(v.total_waypoints), left = num(v.waypoints_remaining) }
+end
+function S.route_progress(c)
+    local ok, v = m(c, "get_route_progress")
+    if not ok then return nil end
+    if type(v) == "number" then return { percent = (v <= 1 and v * 100) or v } end
+    if type(v) ~= "table" then return nil end
+    local pc = num(v.percent)
+    local fr = num(v.progress)
+    if not pc and fr then pc = (fr <= 1 and fr * 100) or fr end
+    local i = num(v.current_index) or num(v.index) or num(v.current)
+    local n = num(v.total) or num(v.total_waypoints) or num(v.count)
+    if not pc and i and n and n > 0 then pc = i / n * 100 end
+    if not pc then return nil end
+    return { percent = pc, index = i, total = n }
+end
+function S.destination(c)
+    local ok, v = m(c, "get_destination")
+    if ok and type(v) == "table" and type(v.x) == "number" then return v end
+    return nil
+end
+function S.zone_count(c)
+    local oko, ob = pcall(function() return c.obstacle end)
+    if not oko or type(ob) ~= "table" or type(ob.get_zone_count) ~= "function" then return nil end
+    local ok, v = pcall(ob.get_zone_count, ob)
+    return ok and num(v) or nil
+end
+function S.failures(c)
+    local okn, nc = pcall(function() return c.nav_client end)
+    if not okn or type(nc) ~= "table" or type(nc.get_consecutive_failures) ~= "function" then return nil end
+    local ok, v = pcall(nc.get_consecutive_failures, nc)
+    return ok and num(v) or nil
 end
 
 return S

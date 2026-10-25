@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.13.0
+-- Version: 4.14.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -2068,7 +2068,8 @@ menu:set_status({
             local okm, mv = pcall(require, "movement")
             local snap = okm and type(mv) == "table" and mv.debug_snapshot and mv.debug_snapshot() or {}
             -- 4.2.0: Sentinel Navigation (movement/sentinel.lua, server set by the launcher)
-            if snap.nav == "ready" then return "Sentinel ready" end
+            -- 4.14.0: + the live status (progress, distance, zones, failed paths)
+            if snap.nav == "ready" then return snap.nav_status and ("Sentinel: " .. snap.nav_status) or "Sentinel ready" end
             if snap.nav == "down" then return "Sentinel server not answering - retrying" end
             return tostring(snap.nav_why or "Sentinel Navigation not loaded")
         end,

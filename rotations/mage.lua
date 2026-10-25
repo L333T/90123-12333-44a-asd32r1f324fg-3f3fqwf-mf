@@ -3,7 +3,7 @@
 -- Mage grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.13.0
+-- Version: 4.14.0
 -- Folder: restedXP_questing
 -- Spell rank-1 IDs are registered with spellbook.define. The scanner saves the
 -- highest known rank and Class-tab toggles feed izi.advanced_sequence.
@@ -210,6 +210,9 @@ function mage.combat_profile()
             if ctx.melee_count < 1 and ctx.distance > 8 then return false end
             -- the target is held: this is the window to walk out
             if target_frozen(target) then return true end
+            -- 4.14.0 (improvement 10): a slowed / held enemy still walking at
+            -- us inside 8 yd - back off now, not once it is in melee
+            if ctx.approaching and ctx.slowed and not ctx.casting and (ctx.distance or 99) <= 8 then return true end
             -- Cone of Cold just landed: the pack is snared, same window
             if ctx.last_spell_age and ctx.last_spell_age <= 2.0 then
                 if id_in(COLD_IDS, ctx.last_spell_id) then return true end

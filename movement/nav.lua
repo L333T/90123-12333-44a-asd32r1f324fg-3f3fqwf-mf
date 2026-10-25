@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through Sentinel Navigation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.13.0
+-- Version: 4.14.0
 -- ============================================================================
 -- 4.2.0 SENTINEL PORT (branch sentinel-nav; docs/SENTINEL_API.md = the official
 -- v0.0.8 page, docs/SENTINEL_V024.md = what the installed v0.24 really does).
@@ -894,6 +894,78 @@ function N.kite(from, target, cb)
             pcall(cb, nil)
         end
     end)
+end
+
+--- 4.14.0 FLEE (improvement 3 of the API-dump review): a path AWAY from every
+--- threat from Sentinel's nav_client:flee, FLEE.DISTANCE yd long. cb(point |
+--- nil) - the path's last point. Like kite, the first answer of another shape
+--- switches fleeing off for the session (logged). True when asked.
+local FLEE = { DISTANCE = 30, off = false, said = false }
+N.FLEE = FLEE
+function N.flee(from, threats, cb)
+    if FLEE.off or type(threats) ~= "table" or #threats < 1 then return false end
+    local c = N.client()
+    if not c then return false end
+    local list = {}
+    for i = 1, #threats do list[#list + 1] = R.point(threats[i]) end
+    return S.flee(c, R.point(from), list, FLEE.DISTANCE, function(pts, ok, info)
+        if info and info.shape_bad then
+            FLEE.off = true
+            if not FLEE.said then
+                FLEE.said = true
+                R.log("Sentinel flee answered in an unknown shape (" .. tostring(info.got) .. ") - fleeing off for this session")
+            end
+            pcall(cb, nil)
+            return
+        end
+        local last = pts and pts[#pts] or nil
+        local x, y, z
+        if last then x, y, z = R.xyz(last) end
+        if x then
+            stats.flees = (stats.flees or 0) + 1
+            pcall(cb, { x = x, y = y, z = z })
+        else
+            if info and info.error then R.trail("nav", "flee: no point (%s)", info.error) end
+            pcall(cb, nil)
+        end
+    end)
+end
+
+--- 4.14.0 LIVE SENTINEL STATUS (improvements 5 and 11): the walk's progress,
+--- the recorded route's progress, the distance to the destination, the
+--- avoidance zone count and the consecutive path failures. Read at most every
+--- STATUS.GAP s, on the update tick only (movement.lua's snapshot) - the GUI
+--- reads the cached table. nil without a client.
+local STATUS = { GAP = 0.5, t = -1e9, v = nil }
+function N.status()
+    local now = R.now()
+    if (now - STATUS.t) < STATUS.GAP then return STATUS.v end
+    STATUS.t = now
+    local c = N.client()
+    if not c then STATUS.v = nil return nil end
+    local v = { progress = S.progress(c), route = S.route_progress(c), zones = S.zone_count(c),
+        failures = S.failures(c), state = S.state(c) }
+    local d = S.destination(c)
+    local hx, hy, hz = R.here()
+    if d and hx then v.dest_yd = R.dist3(hx, hy, hz, d.x, d.y, tonumber(d.z) or hz) end
+    STATUS.v = v
+    return v
+end
+
+--- One line for the GUI from a status table (no game call).
+function N.status_text(v)
+    if type(v) ~= "table" then return nil end
+    local parts = {}
+    local pr = v.progress
+    if v.state == "navigating" and pr and pr.total and pr.total > 0 then
+        parts[#parts + 1] = string.format("%.0f%% (wp %d/%d)", pr.percent or 0, pr.index or 0, pr.total)
+    end
+    if v.dest_yd then parts[#parts + 1] = string.format("%.0f yd to go", v.dest_yd) end
+    if v.route and v.route.percent then parts[#parts + 1] = string.format("route %.0f%%", v.route.percent) end
+    if v.zones and v.zones > 0 then parts[#parts + 1] = string.format("%d zone%s", v.zones, v.zones == 1 and "" or "s") end
+    if v.failures and v.failures > 0 then parts[#parts + 1] = string.format("%d failed path%s", v.failures, v.failures == 1 and "" or "s") end
+    if #parts == 0 then return nil end
+    return table.concat(parts, ", ")
 end
 
 -- ----------------------------------------------------------------------------

@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.4.0
+-- Version: 4.4.1
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2867,7 +2867,7 @@ end
 -- no path on foot - the guide for another race / start zone is loaded. The
 -- bot holds with a note instead of walking at it forever.
 IS.mm = require("quest/mismatch")
-IS.use_item = require("quest/useitem").goal   -- 4.3.0: RestedXP quest items (quest/useitem.lua)
+IS.use_item = require("quest/useitem").goal   -- 4.4.1: open the step's RXP_PICK objects (quest/useitem.lua)
 IS.use_spot = require("quest/useitem").spot   -- 4.4.0: a .use goal waits for its RXP_PICK object
 IS.mismatch = function(player, goal, wps)
     local me = safe(function() return player:get_position() end)
@@ -3309,8 +3309,8 @@ tick_inner = function(player)
     -- side left the guide on that step for good ("step complete", standing
     -- at the vendor). vendor.tick sells and buys nothing below level 2.
 
-    -- 4.3.0: the quest's RestedXP quest item (Empty Termite Jar at a Termite
-    -- Mound) - quest/useitem.lua, before the object / mob search
+    -- 4.4.1: the step's RXP_PICK object (open the Large Termite Mound; no item
+    -- is used) - quest/useitem.lua, before the object / mob search
     if IS.use_item(player, goal, kind, wps, label, walk_to) then
         return
     end

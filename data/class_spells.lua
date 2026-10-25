@@ -3,7 +3,7 @@
 -- Class spell catalog (TBC) - what the Spells tab lists and the rotation casts
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.4.0
+-- Version: 4.4.1
 -- Folder: restedXP_questing
 -- ============================================================================
 -- ONE LIST PER CLASS (2.64.0)

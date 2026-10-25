@@ -1,9 +1,9 @@
 -- ============================================================================
 -- restedXP_questing
--- quest/useitem.lua - RestedXP quest items, used only at the object they are for
+-- quest/useitem.lua - the guide's RXP_PICK objects; quest items only at them
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.4.0
+-- Version: 4.4.1
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.3.0 (in-game log 2026-10-24 20:01, Eastern Plaguelands): "Plagueland
@@ -18,19 +18,21 @@
 -- "first use where it stands" probe is gone. With no object named for the
 -- step (and none learnt), the item is not used here.
 --
--- U.goal - a kill / collect / object goal whose quest has a RestedXP quest
--- item in the bags:
---   * the nearest visible object of the step's RXP_PICK names (or a name the
---     game asked for: "Requires <name>") within SCAN yd is walked to (within
---     USE_NEAR yd); none in sight: false - the route walk goes on;
---   * there: stop, dismount (no remount for NO_MOUNT_S), then one CYCLE: open
---     the object as the guide says (use_object); a loot window -> the engine's
---     object goal loots it; no loot window in WAIT_LOOT s -> the quest item is
---     used, next to the object;
---   * TRIES cycles with no change in the goal's count: the object is skipped
+-- 4.4.1 (user, 2026-10-24): "the termite jar is not used, player just needs
+-- to interact with the termite mound". U.goal never uses an item: it OPENS
+-- the step's RXP_PICK object, nothing else.
+--
+-- U.goal - a collect / object goal whose step names RXP_PICK objects:
+--   * the nearest visible one (exact name, so a small "Termite Mound" is not
+--     a "Large Termite Mound") within SCAN yd is walked to (USE_NEAR yd); none
+--     in sight: false - the route walk goes on;
+--   * there: stop, dismount (no remount for NO_MOUNT_S), open it (use_object,
+--     the entry point for world objects); its loot window is looted by the
+--     engine's object goal; opened again every WAIT_LOOT s;
+--   * TRIES opens with no change in the goal's count: the object is skipped
 --     for SKIP_S s.
--- U.spot - the same rule for a ".use" goal (kind "item"): with RXP_PICK
--- objects named for the step, the item waits until one is in reach.
+-- U.spot - a ".use" goal (kind "item") of a RestedXP quest-complete item, with
+-- RXP_PICK objects named for the step, waits until one is in reach.
 -- Public: U.goal, U.spot, U.item_for, U.reset.
 -- ============================================================================
 
@@ -178,41 +180,23 @@ local function approach(obj, d, name, label, walk_to)
     return false
 end
 
---- One tick of a goal with a RestedXP quest item. True when the tick was spent here.
+--- One tick of a collect / object goal whose step names RXP_PICK objects
+--- ("Open the Large Termite Mounds ... Loot them"): open the nearest one and
+--- let the object goal loot it. 4.4.1: NO ITEM IS USED HERE - RestedXP's
+--- quest-item list (M.use_items) is only its item button; the Empty Termite
+--- Jar is never used, the mound is just opened (user, 2026-10-24).
+--- True when the tick was spent here.
 function U.goal(player, goal, kind, wps, label, walk_to)
-    if kind ~= "kill" and kind ~= "collect" and kind ~= "object" then return false end
-    local item, entry = U.item_for(goal)
-    if not item then return false end
+    if kind ~= "collect" and kind ~= "object" then return false end
     if loot_open() then return false end                 -- the object goal loots it
     if safe(function() return player:is_in_combat() end) == true then return false end
+    local needles = spots(goal, nil)
+    if #needles == 0 then return false end
     local now = izi.now()
     if safe(function() return player:is_channeling_or_casting() end) == true then
-        if cur.phase == "used" then cur.t = now end
-        state.set_note("Quest", "Guide: using the quest item for " .. label)
+        if cur.phase == "opened" then cur.t = now end    -- an "Opening" cast: its loot comes after it
+        state.set_note("Quest", "Guide: opening for " .. label)
         return true
-    end
-
-    -- the last use's refusal may name the object it needs
-    if cur.phase == "used" and since("UI_ERROR_MESSAGE", cur.t - U.WAIT_USE) then
-        local e = ev()
-        local need = type(e.ui) == "table" and type(e.ui.error_text) == "string"
-            and e.ui.error_text:match("^[Rr]equires (.+)$") or nil
-        if need and need ~= "" then
-            need = need:gsub("%.$", ""):lower()
-            if learnt[item] ~= need then
-                learnt[item] = need
-                trail("act", "%s needs %s", iname(item), need)
-            end
-        end
-    end
-
-    local needles = spots(goal, item)
-    if #needles == 0 then
-        if not said[item] then
-            said[item] = true
-            trail("act", "%s: the guide names no object for it - not used blind", iname(item))
-        end
-        return false
     end
     local obj, d, name = nearest(player, needles, now)
     if not obj then return false end                     -- route walk: the next one comes into sight
@@ -228,7 +212,7 @@ function U.goal(player, goal, kind, wps, label, walk_to)
     end
     if cur.cycles >= U.TRIES then
         if guid then skip[guid] = now + U.SKIP_S end
-        trail("act", "%s: %d tries, the count did not move - next one", name, cur.cycles)
+        trail("act", "%s: opened %d times, the count did not move - next one", name, cur.cycles)
         cur.guid, cur.phase, cur.cycles = nil, nil, 0
         return true
     end
@@ -238,36 +222,17 @@ function U.goal(player, goal, kind, wps, label, walk_to)
         state.set_note("Quest", "Guide: at the " .. name .. " for " .. label)
         return true
     end
-
-    if cur.phase == nil then
-        -- open it, as the guide says
-        local ok = safe(function() return core.input.use_object(obj) end)
-        if ok ~= true then pcall(function() core.input.interact_with_object(obj) end) end
-        cur.phase, cur.t = "opened", now
-        next_t = now + U.WAIT_LOOT
-        trail("act", "open %s (%.1f yd) for %s", name, d or -1, label)
-        state.set_note("Quest", "Guide: open the " .. name .. " for " .. label)
-        return true
-    elseif cur.phase == "opened" then
-        if since("LOOT_OPENED", cur.t) then
-            cur.phase = nil                                  -- the object goal loots it
-            cur.cycles = cur.cycles + 1
-            return false
-        end
-        -- no loot window: the quest item, next to the object
-        if guide.use_bag_item(entry, nil) then
-            trail("act", "use %s (%d) at the %s (%.1f yd)", iname(item), item, name, d or -1)
-            state.set_note("Quest", "Guide: use the quest item at the " .. name .. " for " .. label)
-        else
-            state.set_note("Quest", "Guide: could not use the quest item for " .. label)
-        end
-        cur.phase, cur.t = "used", now
-        next_t = now + U.WAIT_USE
-        return true
+    if cur.phase == "opened" then
+        cur.phase = nil
+        cur.cycles = cur.cycles + 1
     end
-    -- "used": the cycle is over
-    cur.phase = nil
-    cur.cycles = cur.cycles + 1
+    -- open it, as the guide says (use_object: the entry point for world objects)
+    local ok = safe(function() return core.input.use_object(obj) end)
+    if ok ~= true then pcall(function() core.input.interact_with_object(obj) end) end
+    cur.phase, cur.t = "opened", now
+    next_t = now + U.WAIT_LOOT
+    trail("act", "open %s (%.1f yd) for %s", name, d or -1, label)
+    state.set_note("Quest", "Guide: open the " .. name .. " for " .. label)
     return true
 end
 

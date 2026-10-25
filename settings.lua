@@ -3,7 +3,7 @@
 -- Per-character settings, saved to scripts_data/
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.17.0
+-- Version: 4.18.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT THIS IS FOR, AND WHAT IT IS NOT FOR

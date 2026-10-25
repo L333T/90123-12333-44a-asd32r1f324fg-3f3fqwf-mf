@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Identity — single source of truth for name / authors / version
 -- ============================================================================
--- Version: 4.17.0
+-- Version: 4.18.0
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -25,6 +25,6 @@ return {
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.17.0",
+    version = "4.18.0",
     folder = "restedXP_questing",
 }

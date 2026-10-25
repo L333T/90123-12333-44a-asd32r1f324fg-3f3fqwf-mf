@@ -3,7 +3,7 @@
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.17.0
+-- Version: 4.18.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
@@ -82,6 +82,13 @@ local last_act  = -1e9
 local last_bag_scan = -1e9
 local bag_attempt = nil
 local debug_done = false
+-- 4.18.0 (user: "only equip item upgrades that the player class can use"):
+-- an item usable_by refused is remembered with the level it was judged at and
+-- not looked at again until the character levels (the 2026-10-25 log judged
+-- the same six guns, bows, leather and plate every 10 s and printed each one);
+-- each refusal is logged once.
+local unusable = {}            -- item id -> level it was refused at
+local skip_logged = {}         -- item id -> true
 
 local function safe(fn)
     local ok, result = pcall(fn)
@@ -196,6 +203,50 @@ local CLASS_WEAPONS = {
     [enums.class_id.WARLOCK] = { [W.SWORD1]=1,[W.DAGGER]=1,[W.STAFF]=1,[W.WAND]=1 },
     [enums.class_id.DRUID]   = { [W.MACE1]=1,[W.MACE2]=1,[W.STAFF]=1,[W.DAGGER]=1,[W.FIST]=1,[W.POLEARM]=1 },
 }
+
+-- 4.18.0 TRAINED WEAPON SKILLS. The class list above is what a class MAY
+-- learn; a weapon is only wearable once its skill is trained (a Mage cannot
+-- equip a sword before a trainer teaches One-Handed Swords). The skill's
+-- spell id per weapon subclass (TBC); a skill the spell book does not know is
+-- refused - but only once the book is known to answer for skills: one of the
+-- class's starting weapon skills (STARTER) must read as known, else the book
+-- cannot tell and the class list alone decides.
+local WEAPON_SKILL = {
+    [W.AXE1] = 196, [W.AXE2] = 197, [W.MACE1] = 198, [W.MACE2] = 199, [W.POLEARM] = 200,
+    [W.SWORD1] = 201, [W.SWORD2] = 202, [W.STAFF] = 227, [W.BOW] = 264, [W.GUN] = 266,
+    [W.DAGGER] = 1180, [W.THROWN] = 2567, [W.WAND] = 5009, [W.CROSSBOW] = 5011, [W.FIST] = 15590,
+}
+local STARTER = {               -- weapon skills every character of the class starts with
+    [enums.class_id.WARRIOR] = { 201, 196, 198 }, [enums.class_id.PALADIN] = { 198, 199 },
+    [enums.class_id.HUNTER] = { 196, 264, 266 }, [enums.class_id.ROGUE] = { 1180, 201 },
+    [enums.class_id.PRIEST] = { 198, 5009 }, [enums.class_id.SHAMAN] = { 198, 227 },
+    [enums.class_id.MAGE] = { 227, 5009 }, [enums.class_id.WARLOCK] = { 1180, 5009 },
+    [enums.class_id.DRUID] = { 227, 198 },
+}
+local function skill_known(id)
+    local sb = core and core.spell_book
+    if type(sb) ~= "table" then return nil end
+    for _, f in ipairs({ sb.is_spell_known, sb.is_spell_learned, sb.has_spell }) do
+        if type(f) == "function" then
+            local ok, v = pcall(f, id)
+            if ok and v == true then return true end
+        end
+    end
+    return false
+end
+--- true / false: the weapon subclass's skill is trained; nil: cannot tell.
+local function weapon_trained(class_id, sub)
+    local skill = WEAPON_SKILL[sub]
+    if not skill then return nil end
+    local starters = STARTER[class_id]
+    local reliable = false
+    for i = 1, #(starters or {}) do
+        if skill_known(starters[i]) == true then reliable = true break end
+    end
+    if not reliable then return nil end
+    return skill_known(skill) == true
+end
+equip._weapon_trained = weapon_trained
 
 -- Shields, and the class-specific relic subclasses.
 local CLASS_SHIELD = {
@@ -437,7 +488,8 @@ local function find_upgrade(player)
     for i = 1, #list do
         local entry = list[i]
         local item_id = entry.item_id
-        if item_id and not failed_ids[item_id] then
+        local lvl_now = safe(function() return player:get_level() end) or 0
+        if item_id and not failed_ids[item_id] and unusable[item_id] ~= lvl_now then
             local info = item_info(item_id)
             if info then
                 debug_dump(info, item_id)
@@ -464,9 +516,14 @@ local function find_upgrade(player)
                                 return entry.bag, entry.slot, name .. " (" .. tostring(why) .. ")", item_id, weapon_slot
                             end
                         end
-                    elseif gui.is_on("equip_debug") then
-                        core.log(string.format("[restedXP_questing] Auto-equip skips %s: %s",
-                            tostring(info.name or item_id), tostring(why_not)))
+                    else
+                        -- 4.18.0: not this class's - left alone until the next level, logged once
+                        unusable[item_id] = lvl_now
+                        if gui.is_on("equip_debug") and not skip_logged[item_id] then
+                            skip_logged[item_id] = true
+                            core.log(string.format("[%s] Auto-equip skips %s: %s", "restedXP_questing",
+                                tostring(info.name or item_id), tostring(why_not)))
+                        end
                     end
                 end
             end
@@ -894,8 +951,11 @@ function equip.usable_by(player, info)
     if type(cls) == "number" and type(sub) == "number" then
         if cls == ITEM_CLASS.WEAPON then
             local allowed = CLASS_WEAPONS[class_id]
-            if allowed and not allowed[sub] then
+            if not allowed or not allowed[sub] then
                 return false, slots, "class cannot use this weapon type"
+            end
+            if weapon_trained(class_id, sub) == false then          -- 4.18.0
+                return false, slots, "weapon skill not trained yet"
             end
             return true, slots, nil
         end
@@ -917,6 +977,12 @@ function equip.usable_by(player, info)
         end
     end
 
+    -- 4.18.0: a WEAPON with no numeric class data cannot be checked against the
+    -- class - not equipped (armour and accessories still go: their weight was
+    -- read from the name above, rings / necks / cloaks fit every class)
+    if WEAPON_SLOTS[loc] and not LOC_SLOTS[loc] then
+        return false, slots, "weapon type unreadable"
+    end
     -- No numeric class data: it is equippable and nothing says otherwise.
     return true, slots, nil
 end

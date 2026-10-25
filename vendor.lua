@@ -3,7 +3,7 @@
 -- Vendor sell + repair (Grind_Information merchants)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- Sell via core.input.use_container_item while a merchant is open.
 -- Quality from core.quests.get_item_info. No is_vendor invent.
@@ -892,6 +892,12 @@ function vendor.reset()
     -- to a merchant the new path knows nothing about.
     state.vendor.lap_due = false
     state.vendor.book_pick = nil      -- 2.318.0
+    -- audit 4.29.0: the dropped trip's seller / inn / window latch went with it -
+    -- left set, the next trip's tick took the old supplier_guid branch and
+    -- finished as "Vendor not found" (e.g. after the 5-minute full-bags hearth)
+    state.vendor.supplier_guid, state.vendor.supplier_name, state.vendor.supplier_skip = nil, nil, nil
+    state.vendor.inn = nil
+    state.vendor.window_seen = false
 end
 
 --- Did the running path just finish a lap that should end at the vendor?

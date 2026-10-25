@@ -3,7 +3,7 @@
 -- quest/threat.lua - mobs whose aggro range the walk is about to cross
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.7.0 (user): "preemptively attack enemy targets that the player's path will
@@ -235,6 +235,12 @@ function T.check(player)
     end
     if (t - st.t) < T.GAP then
         local r = st.res
+        -- audit 4.29.0: a cached "attack" unit is up to GAP s old - is_valid()
+        -- before the engine calls any other method on it
+        if r and r[1] == "attack" and safe(function() return r[2]:is_valid() end) ~= true then
+            st.res = nil
+            return nil
+        end
         if r then return r[1], r[2], r[3] end
         return nil
     end
@@ -298,7 +304,9 @@ function T.check(player)
     local d = math.sqrt((hit.mob.x - mx) ^ 2 + (hit.mob.y - my) ^ 2)
     if d > T.ATTACK_RANGE then return nil end
     if safe(function() return player:can_attack(u) end) == false then return nil end
-    if safe(function() return u:is_tap_denied() end) == true then return nil end
+    -- audit 4.29.0: is_tap_denied answers a number (.api game_object.lua) - 1 was let through
+    local tap = safe(function() return u:is_tap_denied() end)
+    if tap == true or (type(tap) == "number" and tap ~= 0) then return nil end
     if safe(function() return u:is_in_combat() end) == true then
         local tt = safe(function() return u:get_target() end)
         local mg = guid(player)

@@ -3,7 +3,7 @@
 -- quest/travel.lua - flights: RestedXP ".fly" goals and far-goal flight trips
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 2.307.0: SPLIT OUT OF quest/engine.lua, which sat at Lua's hard limit of
@@ -721,7 +721,7 @@ local function far_travel(player, goal, kind, wps, label)
     movement.nav_stop()
     if now >= C.act_until() then
         if trip.fm_tries >= FM_TRIES then
-            trip.tried[trip.fm_guid] = true
+            if trip.fm_guid then trip.tried[trip.fm_guid] = true end   -- audit 4.29.0: a nil guid key threw
             trip.fm_guid, trip.fm_tries = nil, 0
             return true
         end

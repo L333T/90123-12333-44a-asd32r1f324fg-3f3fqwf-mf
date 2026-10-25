@@ -3,7 +3,7 @@
 -- equip.lua - auto-equip upgrades from the bags
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Ported from the reference bot's Auto_Equip / Check_Equip.
@@ -784,6 +784,12 @@ function equip.tick(player)
     -- use_container_item SELLS while a merchant is open. Never scan then.
     local n_vendor = safe(function() return core.game_ui.get_vendor_item_count() end)
     if type(n_vendor) == "number" and n_vendor > 0 then
+        return false
+    end
+    -- audit 4.29.0: a merchant with an empty / unreadable item list is still a
+    -- merchant (vendor.merchant_open's second test) - use_item / use_container_item
+    -- would sell the upgrade there
+    if safe(function() return core.inventory.can_merchant_repair() end) == true then
         return false
     end
 

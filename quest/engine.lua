@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -1311,7 +1311,11 @@ local function blacklisted(unit)
     local now = izi.now()
     local g = safe(function() return unit:get_guid() end)
     local id = npc_id_of_unit(unit)
-    for _, k in ipairs({ g and ("g:" .. g) or nil, id and ("id:" .. id) or nil }) do
+    -- audit 4.29.0: ipairs stopped at a nil guid key, so the npc-id entry was
+    -- never checked for a unit whose guid could not be read
+    local keys = { g and ("g:" .. g) or false, id and ("id:" .. id) or false }
+    for i = 1, 2 do
+        local k = keys[i]
         if k and TK.black[k] then
             if TK.black[k] > now then return true end
             TK.black[k] = nil
@@ -2805,7 +2809,10 @@ IS.finish_first = function(goal, kind)
     local okn, npcm = pcall(require, "quest/npc")
     if not okn or type(npcm) ~= "table" then return nil end
     local in_log = type(npcm.in_log) == "function" and npcm.in_log(q, nil) or nil
-    local ready = type(npcm.quest_ready) == "function" and npcm.quest_ready(q) or nil
+    -- audit 4.29.0: `f() or nil` turned quest_ready's false into nil, so the
+    -- `ready ~= false` test below always returned - finish_first never ran
+    local ready = nil
+    if type(npcm.quest_ready) == "function" then ready = npcm.quest_ready(q) end
     if in_log ~= true or ready ~= false then return nil end
     if type(guide.needs_progress) == "function" and guide.needs_progress(q) ~= true then return nil end
     local w = IS.qwork[q]

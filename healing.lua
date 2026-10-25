@@ -3,7 +3,7 @@
 -- Combat potions, and the gate that lets a rotation rest
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT MOVED, AND WHY THIS FILE STILL EXISTS  (1.8.0)
@@ -101,7 +101,10 @@ function healing.tick(player)
         if resting.is_resting() then
             resting.clear()
         end
-        if gui.is_on("potions") then
+        -- audit 4.29.0: use_item SELLS while a merchant window is open - no potion then
+        local merchant = (tonumber(safe(function() return core.game_ui.get_vendor_item_count() end)) or 0) > 0
+            or safe(function() return core.inventory.can_merchant_repair() end) == true
+        if gui.is_on("potions") and not merchant then
             local hp = health_pct(player)
             local mana = mana_pct(player)
             local has_mana = power.has_mana(player)

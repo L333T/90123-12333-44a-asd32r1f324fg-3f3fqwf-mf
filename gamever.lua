@@ -3,7 +3,7 @@
 -- Game version: TBC Classic or WoW Forever
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- core.get_game_version() answers "Tbc" on TBC Classic (and the TBC 2.5.3
@@ -43,15 +43,18 @@ end
 -- build when get_game_version() does not say that.
 local FOREVER_EXACT = "wow_forever_beta_us"
 
+-- audit 4.29.0: pcall-guarded and read once (is_forever asked the core on every call)
+local exact_cached = nil
 local function exact_version()
+    if exact_cached ~= nil then
+        return exact_cached
+    end
     if type(core) ~= "table" or type(core.get_exact_game_version) ~= "function" then
         return ""
     end
-    local ev = core.get_exact_game_version()
-    if type(ev) ~= "string" then
-        return ""
-    end
-    return ev
+    local ok, ev = pcall(core.get_exact_game_version)
+    exact_cached = (ok and type(ev) == "string") and ev or ""
+    return exact_cached
 end
 
 function gamever.is_forever()

@@ -55,14 +55,16 @@ def parse(path, out):
         if not name or name.strip() in SEASON_ONLY:
             return
         mid, x, y = st["goto"]
-        out.append({"name": name.strip(), "id": st["vid"], "m": mid, "x": x, "y": y, "f": fac,
+        # audit 4.29.0: the .target line's ::id when the .vendor line names none
+        vid = st["vid"] or (st["tid"] if st["target"] else None)
+        out.append({"name": name.strip(), "id": vid, "m": mid, "x": x, "y": y, "f": fac,
                     "forever": forever})
 
     for raw in text.splitlines():
         line = raw.strip()
         if line == "step" or line.startswith("step "):
             flush(step)
-            step = {"vendor": False, "vid": None, "goto": None, "target": None, "friendly": None}
+            step = {"vendor": False, "vid": None, "tid": None, "goto": None, "target": None, "friendly": None}
             continue
         if step is None:
             continue
@@ -82,7 +84,12 @@ def parse(path, out):
             elif tag == "target":
                 names = [n.strip().lstrip("+") for n in rest.split(",") if n.strip()]
                 if names and not step["target"]:
-                    step["target"] = names[0]
+                    # audit 4.29.0: ".target Name::12345" - the "::id" suffix is not part of the
+                    # NPC's name (it broke find_named and the duplicate merge); keep the id
+                    tname, _, tid = names[0].partition("::")
+                    step["target"] = tname.strip()
+                    if tid.strip().isdigit() and not step["tid"]:
+                        step["tid"] = int(tid.strip())
         m = FRIENDLY_RE.search(line)
         if m and not step["friendly"]:
             step["friendly"] = m.group(1)

@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -739,14 +739,20 @@ local function dagger_equipped(player)
     if id == dagger_memo.id then return dagger_memo.v end
     local ii = safe(function() return core.quests.get_item_info(id) end)
     local v = false
+    local read = false     -- audit 4.29.0: the info answered (not an empty first call)
     if type(ii) == "table" then
         if type(ii.class_id) == "number" and type(ii.subclass_id) == "number" then
             v = ii.class_id == DAGGER_CLASS and ii.subclass_id == DAGGER_SUB
+            read = true
         elseif type(ii.item_sub_type) == "string" then
             v = string.lower(ii.item_sub_type):find("dagger", 1, true) ~= nil
+            read = true
         end
     end
-    dagger_memo.id, dagger_memo.v = id, v
+    -- audit 4.29.0: an item the game has not loaded answers {} - cached as "no
+    -- dagger" for that id, Backstab / Ambush / Gouge were never used until the
+    -- weapon changed. Only a real answer is cached; else asked again in 2 s.
+    dagger_memo.id, dagger_memo.v = read and id or nil, v
     return v
 end
 smart.dagger_equipped = dagger_equipped
@@ -2633,7 +2639,10 @@ local reach_cache = { scan = -1, yards = nil }
 function smart.max_range(player)
     if not player or not spellbook.ready() then return nil end
     build(player)
-    if reach_cache.scan == built.scan and reach_cache.picks == picks.count() then
+    -- audit 4.29.0: picks.count() answers (on, off); the on count alone stayed
+    -- the same when one spell was unticked and another ticked (stale reach)
+    local pk_on, pk_off = picks.count()
+    if reach_cache.scan == built.scan and reach_cache.picks == pk_on and reach_cache.picks_off == pk_off then
         return reach_cache.yards
     end
     local best = nil
@@ -2653,7 +2662,7 @@ function smart.max_range(player)
             end
         end
     end
-    reach_cache.scan, reach_cache.picks, reach_cache.yards = built.scan, picks.count(), best
+    reach_cache.scan, reach_cache.picks, reach_cache.picks_off, reach_cache.yards = built.scan, pk_on, pk_off, best
     return best
 end
 

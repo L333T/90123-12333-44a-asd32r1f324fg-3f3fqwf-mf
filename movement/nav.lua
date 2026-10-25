@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through Sentinel Navigation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- ============================================================================
 -- 4.2.0 SENTINEL PORT (branch sentinel-nav; docs/SENTINEL_API.md = the official
 -- v0.0.8 page, docs/SENTINEL_V024.md = what the installed v0.24 really does).
@@ -329,6 +329,7 @@ issue_walk = function(c, x, y, z, mode)
     local id = cur.id
     cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route, cur.done = x, y, z, R.now(), mode or "move", nil, false
     cur.leg_t = R.now()
+    cur.scanning = nil                            -- audit 4.29.0: a new walk ends any floor scan (a stale one blocked the lost-walk check)
     stop_req = nil                                -- a new walk replaces a pending stop
     stats.issued = stats.issued + 1
     local sent = S.move_to(c, { x = x, y = y, z = z }, function(success, reason)
@@ -472,7 +473,10 @@ function N.nav_to(dest, direct, mode)
     end
     if mode ~= "combat" and hx and R.dist2(hx, hy, x, y) >= FLOOR_FIRST and not zfix[k] and not swimming() then
         local st = zscan[k]
-        if not (st and st.checked and (R.now() - st.t) <= FAIL_WINDOW) then
+        -- audit 4.29.0: a floor query unanswered HEIGHT_SCAN_HOLD s no longer
+        -- holds the walk (it re-queued on the stuck query until FAIL_WINDOW)
+        local stale = st and st.asking and (R.now() - st.t) >= HEIGHT_SCAN_HOLD
+        if not stale and not (st and st.checked and (R.now() - st.t) <= FAIL_WINDOW) then
             return walk_at_floor(c, x, y, z, mode)
         end
     end
@@ -502,6 +506,7 @@ function N.follow_route(list, replace)
     local last = pts[#pts]
     cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route, cur.done = last.x, last.y, last.z, R.now(), "route", list, false
     cur.leg_t = R.now()
+    cur.scanning = nil                      -- audit 4.29.0: as issue_walk
     stop_req = nil
     stats.issued = stats.issued + 1
     local ok = S.follow_path(c, pts, function(success, reason)
@@ -591,8 +596,10 @@ function N.pulse()
     if stop_req then
         if not S.moving(c) then
             stop_req = nil
-        elseif (not S.path_pending(c) and (R.now() - (cur.leg_t or 0)) >= FRESH_LEG)
-            or (R.now() - stop_req.t) >= STOP_WAIT_MAX then
+        -- audit 4.29.0: never while the path request is in flight (AGENTS rule);
+        -- STOP_WAIT_MAX only cuts the fresh-leg wait short
+        elseif not S.path_pending(c) and ((R.now() - (cur.leg_t or 0)) >= FRESH_LEG
+            or (R.now() - stop_req.t) >= STOP_WAIT_MAX) then
             S.stop(c)
             R.trail("nav", "deferred stop sent (%s)", tostring(stop_req.reason))
             stop_req = nil

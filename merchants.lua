@@ -3,7 +3,7 @@
 -- merchants.lua - remembered repair NPCs and innkeepers
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- ============================================================================
 -- The user (2.318.0): "Grinding path should vendor at repair NPC or INN if
 -- bags are full". A grind route without its own merchant record had only the
@@ -286,7 +286,10 @@ local function rv_load()
     local body = safe(function() return core.read_data_file(RV_FILE) end)
     if type(body) ~= "string" or body == "" then return end
     for line in body:gmatch("[^\n]+") do
-        local key, npc, x, y, z, rep, name = line:match("^(%S+) (%d+) (%-?[%d%.]+) (%-?[%d%.]+) (%-?[%d%.]+) (%d) (.*)$")
+        -- audit 4.29.0: the key is a route id = its file name, which may hold
+        -- spaces ("My Route"); (%S+) dropped such a route's saved vendor on load.
+        -- The six fields after it are fixed and the name has no spaces (rv_save).
+        local key, npc, x, y, z, rep, name = line:match("^(.+) (%d+) (%-?[%d%.]+) (%-?[%d%.]+) (%-?[%d%.]+) (%d) (%S*)%s*$")
         npc, x, y, z = tonumber(npc), tonumber(x), tonumber(y), tonumber(z)
         if key and npc and x and y and z then
             rv[key] = { npc_id = npc, x = x, y = y, z = z, repair = rep == "1",

@@ -3,7 +3,7 @@
 -- geometry.lua - object and position helpers, on the vec3 API
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- The handful of helpers every bot ends up writing - what is this object, how
@@ -99,9 +99,11 @@ function geometry.interact(obj)
     -- 4.27.0: a world object goes through quest/objguard (use_object only):
     -- interact_with_object on one crashed the game
     local okq, unit = pcall(function() return obj:is_unit() end)
-    if okq and unit == false then
+    if not okq then return false end           -- audit 4.29.0: unknown kind (freed object) - never interact_with_object
+    if unit == false then
         local okg, OG = pcall(require, "quest/objguard")
-        return okg and type(OG) == "table" and (OG.open(obj)) == true
+        -- audit 4.29.0: OG.open checked before the call
+        return okg and type(OG) == "table" and type(OG.open) == "function" and (OG.open(obj)) == true
     end
     return pcall(function()
         core.input.interact_with_object(obj)

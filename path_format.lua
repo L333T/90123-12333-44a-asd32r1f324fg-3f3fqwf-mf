@@ -3,7 +3,7 @@
 -- PathTool format — { name, map_id, loop, waypoints[{x,y,z,wait,combo,actions}] }
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -465,8 +465,20 @@ function path_format.encode_json(path)
     end
     local wps = {}
     local src = normalized.waypoints
-    for i = 1, #src do
-        wps[i] = encode_waypoint(src[i])
+    if type(src) == "table" then
+        for i = 1, #src do
+            wps[i] = encode_waypoint(src[i])
+        end
+    else
+        -- audit 4.29.0: normalize drops `waypoints` (flat coords + sparse
+        -- holds), so #src errored and every save_path failed
+        for i = 1, path_format.count(normalized) do
+            local x, y, z = path_format.xyz(normalized, i)
+            if x then
+                local e = path_format.extras(normalized, i) or {}
+                wps[#wps + 1] = encode_waypoint({ x = x, y = y, z = z, wait = e.wait, combo = e.combo, actions = e.actions })
+            end
+        end
     end
     local payload = {
         name = normalized.name,

@@ -4,7 +4,7 @@
 -- sight? Answered by AmeisenNav's navmesh, never by a game raycast.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- ============================================================================
 -- The user (2.313.0): "ensure enemy target is in LoS and not underground or
 -- unreachable" - after 2.311.0 removed every game raycast (los_to, trace_line,
@@ -34,7 +34,7 @@ local Sg = {}
 
 local TTL_OK   = 3.0     -- s an answer stands (clear / around)
 local TTL_BAD  = 8.0     -- s an unreachable / underground answer stands
-local GAP      = 0.15    -- s between new requests
+local GAP      = 1.0     -- s between new requests (audit 4.29.0: was 0.15 - up to ~7 Sentinel path requests a second; rule <= 1/s)
 local MOVED    = 5.0     -- yd the enemy may move before it is asked again
 local END_XY   = 4.0     -- yd: the path must end this close (flat) to the enemy
 local END_Z    = 5.0     -- yd of height between the path's end and the enemy

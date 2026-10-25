@@ -3,7 +3,7 @@
 -- Adaptive rotation - learns what kills fastest, per character
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT (2.274.0, GUI "Adaptive Rotation", Spells tab, on by default)
@@ -106,6 +106,7 @@ local pending = {}            -- casts waiting for their damage to land
 local hp_guid, hp_last = nil, nil
 local fight = { guid = nil, t = nil }
 local spec_cache = {}         -- target guid .. id -> { t, v }
+local spec_n = 0              -- audit 4.29.0: entries written to spec_cache
 local ct_fn = nil             -- smart.lua's cast time of an entry
 local last_order = ""
 
@@ -429,7 +430,14 @@ end
 function adapt.fight_left(target)
     if target then
         -- 2.315.0: no IZI time_to_die (fed by izi.on_update, no longer called)
-        if forecast then
+        -- audit 4.29.0: get_forecast_single answers 1.1 s for an untracked unit
+        -- ("no data": every pull) - DoTs were skipped on the opener and scored
+        -- ~0; that answer is ignored when has_forecast_data says false
+        local has = nil
+        if forecast and type(forecast.has_forecast_data) == "function" then
+            has = safe(function() return forecast:has_forecast_data(target) end)
+        end
+        if forecast and has ~= false then
             local f = tonumber(safe(function() return forecast:get_forecast_single(target) end))
             if f and f > 0 and f < 1e5 then return f end
         end
@@ -450,6 +458,9 @@ function adapt.damage(e, player, target, left)
         local t = now()
         if not c or t - c.t > 2 then
             local v = tonumber(safe(function() return health_pred:speculate_damage(player, target, direct, e.id) end))
+            -- audit 4.29.0: one key per target x spell, never dropped - bounded now
+            spec_n = spec_n + 1
+            if spec_n > 400 then spec_cache, spec_n = {}, 0 end
             c = { t = t, v = (v and v > 0) and v or direct }
             spec_cache[key] = c
         end
@@ -475,7 +486,9 @@ local function score(e, player, target, left, by_mana)
     return dmg / tc
 end
 
-local reuse = {}
+-- audit 4.29.0: weak keys - every rebuild (each spell scan) makes new
+-- buckets, and the old ones were held here for the whole session
+local reuse = setmetatable({}, { __mode = "k" })
 --- `bucket` re-ordered best first. Spells with no damage figure keep their
 --- places (Shoot, Auto Shot); the others are sorted into the remaining ones.
 function adapt.order(bucket, role, player, target, mana_pct)
@@ -617,6 +630,7 @@ function adapt.profile() return profile end
 function adapt._reset()
     profile, dirty, saved_t, id_name, pending = nil, false, -1e9, {}, {}
     hp_guid, hp_last, fight, spec_cache, last_order = nil, nil, { guid = nil, t = nil }, {}, ""
+    spec_n = 0   -- audit 4.29.0
 end
 function adapt._libs(f, h, a) forecast, health_pred, auto_attack = f, h, a end
 

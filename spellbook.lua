@@ -3,7 +3,7 @@
 -- Spellbook — delayed scan, then auto-rank by name to the highest known ID
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- Wait 5 seconds so the client and IZI finish loading, then scan.
 -- Re-scan on a level-up or a trainer visit (60 s safety net). DEFS are rank-1 IDs; highest matching ID wins.
@@ -29,6 +29,7 @@ local scanned = false
 local id_known = {}
 local spell_known = {}
 local watched = {}
+local watched_set = {}       -- audit 4.29.0: spell -> true, once per spell object
 -- Best-rank proxies and their binder (see BEST KNOWN RANK below). Declared
 -- here because run_scan, defined before that section, re-binds them.
 local proxies = {}
@@ -635,7 +636,12 @@ function spellbook.watch(spell, ids, track_buff, track_debuff)
         return spell
     end
     if type(ids) ~= "table" then
-        watched[#watched + 1] = spell
+        -- audit 4.29.0: racials.lua re-watches its spells on every Spells-tab
+        -- rebuild (each scan); the list grew for the whole session
+        if not watched_set[spell] then
+            watched_set[spell] = true
+            watched[#watched + 1] = spell
+        end
         return spell
     end
     local proxy = setmetatable({

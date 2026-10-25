@@ -3,7 +3,7 @@
 -- Enemy scan, tap filter, player detect, corpse list
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -450,7 +450,8 @@ local function all_enemy_units(player, pos, range)
     for _, l in ipairs({ attack or {}, avoid or {} }) do
         for i = 1, #l do
             local u = l[i]
-            local g = indexable(u) and call(u.get_guid, u) or nil
+            -- audit 4.29.0: cached scan units - is_valid before get_guid / get_position
+            local g = (indexable(u) and call(u.is_valid, u) == true) and call(u.get_guid, u) or nil
             if g ~= nil and not seen[g] then
                 local up = call(u.get_position, u)
                 if up and (up.x - pos.x) ^ 2 + (up.y - pos.y) ^ 2 + (up.z - pos.z) ^ 2 <= r2 then
@@ -496,7 +497,8 @@ function targeting.find_mobs(player, mobs, range, pve_only, opts)
     local all = targeting.scan_enemies(player)
     for i = 1, #all do
         local u = all[i]
-        local d = call(player.distance_to, player, u)
+        -- audit 4.29.0: the scan list is cached SCAN_TTL - is_valid before distance_to on a stored unit
+        local d = (indexable(u) and call(u.is_valid, u) == true) and call(player.distance_to, player, u) or nil
         if type(d) == "number" and d <= range then
             list[#list + 1] = u
         end

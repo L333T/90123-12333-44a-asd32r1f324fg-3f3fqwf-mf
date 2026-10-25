@@ -3,7 +3,7 @@
 -- resting.lua - the eat / drink implementation every rotation drives
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY THIS IS SHARED AND NOT COPIED NINE TIMES
@@ -875,6 +875,20 @@ function resting_mod.tick(player, opts)
     if safe(function() return core.character.is_swimming() end) == true then
         rest_debug("swimming - cannot sit down to eat or drink")
         clear_rest()
+        return false
+    end
+    -- audit 4.29.0: a merchant window is open - core.input.use_item on food /
+    -- water there SELLS it (bags.use_id), and healing runs before vendor in the
+    -- cascade. Stand down (latches kept, as in combat) so the vendor trip can
+    -- finish and close the window; the rest carries on after.
+    local n_vendor = safe(function() return core.game_ui.get_vendor_item_count() end)
+    if (type(n_vendor) == "number" and n_vendor > 0)
+        or safe(function() return core.inventory.can_merchant_repair() end) == true then
+        rest_debug("merchant window open - not eating / drinking (it would sell the item)")
+        resting = false
+        if movement and type(movement.set_resting) == "function" then
+            movement.set_resting(false)
+        end
         return false
     end
 

@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -1751,7 +1751,12 @@ local function can_start()
     pcall(function()
         me = izi.me()
     end)
-    local class_id = me and me.get_class and me:get_class() or nil
+    -- audit 4.29.0: native call guarded (start_bot runs from the keybind / deferred click)
+    local class_id = nil
+    if me then
+        local okc, cid = pcall(function() return me:get_class() end)
+        class_id = okc and cid or nil
+    end
     if not class_id then
         return false
     end
@@ -2010,22 +2015,25 @@ end
 function gui.process_keybinds()
     gui.sync_attack_level()
     gui.sync_activity()
-    if key_is_down(KEY_CODES.enable) and not key_was_down.enable then
+    -- audit 4.29.0: each key set polled once per frame (was twice: 18 native reads a frame)
+    local d_enable, d_pause = key_is_down(KEY_CODES.enable), key_is_down(KEY_CODES.pause)
+    local d_stop, d_gui = key_is_down(KEY_CODES.stop), key_is_down(KEY_CODES.show_gui)
+    if d_enable and not key_was_down.enable then
         start_bot()
     end
-    if key_is_down(KEY_CODES.pause) and not key_was_down.pause then
+    if d_pause and not key_was_down.pause then
         pause_bot()
     end
-    if key_is_down(KEY_CODES.stop) and not key_was_down.stop then
+    if d_stop and not key_was_down.stop then
         stop_bot()
     end
-    if key_is_down(KEY_CODES.show_gui) and not key_was_down.show_gui then
+    if d_gui and not key_was_down.show_gui then
         toggle_gui()
     end
-    key_was_down.enable = key_is_down(KEY_CODES.enable)
-    key_was_down.pause = key_is_down(KEY_CODES.pause)
-    key_was_down.stop = key_is_down(KEY_CODES.stop)
-    key_was_down.show_gui = key_is_down(KEY_CODES.show_gui)
+    key_was_down.enable = d_enable
+    key_was_down.pause = d_pause
+    key_was_down.stop = d_stop
+    key_was_down.show_gui = d_gui
 end
 
 local function class_status()

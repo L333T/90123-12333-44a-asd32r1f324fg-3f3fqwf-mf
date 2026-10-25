@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -219,7 +219,8 @@ function movement.interact(unit)
     -- 4.5.0: a game object (a Wanted Poster giving a quest) is opened with
     -- use_object - interact_with_object does not cover every object
     local okq, is_unit = pcall(unit.is_unit, unit)
-    if okq and is_unit == false then
+    if not okq then return false end           -- audit 4.29.0: unknown kind (freed object) - never interact_with_object
+    if is_unit == false then
         -- 4.23.0: through quest/objguard (crash journal: use_object / interact
         -- the way that has not crashed the game on this object, or nothing)
         local okg, OG = pcall(require, "quest/objguard")

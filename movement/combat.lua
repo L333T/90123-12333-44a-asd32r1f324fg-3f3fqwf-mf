@@ -3,7 +3,7 @@
 -- movement/combat.lua - closing on a target and standing in range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- ============================================================================
 -- combat_engage(player, unit, yards) is called every tick of a fight.
 --   * OWNERSHIP: each call holds travel off for COMBAT_HOLD s
@@ -47,12 +47,13 @@ local RETREAT_TIME = 2.5
 local FLEE_HP, FLEE_N, FLEE_YD, FLEE_TIME, FLEE_GAP = 20, 3, 10, 5.0, 45.0
 C.FLEE_HP, C.FLEE_N = FLEE_HP, FLEE_N
 local DEFAULT_MELEE_DANGER = 8
+local PENDING_MAX = 3.0        -- audit 4.29.0: s a kite / flee answer is waited for (a lost callback held it forever)
 
 local st = {
     guid = nil, unit = nil, yards = nil,
     latched = false,
     best = nil, best_t = 0,
-    retreat_until = 0, kite_pending = false,
+    retreat_until = 0, kite_pending = false, kite_t = 0,
     flee_until = 0, flee_t = -1e9, flee_pending = false,
     profile = nil,
 }
@@ -95,13 +96,14 @@ local function want_retreat(player, unit, range)
 end
 
 local function start_retreat(player, unit)
+    if st.kite_pending and (R.now() - st.kite_t) >= PENDING_MAX then st.kite_pending = false end   -- audit 4.29.0
     if st.kite_pending then return end
     -- 4.10.0: Sentinel's kite path (movement/nav N.kite - nav_client:kite, its last
     -- point; the answer's shape is checked live, a wrong one switches kiting off)
     local okp, pp = pcall(player.get_position, player)
     local oku, up = pcall(unit.get_position, unit)
     if not okp or not oku or not pp or not up then return end
-    st.kite_pending = true
+    st.kite_pending, st.kite_t = true, R.now()
     local ok = N.kite(R.point(pp), R.point(up), function(point)
         st.kite_pending = false
         if point and N.nav_to(point, true, "combat") then
@@ -115,6 +117,8 @@ end
 --- 4.14.0 FLEE: overwhelmed - low health and a crowd in melee - walk
 --- Sentinel's flee path away from all of them. True while fleeing.
 local function flee_check(player, t)
+    -- audit 4.29.0: an unanswered flee request no longer blocks every attack for good
+    if st.flee_pending and (t - st.flee_t) >= PENDING_MAX then st.flee_pending = false end
     if t < st.flee_until or st.flee_pending then return true end
     if (t - st.flee_t) < FLEE_GAP then return false end
     local okh, hp = pcall(player.get_health_percentage, player)

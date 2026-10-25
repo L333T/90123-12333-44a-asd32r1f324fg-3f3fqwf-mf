@@ -2,7 +2,7 @@
 -- restedXP_questing
 -- Movement — Sentinel Navigation adapter (4.1.0)
 -- ============================================================================
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -795,7 +795,10 @@ local function num(v) v = tonumber(v) if v and v == v then return v end return n
 function S.progress(c)
     local ok, v = m(c, "get_progress")
     if not ok or type(v) ~= "table" then return nil end
-    return { index = num(v.current_index), percent = num(v.percent),
+    -- audit 4.29.0: percent is 0..1 (doc / stub) - shown as 0..100 like route_progress
+    local pc = num(v.percent)
+    if pc and pc <= 1 then pc = pc * 100 end
+    return { index = num(v.current_index), percent = pc,
         total = num(v.total_waypoints), left = num(v.waypoints_remaining) }
 end
 function S.route_progress(c)

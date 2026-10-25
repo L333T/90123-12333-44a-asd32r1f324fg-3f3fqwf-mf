@@ -3,7 +3,7 @@
 -- Combat engine - pack scan, target latch, kill-first priority, class hooks
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Shared by every class rotation. Class modules opt in by exposing interrupt,
@@ -212,7 +212,10 @@ function combat.scan(player, range)
     local rows = {}
     for i = 1, #list do
         local u = list[i]
-        if alive(u) and call(u.is_in_combat, u) == true then
+        -- audit 4.29.0: targeting.enemy_list does not exist, so this is always the raw
+        -- izi list - apply the 4.21.0 low-level ignore the other enemy lists use
+        if alive(u) and call(u.is_in_combat, u) == true
+            and not (targeting and type(targeting.ignore_low) == "function" and targeting.ignore_low(player, u)) then
             if call(player.can_attack, player, u) ~= false then
                 local tar = call(u.get_target, u)
                 local tguid = tar and guid_of(tar) or nil

@@ -3,7 +3,7 @@
 -- supplies.lua - restock food and drink at the merchant
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Ported from the reference bot's Buy_Food_Drinks.
@@ -171,19 +171,19 @@ local function carried(ids)
     for i = 1, #ids do want[ids[i]] = true end
 
     local total = 0
-    for bag = 0, 4 do
-        local items = safe(function() return core.inventory.get_items_in_bag(bag) end)
-        if type(items) == "table" then
-            for i = 1, #items do
-                local entry = items[i]
-                if type(entry) == "table" and entry.object then
-                    local id = safe(function() return entry.object:get_item_id() end)
-                    if id and want[id] then
-                        local n = safe(function() return entry.object:get_item_stack_count() end)
-                        total = total + ((type(n) == "number" and n > 0) and n or 1)
-                    end
-                end
+    -- audit 4.29.0: bags.list, not the raw get_items_in_bag(0..4) - bag 0 is the
+    -- whole player container (bank storage too on this client, bags.lua 2.184.0),
+    -- so food in the bank counted as carried and the restock bought nothing
+    local me = safe(function() return izi.me() end)
+    local list = bags.list(me)
+    for i = 1, #list do
+        local e = list[i]
+        if e.item_id and want[e.item_id] then
+            local n = e.count
+            if type(n) ~= "number" or n <= 0 then
+                n = e.item and safe(function() return e.item:get_item_stack_count() end) or nil
             end
+            total = total + ((type(n) == "number" and n > 0) and n or 1)
         end
     end
     return total

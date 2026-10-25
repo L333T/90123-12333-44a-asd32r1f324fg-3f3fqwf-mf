@@ -3,7 +3,7 @@
 -- Grind zone lookup by race + level
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -30,6 +30,7 @@ end
 local grind_zones = {}
 local loaded_key = nil
 local loaded_list = nil
+local missing = {}          -- audit 4.29.0: zone files that failed to load
 
 local function list_for(race_id)
     local key = race_key(race_id)
@@ -43,8 +44,13 @@ local function list_for(race_id)
         package.loaded["grind/zones/" .. loaded_key] = nil
         loaded_list = nil
     end
+    -- audit 4.29.0: a race with no zone file was re-required every bot tick
+    if missing[key] then
+        return nil
+    end
     local ok, list = pcall(require, "grind/zones/" .. key)
     if not ok or type(list) ~= "table" then
+        missing[key] = true
         loaded_key = nil
         loaded_list = nil
         return nil

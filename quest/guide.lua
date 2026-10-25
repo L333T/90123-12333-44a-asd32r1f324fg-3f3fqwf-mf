@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1748,8 +1748,13 @@ local function fightable(player, u)
         and call(u.is_unit, u) == true
         and call(u.is_dead_or_ghost, u) ~= true
         and call(u.is_player, u) ~= true
-        and call(u.is_tap_denied, u) ~= true
         and call(player.can_attack, player, u) ~= false) then
+        return false
+    end
+    -- audit 4.29.0: is_tap_denied is declared `-> number` (.api game_object.lua);
+    -- a `~= true` test let a tapped mob (1) through. Same rule as targeting.tap_denied.
+    local tap = call(u.is_tap_denied, u)
+    if tap == true or (type(tap) == "number" and tap ~= 0) then
         return false
     end
     -- Never more than 5 levels above the player (2.95.0).
@@ -2537,19 +2542,23 @@ function guide.use_bag_item(entry, target)
 
     local iid = safe(function() return entry.object:get_item_id() end)
 
+    -- audit 4.29.0: the stubs declare use_item(item_id) / use_item_target(item_id,
+    -- target). The game object went first and any call that did not throw
+    -- counted as used, so the declared item-id form was never reached. The id
+    -- goes first now; the object only when no id can be read.
     if target and type(input.use_item_target) == "function" then
-        if pcall(function() input.use_item_target(entry.object, target) end) then
+        if iid and pcall(function() input.use_item_target(iid, target) end) then
             return true
         end
-        if iid and pcall(function() input.use_item_target(iid, target) end) then
+        if not iid and pcall(function() input.use_item_target(entry.object, target) end) then
             return true
         end
     end
     if type(input.use_item) == "function" then
-        if pcall(function() input.use_item(entry.object) end) then
+        if iid and pcall(function() input.use_item(iid) end) then
             return true
         end
-        if iid and pcall(function() input.use_item(iid) end) then
+        if not iid and pcall(function() input.use_item(entry.object) end) then
             return true
         end
     end

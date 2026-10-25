@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -555,7 +555,11 @@ local function on_update()
     -- 4.23.0: the object-use crash journal clears itself once a use lived
     do
         local og = package.loaded["quest/objguard"]
-        if type(og) == "table" and type(og.tick) == "function" then pcall(og.tick, player) end
+        if type(og) == "table" and type(og.tick) == "function" then
+            -- audit 4.29.0: there is no `player` in this scope (a global read, always nil)
+            local me = safe(function() return core.object_manager.get_local_player() end)
+            pcall(og.tick, me)
+        end
     end
     if loot and type(loot.frame) == "function" then
         probe("u:loot.frame")
@@ -627,6 +631,12 @@ local function on_update()
 
     if not gui.is_started() then
         reload_since = nil            -- 2.189.0: the reload timer starts with Start
+        -- audit 4.29.0: the watchdog's travel / NPC clocks were never reset on Stop, so a
+        -- restart near the old anchor could hearth at once on a stale 5-minute timer
+        do
+            local wd = package.loaded["watchdog"]
+            if type(wd) == "table" and type(wd.reset) == "function" then pcall(wd.reset) end
+        end
         halt_bot_movement()
         -- 2.257.0: the death-zone Target Selector session ends with Stop
         do

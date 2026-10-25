@@ -3,7 +3,7 @@
 -- Racial abilities - one implementation, driven by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Racials are per RACE, not per class, so they cannot live in the nine class
@@ -46,6 +46,7 @@ local HEAL_PCT = 50
 local last_act = -1e9
 local resolved = nil         -- race_id -> { {def, spell}, ... }
 local resolved_race = nil
+local spell_by_ids = {}      -- audit 4.29.0: "id,id,..." -> izi spell (see for_player)
 -- 2.194.0: the Spells tab's "Other known spells" (smart.lua), used like an
 -- offensive racial when ticked.
 local extra_defs = {}
@@ -122,7 +123,15 @@ local function for_player(player)
     for i = 1, #extra_defs do defs[#defs + 1] = extra_defs[i] end
     for i = 1, #defs do
         local def = defs[i]
-        local spell = safe(function() return izi.spell(def.ids) end)
+        -- audit 4.29.0: one izi spell per id list for the session - set_extra
+        -- clears `resolved` on every Spells-tab rebuild (each spell scan), and a
+        -- new izi spell (watched by spellbook) was made for every racial each time
+        local skey = type(def.ids) == "table" and table.concat(def.ids, ",") or nil
+        local spell = skey and spell_by_ids[skey] or nil
+        if not spell then
+            spell = safe(function() return izi.spell(def.ids) end)
+            if spell and skey then spell_by_ids[skey] = spell end
+        end
         if spell then
             if spellbook and type(spellbook.watch) == "function" then
                 spell = spellbook.watch(spell) or spell

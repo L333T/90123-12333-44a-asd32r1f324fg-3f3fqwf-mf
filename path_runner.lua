@@ -8,7 +8,7 @@
 -- Movement issues are throttled in movement.lua (max 1 per MOVE_GAP).
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -639,16 +639,19 @@ function path_runner.tick(player)
     session.tries = 0
     session.stuck_since = 0
 
+    -- audit 4.29.0: wait / actions live in path.holds (path_format.extras);
+    -- `wp` is a bare vec3, so wp.wait / wp.actions were always nil
+    local extra = path_format.extras(path, session.index) or {}
     if not session.wait_armed then
         session.wait_armed = true
-        if type(wp.wait) == "number" and wp.wait > 0 then
-            session.wait_until = now + wp.wait
-            state.set_note("Path", string.format("Waypoint wait %.1fs", wp.wait))
+        if type(extra.wait) == "number" and extra.wait > 0 then
+            session.wait_until = now + extra.wait
+            state.set_note("Path", string.format("Waypoint wait %.1fs", extra.wait))
             return true
         end
     end
 
-    local actions = wp.actions
+    local actions = extra.actions
     if type(actions) == "table" and session.action_i <= #actions then
         run_action(player, actions[session.action_i])
         session.action_i = session.action_i + 1

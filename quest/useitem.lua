@@ -3,7 +3,7 @@
 -- quest/useitem.lua - the guide's RXP_PICK objects; quest items only at them
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.3.0 (in-game log 2026-10-24 20:01, Eastern Plaguelands): "Plagueland
@@ -245,6 +245,9 @@ function U.goal(player, goal, kind, wps, label, walk_to)
     local sent, how = OG.open(obj)
     if not sent and how == "refused" then
         -- 4.27.0: not in reach yet - step closer (USE_CLOSE yd) and try again
+        -- audit 4.29.0: a refusal from USE_CLOSE counts as a cycle - it never
+        -- did, so an object use_object never accepts was retried forever
+        if cur.close then cur.cycles = cur.cycles + 1 end
         cur.close = true
         next_t = now + 0.5
         trail("act", "%s: use_object not accepted at %.1f yd - closing in", name, d or -1)

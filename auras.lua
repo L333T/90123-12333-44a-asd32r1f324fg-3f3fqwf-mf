@@ -3,7 +3,7 @@
 -- Aura queries - one implementation, used by every rotation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.28.0
+-- Version: 4.29.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Everything in this project asked about auras the same way:
@@ -93,7 +93,9 @@ local function shape(data)
     return {
         is_active = active,
         active = active,          -- both spellings, so call sites read naturally
-        remaining = tonumber(data.remaining) or 0,
+        -- audit 4.29.0: buff_manager answers remaining in MS (.api buff_manager.lua);
+        -- every *_expiring caller compares it with seconds
+        remaining = (tonumber(data.remaining) or 0) / 1000,
         stacks = tonumber(data.stacks) or 0,
         duration = tonumber(data.duration) or 0,
     }

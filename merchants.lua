@@ -3,7 +3,7 @@
 -- merchants.lua - remembered repair NPCs and innkeepers
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.19.0
+-- Version: 4.20.0
 -- ============================================================================
 -- The user (2.318.0): "Grinding path should vendor at repair NPC or INN if
 -- bags are full". A grind route without its own merchant record had only the

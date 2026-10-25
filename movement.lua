@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.19.0
+-- Version: 4.20.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -300,6 +300,7 @@ function movement.pulse()
     local t = R.now()
     Lk.tick(t)
     N.pulse()
+    Mt.pulse(R.me(), t)           -- 4.20.0: the calm clock mounting waits for
     indoor_jump(t)                -- Zygor 1.7.8
     Pv.tick(t)                 -- 3.2.0: sharp turn -> hold the walk, turn in place
     Z.prune(t)

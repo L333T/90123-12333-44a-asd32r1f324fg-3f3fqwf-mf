@@ -3,7 +3,7 @@
 -- movement/mount.lua - mount for travel (the 1-60 product's way)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.19.0
+-- Version: 4.20.0
 -- ============================================================================
 -- Port of the 1-60 Grinding product's nav.lua mount_step (itself the AWM
 -- Run() mount block), Core API only. Used by movement/nav before every
@@ -32,6 +32,14 @@
 --   ready yet" 15 s, "while moving" 1.5 s.
 -- Dismounting stays where it was: combat.dismount (40 yd from a target),
 -- resting, gather at a node.
+--
+-- 4.20.0 CALM FIRST (user: "Delay mounting until all enemy targets have been
+-- looted, and player runs along the path for 30 seconds without being in
+-- combat"). M.pulse (every movement pulse) keeps a calm clock: the seconds
+-- the player has spent MOVING out of combat with no corpse left to loot
+-- (loot.has_work). A fight, or loot waiting, sets it back to 0; standing
+-- still pauses it. M.step mounts (or shifts to Travel Form) only once it
+-- reaches M.CALM_WALK s - also after a start or reload.
 -- ============================================================================
 
 local R = require("movement/core")
@@ -40,6 +48,10 @@ local M = {}
 
 M.MIN_WALK = 30               -- yd: shorter walks are walked
 M.MIN_LEVEL = 30
+M.CALM_WALK = 30              -- 4.20.0: s of calm walking (no combat, nothing to loot) before a mount
+local CALM_GAP, CALM_DT = 0.25, 1.0
+local calm = { walk = 0, t = nil, why = "start" }
+M._calm = calm
 local HOLD = 5.0              -- s the player stands for a mount cast
 local VERIFY = 3.0            -- s: no mount by then = a failed try
 local CACHE_S = 10            -- s between two looks for a mount
@@ -199,6 +211,35 @@ local function enabled(explicit)
     return not ok or v ~= false
 end
 
+local function loot_waiting(player)
+    local l = package.loaded["loot"]
+    if type(l) ~= "table" or type(l.has_work) ~= "function" then return false end
+    return safe(l.has_work, player) == true
+end
+
+--- 4.20.0: advance the calm clock (see CALM FIRST above). Every movement pulse.
+function M.pulse(player, t)
+    t = t or R.now()
+    if calm.t and (t - calm.t) < CALM_GAP then return end
+    local dt = calm.t and math.min(CALM_DT, t - calm.t) or 0
+    calm.t = t
+    if not player then return end
+    if safe(player.is_in_combat, player) == true then
+        calm.walk, calm.why = 0, "combat"
+        return
+    end
+    if loot_waiting(player) then
+        calm.walk, calm.why = 0, "loot"
+        return
+    end
+    if safe(player.is_moving, player) == true or safe(player.is_mounted, player) == true then
+        calm.walk = calm.walk + dt
+    end
+end
+
+--- 4.20.0: seconds of calm walking so far, and the last thing that reset it.
+function M.calm() return calm.walk, calm.why end
+
 --- Mount (or shift) before travel. True while it holds the walk: the caller
 --- gives the tick up (the player stands for the cast). `on` overrides the GUI
 --- switch (gather passes its own box).
@@ -221,6 +262,16 @@ function M.step(player, on)
     end
     if t < st.hold_until then return true end
     if not enabled(on) or t < st.usable_at or t < st.suppress_until then return false end
+    -- 4.20.0: not before every corpse is looted and CALM_WALK s of calm walking
+    if calm.walk < M.CALM_WALK then
+        if not st.calm_logged then
+            st.calm_logged = true
+            R.trail("move", "mount: waiting - %.0f of %d s walked out of combat (last reset: %s)",
+                calm.walk, M.CALM_WALK, tostring(calm.why))
+        end
+        return false
+    end
+    st.calm_logged = false
 
     local level = safe(player.get_level, player) or 0
     local class_id = safe(player.get_class, player)

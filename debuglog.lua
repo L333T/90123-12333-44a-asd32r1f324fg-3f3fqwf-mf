@@ -3,7 +3,7 @@
 -- Debug log, written to scripts_data
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.2.1
+-- Version: 4.3.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Every debug toggle in this project used core.log, which goes to the console

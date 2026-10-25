@@ -244,6 +244,24 @@ def version():
         return "0.0.0"
 
 
+def load_use_items(root, flavour="tbc"):
+    """4.3.0: addon.questCompleteItems (DB/<flavour>/quest.lua) - the item RestedXP's
+    quest-item button uses for a quest (5903 Plagueland Termites -> 15042 Empty
+    Termite Jar). The guide step itself has no .use line for these."""
+    path = os.path.join(root, "DB", flavour, "quest.lua")
+    out = {}
+    try:
+        txt = open(path, encoding="utf-8", errors="replace").read()
+    except OSError:
+        return out
+    m = re.search(r"addon\.questCompleteItems\s*=\s*\{(.*?)\n\}", txt, re.S)
+    if not m:
+        return out
+    for q, item in re.findall(r"\[(\d+)\]\s*=\s*(\d+)", m.group(1)):
+        out.setdefault(int(q), int(item))
+    return out
+
+
 def lua_str(s):
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -344,6 +362,13 @@ def main():
         rec = items[name]
         extra = f", slot = {rec['slot']}" if "slot" in rec else ""
         lines.append(f"    [{lua_str(name)}] = {{ id = {rec['id']}{extra} }},")
+    use_items = load_use_items(root)
+    lines += ["}", "",
+              "-- 4.3.0: quest id -> the item RestedXP's quest-item button uses for it",
+              "-- (DB/tbc/quest.lua addon.questCompleteItems)",
+              "M.use_items = {"]
+    for q in sorted(use_items):
+        lines.append(f"    [{q}] = {use_items[q]},")
     lines += ["}", "", "return M", ""]
     with open(OUT, "w", encoding="utf-8", newline="\n") as fh:
         fh.write("\n".join(lines))

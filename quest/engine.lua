@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.2.1
+-- Version: 4.3.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2741,6 +2741,13 @@ IS.rt = { t = 0, GAP = 1.0 }
 -- without STILL_YD yards of movement while the bot means to walk forces a
 -- fresh path (and the next point on a route), logged with the movement state.
 IS.still = { x = nil, y = nil, t = 0, seen = 0, S = 6.0, YD = 2.0 }   -- 2.319.0: S was 10
+-- 4.3.0: NO GAIN (in-game log 2026-10-24 20:02, Eastern Plaguelands): on a
+-- slope too steep to climb Sentinel's own recovery (Stuck detected 1-3/7,
+-- again and again) kept the character moving a few yards back and forth, so
+-- the stand check above never fired. A walk that gets no GAIN_YD yd closer
+-- to its point in GAIN_S s gives the point up the same way (fresh path, next
+-- point on a route).
+IS.gain = { pt = nil, best = nil, t = 0, seen = 0, S = 20.0, YD = 5.0 }
 
 -- 2.319.0: WHERE EACH QUEST'S WORK IS. A kill / collect goal records its
 -- goal and waypoints by quest id, so a turn-in that the game says is not
@@ -2812,6 +2819,25 @@ IS.watch_still = function(pts, must_do, label)
     -- server takes seconds) is not a stand (log 2026-10-24 17:40)
     if movement.nav_pending() then
         w.t = now
+        IS.gain.t = now
+        return
+    end
+    -- 4.3.0: no yard gained on the point (see IS.gain)
+    local gn = IS.gain
+    local gk = string.format("%.0f|%.0f", target.x or 0, target.y or 0)   -- points are rebuilt every tick
+    if gn.pt ~= gk or not gn.best or (now - gn.seen) > 2.0 or d < gn.best - gn.YD then
+        gn.pt, gn.best, gn.t = gk, d, now
+    end
+    gn.seen = now
+    if (now - gn.t) >= gn.S then
+        gn.t, gn.best = now, d
+        w.t = now
+        trail("route", "no %.0f yd gained in %.0f s toward point %d of %d (%.0f yd) for %s - state %s - fresh path%s",
+            gn.YD, gn.S, g_move, #pts, d, tostring(label), tostring(safe(movement.state)),
+            (#pts > 1 and not must_do) and ", next point" or "")
+        movement.clear_fail()
+        g_force_path = true
+        if #pts > 1 and not must_do then IS.next_wp(#pts) end
         return
     end
     if (now - w.t) < w.S then return end
@@ -2836,6 +2862,7 @@ end
 -- no path on foot - the guide for another race / start zone is loaded. The
 -- bot holds with a note instead of walking at it forever.
 IS.mm = require("quest/mismatch")
+IS.use_item = require("quest/useitem").goal   -- 4.3.0: RestedXP quest items (quest/useitem.lua)
 IS.mismatch = function(player, goal, wps)
     local me = safe(function() return player:get_position() end)
     local key = tostring(guide.step_num()) .. "|" .. tostring(goal and goal.index)
@@ -3275,6 +3302,12 @@ tick_inner = function(player)
     -- ticks it off when the merchant window opens, and skipping it on our
     -- side left the guide on that step for good ("step complete", standing
     -- at the vendor). vendor.tick sells and buys nothing below level 2.
+
+    -- 4.3.0: the quest's RestedXP quest item (Empty Termite Jar at a Termite
+    -- Mound) - quest/useitem.lua, before the object / mob search
+    if IS.use_item(player, goal, kind, wps, label, walk_to) then
+        return
+    end
 
     if kind == "accept" or kind == "turnin" or kind == "talk" then
         if dialog_goal(player, goal, kind, wps, label) then

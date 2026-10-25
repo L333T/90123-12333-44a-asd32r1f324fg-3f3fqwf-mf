@@ -3,7 +3,7 @@
 -- Guide adapter - RestedXP
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.2.1
+-- Version: 4.3.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Turns core.addons.rested_xp into the shapes quest/engine understands:
@@ -1645,6 +1645,35 @@ function guide.find_object(player, range, goal, skip)
                         if d <= range and (best_d == nil or d < best_d) then
                             best, best_d = o, d
                         end
+                    end
+                end
+            end
+        end
+    end
+    return best, best_d
+end
+
+--- 4.3.0: the nearest visible non-unit object whose name contains `needle`
+--- (lower case), or nil - the spot a quest item needs (quest/useitem.lua:
+--- "Requires Termite Mound").
+function guide.find_named_object(player, range, needle, skip)
+    if not player or type(needle) ~= "string" or needle == "" then return nil, nil end
+    range = math.min(tonumber(range) or 30, MAX_RANGE)
+    local list = visible_objects()
+    local me = safe(function() return player:get_position() end)
+    if type(list) ~= "table" or not me then return nil, nil end
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local o = list[i]
+        if indexable(o) and call(o.is_valid, o) ~= false and call(o.is_unit, o) ~= true
+            and call(o.is_player, o) ~= true and not (skip and skip[call(o.get_guid, o) or false]) then
+            local n = call(o.get_name, o)
+            if type(n) == "string" and string.find(string.lower(n), needle, 1, true) then
+                local pos = call(o.get_position, o)
+                if pos then
+                    local d = geometry.distance(me, pos)
+                    if type(d) == "number" and d <= range and (best_d == nil or d < best_d) then
+                        best, best_d = o, d
                     end
                 end
             end

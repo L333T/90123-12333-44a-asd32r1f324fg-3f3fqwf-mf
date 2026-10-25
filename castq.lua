@@ -3,7 +3,7 @@
 -- castq.lua - rotation casts through the Sylvanas spell queue
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.1
+-- Version: 4.1.2
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHY (2.249.0)

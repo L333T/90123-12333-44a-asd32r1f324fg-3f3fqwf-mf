@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.1.1
+-- Version: 4.1.2
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -421,18 +421,7 @@ menu:checkbox("mfg_show_gui", true, {
     label = "Show GUI",
     tab = "settings",
 })
--- 4.1.0: the Sentinel self-test (movement/sentinel.lua). The click is only
--- recorded here (render pass); main.lua runs it on the update tick.
-menu:button("mfg_sentinel_selftest", {
-    label = "Sentinel Self-Test",
-    tab = "settings",
-    tooltip = "Bot stopped, standing in the open: walks a few yards and back with Sentinel Navigation and writes "
-        .. "what the library answers to scripts_data/.../sentinel_selftest.txt (about 30 s).",
-    on_click = function()
-        local sn = package.loaded["movement/sentinel"]
-        if type(sn) == "table" and type(sn.selftest_request) == "function" then sn.selftest_request() end
-    end,
-})
+
 
 menu:add_popup({
     id = "path",
@@ -2801,6 +2790,30 @@ end)
 menu:on_tab("settings", function(win, x, y, w, h)
     win:render_text(FONT_SMALL, vec2.new(x + 10, y + 8), C(232, 222, 196, 255), "Show / hide GUI: Numpad 4.")
     win:render_text(FONT_SMALL, vec2.new(x + 10, y + 28), C(180, 170, 150, 255), "Path combat stays on the loaded path (10 yards) and hits the closest enemy in rotation range.")
+    -- 4.1.2: the Sentinel self-test button (movement/sentinel.lua), drawn like
+    -- the route button - a native core.menu.button does not paint in this
+    -- skinned window (4.1.0 / 4.1.1 showed nothing). The click only sets a
+    -- flag here (render pass); main.lua runs the test on the update tick.
+    local sn = package.loaded["movement/sentinel"]
+    if type(sn) ~= "table" then return 60 end
+    local bx, by, bw = x + 10, y + 56, 220
+    local bmin, bmax = vec2.new(bx, by), vec2.new(bx + bw, by + 30)
+    local running = type(sn.selftest_running) == "function" and sn.selftest_running() == true
+    local hover = false
+    pcall(function() hover = win:is_mouse_hovering_rect(bmin, bmax) == true end)
+    pcall(function()
+        win:render_rect_filled(bmin, bmax, (hover and not running) and C(52, 58, 72, 235) or C(38, 40, 48, 220), 4.0)
+    end)
+    pcall(function() win:render_rect(bmin, bmax, C(96, 150, 235, hover and 255 or 150), 4.0, 1.0) end)
+    win:render_text(FONT_SMALL, vec2.new(bx + 10, by + 8), C(232, 222, 196, 255),
+        running and "Sentinel Self-Test running..." or "Sentinel Self-Test")
+    local note = type(sn.selftest_note) == "function" and sn.selftest_note() or nil
+    win:render_text(FONT_SMALL, vec2.new(bx, by + 38), C(180, 170, 150, 255), note and tostring(note)
+        or "Bot stopped, open ground: walks a few yards and back, records what Sentinel answers (about 40 s).")
+    local pressed = false
+    pcall(function() pressed = win:is_rect_clicked(bmin, bmax) == true end)
+    if pressed and not running and type(sn.selftest_request) == "function" then sn.selftest_request() end
+    return 120
 end)
 
 local draw_probe = nil

@@ -50,12 +50,52 @@ Server: the Master Farmer SentinelNavServer (`game=tbc`), set by launcher 2.15.0
 - Path request -> path received: 0.14 s (Hetzner, Germany).
 - An 8 yd walk: following its path 0.14 s after `move_to`, arrived 0.73 s after.
 
-### Not yet verified (run 2 needed)
+## Run 2 - 2026-10-24 19:37 (restedXP_questing 4.1.3, TBC, Eastern Plaguelands)
 
-- a second `move_to` while a walk follows its path (what happens to the first callback);
-- `stop()` during a walk (callback arguments, state after);
-- the failure callback (`detail.code` for an unreachable target);
-- `move_direct`, `follow_path`, `replan`, `get_progress`.
+`MASTER_FARMER.nav` = `{ kind = "sentinel", game = "tbc", base_url = "http://46.224.135.139:47110", supported = true }`
+(the 4.1.3 lookup fix works). Callback shapes, heights and events as in run 1.
+
+### A second `move_to` while walking (A 30 yd ahead, B sent 1.6 s later)
+
+- The library re-plans without stopping: `following_path -> awaiting_path -> following_path`
+  in 0.12 s (`nav.path_requested` request_id 2, `nav.path_received`), the character keeps walking.
+- **The replaced walk's callback NEVER fires** (A: 0 calls). Only B's fires, on arrival:
+  `(true, nil, { code = "arrived", destination })`.
+
+### `stop()` while walking (C 30 yd back, stopped 1.6 s in, following its path)
+
+- `stop()` returns `nil`; state goes straight to `idle` (`nav.state_changed {from = navigating, to = idle}`).
+- **The stopped walk's callback NEVER fires** (C: 0 calls).
+
+### An off-mesh target (U: 30 yd away, 150 yd up)
+
+- Server `HTTP 422: Position not on navmesh`; the library retries itself:
+  `nav.server_retry { attempt, code = 422, delay_secs = 2 then 4, max_retries = 3, next_attempt, url }`,
+  then `nav.server_error { code = 422, error = "HTTP 422: Position not on navmesh", failures, url }` -
+  about **6 s** after the request.
+- Then it **auto-snaps** the target and walks: `nav.path_received { distance = 41.97, partial = false,
+  snapped = true, waypoint_count = 45 }`, `following_path`.
+- No `nav.failed`, no `nav.path_failed`, no failure callback (the walk was then stopped by the test).
+- Path URL seen: `/api/v1/path?allow_partial=true&optimize=true&end_z=...` on the Master Farmer server.
+
+### Still not verified
+
+- the failure callback / `nav.failed` payload (a target with no path at all - snapping hides the
+  off-mesh case);
+- `move_direct`, `follow_path`, `replan`, `get_progress`, `start_route`.
+
+## What this means for the port
+
+- A replaced or stopped walk gives **no** callback: the product must track its own walks
+  (one token per walk; a new walk or a stop retires the old token) and never wait on a callback
+  that a newer walk or `stop()` has cancelled.
+- No `pause` / `resume`: a hold is `stop()` + re-issue the same destination after it.
+- Retargeting is cheap (0.12 s) and does not stop the character: a second `move_to` is the
+  retarget (no prefetch / `follow_path` dance needed).
+- An off-mesh destination costs about 6 s of library retries before the snap: the product should
+  give Sentinel a height it has checked (`get_all_heights` floors) rather than a guess.
+- Failures must be read from `get_state()` / `nav.server_error` and the product's own stall timer,
+  not from a failure callback whose shape is unknown.
 
 ## Product bug found by run 1
 

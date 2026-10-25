@@ -3,7 +3,7 @@
 -- GUI — Shamele chrome, class auto-detect, popup Path/Vendor/Grind
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.8
+-- Version: 4.1.0
 -- Folder: restedXP_questing
 -- ============================================================================
 
@@ -420,6 +420,18 @@ menu:button("mfg_clear_route_vendor", {
 menu:checkbox("mfg_show_gui", true, {
     label = "Show GUI",
     tab = "settings",
+})
+-- 4.1.0: the Sentinel self-test (movement/sentinel.lua). The click is only
+-- recorded here (render pass); main.lua runs it on the update tick.
+menu:button("mfg_sentinel_selftest", {
+    label = "Sentinel Self-Test",
+    tab = "settings",
+    tooltip = "Bot stopped, standing in the open: walks a few yards and back with Sentinel Navigation and writes "
+        .. "what the library answers to scripts_data/.../sentinel_selftest.txt (about 30 s).",
+    on_click = function()
+        local sn = package.loaded["movement/sentinel"]
+        if type(sn) == "table" and type(sn.selftest_request) == "function" then sn.selftest_request() end
+    end,
 })
 
 menu:add_popup({

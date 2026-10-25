@@ -3,7 +3,7 @@
 -- Warlock grind filler + OOC buffs (TBC)
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.8
+-- Version: 4.1.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- Pet handling lives in pets.lua, shared with the Hunter.

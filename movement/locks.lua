@@ -3,7 +3,7 @@
 -- movement/locks.lua - rest, cast, channel and loot holds; backpedal
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.8
+-- Version: 4.1.0
 -- ============================================================================
 -- HOLDS go through AmeisenNav's own pause (client:pause(reason) /
 -- resume(reason) - reasons are counted separately, so a cast hold and a loot

@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.8
+-- Version: 4.1.0
 -- Folder: restedXP_questing
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -167,6 +167,7 @@ local state = load_mod("state")
 local spellbook = load_mod("spellbook")
 local targeting = load_mod("targeting")
 local movement = load_mod("movement")
+load_mod("movement/sentinel")      -- 4.1.0: the Sentinel adapter (read through package.loaded)
 local loot = load_mod("loot")
 local rotation = load_mod("rotation")
 local death = load_mod("death")
@@ -537,6 +538,17 @@ local function on_update()
         -- so every consumer this frame sees one consistent owner and state.
         probe("u:movement.pulse")
         pcall(movement.pulse)
+    end
+    -- 4.1.0: the Sentinel self-test (Settings tab) owns the frame while it runs
+    do
+        local sn = package.loaded["movement/sentinel"]
+        if type(sn) == "table" and type(sn.selftest_tick) == "function" then
+            local ok_sn, busy = pcall(sn.selftest_tick, gui.is_started() == true)
+            if ok_sn and busy then
+                probe("-")
+                return
+            end
+        end
     end
     -- 2.198.0: the loot burst runs every frame (attempts one frame apart).
     if loot and type(loot.frame) == "function" then
@@ -968,6 +980,8 @@ local function on_unload()
     NS._sessions[identity.folder] = (NS._sessions[identity.folder] or MY_SESSION) + 1
     if path_runner then pcall(path_runner.stop) end
     if movement then pcall(movement.halt) end      -- AmeisenNav client stop + walker halt
+    local sn = package.loaded["movement/sentinel"]    -- 4.1.0: self-test listeners / walk
+    if type(sn) == "table" and type(sn.on_unload) == "function" then pcall(sn.on_unload) end
     if strafe then pcall(strafe.stop) end
     local dz = package.loaded["deathzones"]
     if type(dz) == "table" and type(dz.release) == "function" then pcall(dz.release) end

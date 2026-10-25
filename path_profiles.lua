@@ -3,7 +3,7 @@
 -- Path profiles — save / load / play PathTool JSON from scripts_data
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.0.8
+-- Version: 4.1.0
 -- Folder: restedXP_questing
 -- Files live in scripts_data/mfg_profiles/*.json (do not prefix scripts_data/).
 -- ============================================================================

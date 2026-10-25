@@ -3,7 +3,7 @@
 -- Smart rotation - built from the spells ticked in the Spells tab
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.5.0
+-- Version: 4.6.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- WHAT THIS IS (2.64.0)
@@ -1819,6 +1819,17 @@ function smart.upkeep(player)
     -- rotation while health is under the heal line.
     if fighting and c.hp() < c.heal_pct() then return false end
     if upkeep_step(fighting) then return true end
+    -- 4.6.0: out of combat the pet's autocasts are kept right (Phase Shift /
+    -- Cower off, damage on) and every pet class parks its pet (pets.passive:
+    -- not during a pull or while the pet still fights)
+    if not fighting then
+        local pc = mod("petcontrol")
+        if pc and type(pc.ooc) == "function" then pcall(pc.ooc, player) end
+        local pets = mod("pets")
+        if pets and (built.class == enums.class_id.WARLOCK or built.class == enums.class_id.MAGE) then
+            pcall(pets.passive, player)
+        end
+    end
     if not fighting and pet_upkeep() then return true end
     if not fighting and random_buff() then return true end
     return false
@@ -2347,10 +2358,18 @@ function smart.combat(player, target, ctx)
     if #built.list == 0 then return false end
     -- The pet goes in first (2.225.0): before the "already casting" return,
     -- so a hunter opening with a cast still sends the pet at the mob.
+    -- 4.6.0: the Mage's Water Elemental too, and the pet's own abilities
+    -- (petcontrol.lua: Freeze, Torment, Spell Lock, Seduction, Growl, ...)
     local pets = mod("pets")
-    if pets and target and (built.class == enums.class_id.HUNTER or built.class == enums.class_id.WARLOCK) then
+    if pets and target and (built.class == enums.class_id.HUNTER or built.class == enums.class_id.WARLOCK
+        or built.class == enums.class_id.MAGE) then
         xprobe("sm:pet attack")
         pcall(pets.attack, player, target)
+        local pc = mod("petcontrol")
+        if pc and type(pc.tick) == "function" then
+            xprobe("sm:pet abilities")
+            pcall(pc.tick, player, target, ctx and ctx.enemies or nil)
+        end
     end
     -- QUEUE AHEAD (2.249.0): with the spell queue the next spell is picked in
     -- the last moments of a cast (castq.may_queue), so it goes out the moment

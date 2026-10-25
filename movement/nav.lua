@@ -3,7 +3,7 @@
 -- movement/nav.lua - travel through Sentinel Navigation
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.5.0
+-- Version: 4.6.0
 -- ============================================================================
 -- 4.2.0 SENTINEL PORT (branch sentinel-nav; docs/SENTINEL_API.md = the official
 -- v0.0.8 page, docs/SENTINEL_V024.md = what the installed v0.24 really does).

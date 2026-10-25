@@ -3,7 +3,7 @@
 -- quest/useitem.lua - the guide's RXP_PICK objects; quest items only at them
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.5.0
+-- Version: 4.6.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 4.3.0 (in-game log 2026-10-24 20:01, Eastern Plaguelands): "Plagueland

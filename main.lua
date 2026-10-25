@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.5.0
+-- Version: 4.6.0
 -- Folder: restedXP_questing
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -31,6 +31,7 @@ local PLUGIN_MODULES = {
     "watchdog",
     "bags",
     "pets",
+    "petcontrol",     -- 4.6.0: pet abilities in a fight
     "ui",
     "version",
     "state",

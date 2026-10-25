@@ -3,7 +3,7 @@
 -- Quest engine - driven entirely by the RestedXP Guides addon. Never runs grind.
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.6.0
+-- Version: 4.7.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- RestedXP is the single source of quest information:
@@ -2876,6 +2876,22 @@ end
 -- bot holds with a note instead of walking at it forever.
 IS.mm = require("quest/mismatch")
 IS.QO = require("quest/objects")              -- 4.5.0: quest objects by id
+IS.TH = require("quest/threat")               -- 4.7.0: mobs whose aggro range the walk crosses
+--- 4.7.0: attack a mob the walk is about to walk into, or detour round one
+--- that is 3+ levels above the player or elite (quest/threat.lua).
+IS.threat_tick = function(player)
+    local what, x, why = IS.TH.check(player)
+    if what == "attack" then
+        targeting.combat_active()
+        engage(player, x, "Guide: clearing the path - " .. tostring(why))
+        return true
+    elseif what == "avoid" then
+        walk_to(x, "around " .. tostring(why), IS.TH.DETOUR_ARRIVE - 1, true)
+        state.set_note("Quest", "Guide: around " .. tostring(why))
+        return true
+    end
+    return false
+end
 IS.use_item = require("quest/useitem").goal   -- 4.4.1: open the step's RXP_PICK objects (quest/useitem.lua)
 IS.use_spot = require("quest/useitem").spot   -- 4.4.0: a .use goal waits for its RXP_PICK object
 IS.mismatch = function(player, goal, wps)
@@ -3132,7 +3148,7 @@ tick_inner = function(player)
         end
     end
     probe("q:fight_back")
-    if fight_back(player, g_label) then
+    if fight_back(player, g_label) or IS.threat_tick(player) then
         if type(targeting.attackers) == "function" and targeting.attackers(player) > 0 then
             g_loot_wait = false
         end

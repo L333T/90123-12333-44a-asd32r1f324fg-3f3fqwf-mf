@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.6.0
+-- Version: 4.7.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -77,6 +77,9 @@ end
 movement.is_moving    = function() return N.busy() or R.backpedal_until ~= nil end
 movement.is_navigating = function() return N.busy() and not C.in_combat_movement() end
 movement.sentinel_active = N.busy
+movement.path_points  = N.path_points          -- 4.7.0: quest/threat reads the path ahead
+movement.path_index   = N.path_index
+movement.nav_mode     = N.mode
 movement.is_quiet     = function() return R.now() < (R.quiet_until or 0) end
 
 --- The running walk's destination is within `yards` (2D) of `pos`.

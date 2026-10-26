@@ -1243,7 +1243,16 @@ local function swing_watch(player, unit, g)
         if SW.hp and hp < SW.hp then SW.hit_t = t end
         SW.hp = hp
     end
-    local last = tonumber(safe(function() return auto_attack:get_last_attack_core_time(player) end))
+    -- 4.33.0: a swing in the combat log (swingtimer.lua) counts, dodged and
+    -- parried ones too; the helper's time (moves on the Attack command) only
+    -- when the combat log has delivered no swing this session
+    local okst, stm = pcall(require, "swingtimer")
+    local last
+    if okst and type(stm) == "table" and stm.live() then
+        last = stm.last(player)
+    else
+        last = tonumber(safe(function() return auto_attack:get_last_attack_core_time(player) end))
+    end
     local swung = last ~= nil and last >= SW.since
     local hit_at = SW.hit_t
     if swung and (not hit_at or last > hit_at) then hit_at = last end

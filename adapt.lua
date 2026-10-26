@@ -49,7 +49,7 @@ local PLUGIN = "restedXP_questing"
 local MIN_SAMPLES = 3         -- measured hits before the measured average is trusted
 local ALPHA = 0.2             -- moving-average weight of a new hit
 local LAND_WINDOW = 1.6       -- s after the cast time a health drop still belongs to the cast
-local SWING_GAP = 0.08        -- s: a drop this close to an auto attack is not measured
+local SWING_GAP = 0.15        -- s: a drop this close to a swing is not measured (4.33.0: was 0.08 - the combat log and the health read can land a frame apart)
 local LOW_MANA = 30           -- % mana under which spells are ordered by damage per mana
 local KILL_MARGIN = 0.85      -- a "kills now" spell must do 1/0.85 of the target's health
 local SAVE_GAP = 30           -- s between two saves of a changed profile
@@ -337,10 +337,18 @@ function adapt.on_cast(data)
     pending[#pending + 1] = { name = name, guid = tg, t = t, till = t + ct + LAND_WINDOW }
 end
 
+-- 4.33.0: swings come from the combat log (swingtimer.lua) - the helper's
+-- last attack time moves on the Attack command, not on every swing. Both
+-- clocks are core.time().
 local function swing_now(unit)
-    if not auto_attack or not unit then return false end
-    local last = tonumber(safe(function() return auto_attack:get_last_attack_core_time(unit) end))
-    return last ~= nil and math.abs(now() - last) < SWING_GAP
+    if not unit then return false end
+    local st = mod("swingtimer")
+    local last = st and st.last(unit) or nil
+    if not last and auto_attack then
+        last = tonumber(safe(function() return auto_attack:get_last_attack_core_time(unit) end))
+    end
+    local t = tonumber(safe(core.time)) or now()
+    return last ~= nil and math.abs(t - last) < SWING_GAP
 end
 
 local function record(name, dmg)
@@ -591,15 +599,40 @@ end
 --- Melee weaving: may a cast-time spell go out now without clipping the
 --- next swing? Yes when not auto attacking, when it ends before the swing,
 --- or right after a swing landed.
+-- 4.33.0: the next swing is the combat log's last main-hand swing + weapon
+-- speed (swingtimer.lua); the helper's next attack (stale after the first
+-- swing on this client) only when no swing was seen. A swing due within
+-- SWING_DUE s is waited for too (it used to read "past" = cast now), and a
+-- spell is never held longer than one weapon swing + HOLD_SLACK s in a row.
+local SWING_DUE = 0.25
+local HOLD_SLACK = 0.5
+local hold = { t = nil }
 function adapt.swing_ok(player, ct)
-    if not auto_attack or not player or (ct or 0) <= 0 or not adapt.enabled() then return true end
-    if safe(function() return auto_attack:is_auto_attacking(player) end) ~= true then return true end
-    local t = safe(core.time) or now()
-    local nxt = tonumber(safe(function() return auto_attack:get_next_attack_core_time(player) end))
-    local last = tonumber(safe(function() return auto_attack:get_last_attack_core_time(player) end))
-    if not nxt or nxt <= t then return true end
-    if nxt - t >= ct then return true end
-    return last ~= nil and t - last < 0.4
+    if not player or (ct or 0) <= 0 or not adapt.enabled() then hold.t = nil return true end
+    if not auto_attack or safe(function() return auto_attack:is_auto_attacking(player) end) ~= true then
+        hold.t = nil return true
+    end
+    local t = tonumber(safe(core.time)) or now()
+    local st = mod("swingtimer")
+    local nxt, spd, last
+    if st then
+        nxt, spd = st.next_mh(player)
+        last = st.last_mh(player)
+    end
+    if not nxt then
+        nxt = tonumber(safe(function() return auto_attack:get_next_attack_core_time(player) end))
+        last = tonumber(safe(function() return auto_attack:get_last_attack_core_time(player) end))
+        if nxt and nxt <= t then nxt = nil end      -- stale: no timer to weave around
+    end
+    local ok = (not nxt)
+        or (nxt < t - SWING_DUE)                    -- overdue: out of reach, timer lapsed
+        or (nxt - t >= ct)                          -- the cast ends before the swing
+        or (last ~= nil and t - last < 0.4)         -- a swing just landed
+    if ok then hold.t = nil return true end
+    hold.t = hold.t or t
+    spd = spd or tonumber(safe(player.get_attack_speed, player)) or 2.6
+    if t - hold.t > spd + HOLD_SLACK then hold.t = nil return true end
+    return false
 end
 
 -- ----------------------------------------------------------------------------

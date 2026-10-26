@@ -283,6 +283,17 @@ handlers.PLAYER_REGEN_ENABLED = function() navflags.in_combat = false end
 handlers.PLAYER_DEAD = function() navflags.stop = "player died" end
 handlers.PLAYER_ENTERING_WORLD = function() navflags.stop = "loading screen" navflags.in_combat = false end
 
+-- 4.33.0: the player's / pet's melee swings (swingtimer.lua reads only
+-- SWING_DAMAGE / SWING_MISSED; everything else returns at once)
+handlers.COMBAT_LOG_EVENT_UNFILTERED = function(args)
+    local st = package.loaded["swingtimer"]
+    if type(st) ~= "table" then
+        local ok, m = pcall(require, "swingtimer")
+        st = ok and type(m) == "table" and m or nil
+    end
+    if st and type(st.on_cleu) == "function" then st.on_cleu(args) end
+end
+
 events.handlers = handlers
 
 -- ----------------------------------------------------------------------------

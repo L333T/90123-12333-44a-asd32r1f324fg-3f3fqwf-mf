@@ -30,12 +30,13 @@
 -- The on-disk folder can be called whatever you like; nothing reads it.
 -- 4.32.0: the ray helpers (movement/trace.lua) gain the Orca A* port's logic (user 2026-10-26): hit_z (8-step impact height), ground_z (height query, else a ray snap), a jump only with headroom over the obstacle and no drop past 6 yd behind it (else an avoidance zone), a corner snag at the side gets a small zone.
 -- 4.32.1: manifest.lua regenerated - it still listed the 4.29.0 files, so movement/trace.lua (new in 4.31.0) was never downloaded and movement, loot, death, healing, vendor, path_runner and the quest pack failed to load.
+-- 4.33.0: swing timer from the combat log (swingtimer.lua): SWING_DAMAGE / SWING_MISSED of the player and pet; melee weaving (adapt.swing_ok), the spell-damage swing filter and the swing watch use it - auto_attack_helper's last attack moved only on the Attack command.
 return {
     name = "restedXP_questing",
     short_tag = "restedXP_questing",
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.32.1",
+    version = "4.33.0",
     folder = "restedXP_questing",
 }

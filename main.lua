@@ -61,6 +61,7 @@ local PLUGIN_MODULES = {
     "data/racials",
     "data/factions",
     "events",
+    "swingtimer",     -- 4.33.0: melee swings from the combat log
     "buffs",
     "smart",
     "data/class_spells",

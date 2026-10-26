@@ -2,7 +2,8 @@
 -- restedXP_questing
 -- Identity — single source of truth for name / authors / version
 -- ============================================================================
--- Version: 4.30.1
+-- Version: 4.30.2
+-- 4.30.2: repeated countdown status lines (spellbook wait, corpse walk, approach) print at most every 5 s.
 -- 4.30.1 (Desktop Helper): profession tools (picks, knives, hammer, poles) and Golden
 -- Pearl are never sold; a swift mount item beats a slow class mount.
 -- 4.30.0 (Desktop items_db): Healthstones at the potion line, 3 foods / drinks added;
@@ -30,6 +31,6 @@ return {
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.30.1",
+    version = "4.30.2",
     folder = "restedXP_questing",
 }

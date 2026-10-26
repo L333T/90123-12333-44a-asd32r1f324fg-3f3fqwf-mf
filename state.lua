@@ -104,6 +104,8 @@ function state.report_action(text)
     console_print(text)
 end
 
+local NOTE_REPEAT_S = 5
+local last_note_shape, last_note_t = nil, -1e9
 function state.set_note(head, text)
     state.note_head = head or ""
     state.note = text or ""
@@ -125,6 +127,17 @@ function state.set_note(head, text)
     if line == last_printed_note then
         return
     end
+    -- 2026-10-25 (chat log: "Load: Waiting for spellbook 5.0s ... 0.1s", 50 lines; "Walking
+    -- to corpse 17y ... 4y"; "approaching 55 yd"): a line that differs from the last one
+    -- printed only in its numbers (a countdown) is printed at most every NOTE_REPEAT_S s
+    local shape = line:gsub("%d+%.?%d*", "#")
+    local t_now = 0
+    pcall(function() t_now = core.time() end)
+    if shape == last_note_shape and (t_now - last_note_t) < NOTE_REPEAT_S then
+        last_printed_note = line
+        return
+    end
+    last_note_shape, last_note_t = shape, t_now
     last_printed_note = line
     console_print(line)
 end

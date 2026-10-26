@@ -18,11 +18,25 @@
 --   T.leg_blocked(a, b)                knee / chest rays along a walk leg
 --   T.clear_spot_near(dest, from)      Helper step_to_xyz: a spot 3-5 yd round
 --                                      `dest` with a clear line from `from`
+--   T.hit_z(x, y, top, bottom, which)  the height a vertical ray meets something
+--                                      (an 8-step binary search: trace_line only
+--                                      says hit / no hit) - false = nothing there
+--   T.ground_z(p)                      the floor under p: core height query, else
+--                                      a ray snap (WMO floors / doodads it misses)
+--   T.jump_ok(me, h)                   room to hop an h yd obstacle: head clear above
+--                                      it, and no drop past DROP_MAX behind it
 --   T.tick(t, ctx)                     every pulse while Sentinel walks: no
 --                                      progress for STALL_S with "front" blocked
 --                                      -> a low obstacle (JUMP_MIN..JUMP_MAX yd)
 --                                      is jumped, a wall gets an avoidance zone
---                                      (Sentinel walks round it itself)
+--                                      (Sentinel walks round it itself); 2026-10-26:
+--                                      a step with no headroom / a drop behind it is
+--                                      a wall too, and a body snagged on a corner at
+--                                      the side ("left" / "right") gets a small zone
+--                                      on that side
+-- 2026-10-26 (user: "Add traceline and raycast logic using logic from this example
+-- or similar" - the Orca A* port): hit_z, ground_z, the jump checks and the side
+-- snag are from it; its A* is Zygor's movement/astar.lua already.
 --
 -- SAFEGUARDS (the A* fallback's, movement/astar.lua): T.ON kill switch; at most
 -- T.BUDGET rays a frame; a self-check ray down through the ground under the
@@ -44,11 +58,14 @@ T.JUMP_GAP = 2.0
 T.WALL_GAP = 5.0
 T.WALL_R = 2.5                   -- yd: the avoidance zone put on a wall ahead
 T.LOOK_GAP = 0.25                -- s between two looks ahead
+T.DROP_MAX = 6.0                 -- yd of fall behind an obstacle that is still jumped
+T.SNAG_GAP = 4.0                 -- s between two side-snag zones
+T.SNAG_R = 1.2                   -- yd: the zone put on a corner at the side
 
 local st = { off = false, why = nil, errors = 0, checked = false, frame_t = -1, frame_n = 0,
-    pos = nil, pos_t = -1e9, look_t = -1e9, jump_t = -1e9, wall_t = -1e9 }
+    pos = nil, pos_t = -1e9, look_t = -1e9, jump_t = -1e9, wall_t = -1e9, snag_t = -1e9 }
 T._st = st
-T.stats = { rays = 0, jumps = 0, walls = 0 }
+T.stats = { rays = 0, jumps = 0, walls = 0, snags = 0 }
 
 local vec3_mod = nil
 local function v3(x, y, z)
@@ -95,6 +112,7 @@ function T.hit(a, b, which)
     if not T.enabled() then return nil end
     local f = flags()
     if not f then turn_off("no collision flags") return nil end
+    if not f[which or "COLLISION"] then return nil end
     local now = R.now()
     if now ~= st.frame_t then st.frame_t, st.frame_n = now, 0 end
     if st.frame_n >= T.BUDGET then return nil end
@@ -183,6 +201,33 @@ function T.path_blocked(me)
     return false
 end
 
+--- The height where a ray from `top` straight down to `bottom` first meets
+--- something (the Orca port's hit_z) - a binary search, trace_line only says hit
+--- or not. false = nothing between, nil = no ray (off / budget / an error).
+function T.hit_z(x, y, top, bottom, which, steps)
+    local first = T.hit({ x = x, y = y, z = top }, { x = x, y = y, z = bottom }, which)
+    if first == nil then return nil end
+    if not first then return false end
+    local lo, hi = bottom, top
+    for _ = 1, steps or 8 do
+        local mid = (lo + hi) * 0.5
+        local r = T.hit({ x = x, y = y, z = top }, { x = x, y = y, z = mid }, which)
+        if r == nil then return nil end
+        if r then lo = mid else hi = mid end
+    end
+    return lo
+end
+
+--- The floor under `p` - the game's height query, else a ray snap down (the Orca
+--- port's ground_z / Handler:expand). nil when unknown.
+function T.ground_z(p)
+    if not p then return nil end
+    local ok, h = pcall(core.get_height_for_position, v3(p.x, p.y, p.z))
+    if ok and type(h) == "number" and h == h and h ~= 0 then return h end
+    local z = T.hit_z(p.x, p.y, p.z + 3, p.z - 20, "GROUND", 10)
+    return z or nil
+end
+
 --- The highest thing above the feet in the next `yards` (Helper should_jump):
 --- three samples, a 6-step height search each. nil when no ray.
 function T.obstacle_height(me, yards)
@@ -194,20 +239,29 @@ function T.obstacle_height(me, yards)
     local top = 0
     for _, d in ipairs({ 0.7, 1.2, yards }) do
         local px, py = off(x, y, f, 0, d)
-        local first = T.hit({ x = px, y = py, z = z + 3 }, { x = px, y = py, z = z + 0.05 }, "COLLISION")
-        if first == nil then return nil end
-        if first then
-            local lo, hi = 0.05, 3.0
-            for _ = 1, 6 do
-                local mid = (lo + hi) * 0.5
-                local r = T.hit({ x = px, y = py, z = z + 3 }, { x = px, y = py, z = z + mid }, "COLLISION")
-                if r == nil then return nil end
-                if r then lo = mid else hi = mid end
-            end
-            if lo > top then top = lo end
-        end
+        local hz = T.hit_z(px, py, z + 3, z + 0.05, "COLLISION", 6)
+        if hz == nil then return nil end
+        if hz and hz - z > top then top = hz - z end
     end
     return top
+end
+
+--- Room to hop an obstacle `h` yd high ahead: the head clear above its top 1.2 yd
+--- ahead, and no fall past DROP_MAX 2.5 yd ahead. true / false, why / nil (no ray).
+function T.jump_ok(me, h)
+    me = me or R.me()
+    local x, y, z = R.here()
+    local f = facing(me)
+    if not x or not f or not h then return nil end
+    local top = z + h
+    local ax, ay = off(x, y, f, 0, 1.2)
+    local r = T.hit({ x = ax, y = ay, z = top + 0.15 }, { x = ax, y = ay, z = top + 0.15 + body(me) }, "COLLISION")
+    if r == nil then return nil end
+    if r then return false, "no headroom over it" end
+    local lx, ly = off(x, y, f, 0, 2.5)
+    local g = T.ground_z({ x = lx, y = ly, z = top + 0.5 })
+    if g and z - g > T.DROP_MAX then return false, string.format("a %.0f yd drop behind it", z - g) end
+    return true
 end
 
 --- Knee and chest rays along a walk leg a -> b (at most the first 6 yd). true =
@@ -267,10 +321,27 @@ function T.tick(t, ctx)
     if not T.ready() then return false end
     local me = R.me()
     local blocked = T.path_blocked(me)
+    if (blocked == "left" or blocked == "right") and type(ctx.avoid) == "function" and t - st.snag_t >= T.SNAG_GAP then
+        -- front clear, no progress, a corner at the side: a small zone on it
+        st.snag_t = t
+        local f = facing(me) or 0
+        local sx, sy = off(x, y, f, blocked == "right" and 1.5708 or -1.5708, 0.9)
+        sx, sy = off(sx, sy, f, 0, 0.5)
+        T.stats.snags = T.stats.snags + 1
+        R.trail("trace", "snagged on the %s, no progress %.1f s - avoidance zone %.1f yd, re-plan", blocked, t - st.pos_t, T.SNAG_R)
+        pcall(ctx.avoid, { x = sx, y = sy, z = z }, T.SNAG_R, "corner at the " .. blocked .. " (ray)")
+        st.pos = nil
+        return true
+    end
     if blocked ~= "front" then return false end
     local h = T.obstacle_height(me)
     if h == nil then return false end
+    local hop, why = true, nil
     if h >= T.JUMP_MIN and h <= T.JUMP_MAX then
+        hop, why = T.jump_ok(me, h)
+        if hop == nil then return false end
+    end
+    if hop and h >= T.JUMP_MIN and h <= T.JUMP_MAX then
         if ctx.no_jump or ctx.riding or ctx.mounted_flying or t - st.jump_t < T.JUMP_GAP then return false end
         st.jump_t = t
         T.stats.jumps = T.stats.jumps + 1
@@ -279,12 +350,13 @@ function T.tick(t, ctx)
         st.pos = nil
         return true
     end
-    if h > T.JUMP_MAX and t - st.wall_t >= T.WALL_GAP and type(ctx.avoid) == "function" then
+    if (h > T.JUMP_MAX or (not hop and h >= T.JUMP_MIN)) and t - st.wall_t >= T.WALL_GAP and type(ctx.avoid) == "function" then
         st.wall_t = t
         local f = facing(me) or 0
         local wx, wy = off(x, y, f, 0, 1.5)
         T.stats.walls = T.stats.walls + 1
-        R.trail("trace", "a wall %.1f yd high ahead, no progress %.1f s - avoidance zone %.1f yd, re-plan", h, t - st.pos_t, T.WALL_R)
+        R.trail("trace", "a wall %.1f yd high ahead%s, no progress %.1f s - avoidance zone %.1f yd, re-plan", h,
+            why and (" (" .. why .. ")") or "", t - st.pos_t, T.WALL_R)
         pcall(ctx.avoid, { x = wx, y = wy, z = z }, T.WALL_R, "wall ahead (ray)")
         st.pos = nil
         return true
@@ -293,7 +365,7 @@ function T.tick(t, ctx)
 end
 
 function T.reset()
-    st.pos, st.look_t, st.jump_t, st.wall_t = nil, -1e9, -1e9, -1e9
+    st.pos, st.look_t, st.jump_t, st.wall_t, st.snag_t = nil, -1e9, -1e9, -1e9, -1e9
 end
 
 return T

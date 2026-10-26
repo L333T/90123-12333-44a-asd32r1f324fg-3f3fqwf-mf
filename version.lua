@@ -2,7 +2,10 @@
 -- restedXP_questing
 -- Identity — single source of truth for name / authors / version
 -- ============================================================================
--- Version: 4.29.0
+-- Version: 4.30.0
+-- 4.30.0 (Desktop items_db): Healthstones at the potion line, 3 foods / drinks added;
+-- the repair search falls back to the Master Farmer database's repairers /
+-- innkeepers (mfdb.lua, data/mfdb_*) when none seen is nearer.
 -- Authors: BLIZZ - Anthonyk
 -- Folder: restedXP_questing
 -- ============================================================================
@@ -25,6 +28,6 @@ return {
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.29.0",
+    version = "4.30.0",
     folder = "restedXP_questing",
 }

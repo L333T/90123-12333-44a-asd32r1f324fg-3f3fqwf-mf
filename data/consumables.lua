@@ -122,6 +122,7 @@ consumables.FOOD_FULL_LIST = {
     11109, 7808, 7806, 7807, 6299, 6290, 787, 5349, 19223, 2679,
     7097, 16166, 17344, 4536, 2070, 11584, 961, 4604, 117, 4540,
     4656, 5057,
+    23495, 8957,                -- 2026-10-25 (items_db food_water.lua): Springpaw Appetizer, Spinefin Halibut
 }
 
 -- 40 ids, best first as supplied.
@@ -130,6 +131,7 @@ consumables.DRINK_FULL_LIST = {
     32453, 32668, 33042, 34411, 38431, 28399, 29454, 30703, 33825, 38430,
     8079, 18300, 32455, 8766, 8078, 1645, 8077, 19300, 4791, 1708,
     10841, 3772, 1205, 9451, 2136, 1179, 2288, 17404, 5350, 159,
+    38429,                      -- 2026-10-25 (items_db food_water.lua): Blackrock Spring Water
 }
 
 -- The previous names, kept so nothing that referred to them breaks. They are
@@ -197,6 +199,14 @@ consumables.DRINK_AURA_IDS = {
     1133, 1135, 1137,
     10250, 22734, 27089, 34291, 43182, 43183,
     43706, 46755,
+}
+
+-- 2026-10-25 (items_db food_water.lua): every Healthstone, best first (Master,
+-- Major, Greater, plain, Lesser, Minor with the Improved Healthstone ranks).
+-- healing.lua uses one under the potion line - its cooldown is not the potions'.
+consumables.HEALTHSTONE_IDS = {
+    22103, 22104, 22105, 22106, 9421, 19012, 19013, 5510, 19010, 19011,
+    5509, 19008, 19009, 5511, 19006, 19007, 5512, 19004, 19005,
 }
 
 return consumables

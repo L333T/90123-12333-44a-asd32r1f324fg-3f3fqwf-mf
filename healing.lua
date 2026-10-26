@@ -84,6 +84,29 @@ function healing.is_resting()
     return resting.is_resting()
 end
 
+-- 2026-10-25: the best Healthstone in the bags that is off cooldown
+-- (data/consumables HEALTHSTONE_IDS), used at the potion line. True when used.
+local stone_t = -1e9
+local function healthstone(player)
+    local now = safe(function() return core.time() end) or 0
+    if now - stone_t < 1.0 then return false end
+    stone_t = now
+    local okc, cons = pcall(require, "data/consumables")
+    local okb, bags = pcall(require, "bags")
+    if not okc or type(cons) ~= "table" or type(cons.HEALTHSTONE_IDS) ~= "table" then return false end
+    if not okb or type(bags) ~= "table" or type(bags.count) ~= "function" then return false end
+    for _, id in ipairs(cons.HEALTHSTONE_IDS) do
+        if (tonumber(safe(function() return bags.count(id) end)) or 0) > 0 then
+            local cd = safe(function() return player:get_item_cooldown(id) end)
+            if type(cd) ~= "number" or cd <= 0 then
+                return safe(function() return require("spellcheck").use_item(id, { skip_moving = true }) end) == true
+            end
+            return false               -- the best one is on cooldown (they share it)
+        end
+    end
+    return false
+end
+
 function healing.tick(player)
     if not player then
         resting.clear()
@@ -114,6 +137,9 @@ function healing.tick(player)
             -- 2.315.0: IZI's forecast is fed by izi.on_update (no longer
             -- called) - the health now decides
             if hp <= gui.slider("hp_pot", 35) then
+                -- 2026-10-25 (items_db food_water.lua): a Healthstone first - its
+                -- cooldown is not the potions', so both can go in one fight
+                healthstone(player)
                 -- 2.312.0: core.input.use_item, not izi's potion use
                 local pid = safe(function() return izi.best_health_potion_id() end)
                 if pid then safe(function() return require("spellcheck").use_item(pid, { skip_moving = true }) end) end

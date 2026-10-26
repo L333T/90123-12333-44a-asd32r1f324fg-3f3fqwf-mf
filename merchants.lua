@@ -155,6 +155,57 @@ end
 --- The nearest remembered repairer or innkeeper on the player's continent,
 --- as a merchant record { npc_id, name, x, y, z, repair, inn }, and its flat
 --- distance. want_repair: a repairer is taken over a nearer innkeeper.
+-- 2026-10-25 THE MASTER FARMER DATABASE (mfdb.lua, user: "Create database tables
+-- like the ones in these folders and use them in all of the master farmer
+-- projects"): every repairer (and innkeeper) of the GTFO TBC database for the
+-- player's faction on the player's continent - offered when the bot has seen
+-- none nearer of the kind wanted. Map points become world points once
+-- (mfdb.world: core.game_ui.get_world_pos_from_map_pos, no ray); the player's z
+-- stands in for height (the NPC is found by its npc id there).
+local db_pts = {}                  -- mask -> { { cont, npc, x, y, name, side, repair } }
+local function db_side(player)
+    local ok, f = pcall(require, "data/factions")
+    if ok and type(f) == "table" and type(f.of_player) == "function" then
+        local k = safe(function() return f.of_player(player) end)
+        if type(k) == "string" then
+            k = k:lower()
+            if k:find("alliance", 1, true) then return "A" end
+            if k:find("horde", 1, true) then return "H" end
+        end
+    end
+    return nil
+end
+local function db_nearest(player, me, cont, want_repair)
+    local okd, D = pcall(require, "mfdb")
+    if not okd or type(D) ~= "table" or type(D.services) ~= "function" then return nil end
+    local mask = want_repair and D.F.REPAIR or (D.F.REPAIR + D.F.INNKEEPER)
+    local list = db_pts[mask]
+    if not list then
+        list = {}
+        for _, r in ipairs(safe(function() return D.services(mask, nil) end) or {}) do
+            local wx, wy, c = D.world(r.map, r.x * 100, r.y * 100)
+            if wx and c then
+                list[#list + 1] = { cont = c, npc = r.npc_id, x = wx, y = wy, name = r.name, side = r.side,
+                    repair = D.has_flag(r.flags, D.F.REPAIR), inn = D.has_flag(r.flags, D.F.INNKEEPER) }
+            end
+        end
+        db_pts[mask] = list
+        trail("loaded %d service NPC spawn(s) from the Master Farmer database", #list)
+    end
+    local side = db_side(player)
+    local best, best_d = nil, nil
+    for i = 1, #list do
+        local e = list[i]
+        if e.cont == cont and (e.side == "B" or side == nil or e.side == side) and not book[cont .. "|" .. e.npc] then
+            local d = math.sqrt((e.x - me.x) ^ 2 + (e.y - me.y) ^ 2)
+            if d <= MAX_DIST and (best_d == nil or d < best_d) then best, best_d = e, d end
+        end
+    end
+    if not best then return nil end
+    return { npc_id = best.npc, name = best.name, x = best.x, y = best.y, z = me.z, repair = best.repair,
+        inn = best.inn, from_db = true }, best_d
+end
+
 function M.nearest(player, want_repair)
     if not loaded then load() end
     local me = safe(function() return player:get_position() end)
@@ -170,6 +221,9 @@ function M.nearest(player, want_repair)
             end
         end
     end
+    -- 2026-10-25: the database's nearest when none seen is nearer (or only an innkeeper for a repair)
+    local dbe, dbd = db_nearest(player, me, cont, want_repair)
+    if dbe and (not best or (want_repair and best_rank == 2) or dbd < best_d) then return dbe, dbd end
     if not best then return nil end
     return { npc_id = best.npc, name = best.name, x = best.x, y = best.y, z = best.z,
         repair = best.repair, inn = best.inn, from_book = true }, best_d

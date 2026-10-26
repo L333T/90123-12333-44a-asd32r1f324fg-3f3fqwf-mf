@@ -42,7 +42,7 @@ local PLUGIN_MODULES = {
     "targeting",
     "movement",
     -- 3.0.0: the movement layer modules (fresh code on a reload)
-    "movement/core", "movement/zones", "movement/sentinel", "movement/mount", "movement/nav", "movement/locks",
+    "movement/core", "movement/zones", "movement/sentinel", "movement/mount", "movement/trace", "movement/nav", "movement/locks",
     "movement/range", "movement/combat", "movement/leash", "movement/sight",
     "loot",
     "path_runner",

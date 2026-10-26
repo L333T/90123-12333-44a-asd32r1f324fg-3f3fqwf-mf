@@ -2,7 +2,8 @@
 -- restedXP_questing
 -- Identity — single source of truth for name / authors / version
 -- ============================================================================
--- Version: 4.30.2
+-- Version: 4.31.0
+-- 4.31.0: the ray walk assistant (movement/trace.lua from Desktop Helper trace.lua; user lifted the ray rule): Sentinel walking with no progress and the way ahead blocked - a low obstacle is jumped, a wall gets a Sentinel avoidance zone and a soft re-plan (the blind indoor jump only when rays are off).
 -- 4.30.2: repeated countdown status lines (spellbook wait, corpse walk, approach) print at most every 5 s.
 -- 4.30.1 (Desktop Helper): profession tools (picks, knives, hammer, poles) and Golden
 -- Pearl are never sold; a swift mount item beats a slow class mount.
@@ -31,6 +32,6 @@ return {
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.30.2",
+    version = "4.31.0",
     folder = "restedXP_questing",
 }

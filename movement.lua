@@ -26,6 +26,7 @@
 local R  = require("movement/core")
 local Z  = require("movement/zones")
 local N  = require("movement/nav")
+local TR = require("movement/trace")   -- 2026-10-25: the ray walk assistant (trace_tick, halt)
 local Lk = require("movement/locks")
 local Rg = require("movement/range")
 local C  = require("movement/combat")
@@ -100,6 +101,7 @@ movement.set_approach_target = function(guid) hints.target = guid end
 
 --- Everything stops: walk, fight, holds, backpedal.
 function movement.halt()
+    TR.reset()                                           -- 2026-10-25
     Pv.release("halt")
     C.combat_release()
     Lk.clear()
@@ -303,13 +305,32 @@ local function indoor_jump(t)
     R.trail("move", "indoors: no movement for %.0f s on the walk - jump", IJ.STILL_S)
 end
 
+-- 2026-10-25 (user: "Remove Raycast and traceline rules ... that Sentinel can use"): the
+-- ray walk assistant (movement/trace.lua, Desktop\Helper trace.lua) - Sentinel walking with
+-- no progress and the way ahead blocked: a low obstacle is jumped, a wall gets a Sentinel
+-- avoidance zone (when this product has one); one context table reused every pulse
+local TR_CTX = { avoid = N.avoid_area, jump = function() pcall(core.input.jump) end }
+local function trace_tick(t)
+    local mode = N.mode()
+    local c = TR_CTX
+    c.walking = N.busy() and mode ~= "portal" and not R.turning
+    if c.walking then
+        c.no_jump = select(2, pcall(function() return core.character.is_swimming() end)) == true
+        local me = R.me()
+        c.mounted_flying = me ~= nil and select(2, pcall(me.is_flying, me)) == true
+    end
+    return TR.tick(t, c)
+end
+
 --- Once per frame (main.lua), before anything reads movement state.
 function movement.pulse()
     local t = R.now()
     Lk.tick(t)
     N.pulse()
     Mt.pulse(R.me(), t)           -- 4.20.0: the calm clock mounting waits for
-    indoor_jump(t)                -- Zygor 1.7.8
+    -- 2026-10-25: the ray assistant jumps only at a jumpable obstacle (and zones walls);
+    -- the blind indoor jump stays as the fallback when the rays are off
+    if TR.enabled() then trace_tick(t) else indoor_jump(t) end
     Pv.tick(t)                 -- 3.2.0: sharp turn -> hold the walk, turn in place
     Z.prune(t)
     if t - snap_t >= SNAP_EVERY then build_snapshot(t) end

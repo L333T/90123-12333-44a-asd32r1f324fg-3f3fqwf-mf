@@ -49,5 +49,9 @@ M.items = {
 local rank = {}
 for i, id in ipairs(M.items) do rank[id] = i end
 M.rank = rank
+-- 2026-10-25 (Desktop\Helper mounts.lua: fast class mount > mount item > slow class
+-- mount): the swift items are the list up to the rare epics (12302 Ancient Frostsaber)
+M.SWIFT_LAST = rank[12302]
+M.slow_class = { ["Summon Warhorse"] = true, ["Summon Felsteed"] = true }
 
 return M

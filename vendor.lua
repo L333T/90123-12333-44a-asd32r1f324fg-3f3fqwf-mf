@@ -402,7 +402,13 @@ local function merchant_open()
 end
 
 -- RestedXP InventoryManager (2.208.0): grey items that are not junk.
-local JUNK_EXCEPTIONS = { [6196] = true }
+local JUNK_EXCEPTIONS = { [6196] = true,
+    -- 1.8.0 (Zygor Inventory.lua 120-133): profession tools are never sold -
+    -- mining picks, blacksmith hammer, fishing poles, skinning knives
+    [2901] = true, [1819] = true, [5956] = true, [6256] = true, [6365] = true, [6366] = true, [6367] = true,
+    [7005] = true, [2709] = true, [9901] = true,
+    -- 2026-10-25 (Desktop\Helper data/dont_sell_white.lua): Golden Pearl - a white worth far more kept
+    [13926] = true }
 local SOUL_SHARD = 6265
 
 local function keep_ids(player)

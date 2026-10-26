@@ -183,15 +183,21 @@ function M.find(player, t)
     if t - st.auto_t < CACHE_S then return st.auto end
     st.auto_t, st.auto = t, nil
     local class_id = safe(player.get_class, player)
+    local level = safe(player.get_level, player) or 0
+    local it = bag_mount(level)
     for _, name in ipairs(DATA.class_spells[class_id] or {}) do
         local fam = family(name)
         if fam and fam.id then
-            st.auto = { kind = "spell", value = fam, label = name }
-            return st.auto
+            -- 2026-10-25 (Desktop\Helper mounts.lua): a slow class mount (Warhorse,
+            -- Felsteed) gives way to a swift mount item in the bags
+            local swift_item = it and DATA.SWIFT_LAST and DATA.rank and DATA.rank[it.id]
+                and DATA.rank[it.id] <= DATA.SWIFT_LAST
+            if not (DATA.slow_class and DATA.slow_class[name] and swift_item) then
+                st.auto = { kind = "spell", value = fam, label = name }
+                return st.auto
+            end
         end
     end
-    local level = safe(player.get_level, player) or 0
-    local it = bag_mount(level)
     if it then
         st.auto = { kind = "item", value = it.id, label = it.name or ("item " .. it.id) }
         return st.auto

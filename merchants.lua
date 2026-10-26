@@ -175,35 +175,34 @@ local function db_side(player)
     end
     return nil
 end
+-- 2026-10-26 (user: "Game freezing on NPC interaction"): every repairer / innkeeper
+-- spawn of the database (1356) was converted with get_world_pos_from_map_pos in ONE frame
+-- on the first search. Now mfdb.services_world: the player's continent only (a table
+-- lookup), a slice a frame; nothing from the database until the list is done.
 local function db_nearest(player, me, cont, want_repair)
     local okd, D = pcall(require, "mfdb")
-    if not okd or type(D) ~= "table" or type(D.services) ~= "function" then return nil end
+    if not okd or type(D) ~= "table" or type(D.services_world) ~= "function" or cont == nil then return nil end
     local mask = want_repair and D.F.REPAIR or (D.F.REPAIR + D.F.INNKEEPER)
-    local list = db_pts[mask]
-    if not list then
-        list = {}
-        for _, r in ipairs(safe(function() return D.services(mask, nil) end) or {}) do
-            local wx, wy, c = D.world(r.map, r.x * 100, r.y * 100)
-            if wx and c then
-                list[#list + 1] = { cont = c, npc = r.npc_id, x = wx, y = wy, name = r.name, side = r.side,
-                    repair = D.has_flag(r.flags, D.F.REPAIR), inn = D.has_flag(r.flags, D.F.INNKEEPER) }
-            end
-        end
-        db_pts[mask] = list
-        trail("loaded %d service NPC spawn(s) from the Master Farmer database", #list)
+    local okg, gv = pcall(require, "gamever")
+    local cof = okg and type(gv) == "table" and gv.continent_of_uimap or nil
+    local list, done = D.services_world(mask, nil, cont, cof)
+    if not done then return nil end
+    if not db_pts[mask .. ":" .. tostring(cont)] then
+        db_pts[mask .. ":" .. tostring(cont)] = true
+        trail("loaded %d service NPC spawn(s) on continent %s from the Master Farmer database", #list, tostring(cont))
     end
     local side = db_side(player)
     local best, best_d = nil, nil
     for i = 1, #list do
         local e = list[i]
-        if e.cont == cont and (e.side == "B" or side == nil or e.side == side) and not book[cont .. "|" .. e.npc] then
+        if (e.side == "B" or side == nil or e.side == side) and not book[cont .. "|" .. e.npc] then
             local d = math.sqrt((e.x - me.x) ^ 2 + (e.y - me.y) ^ 2)
             if d <= MAX_DIST and (best_d == nil or d < best_d) then best, best_d = e, d end
         end
     end
     if not best then return nil end
-    return { npc_id = best.npc, name = best.name, x = best.x, y = best.y, z = me.z, repair = best.repair,
-        inn = best.inn, from_db = true }, best_d
+    return { npc_id = best.npc, name = best.name, x = best.x, y = best.y, z = me.z,
+        repair = D.has_flag(best.flags, D.F.REPAIR), inn = D.has_flag(best.flags, D.F.INNKEEPER), from_db = true }, best_d
 end
 
 function M.nearest(player, want_repair)

@@ -29,6 +29,16 @@
 --                             continent `cont`: wx, wy, distance
 --   D.item_quests(id)         { use = set, starts = set, wanted = set } for an item
 --   D.objective_ids(qid)      npcs (objectives + kill credit), objects, items: sets
+--   D.services_world(mask, side, cont, cont_of_map)  2026-10-26: the service spawns as
+--                             WORLD points on continent `cont` - list, done. Built a slice
+--                             per frame; use the list only when done.
+--
+-- FRAME BUDGETS (2026-10-26, user: "Game freezing on NPC interaction"): the first
+-- repairer / flight master search converted EVERY spawn of the database (1250 + 100,
+-- RestedXP 1356, Auto BG 603) with core.game_ui.get_world_pos_from_map_pos in ONE frame.
+-- Now: a spawn on another continent (cont_of_map, a plain table lookup) is never
+-- converted, at most FRAME_CONV conversions and FRAME_ROWS row scans happen per frame
+-- (shared by every caller), and the quest <-> item index is built a slice per frame.
 -- ============================================================================
 
 local D = {}
@@ -77,6 +87,39 @@ local function rows(kind)
     return ix
 end
 D._rows = rows
+
+-- per-frame budgets, shared by every caller (a frame = one core.time() value)
+D.FRAME_ROWS, D.FRAME_CONV = 800, 40
+local frame = { t = -1, rows = 0, conv = 0 }
+local function clock()
+    local ok, t = pcall(function() return core.time() end)
+    return (ok and type(t) == "number") and t or 0
+end
+local function budget(kind)
+    local t = clock()
+    if t ~= frame.t then frame.t, frame.rows, frame.conv = t, 0, 0 end
+    if kind == "conv" then
+        if frame.conv >= D.FRAME_CONV then return false end
+        frame.conv = frame.conv + 1
+        return true
+    end
+    if frame.rows >= D.FRAME_ROWS then return false end
+    frame.rows = frame.rows + 1
+    return true
+end
+D._budget, D._frame = budget, frame
+
+local id_arrays = {}
+--- The ids of a kind as an array (slices walk it by position).
+local function id_array(kind)
+    local a = id_arrays[kind]
+    if a then return a end
+    a = {}
+    for id in pairs(rows(kind)) do a[#a + 1] = id end
+    table.sort(a)
+    id_arrays[kind] = a
+    return a
+end
 
 local function split(line)
     local out, n = {}, 0
@@ -253,31 +296,110 @@ end
 -- ----------------------------------------------------------------------------
 -- quests <-> items
 -- ----------------------------------------------------------------------------
-local item_q = nil
---- What quests an item serves: { use = set (source / required items),
---- starts = set (it starts the quest), wanted = set (an objective) }.
-function D.item_quests(item_id)
-    if item_q == nil then
+local item_q, item_job = nil, nil
+local EMPTY_IQ = { use = {}, starts = {}, wanted = {} }
+local function iq_add(i, kind, q)
+    if not i or i <= 0 then return end
+    local e = item_q[i]
+    if not e then e = { use = {}, starts = {}, wanted = {} } item_q[i] = e end
+    e[kind][q] = true
+end
+--- One budgeted slice of the quest <-> item index. True when it is complete.
+local function item_index_step()
+    if item_job and item_job.done then return true end
+    if not item_job then
         item_q = {}
-        local function add(i, kind, q)
-            if not i or i <= 0 then return end
-            local e = item_q[i]
-            if not e then e = { use = {}, starts = {}, wanted = {} } item_q[i] = e end
-            e[kind][q] = true
+        item_job = { stage = "quests", i = 0, list = id_array("quests"), done = false }
+    end
+    local j = item_job
+    if j.stage == "quests" then
+        local qrows = rows("quests")
+        while j.i < #j.list do
+            if not budget("rows") then return false end
+            j.i = j.i + 1
+            local qid = j.list[j.i]
+            local f = split(qrows[qid])
+            iq_add(tonumber(f[16]), "use", qid)
+            for _, i in ipairs(ids(f[17])) do iq_add(i, "use", qid) end
+            for _, i in ipairs(ids(f[9])) do iq_add(i, "starts", qid) end
+            for _, i in ipairs(ids(f[14])) do iq_add(i, "wanted", qid) end
         end
-        for qid, line in pairs(rows("quests")) do
-            local f = split(line)
-            add(tonumber(f[16]), "use", qid)
-            for _, i in ipairs(ids(f[17])) do add(i, "use", qid) end
-            for _, i in ipairs(ids(f[9])) do add(i, "starts", qid) end
-            for _, i in ipairs(ids(f[14])) do add(i, "wanted", qid) end
+        j.stage, j.i, j.list = "items", 0, id_array("items")
+    end
+    local irows = rows("items")
+    while j.i < #j.list do
+        if not budget("rows") then return false end
+        j.i = j.i + 1
+        local iid = j.list[j.i]
+        local sq = tonumber(irows[iid]:match("^%d+\t[^\t]*\t[^\t]*\t[^\t]*\t(%d+)\t"))
+        if sq and sq > 0 then iq_add(iid, "starts", sq) end
+    end
+    j.done = true
+    return true
+end
+D._item_index_step = item_index_step
+
+--- What quests an item serves: { use = set (source / required items),
+--- starts = set (it starts the quest), wanted = set (an objective) }. While the
+--- index is still being built (a slice a frame) every item answers empty.
+function D.item_quests(item_id)
+    if not item_index_step() then return EMPTY_IQ end
+    return item_q[tonumber(item_id) or -1] or EMPTY_IQ
+end
+function D.item_index_ready() return item_job ~= nil and item_job.done == true end
+
+-- ----------------------------------------------------------------------------
+-- services as world points, built a slice per frame (2026-10-26)
+-- ----------------------------------------------------------------------------
+local sw_jobs = {}
+--- Service spawns (D.F `mask`, side "A" / "H" / nil) as world points on continent
+--- `cont`: list of { cont, npc, x, y, side, name, flags, sub }, done. A spawn whose UI
+--- map is on another continent (cont_of_map(map), when given) is never converted.
+--- Each call goes on where the last stopped, within the frame budgets.
+function D.services_world(mask, side, cont, cont_of_map)
+    local key = tostring(mask) .. ":" .. tostring(side) .. ":" .. tostring(cont)
+    local j = sw_jobs[key]
+    if not j then
+        j = { stage = "scan", i = 0, list = id_array("npcs"), cand = {}, k = 0, out = {}, done = false }
+        sw_jobs[key] = j
+    end
+    if j.done then return j.out, true end
+    local nrows = rows("npcs")
+    if j.stage == "scan" then
+        while j.i < #j.list do
+            if not budget("rows") then return j.out, false end
+            j.i = j.i + 1
+            local id = j.list[j.i]
+            local line = nrows[id]
+            local fl = tonumber(line:match("^%d+\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t[^\t]*\t(%d+)\t"))
+            if fl and has_flag(fl, mask) then
+                local n = PARSE.npcs(split(line))
+                local s0 = (n.friendly == "AH") and "B" or n.friendly
+                if s0 ~= "-" and (side == nil or s0 == "B" or s0 == side) then
+                    for _, sp in ipairs(n.spawns) do
+                        local mc = type(cont_of_map) == "function" and cont_of_map(sp.map) or nil
+                        if mc == nil or cont == nil or mc == cont then
+                            j.cand[#j.cand + 1] = { npc = id, name = n.name, side = s0, map = sp.map, x = sp.x, y = sp.y,
+                                flags = n.flags, sub = n.sub }
+                        end
+                    end
+                end
+            end
         end
-        for iid, line in pairs(rows("items")) do
-            local sq = tonumber(line:match("^%d+\t[^\t]*\t[^\t]*\t[^\t]*\t(%d+)\t"))
-            if sq and sq > 0 then add(iid, "starts", sq) end
+        j.stage = "conv"
+    end
+    while j.k < #j.cand do
+        if not budget("conv") then return j.out, false end
+        j.k = j.k + 1
+        local c = j.cand[j.k]
+        local wx, wy, wc = D.world(c.map, c.x, c.y)
+        if wx and (cont == nil or wc == nil or wc == cont) then
+            j.out[#j.out + 1] = { cont = wc or cont, npc = c.npc, x = wx, y = wy, side = c.side, name = c.name,
+                flags = c.flags, sub = c.sub }
         end
     end
-    return item_q[tonumber(item_id) or -1] or { use = {}, starts = {}, wanted = {} }
+    j.done, j.cand = true, nil
+    return j.out, true
 end
 
 --- A quest's objective ids: npcs (objectives + kill credit), objects, items (sets).
@@ -308,6 +430,7 @@ end
 
 function D.reset()
     index, cache, cache_n, world_cache, world_n, svc_cache, item_q = {}, {}, {}, {}, 0, {}, nil
+    id_arrays, item_job, sw_jobs = {}, nil, {}
 end
 
 return D

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(plugin_loader/**)",
+      "Edit(plugin_loader/**)"
+    ]
+  }
+}

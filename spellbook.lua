@@ -203,6 +203,22 @@ local function forever_ids()
     return out
 end
 
+-- TBC SPELL DATABASE: on WoW Anniversary (TBC) this class's whole spell list
+-- (data/tbc_spells, tools/gen_tbc_spells.py: Mage conjures and Shaman totems
+-- included) and the race's racials for this class are asked about too, so the
+-- Spells tab lists every spell the character knows even when get_spells()
+-- leaves one out. probe.lua loads the class file and the racial table once,
+-- keeps only the ids and frees both modules.
+local function tbc_ids()
+    local ok_g, gamever = pcall(require, "gamever")
+    if not ok_g or type(gamever) ~= "table" or not gamever.is_tbc() or gamever.is_forever() then return nil end
+    local ok_p, probe = pcall(require, "data/tbc_spells/probe")
+    if not ok_p or type(probe) ~= "table" or type(probe.ids) ~= "function" then return nil end
+    local me = safe(function() return izi.me() end)
+    if not me then return nil end
+    return probe.ids(safe(function() return me:get_class() end), safe(function() return me:get_race_id() end))
+end
+
 local function probe_candidates(set)
     local only = {}
     local fids = forever_ids()
@@ -213,6 +229,13 @@ local function probe_candidates(set)
                 local id = list[i]
                 if type(id) == "number" and not set[id] then set[id], only[id] = true, true end
             end
+        end
+    end
+    local tids = tbc_ids()
+    if tids then
+        for i = 1, #tids do
+            local id = tids[i]
+            if not set[id] then set[id], only[id] = true, true end
         end
     end
     for i = 1, #ALWAYS_PROBE do

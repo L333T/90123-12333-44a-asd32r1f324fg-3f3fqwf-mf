@@ -32,12 +32,13 @@
 -- 4.32.1: manifest.lua regenerated - it still listed the 4.29.0 files, so movement/trace.lua (new in 4.31.0) was never downloaded and movement, loot, death, healing, vendor, path_runner and the quest pack failed to load.
 -- 4.33.0: swing timer from the combat log (swingtimer.lua): SWING_DAMAGE / SWING_MISSED of the player and pet; melee weaving (adapt.swing_ok), the spell-damage swing filter and the swing watch use it - auto_attack_helper's last attack moved only on the Attack command.
 -- 4.34.0: quests started and finished with bag items (quest/bagstart.lua): a use goal that names no item takes the step's own item (with a use spell, or a quest starter - quest class, no use spell - while the step accepts a quest), the quest panel the item opens is accepted; an accept whose step uses an item is started from the bags before any NPC search.
+-- 4.35.0: TBC spell database (data/tbc_spells, tools/gen_tbc_spells.py): on TBC Anniversary the spellbook scan also asks about every id of this class (Mage conjures, Shaman totems) and the race's racials for this class, so the Spells tab lists every spell the character knows; only this class's file and the racial table load, once, and are freed.
 return {
     name = "restedXP_questing",
     short_tag = "restedXP_questing",
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.34.0",
+    version = "4.35.0",
     folder = "restedXP_questing",
 }

@@ -5,8 +5,9 @@ alwaysApply: true
 
 # Master Farmer - Grindbot
 
-Read and follow `AGENTS.md` at the repository root before any change. It is the
-single rule set shared by Cursor and Claude Code — edit rules there, not here.
+Read and follow `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\AGENTS.md`
+before any change (shared Cursor + Claude rules). This file is product
+release workflow only.
 
 The project home (main folder) is `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\`.
 Open `_MASTER-FARMER_\products_src\restedXP_questing` for work. Local version builds go
@@ -20,4 +21,4 @@ The essentials, so they are never missed:
   loads from GitHub `main`, so uncommitted work never reaches it.
 - One loader only: the Master Farmer launcher loads this bot. Never add a loader
   folder (the old `plugin_loader/` was retired in 3.4.1).
-- Only use APIs declared in the `.api` stubs (`00-no-guessing-index.mdc`).
+- Only use APIs declared in the `.api` stubs (`AGENTS.md` §2).

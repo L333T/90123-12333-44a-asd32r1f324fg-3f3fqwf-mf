@@ -629,6 +629,35 @@ function N.resume(reason)
 end
 
 --- Per frame: event-flag stops, the deferred stop, walks ended without a callback.
+-- CHECK_PATH (user 2026-10-27: "check_path (running-path validation)"): while a walk
+-- of ours runs, the path Sentinel is following is validated every CHECK_GAP s, and an
+-- unambiguous "no longer valid" takes a FRESH path at once instead of waiting for the
+-- walk to stall. Never on a fresh leg or while a path request is in flight (the crash
+-- rule), never through a hold or a pending stop. The adapter answers nil for any shape
+-- it cannot read, and nil never re-plans - a spurious re-plan is worse than a late one.
+local CHECK_GAP = 3.0
+local check_t, check_logged = -1e9, false
+local function check_running_path(c, t)
+    if t - check_t < CHECK_GAP then return end
+    if not cur.x or cur.done or stop_req or N.holding() then return end
+    if not S.moving(c) or S.path_pending(c) then return end
+    if (t - (cur.leg_t or 0)) < FRESH_LEG then return end
+    local pts = S.current_path(c)
+    if type(pts) ~= "table" or #pts < 2 then return end
+    local hx, hy, hz = R.here()
+    if not hx then return end
+    check_t = t
+    S.check_path(c, { x = hx, y = hy, z = hz }, pts, function(verdict, shape)
+        if not check_logged then
+            check_logged = true
+            R.trail("nav", "check_path first answer: %s", tostring(shape))
+        end
+        if verdict ~= false then return end
+        R.trail("nav", "check_path: the running path is no longer valid - taking a fresh one")
+        S.soft_replan(c, "check_path: the path is no longer valid")
+    end)
+end
+
 function N.pulse()
     -- death or a loading screen flagged by the event callback: the walk stops
     -- here, on the update tick (Sentinel does not stop on death / loading)
@@ -642,6 +671,7 @@ function N.pulse()
     end
     local c = N.client()
     if not c then return end
+    check_running_path(c, R.now())            -- the running path validated
     if stop_req then
         if not S.moving(c) then
             stop_req = nil

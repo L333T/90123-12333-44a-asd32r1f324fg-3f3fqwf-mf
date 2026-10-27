@@ -843,4 +843,56 @@ function S.failures(c)
     return ok and num(v) or nil
 end
 
+
+-- 2026-10-27 CHECK_PATH (advanced; user: "check_path (running-path validation)").
+-- PRESENT on v0.24 - docs/SENTINEL_V024.md enumerates nav_client:check_path - but its
+-- CALLBACK SHAPE IS NOT RECORDED there (only find_path's is), so this is deliberately
+-- careful. The shape of every answer is handed back for the caller to log once, and
+-- ONLY an unambiguous "this path is bad" (valid == false / blocked == true /
+-- reachable == false) asks for a re-plan. A bare `false` is NOT treated as bad: on
+-- this client that is also what a server error looks like, and a spurious re-plan is
+-- worse than a late one. Anything else is "no opinion" and the walk is left alone.
+-- CHECK_ERRORS failed calls, or a library without check_path, switch it off for the
+-- session and it is never asked again.
+S.CHECK_ERRORS = 3
+local check_off, check_errs = false, 0
+
+local function check_verdict(a, b)
+    local d = (type(b) == "table" and b) or (type(a) == "table" and a) or nil
+    if type(d) == "table" then
+        if d.valid == false or d.blocked == true or d.reachable == false then return false, "table" end
+        if d.valid == true or d.ok == true or d.reachable == true then return true, "table" end
+        return nil, "table with no verdict field"
+    end
+    if a == true and b == nil then return true, "bare true" end
+    return nil, "unreadable (" .. type(a) .. ", " .. type(b) .. ")"
+end
+
+---check_path: is the path the player is walking still good? cb(verdict, shape):
+---verdict true (good) / false (re-plan) / nil (no opinion); shape = a short text
+---for the log. Returns false when it could not be asked.
+function S.check_path(c, pos, waypoints, cb)
+    if check_off then return false end
+    local okn, nc = pcall(function() return c.nav_client end)
+    if not okn or type(nc) ~= "table" or type(nc.check_path) ~= "function" then
+        check_off = true
+        return false
+    end
+    if type(waypoints) ~= "table" or #waypoints < 2 then return false end
+    local list = {}
+    for i = 1, #waypoints do list[i] = pt(waypoints[i]) end
+    local ok = pcall(nc.check_path, nc, pt(pos), list, function(a, b)
+        local v, shape = check_verdict(a, b)
+        pcall(cb, v, shape)
+    end)
+    if not ok then
+        check_errs = check_errs + 1
+        if check_errs >= S.CHECK_ERRORS then check_off = true end
+        return false
+    end
+    return true
+end
+---True once check_path has been switched off for this session.
+function S.check_path_off() return check_off end
+
 return S

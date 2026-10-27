@@ -2498,7 +2498,7 @@ end
 function guide.find_bag_item(goal)
     local ids, names = guide.targets(goal)
     if next(ids) == nil and next(names) == nil then
-        return nil
+        return guide.step_bag_item(goal)          -- 4.34.0
     end
 
     for bag = 0, 4 do
@@ -2522,6 +2522,89 @@ function guide.find_bag_item(goal)
                 end
             end
         end
+    end
+    -- 4.34.0: a goal that names no item id (only words from its text, which
+    -- matched nothing in the bags): the step's own item / quest starter
+    if next(ids) == nil then return guide.step_bag_item(goal) end
+    return nil
+end
+
+-- 4.34.0 (user 2026-10-27: "completes the steps that require using items from
+-- inventory for completing quest tasks OR starting quests"; Zygor log 14:17: a
+-- use goal naming no item, the quest-starting loot item - "Count" Ungula's
+-- Mandible, no use spell - never used). quest/bagstart: quest class + no use
+-- spell = an item that may start a quest.
+
+--- The quests the current step accepts that are not in the log yet - a set.
+function guide.step_open_accepts()
+    local out = {}
+    local gl = guide.goals()
+    for i = 1, #gl do
+        local g = gl[i]
+        if guide.classify(g) == "accept" and not g.is_complete then
+            local list = {}
+            if g.quest_id then list[1] = g.quest_id end
+            for _, id in ipairs(g.ids or {}) do list[#list + 1] = id end
+            for _, q in ipairs(list) do
+                q = tonumber(q)
+                if q and safe(function() return core.quests.is_on_quest(q) end) ~= true and not skipped(q) then out[q] = true end
+            end
+        end
+    end
+    return out
+end
+
+--- The item ids the step's use / collect goals name (other than `goal`).
+function guide.step_item_ids(goal)
+    local out, seen = {}, {}
+    local gl = guide.goals()
+    local at = type(goal) == "table" and goal.index or nil
+    for i = 1, #gl do
+        local g = gl[i]
+        local k = guide.classify(g)
+        if g.index ~= at and (k == "item" or k == "collect") then
+            for _, id in ipairs(g.ids or {}) do
+                id = tonumber(id)
+                if id and id > 0 and not seen[id] then seen[id] = true out[#out + 1] = id end
+            end
+        end
+    end
+    return out
+end
+
+local function bag_entry_of(item_id)
+    for b = 0, 4 do
+        local items = safe(function() return core.inventory.get_items_in_bag(b) end)
+        if type(items) == "table" then
+            for i = 1, #items do
+                local entry = items[i]
+                if type(entry) == "table" and entry.object
+                    and safe(function() return entry.object:get_item_id() end) == item_id then
+                    return entry
+                end
+            end
+        end
+    end
+    return nil
+end
+
+--- A use goal that names nothing: a step item in the bags with a use spell, or
+--- (the step accepting a quest not taken yet) a step item / bag quest starter.
+function guide.step_bag_item(goal)
+    local okb, bs = pcall(require, "quest/bagstart")
+    if not okb or type(bs) ~= "table" then return nil end
+    local accepts = next(guide.step_open_accepts()) ~= nil
+    local ids = guide.step_item_ids(goal)
+    for i = 1, #ids do
+        local f = bs.facts(ids[i])
+        if f.quest and (f.spell or accepts) then        -- never a food / drink guess
+            local e = bag_entry_of(ids[i])
+            if e then return e end
+        end
+    end
+    if accepts then
+        local st = bs.starters()
+        if st[1] then return bag_entry_of(st[1]) end
     end
     return nil
 end

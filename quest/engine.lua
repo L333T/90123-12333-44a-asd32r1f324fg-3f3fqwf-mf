@@ -783,6 +783,51 @@ end
 local IS = { step = { key = nil, t = 0, tries = 0 }, GAP = 1.0, TRIES = 5, NEVER_DESTROY = { [6948] = true } }
 IS.prof = require("professions")   -- 2.285.0: which professions the character has (Profession API)
 
+-- 4.34.0 (user 2026-10-27: "completes the steps that require using items from
+-- inventory for completing quest tasks OR starting quests"): quest/bagstart.
+function IS.accept_open()
+    local okb, bs = pcall(require, "quest/bagstart")
+    if not (okb and type(bs) == "table" and type(guide.step_open_accepts) == "function") then return false end
+    if bs.accept_open(guide.step_open_accepts()) then
+        guide.invalidate()
+        return true
+    end
+    return false
+end
+
+--- An accept whose step uses an item (".use X >> start the quest / .accept Q"),
+--- or holds one of the step's items in the bags: started from the bags (the
+--- step's items first, then any quest item with no use spell), its panel
+--- accepted. false (nothing left to try): the NPC lookup carries on.
+function IS.bag_start(goal, qid, label)
+    local okb, bs = pcall(require, "quest/bagstart")
+    if not (okb and type(bs) == "table" and type(guide.step_item_ids) == "function") then return false end
+    local uses = false
+    local gl = guide.goals()
+    for i = 1, #gl do
+        if guide.classify(gl[i]) == "item" and not gl[i].is_complete then uses = true break end
+    end
+    local prefer = guide.step_item_ids(goal)
+    local own = false
+    for i = 1, #prefer do
+        local f = bs.facts(prefer[i])
+        if f.quest and not f.spell and bs.has(prefer[i]) then own = true break end
+    end
+    if not uses and not own then return false end
+    local r = bs.start(qid, prefer, nil)
+    if r == "accepted" then
+        guide.invalidate()
+        state.set_note("Quest", "Guide: " .. tostring(label) .. " - accepted from the item")
+        return true
+    end
+    if r == "using" then
+        movement.nav_stop()
+        state.set_note("Quest", "Guide: " .. tostring(label) .. " - starting it from the item")
+        return true
+    end
+    return false
+end
+
 function IS.equipped_id(player, slot)
     local info = safe(function() return player:get_item_at_inventory_slot(slot) end)
     local obj = type(info) == "table" and info.object or nil
@@ -1812,6 +1857,7 @@ local function dialog_goal(player, goal, kind, wps, label)
             -- No quest id at all: an NPC to speak to is all that is known.
         end
     end
+    if kind == "accept" and qid and IS.bag_start(goal, qid, label) then return true end   -- 4.34.0
     if kind == "turnin" and qid then
         if g_redo and g_redo.qid == qid then
             if redo_accept(player, goal, label) then return true end
@@ -2330,6 +2376,12 @@ quest.in_flight = TR.in_flight
 
 
 local function item_goal(player, goal, label)
+    -- 4.34.0: the item opened the quest panel of a quest the step accepts (an
+    -- item that starts a quest): accepted - the use is done
+    if IS.accept_open() then
+        state.set_note("Quest", "Guide: " .. label .. " - quest accepted")
+        return true
+    end
     local entry = guide.find_bag_item(goal)
     if not entry then
         return false

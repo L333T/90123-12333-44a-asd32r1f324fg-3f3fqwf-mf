@@ -112,18 +112,18 @@ function ui.default_theme()
 
         left_margin      = 21,
         top_margin       = 14,
-        header_height    = 72,
+        header_height    = 108,
         footer_height    = 36,
-        nav_height       = 28,
+        nav_height       = 32,
         nav_width        = 147,
         panel_gap        = 16,
         control_gap      = 7,
         section_gap      = 14,
         control_width    = 368,
         row_height       = 35,
-        button_height    = 32,
+        button_height    = 36,
         border_thickness = 1.0,
-        rounding         = 8.0,
+        rounding         = 12.0,
     }
 end
 
@@ -1361,28 +1361,45 @@ function Menu:draw_header(win, m)
     local pmax = vec2.new(m.w, m.header_h)
     draw_rect(win, pmin, pmax, t.bg_header, t.border_header, 0.0, t.border_thickness)
 
-    local pad = t.left_margin
-    local tag = self.header_text
-    if type(tag) ~= "string" or tag == "" or tag == "MASTER FARMER" then
-        tag = self.subtitle
+    local dw = self.logo_width or 280
+    local dh = self.logo_height or 64
+    local max_h = m.header_h - 16
+    local max_w = math.floor(m.w * 0.55)
+    if dh > max_h and dh > 0 then
+        local scale = max_h / dh
+        dw = math.max(1, math.floor(dw * scale))
+        dh = math.max(1, math.floor(dh * scale))
     end
-    if type(tag) ~= "string" or tag == "" then
-        tag = self.name
+    if dw > max_w and dw > 0 then
+        local scale = max_w / dw
+        dw = math.max(1, math.floor(dw * scale))
+        dh = math.max(1, math.floor(dh * scale))
     end
-    if tag == "MASTER FARMER" then
-        tag = self.subtitle ~= "" and self.subtitle or ""
-    end
-    if tag ~= "" then
-        draw_text(win, t.font_small, vec2.new(pad, 18), t.text_secondary, tag, t.small_font_size)
+    local lx = math.floor((m.w - dw) * 0.5)
+    local ly = math.floor((m.header_h - dh) * 0.5)
+    local drew = self:draw_logo_texture(win, lx, ly, dw, dh)
+    if not drew then
+        local title = "MASTER FARMER"
+        local title_font = t.font_title or t.font_big
+        local title_size = t.header_font_size
+        local title_sz = size_of_font(win, title_font, title_size, title)
+        local tx = math.floor((m.w - title_sz.x) * 0.5)
+        local ty = math.floor((m.header_h - title_sz.y) * 0.5)
+        draw_text(win, title_font, vec2.new(tx, ty), t.text_header, title, title_size)
     end
 
-    local title = "MASTER FARMER"
-    local title_font = t.font_title or t.font_big
-    local title_size = t.header_font_size
-    local title_sz = size_of_font(win, title_font, title_size, title)
-    local tx = math.floor((m.w - title_sz.x) * 0.5)
-    local ty = math.floor((m.header_h - title_sz.y) * 0.5)
-    draw_text(win, title_font, vec2.new(tx, ty), t.text_header, title, title_size)
+    local tag = self.subtitle
+    if type(tag) ~= "string" or tag == "" or tag == "MASTER FARMER" then
+        tag = self.header_text
+    end
+    if type(tag) ~= "string" or tag == "" or tag == "MASTER FARMER" then
+        tag = ""
+    end
+    if tag ~= "" then
+        local sz = size_of_font(win, t.font_small, t.small_font_size, tag)
+        local ty = math.floor((m.header_h - sz.y) * 0.5)
+        draw_text(win, t.font_small, vec2.new(t.left_margin, ty), t.text_secondary, tag, t.small_font_size)
+    end
 end
 
 function Menu:draw_nav(win, m)
@@ -1440,36 +1457,20 @@ function Menu:draw_panel(win, x, y, w, h, title)
     local pmin = vec2.new(x, y)
     local pmax = vec2.new(x + w, y + h)
     draw_rect(win, pmin, pmax, t.bg_panel, t.border_panel, t.rounding, 1.0)
-
+    local line = t.text_header or t.accent
+    pcall(function()
+        win:render_line(vec2.new(x + 12, y + 8), vec2.new(x + w - 12, y + 8), line, 1.0)
+    end)
     if title and title ~= "" then
-        local head_h = 28
-        local head_max = vec2.new(x + w, y + head_h)
-        pcall(function()
-            win:render_section_header(
-                pmin,
-                head_max,
-                t.bg_panel_alt,
-                t.bg_panel,
-                t.text_header,
-                1.0,
-                t.rounding,
-                0.0,
-                0.0,
-                core.time(),
-                1.0
-            )
-        end)
-        local sz = size_of_font(win, t.font_section, t.section_font_size, title)
-        local ty = y + math.floor((head_h - sz.y) * 0.5)
-        draw_text(win, t.font_section, vec2.new(x + 10, ty), t.text_header, title, t.section_font_size)
-        win:render_line(vec2.new(x + 8, y + head_h), vec2.new(x + w - 8, y + head_h), t.border_panel, 1.0)
-        return y + head_h + 8
+        local sz = size_of_font(win, t.font_small, t.small_font_size, title)
+        draw_text(win, t.font_small, vec2.new(x + 14, y + 14), t.text_secondary, title, t.small_font_size)
+        return y + 14 + sz.y + 8
     end
-    return y + 10
+    return y + 16
 end
 
 function Menu:draw_status(win, x, y, w, h, title)
-    local inner_y = self:draw_panel(win, x, y, w, h, title or "Status")
+    local inner_y = self:draw_panel(win, x, y, w, h, title)
     local t = self.theme
     local row_h = 22
     local row_y = inner_y + 6
@@ -2385,12 +2386,12 @@ function Menu:draw()
                 local left_y = m.content_y
                 local panel_h = m.content_h - ((t.button_height or 32) + 16)
 
-                local inner_y = self:draw_panel(win, left_x, left_y, left_w, panel_h, tab_title)
+                local inner_y = self:draw_panel(win, left_x, left_y, left_w, panel_h, nil)
                 self:draw_tab_scroll_area(win, active_id, left_x + 8, inner_y + 4, left_w - 16, (left_y + panel_h) - inner_y - 10)
 
                 local has_status = type(self.status_items) == "table" and #self.status_items > 0
                 if has_status then
-                    self:draw_status(win, left_x + left_w + gap, left_y, right_w, panel_h, "Status")
+                    self:draw_status(win, left_x + left_w + gap, left_y, right_w, panel_h, nil)
                 else
                     self:draw_panel(win, left_x + left_w + gap, left_y, right_w, panel_h, nil)
                 end

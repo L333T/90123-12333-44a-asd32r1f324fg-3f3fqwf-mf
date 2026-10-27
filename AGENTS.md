@@ -1,8 +1,6 @@
-# restedXP_questing (was Master Farmer - Grindbot) — shared agent rules
+# restedXP_questing — product release rules
 
-One rule set for every AI tool that works on this project: **Claude Code** reads it
-through `CLAUDE.md`, **Cursor** reads this file directly (plus `.cursor/rules/`).
-When a rule changes, change it HERE so both tools follow the same one.
+Repo-wide Cursor/Claude rules live in `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\AGENTS.md`. Edit that file for API, movement, and architecture. This file is **this product's** release workflow only.
 
 Master Farmer work lives in `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\`
 (the MAIN FOLDER since 2026-10-16). The repo is
@@ -50,7 +48,7 @@ runtime by `gamever.lua`.
 
 ## API discipline
 
-Only call APIs declared in the `.api` stubs (see `.cursor/rules/00-no-guessing-index.mdc`).
+Only call APIs declared in the `.api` stubs (see `_MASTER-FARMER_\AGENTS.md` §2).
 Guard native calls with `pcall`; call `is_valid()` before any other method on a
 stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 (the client's Lua version is not confirmed).

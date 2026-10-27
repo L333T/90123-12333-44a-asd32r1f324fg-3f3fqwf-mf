@@ -1,0 +1,10 @@
+---
+description: Shared Master Farmer rules. Single source is repo AGENTS.md (Cursor + Claude).
+alwaysApply: true
+---
+
+# Shared rules
+
+Follow `C:\Users\ebene\OneDrive\Desktop\_MASTER-FARMER_\AGENTS.md`.
+
+That file is the only Cursor/Claude rule source. Product release workflow stays in this folder's `AGENTS.md`.

@@ -35,12 +35,13 @@
 -- 4.34.0: quests started and finished with bag items (quest/bagstart.lua): a use goal that names no item takes the step's own item (with a use spell, or a quest starter - quest class, no use spell - while the step accepts a quest), the quest panel the item opens is accepted; an accept whose step uses an item is started from the bags before any NPC search.
 -- 4.35.0: TBC spell database (data/tbc_spells, tools/gen_tbc_spells.py): on TBC Anniversary the spellbook scan also asks about every id of this class (Mage conjures, Shaman totems) and the race's racials for this class, so the Spells tab lists every spell the character knows; only this class's file and the racial table load, once, and are freed.
 -- 4.36.0: the wall-gap scan from the Orca A* port (_howManyLeft / _howManyRight, Auto BG 2.39.0): a wall ahead of a stalled Sentinel walk is measured to both sides one look later (movement/trace.lua gap_counts), and small avoidance zones go along its long side only, so the re-plan goes round the short end; equal or unmeasured sides keep the single zone ahead.
+-- 4.38.0: the GUI window id no longer carries the product version (user 2026-10-27: "Product versions have changed, GUI resolution is no longer applied"). Every release minted a NEW core.menu.window id, so the saved window size / position / active tab were dropped and the window reopened at the hard-coded 1100 x 640 1080p default while mf_skin drew the artwork at the screen's real pixel scale. The id is fixed now (as mf_route_tool has always had), and a window opened for the first time takes mf_skin.window_px for this screen. This release migrates the id once - the window starts fresh a final time, then keeps its geometry.
 return {
     name = "restedXP_questing",
     short_tag = "restedXP_questing",
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.37.0",
+    version = "4.38.0",
     folder = "restedXP_questing",
 }

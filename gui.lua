@@ -96,8 +96,30 @@ local EMPTY_PATH = "(select Grinding first)"
 
 local PATH_LABELS = { EMPTY_PATH }
 
+-- 4.38.0 (user: "GUI resolution is no longer applied"): the window id no longer
+-- carries the product version. A release used to mint a NEW core.menu.window id,
+-- so the saved size / position / active tab were dropped and the window reopened
+-- at the hard-coded 1080p default instead of this screen's size. A fixed id keeps
+-- them across releases (mf_route_tool has always used one), and a window opened
+-- for the first time takes the size mf_skin computes for this screen's artwork
+-- set (S.window_px: units 896 x 500 at the screen's pixel scale), not 1100 x 640.
+-- Herbing & Mining keeps its own "mfh_main": a shared "mfg_main" would hand the
+-- two products one window state.
+local function window_size()
+    local ok, SK = pcall(require, "mf_skin")
+    if ok and type(SK) == "table" and type(SK.window_px) == "function" then
+        local oks, s = pcall(function() return core.graphics.get_screen_size() end)
+        if oks and type(s) == "table" and type(s.x) == "number" and type(s.y) == "number" then
+            local w, h = SK.window_px(s.x, s.y)
+            if type(w) == "number" and type(h) == "number" and w > 0 and h > 0 then return w, h end
+        end
+    end
+    return 1100, 640
+end
+local WIN_W, WIN_H = window_size()
+
 local menu = ui.new({
-    id = "mfg_" .. string.gsub(identity.version, "%.", "_") .. "_main",
+    id = "mfg_main",                       -- 4.38.0: fixed (was "mfg_<version>_main")
     name = "MASTER FARMER",
     version = identity.version,
     header_text = identity.description,
@@ -109,7 +131,7 @@ local menu = ui.new({
         { key = "Numpad 2", command = "Stop" },
         { key = "Numpad 4", command = "Show / Hide GUI" },
     },
-    size = { w = 1100, h = 640 },
+    size = { w = WIN_W, h = WIN_H },       -- 4.38.0: this screen's size, not a 1080p default
     position = { x = 80, y = 180 },
     nav = "top",
     product = "Questing & Grinding",

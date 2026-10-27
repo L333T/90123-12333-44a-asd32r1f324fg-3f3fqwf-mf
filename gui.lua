@@ -146,6 +146,11 @@ menu:checkbox("mfg_loot", true, {
     tab = "general",
     tooltip = "After each kill, walk to the corpse and auto loot everything on it (core.input.loot_object). Also picks up any lootable corpse within 15 yards. Anything attacking you is fought first. Turn off to leave corpses alone.",
 })
+menu:checkbox("mfg_astar", true, {
+    label = "Local A* Fallback",
+    tab = "general",
+    tooltip = "When Sentinel cannot reach a spot within 15 yards (off its navmesh), search a short local path with game raycasts and walk it through Sentinel. Budgeted per frame; on by default.",
+})
 menu:checkbox("mfg_rotation_only", false, {
     label = "Enable Rotation Only",
     tab = "general",

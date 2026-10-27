@@ -132,6 +132,16 @@ function S.move_to(c, p, cb)
     return ok == true
 end
 
+---move_direct: a single waypoint, no pathfinding (doc v0.0.8). Used by the local
+---A* fallback (movement/astar) to walk one off-mesh leg, where move_to would snap
+---the target back onto the navmesh. cb(success, reason). False with no move_direct.
+function S.move_direct(c, p, cb)
+    local ok = m(c, "move_direct", pt(p), function(success, reason)
+        if cb then pcall(cb, success == true, reason ~= nil and tostring(reason) or nil) end
+    end)
+    return ok == true
+end
+
 ---follow_path: precomputed waypoints in order; cb(success, reason) (doc).
 function S.follow_path(c, points, cb)
     local list = {}

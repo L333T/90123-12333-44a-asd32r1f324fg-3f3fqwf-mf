@@ -53,6 +53,7 @@ local R = require("movement/core")
 local Z = require("movement/zones")
 local MT = require("movement/mount")         -- 3.8.0: mount for travel (the 1-60 way)
 local S = require("movement/sentinel")
+local AS = require("movement/astar")     -- local A* + ray fallback for off-mesh targets (alongside Sentinel)
 
 local N = {}
 
@@ -297,6 +298,23 @@ end
 -- ----------------------------------------------------------------------------
 local issue_walk
 
+-- LOCAL A* FALLBACK (movement/astar, alongside Sentinel): a walk Sentinel ends
+-- "arrived" short of its goal or "unreachable", with the goal within AS.MAX_YD
+-- of the player, is handed to the local grid search; its path is walked leg by
+-- leg (N.astar_leg, Sentinel move_direct). Its failure is the old outcome.
+local function astar_try(x, y, z, mode, code)
+    if mode == "combat" or mode == "astar" or mode == "swim" or mode == "portal" then return false end
+    return AS.start({ x = x, y = y, z = z }, function(ok, why)
+        if ok then
+            fail.reason, fail.offmesh = nil, false
+            return
+        end
+        if code ~= "arrived_short" then           -- arrived-short was already not counted
+            record_fail(code, x, y, z)
+        end
+    end)
+end
+
 --- "unreachable" at (x, y, z): walk again at the next floor found there.
 --- True when a retry is under way (it reports the failure itself).
 local function retry_at_ground(c, id, x, y, z, code, mode)
@@ -318,6 +336,7 @@ local function retry_at_ground(c, id, x, y, z, code, mode)
                 st.spent = true
                 R.trail("nav", "(%.0f, %.0f): no floor with a path found (%d found) - %s", x, y, #list, tostring(code))
             end
+            if astar_try(x, y, z, mode, code) then return end                  -- local A* fallback
             record_fail(code, x, y, z)
         end
     end)
@@ -336,13 +355,17 @@ issue_walk = function(c, x, y, z, mode)
         if cur.id ~= id then return end
         cur.done = true
         if success then
-            if N.false_arrival(x, y) then return end
+            if N.false_arrival(x, y) then
+                if astar_try(x, y, z, mode, "arrived_short") then return end   -- local A* finishes the last yards
+                return
+            end
             fail.reason, fail.offmesh = nil, false
             return
         end
         local code = reason or "failed"
         if HEIGHT_RETRY[code] and retry_at_ground(c, id, x, y, z, code, mode) then return end
         R.trail("nav", "walk to (%.0f, %.0f, %.0f) ended: %s", x, y, z, tostring(code))
+        if OFFMESH[code] and astar_try(x, y, z, mode, code) then return end     -- local A* for an off-mesh goal
         record_fail(code, x, y, z)
     end)
     if not sent then cur.done = true end
@@ -520,6 +543,31 @@ function N.follow_route(list, replace)
     return ok
 end
 
+--- One leg of the local A* path (movement/astar): Sentinel's move_direct, a
+--- single off-mesh waypoint, never a key. One leg start a second at most; holds
+--- are respected. Set as AS.leg_fn below.
+local ASTAR_LEG_GAP = 1.0
+function N.astar_leg(x, y, z)
+    if R.resting or R.backpedal_until then return false end
+    local c = N.client()
+    if not c or N.holding() or stop_req then return false end
+    if cur.leg_t and (R.now() - cur.leg_t) < ASTAR_LEG_GAP then return false end
+    cur.id = cur.id + 1
+    local id = cur.id
+    cur.x, cur.y, cur.z, cur.t, cur.mode, cur.route, cur.done = x, y, z, R.now(), "astar", nil, false
+    cur.leg_t = R.now()
+    cur.scanning = nil
+    stats.issued = stats.issued + 1
+    R.trail("nav", "move_direct (astar leg) %.1f %.1f %.1f", x, y, z)
+    local ok = S.move_direct(c, { x = x, y = y, z = z }, function()
+        if cur.id ~= id then return end
+        cur.done = true
+    end)
+    if not ok then cur.done = true end
+    return ok
+end
+AS.leg_fn = N.astar_leg
+
 --- A stop may go out now: the walk follows its path and is not fresh.
 local function safe_to_stop(c)
     if S.path_pending(c) then return false end
@@ -529,6 +577,7 @@ end
 --- Stop the walk this layer started. Cheap when idle. A walk still waiting
 --- for its path or younger than FRESH_LEG s is stopped by the pulse later.
 function N.stop(reason)
+    if cur.mode ~= "astar" or reason ~= "astar leg" then AS.cancel(reason or "stop") end   -- end any local A* search/walk
     local c = N.client()
     local was = c ~= nil and S.moving(c)
     if c and was then
@@ -1028,6 +1077,7 @@ function N.clear_fail() fail.reason, fail.offmesh = nil, false end
 --- A walk is being planned or its floors are being asked for - not a stand
 --- (quest/engine's route watchdog waits for it).
 function N.pending()
+    if AS.searching() then return true end          -- the local A* search (the player stands)
     local c = N.client()
     if c and cur.x and not cur.done and S.path_pending(c) then return true end
     return cur.scanning ~= nil and cur.scanning == cur.id and (R.now() - (cur.scan_t or 0)) < HEIGHT_SCAN_HOLD

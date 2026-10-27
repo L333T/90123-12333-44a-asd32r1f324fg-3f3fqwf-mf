@@ -26,6 +26,7 @@
 local R  = require("movement/core")
 local Z  = require("movement/zones")
 local N  = require("movement/nav")
+local AS = require("movement/astar")   -- local A* + ray fallback for off-mesh targets (alongside Sentinel)
 local TR = require("movement/trace")   -- 2026-10-25: the ray walk assistant (trace_tick, halt)
 local Lk = require("movement/locks")
 local Rg = require("movement/range")
@@ -40,6 +41,13 @@ Mt.enabled_fn = function()
     local ok, gui = pcall(require, "gui")
     if not ok or type(gui) ~= "table" or type(gui.is_on) ~= "function" then return true end
     return gui.is_on("mfg_mount") ~= false
+end
+
+-- the General tab box "Local A* Fallback" (on by default); AS.ON is the code kill switch
+AS.enabled_fn = function()
+    local ok, gui = pcall(require, "gui")
+    if not ok or type(gui) ~= "table" or type(gui.is_on) ~= "function" then return false end
+    return gui.is_on("mfg_astar") ~= false
 end
 
 -- 3.2.0: the GUI switch (Path tab, "Stop and Turn on Sharp Turns", on by default)
@@ -327,6 +335,7 @@ function movement.pulse()
     local t = R.now()
     Lk.tick(t)
     N.pulse()
+    AS.tick(t)                    -- local A* fallback: one ray-budgeted slice a frame
     Mt.pulse(R.me(), t)           -- 4.20.0: the calm clock mounting waits for
     -- 2026-10-25: the ray assistant jumps only at a jumpable obstacle (and zones walls);
     -- the blind indoor jump stays as the fallback when the rays are off

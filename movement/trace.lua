@@ -61,11 +61,15 @@ T.LOOK_GAP = 0.25                -- s between two looks ahead
 T.DROP_MAX = 6.0                 -- yd of fall behind an obstacle that is still jumped
 T.SNAG_GAP = 4.0                 -- s between two side-snag zones
 T.SNAG_R = 1.2                   -- yd: the zone put on a corner at the side
+T.GAP_MAX = 12                   -- yd scanned to each side of a wall ahead (gap_counts)
+T.GAP_ZONES = 4                  -- zones laid along the wall's long side
+T.GAP_ZONE_R, T.GAP_STEP = 1.2, 2.0
+T.PEND_S = 1.0                   -- s a wall seen ahead waits for its gap scan
 
 local st = { off = false, why = nil, errors = 0, checked = false, frame_t = -1, frame_n = 0,
-    pos = nil, pos_t = -1e9, look_t = -1e9, jump_t = -1e9, wall_t = -1e9, snag_t = -1e9 }
+    pos = nil, pos_t = -1e9, look_t = -1e9, jump_t = -1e9, wall_t = -1e9, snag_t = -1e9, wall_pend = nil }
 T._st = st
-T.stats = { rays = 0, jumps = 0, walls = 0, snags = 0 }
+T.stats = { rays = 0, jumps = 0, walls = 0, snags = 0, gaps = 0 }
 
 local vec3_mod = nil
 local function v3(x, y, z)
@@ -264,6 +268,35 @@ function T.jump_ok(me, h)
     return true
 end
 
+--- How many yards the wall ahead runs to each side (the Orca A* port's
+--- _howManyLeft / _howManyRight): for i = 1..max yd beside the player, a ray from
+--- that side point to the same point 1 yd ahead at head and waist height; the
+--- count is the run of blocked offsets from the player out. left, right / nil
+--- (no ray). `pose` = { x, y, z, f, h } freezes the position it was taken from.
+function T.gap_counts(pose, max)
+    if not pose then return nil end
+    max = max or T.GAP_MAX
+    local fx, fy = off(pose.x, pose.y, pose.f, 0, 1)
+    local out = {}
+    for s, ang in ipairs({ -1.5708, 1.5708 }) do
+        local n = 0
+        for i = 1, max do
+            local ax, ay = off(pose.x, pose.y, pose.f, ang, i)
+            local bx, by = off(fx, fy, pose.f, ang, i)
+            local blocked = false
+            for _, hz in ipairs({ pose.h, pose.h * 0.5 }) do
+                local r = T.hit({ x = ax, y = ay, z = pose.z + hz }, { x = bx, y = by, z = pose.z + hz }, "COLLISION")
+                if r == nil then return nil end
+                if r then blocked = true break end
+            end
+            if not blocked then break end
+            n = n + 1
+        end
+        out[s] = n
+    end
+    return out[1], out[2]
+end
+
 --- Knee and chest rays along a walk leg a -> b (at most the first 6 yd). true =
 --- blocked, false = clear, nil = no ray.
 function T.leg_blocked(a, b)
@@ -306,10 +339,46 @@ end
 -- ----------------------------------------------------------------------------
 -- the walk assistant
 -- ----------------------------------------------------------------------------
+-- 4.36.0 WALL GAP (the Orca A* port's _howManyLeft / _howManyRight, user
+-- 2026-10-27): a wall ahead is measured to both sides one look later (a fresh
+-- ray budget), and the short side is left open - small zones are laid along
+-- the long side's stretch of the wall, so Sentinel's re-plan goes round the
+-- short end. Orca strafes there; here the keys stay Sentinel's (rule 4).
+-- No count (no rays) or no end within GAP_MAX either side: one zone straight
+-- ahead, as before.
+local function place_wall(pend, ctx)
+    local l, r = T.gap_counts(pend, T.GAP_MAX)
+    local f = pend.f
+    T.stats.walls = T.stats.walls + 1
+    if l and r and (l > 0 or r > 0) and not (l >= T.GAP_MAX and r >= T.GAP_MAX) and l ~= r then
+        local long_ang = (r > l) and 1.5708 or -1.5708
+        local long = math.max(l, r)
+        local open = (r > l) and "left" or "right"
+        local cx, cy = off(pend.x, pend.y, f, 0, 1.5)
+        local n = 0
+        local k = 0
+        while n < T.GAP_ZONES and k <= long do
+            local zx, zy = off(cx, cy, f, long_ang, k)
+            pcall(ctx.avoid, { x = zx, y = zy, z = pend.z }, T.GAP_ZONE_R, "wall ahead, open " .. open .. " (ray gap)")
+            n = n + 1
+            k = k + T.GAP_STEP
+        end
+        T.stats.gaps = T.stats.gaps + 1
+        R.trail("trace", "a wall %.1f yd high ahead runs %d yd left / %d yd right - %d zones on the long side, round the %s",
+            pend.hgt, l, r, n, open)
+        return true
+    end
+    local wx, wy = off(pend.x, pend.y, f, 0, 1.5)
+    R.trail("trace", "a wall %.1f yd high ahead%s (gap %s / %s) - avoidance zone %.1f yd, re-plan", pend.hgt,
+        pend.why and (" (" .. pend.why .. ")") or "", tostring(l), tostring(r), T.WALL_R)
+    pcall(ctx.avoid, { x = wx, y = wy, z = pend.z }, T.WALL_R, "wall ahead (ray)")
+    return true
+end
+
 --- Every pulse. ctx = { walking, no_jump, riding, mounted_flying, avoid(p, r, why),
 --- jump() }. True when it acted.
 function T.tick(t, ctx)
-    if not T.enabled() or not ctx or not ctx.walking then st.pos = nil return false end
+    if not T.enabled() or not ctx or not ctx.walking then st.pos, st.wall_pend = nil, nil return false end
     local x, y, z = R.here()
     if not x then return false end
     if not st.pos or R.dist3(x, y, z, st.pos.x, st.pos.y, st.pos.z) > T.STALL_YD then
@@ -319,6 +388,15 @@ function T.tick(t, ctx)
     if t - st.pos_t < T.STALL_S or t - st.look_t < T.LOOK_GAP then return false end
     st.look_t = t
     if not T.ready() then return false end
+    local pend = st.wall_pend
+    if pend then
+        st.wall_pend = nil
+        if t - pend.t <= T.PEND_S and type(ctx.avoid) == "function" then
+            place_wall(pend, ctx)
+            st.pos = nil
+            return true
+        end
+    end
     local me = R.me()
     local blocked = T.path_blocked(me)
     if (blocked == "left" or blocked == "right") and type(ctx.avoid) == "function" and t - st.snag_t >= T.SNAG_GAP then
@@ -352,20 +430,16 @@ function T.tick(t, ctx)
     end
     if (h > T.JUMP_MAX or (not hop and h >= T.JUMP_MIN)) and t - st.wall_t >= T.WALL_GAP and type(ctx.avoid) == "function" then
         st.wall_t = t
-        local f = facing(me) or 0
-        local wx, wy = off(x, y, f, 0, 1.5)
-        T.stats.walls = T.stats.walls + 1
-        R.trail("trace", "a wall %.1f yd high ahead%s, no progress %.1f s - avoidance zone %.1f yd, re-plan", h,
-            why and (" (" .. why .. ")") or "", t - st.pos_t, T.WALL_R)
-        pcall(ctx.avoid, { x = wx, y = wy, z = z }, T.WALL_R, "wall ahead (ray)")
-        st.pos = nil
-        return true
+        -- measured on the next look (gap_counts needs a fresh ray budget)
+        st.wall_pend = { x = x, y = y, z = z, f = facing(me) or 0, h = body(me), hgt = h, why = why, t = t }
+        R.trail("trace", "a wall %.1f yd high ahead, no progress %.1f s - measuring its sides", h, t - st.pos_t)
+        return false
     end
     return false
 end
 
 function T.reset()
-    st.pos, st.look_t, st.jump_t, st.wall_t, st.snag_t = nil, -1e9, -1e9, -1e9, -1e9
+    st.pos, st.look_t, st.jump_t, st.wall_t, st.snag_t, st.wall_pend = nil, -1e9, -1e9, -1e9, -1e9, nil
 end
 
 return T

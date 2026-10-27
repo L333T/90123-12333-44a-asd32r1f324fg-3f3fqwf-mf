@@ -33,12 +33,13 @@
 -- 4.33.0: swing timer from the combat log (swingtimer.lua): SWING_DAMAGE / SWING_MISSED of the player and pet; melee weaving (adapt.swing_ok), the spell-damage swing filter and the swing watch use it - auto_attack_helper's last attack moved only on the Attack command.
 -- 4.34.0: quests started and finished with bag items (quest/bagstart.lua): a use goal that names no item takes the step's own item (with a use spell, or a quest starter - quest class, no use spell - while the step accepts a quest), the quest panel the item opens is accepted; an accept whose step uses an item is started from the bags before any NPC search.
 -- 4.35.0: TBC spell database (data/tbc_spells, tools/gen_tbc_spells.py): on TBC Anniversary the spellbook scan also asks about every id of this class (Mage conjures, Shaman totems) and the race's racials for this class, so the Spells tab lists every spell the character knows; only this class's file and the racial table load, once, and are freed.
+-- 4.36.0: the wall-gap scan from the Orca A* port (_howManyLeft / _howManyRight, Auto BG 2.39.0): a wall ahead of a stalled Sentinel walk is measured to both sides one look later (movement/trace.lua gap_counts), and small avoidance zones go along its long side only, so the re-plan goes round the short end; equal or unmeasured sides keep the single zone ahead.
 return {
     name = "restedXP_questing",
     short_tag = "restedXP_questing",
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.35.0",
+    version = "4.36.0",
     folder = "restedXP_questing",
 }

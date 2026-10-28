@@ -11,10 +11,16 @@ Canonical fields live in `version.lua`. `header.lua`, the GUI title, and the loa
 1. Bump `version.lua` and every `-- Version:` banner.
 2. `python make_local.py` - syntax-checks every .lua, regenerates `manifest.lua`, and copies the plugin to `_MASTER-FARMER_/Grindbot_Versions/restedXP_questing_vX.Y.Z/`. An existing version folder is never overwritten without `--force`.
 3. Test in game through the Master Farmer launcher (the only loader).
-4. Commit as `vX.Y.Z: <summary>`, push `dev`, open a PR to `main`. Merging to `main` is what the game loads.
+4. **Do not publish from this tree.** (audit F8, 2026-10-28: this step used to say to push `dev` and
+   open a PR to `main`, "merging to `main` is what the game loads". The launcher loads
+   `branch = "sentinel-nav"` - see `plugin/Master_Farmer/mfcore/catalog.lua` - and `main` is the
+   archived pre-Sentinel MasterArthasNav build, so that merge would overwrite the archive.)
+   This tree is FROZEN at v4.0.9; releases come from `products_src/restedXP_questing_sentinel`.
+   See `FROZEN.md` in this folder.
 5. Do not bump for comment-only or rule-only edits.
 
-**One loader only.** The Master Farmer launcher loads this bot from GitHub `main`. The standalone `plugin_loader/` and `plugin_loader.zip` were retired in 3.4.1 (a copy is in `_MASTER-FARMER_\projects-old\grindbot_plugin_loader`); never add a loader folder back.
+**One loader only.** The Master Farmer launcher loads the LIVE product from GitHub `sentinel-nav`,
+never this tree (audit F8, 2026-10-28). The standalone `plugin_loader/` and `plugin_loader.zip` were retired in 3.4.1 (a copy is in `_MASTER-FARMER_\projects-old\grindbot_plugin_loader`); never add a loader folder back.
 
 ## Revert
 

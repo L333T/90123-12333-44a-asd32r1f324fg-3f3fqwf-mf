@@ -21,10 +21,15 @@ runtime by `gamever.lua`.
    `manifest.lua` (the loader fetches files by Adler-32 hash, so a stale manifest
    means the change never reaches the game), syntax-checks every `.lua`, and copies
    the build to `Desktop/_MASTER-FARMER_/Grindbot_Versions/restedXP_questing_v<version>/`.
-3. **Always publish**: commit on `dev` (`vX.Y.Z: <summary>`), push, open the PR to
-   `main` **and merge it**. The Master Farmer launcher downloads this repo from GitHub
-   `main` (latest commit), so uncommitted or unmerged work is invisible in game. Do not
-   leave a finished version uncommitted.
+3. **Always publish**: commit on `sentinel-nav` (`vX.Y.Z: <summary>`) and push.
+   **Do NOT open a PR to `main` and do NOT merge.** (audit F8, 2026-10-28: this step
+   used to say the launcher downloads from `main`. It does not.
+   `plugin/Master_Farmer/mfcore/catalog.lua` loads RestedXP Questing from
+   `branch = "sentinel-nav"`, as it does every other product, so pushing this branch
+   IS publishing. `main` is the archived pre-Sentinel MasterArthasNav build - merging
+   into it would overwrite the thing it exists to keep. See
+   `products_src/restedXP_questing/FROZEN.md`.) Do not leave a finished version
+   uncommitted.
 4. **One loader only: the Master Farmer launcher.** The bot is loaded by the launcher
    (`scripts\Master_Farmer`, built in `_MASTER-FARMER_`), never by a loader of its own.
    The repo's standalone `plugin_loader/` (and `plugin_loader.zip`) was retired in 3.4.1
@@ -150,8 +155,16 @@ stored unit; compare game objects by GUID, never `==`. Do not use Lua `goto`
 - **Game version**: `gamever.lua` — `is_tbc()` / `is_forever()`, playable races.
   On Forever: no Blood Elf / Draenei (adds the Skyborne races 95 / 96), no quest-log
   index API, no vendor item info (food buying off), no Outland flight points.
-- **Intentional undeclared API**: `core.reload_game_ui()` (reload after a flight
-  lands, 2.107.0) is called on purpose even though the API docs do not list it.
+- **`core.reload_game_ui()` DOES NOT EXIST - do not call it** (audit F1,
+  2026-10-28). This entry used to say it was "called on purpose even though the API
+  docs do not list it". It is declared in NO local stub: not in any of the nine
+  `.api` copies under `Documents` (2026-10-16 .. 2026-10-27), not in
+  `sylvanas_api/.api`, not in `BLIZZ_PROJECTS/.api`, and the same goes for
+  `core.reload_plugins` and `core.reload_scripts`. Every call site was guarded, so
+  nothing crashed - and nothing ever reloaded either. All 20 were removed; the stall
+  ladder's rung 2 is a plain wait-and-retry and the reload on landing is gone. There
+  is no substitute: `core.input.send_chat_message` is `SendChatMessage` and does not
+  run slash commands.
   `izi.is_los` does not exist - LoS is `player:los_to(unit)` only (2.147.0).
 - **Loader**: the only loader is the Master Farmer launcher (`mfcore/loader.lua`
   reads manifest.lua). The old `bootstrap/` and root `net_loader.lua` were removed in

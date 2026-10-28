@@ -65,11 +65,22 @@ T.GAP_MAX = 12                   -- yd scanned to each side of a wall ahead (gap
 T.GAP_ZONES = 4                  -- zones laid along the wall's long side
 T.GAP_ZONE_R, T.GAP_STEP = 1.2, 2.0
 T.PEND_S = 1.0                   -- s a wall seen ahead waits for its gap scan
+-- 2026-10-28 (user: "Always dismount when attempting to enter doorways, use get
+-- player height when mounted, to check entrances to keep player from getting
+-- stuck"): get_height() answers the body we have NOW, so mounted it is the
+-- taller body. A lintel between the on-foot head and the mounted head is a
+-- doorway the player fits through on foot and the mount does not - we come off
+-- the mount before it, not after we are wedged in it.
+T.DOOR_LOOK = 3.0                -- yd ahead probed for a low entrance
+T.DOOR_GAP = 3.0                 -- s between two dismounts
+T.DOOR_CLEAR = 0.2               -- yd the mounted body must exceed the on-foot one by
+T.FOOT_H = 2.0                   -- the on-foot body height until a real one is read
 
 local st = { off = false, why = nil, errors = 0, checked = false, frame_t = -1, frame_n = 0,
-    pos = nil, pos_t = -1e9, look_t = -1e9, jump_t = -1e9, wall_t = -1e9, snag_t = -1e9, wall_pend = nil }
+    pos = nil, pos_t = -1e9, look_t = -1e9, jump_t = -1e9, wall_t = -1e9, snag_t = -1e9, wall_pend = nil,
+    door_t = -1e9, foot_h = nil }
 T._st = st
-T.stats = { rays = 0, jumps = 0, walls = 0, snags = 0, gaps = 0 }
+T.stats = { rays = 0, jumps = 0, walls = 0, snags = 0, gaps = 0, doors = 0 }
 
 local vec3_mod = nil
 local function v3(x, y, z)
@@ -162,6 +173,55 @@ local function facing(me)
 end
 local function off(x, y, f, ang, reach)
     return x + math.cos(f + ang) * reach, y + math.sin(f + ang) * reach
+end
+
+--- Mounted right now? (get_height answers the mounted body while we are.)
+local function mounted(me)
+    if not me then return false end
+    local ok, v = pcall(function() return me:is_mounted() end)
+    return ok and v == true
+end
+
+--- The body height the player has ON FOOT. get_height() answers the current
+--- body, so it is read whenever we are not mounted and remembered for while we
+--- are. No rays.
+local function foot_height(me)
+    if not mounted(me) then
+        local h = body(me)
+        if h > 0 then st.foot_h = h end
+    end
+    return st.foot_h or T.FOOT_H
+end
+T._foot_height = foot_height
+
+--- A doorway / entrance ahead low enough to stop the mount but not the player on
+--- foot - true, false, or nil when no ray could be cast. At each probe distance:
+--- clear at the waist and at the on-foot head (we fit through on foot) and
+--- blocked at the mounted head (the mount does not). Blocked at the waist is a
+--- WALL, not a doorway, and is left to the wall logic.
+function T.low_entrance(me)
+    me = me or R.me()
+    local x, y, z = R.here()
+    local f = facing(me)
+    if not x or not f then return nil end
+    local foot = foot_height(me)
+    local ride = body(me)                       -- mounted: the taller body
+    if ride <= foot + T.DOOR_CLEAR then return false end
+    for _, d in ipairs({ 1.0, 2.0, T.DOOR_LOOK }) do
+        local px, py = off(x, y, f, 0, d)
+        local waist = T.hit({ x = x, y = y, z = z + foot * 0.5 }, { x = px, y = py, z = z + foot * 0.5 }, "COLLISION")
+        if waist == nil then return nil end
+        if not waist then
+            local head = T.hit({ x = x, y = y, z = z + foot }, { x = px, y = py, z = z + foot }, "COLLISION")
+            if head == nil then return nil end
+            if not head then
+                local top = T.hit({ x = x, y = y, z = z + ride }, { x = px, y = py, z = z + ride }, "COLLISION")
+                if top == nil then return nil end
+                if top then return true end
+            end
+        end
+    end
+    return false
 end
 
 --- Eye-level line of sight from the player to a point (Helper los_xyz).
@@ -378,9 +438,25 @@ end
 --- Every pulse. ctx = { walking, no_jump, riding, mounted_flying, avoid(p, r, why),
 --- jump() }. True when it acted.
 function T.tick(t, ctx)
+    foot_height(R.me())                         -- no rays; keeps the on-foot height current
     if not T.enabled() or not ctx or not ctx.walking then st.pos, st.wall_pend = nil, nil return false end
     local x, y, z = R.here()
     if not x then return false end
+    -- DOORWAY: this runs while we are still MOVING (the checks below only look
+    -- once a walk has stalled) - the point is to be off the mount before the
+    -- entrance. Never in the air, and the walk is not stopped: Sentinel keeps the
+    -- path it has, we are simply shorter when we reach the gap.
+    if type(ctx.dismount) == "function" and not ctx.mounted_flying and mounted(R.me())
+        and t - st.door_t >= T.DOOR_GAP and T.ready() then
+        if T.low_entrance() == true then
+            st.door_t = t
+            T.stats.doors = T.stats.doors + 1
+            R.trail("trace", "an entrance ahead is too low for the mount (mounted body %.1f yd, on foot %.1f) - dismounting",
+                body(R.me()), st.foot_h or T.FOOT_H)
+            pcall(ctx.dismount)
+            return true
+        end
+    end
     if not st.pos or R.dist3(x, y, z, st.pos.x, st.pos.y, st.pos.z) > T.STALL_YD then
         st.pos, st.pos_t = { x = x, y = y, z = z }, t
         return false
@@ -440,6 +516,7 @@ end
 
 function T.reset()
     st.pos, st.look_t, st.jump_t, st.wall_t, st.snag_t, st.wall_pend = nil, -1e9, -1e9, -1e9, -1e9, nil
+    st.door_t = -1e9
 end
 
 return T

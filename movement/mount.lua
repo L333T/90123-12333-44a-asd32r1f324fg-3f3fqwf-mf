@@ -107,6 +107,27 @@ function M.suppress(seconds)
     if t > st.suppress_until then st.suppress_until = t end
 end
 
+-- 2026-10-28 (user: "Always dismount when attempting to enter doorways"): the ray
+-- helpers call this when the entrance ahead is too low for the mounted body. The
+-- suppression is the point of the hold - without it M.step remounts us straight
+-- back into the same doorway on the next pulse.
+local door_t = 0
+M.DOOR_HOLD = 8                  -- s of no mounting after a doorway dismount
+
+--- Off the mount, and no mounting for `hold_s`. false when not mounted, or when
+--- the last dismount was under a second ago.
+function M.dismount(player, why, hold_s)
+    if not player or safe(player.is_mounted, player) ~= true then return false end
+    local t = R.now()
+    if t - door_t < 1.0 then return false end
+    door_t = t
+    safe(core.input.dismount)
+    M.suppress(hold_s or M.DOOR_HOLD)
+    R.trail("move", "mount: dismount - %s (no mounting for %.0f s)",
+        tostring(why or "asked to"), hold_s or M.DOOR_HOLD)
+    return true
+end
+
 --- No mounting for `seconds` (a game error message said why).
 function M.backoff(seconds, why)
     local t = R.now() + (seconds or 15)

@@ -318,6 +318,11 @@ end
 -- no progress and the way ahead blocked: a low obstacle is jumped, a wall gets a Sentinel
 -- avoidance zone (when this product has one); one context table reused every pulse
 local TR_CTX = { avoid = N.avoid_area, jump = function() pcall(core.input.jump) end }
+-- 2026-10-28 (user: "Always dismount when attempting to enter doorways"): the ray
+-- helpers call this when the gap ahead admits the player but not the mounted body.
+-- Mt.suppress inside Mt.dismount keeps us off the mount long enough to walk through.
+TR_CTX.dismount = function() Mt.dismount(R.me(), "an entrance too low for the mount") end
+
 local function trace_tick(t)
     local mode = N.mode()
     local c = TR_CTX

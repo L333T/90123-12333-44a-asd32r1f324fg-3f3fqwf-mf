@@ -37,12 +37,25 @@
 -- 4.36.0: the wall-gap scan from the Orca A* port (_howManyLeft / _howManyRight, Auto BG 2.39.0): a wall ahead of a stalled Sentinel walk is measured to both sides one look later (movement/trace.lua gap_counts), and small avoidance zones go along its long side only, so the re-plan goes round the short end; equal or unmeasured sides keep the single zone ahead.
 -- 4.38.0: the GUI window id no longer carries the product version (user 2026-10-27: "Product versions have changed, GUI resolution is no longer applied"). Every release minted a NEW core.menu.window id, so the saved window size / position / active tab were dropped and the window reopened at the hard-coded 1100 x 640 1080p default while mf_skin drew the artwork at the screen's real pixel scale. The id is fixed now (as mf_route_tool has always had), and a window opened for the first time takes mf_skin.window_px for this screen. This release migrates the id once - the window starts fresh a final time, then keeps its geometry.
 -- 4.39.0: check_path (advanced Sentinel API, user 2026-10-27): while a walk of ours runs, the path Sentinel is following is validated every 3 s and an unambiguous "no longer valid" takes a fresh path at once instead of waiting for the walk to stall into the stuck ladder. nav_client:check_path is present on v0.24 but its callback shape is NOT recorded, so the adapter only acts on an explicit valid=false / blocked=true / reachable=false - a bare false (what a server error looks like here) answers "no opinion" and never re-plans; the first answer's shape is logged so the real shape can be read back. Never on a fresh leg or with a path request in flight (the crash rule), never through a hold or a pending stop. 3 throws, or a library without check_path, switch it off for the session.
+-- 4.40.0: always dismount for a doorway, measured with the mounted player height
+-- (user: "Always dismount when attempting to enter doorways, use get player height
+-- when mounted, to check entrances to keep player from getting stuck"). get_height()
+-- answers the body we have right now, so mounted it IS the taller body. movement/trace
+-- remembers the on-foot height whenever is_mounted() is false and, while mounted,
+-- probes 1 / 2 / 3 yd ahead at three heights: clear at the waist and at the on-foot
+-- head (the player fits) but blocked at the mounted head (the mount does not) is a
+-- doorway, and movement/mount M.dismount takes us off at once and suppresses mounting
+-- for 8 s so M.step does not put us straight back into it. Blocked at the waist too is
+-- a WALL, left to the wall logic, and a flying mount is never dismounted in the air.
+-- The check runs while the walk is still MOVING, unlike the jump / wall checks which
+-- only look after a stall: the point is to be short before the doorway rather than to
+-- notice after being wedged in it. Sentinel is not stopped for it and keeps its path.
 return {
     name = "restedXP_questing",
     short_tag = "restedXP_questing",
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.39.0",
+    version = "4.40.0",
     folder = "restedXP_questing",
 }

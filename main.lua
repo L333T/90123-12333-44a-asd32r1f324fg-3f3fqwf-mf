@@ -26,6 +26,7 @@ local PLUGIN_MODULES = {
     "combat",
     "conjure",
     "quest/guide",
+    "quest/diag",                                  -- audit F7: step automation diagnostics (log only)
     "debuglog",
     "errorlog",
     "watchdog",
@@ -595,6 +596,10 @@ local function on_update()
         if ok_g and type(g) == "table" and type(g.update) == "function" then
             pcall(g.update)
         end
+        -- audit F7: one summary line every 2 min while something is changing.
+        -- Logging only - quest/diag decides nothing and is read by nothing.
+        local dg = package.loaded["quest/diag"]
+        if type(dg) == "table" and type(dg.tick) == "function" then pcall(dg.tick) end
     end
 
     if not gui.is_started() then
@@ -609,6 +614,11 @@ local function on_update()
         do
             local dz = package.loaded["deathzones"]
             if type(dz) == "table" and type(dz.release) == "function" then pcall(dz.release) end
+        end
+        -- audit F7: the diagnostics counters belong to one run
+        do
+            local dg = package.loaded["quest/diag"]
+            if type(dg) == "table" and type(dg.reset) == "function" then pcall(dg.reset) end
         end
         if vendor then
             vendor.reset()

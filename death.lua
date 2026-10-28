@@ -409,6 +409,15 @@ function death.tick(player)
             pcall(function()
                 core.input.release_spirit()
             end)
+            -- audit F6/F7: record the corpse run next to the guide reads around
+            -- it. This module never reads the guide: the body comes from
+            -- core.game_ui.get_corpse_position. Logging only.
+            do
+                local dg = package.loaded["quest/diag"]
+                if type(dg) == "table" and type(dg.corpse_run) == "function" then
+                    pcall(dg.corpse_run, "spirit released")
+                end
+            end
         end
         state.set_note("Death", "Releasing spirit")
         return true

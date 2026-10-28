@@ -2,7 +2,8 @@
 -- restedXP_questing
 -- Identity — single source of truth for name / authors / version
 -- ============================================================================
--- Version: 4.37.0
+-- Version: 4.43.0
+-- 4.43.0: the step automation diagnostics (audit F7), ported from Zygor Questing: quest/diag.lua logs step transitions with the goal ledger of the step being left (done / held / open and which goals were open), goal transitions, an arrow tally by type, corpse runs, and a summary line every 2 minutes while something is changing. A goal the bot finished itself (guide.mark_goal_done, which RestedXP never marks complete) is counted apart from an open goal. LOGGING ONLY - no decision consults it and every call site is in a pcall. Read a session with: grep diag <scripts_log>/MASTER_FARMER_ERRORS/session_*.log
 -- 4.37.0 (user: "use A* + rays alongside Sentinel navigation to improve player navigation"): the local A* + ray fallback (movement/astar.lua, ported from Zygor) runs alongside Sentinel - when a Sentinel walk ends "arrived" short of its goal or "unreachable" within 15 yd, a short local grid path is searched with game raycasts and walked leg by leg through Sentinel move_direct. General tab "Local A* Fallback" (mfg_astar), on by default; AS.ON kill switch, per-frame ray budget, self-check, off for the session after repeated ray/height errors. Sentinel is never replaced - this is additive.
 -- 4.31.2: the added questing data tables are removed (the Master Farmer database mfdb, data/quest_items, data/zygor_use_items) - the freeze on quest pickup / NPC interaction: their megabyte strings were decoded by the build's string obfuscation on first load.
 -- 4.31.1: game freeze on NPC interaction fixed - the first repairer / flight master / battlemaster search converted every database spawn (up to 1356) with get_world_pos_from_map_pos in one frame; now the player's continent only, at most 40 conversions and 800 rows a frame (mfdb.services_world), the quest-item index a slice a frame.
@@ -92,6 +93,6 @@ return {
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.42.0",
+    version = "4.43.0",
     folder = "restedXP_questing",
 }

@@ -360,6 +360,25 @@ end
 -- Now ns_call refuses unless main.lua has opened the update window
 -- (guide.allow_reads). Every read happens inside on_update, at most once per
 -- WINDOW; everything else only ever sees the last snapshot.
+-- audit F7 (port 2026-10-28): quest/diag.lua - logging only, never consulted
+-- by a decision. Lazy, so it cannot affect this file's load order, and
+-- nil-safe throughout.
+local diag_mod = nil
+local function diag()
+    if diag_mod == nil then
+        local ok, m = pcall(require, "quest/diag")
+        diag_mod = (ok and type(m) == "table") and m or false
+    end
+    return diag_mod or nil
+end
+guide.diag = diag
+-- One closure, not one per read: resolved through the guide table so it does
+-- not depend on where the hold test is declared in this file.
+local function held_test(i, g)
+    if type(guide.goal_held) ~= "function" then return false end
+    return guide.goal_held(i, g) == true
+end
+
 local reads_ok = false
 
 --- Open or close the window in which the addon may be read. main.lua opens
@@ -517,6 +536,10 @@ local function refresh()
         return
     end
     snap.step = step
+    do                                   -- audit F7: step transitions (log only)
+        local d = diag()
+        if d then pcall(d.step, step, held_test) end
+    end
 
     local list = to_list((ns_call("get_current_stickies")))
     for i = 1, #list do
@@ -533,6 +556,14 @@ local function refresh()
     snap.wp_wrong_continent = type(arrow) == "table" and arrow.wrong_continent == true
     if arrow and (arrow.map_id or 0) ~= 0 and arrow.wrong_continent ~= true then
         snap.wp = arrow
+    end
+    do                                   -- audit F7: the arrow tally (log only)
+        local d = diag()
+        if d then
+            pcall(d.arrow, arrow and arrow.type or nil,
+                arrow ~= nil and (arrow.map_id or 0) ~= 0
+                    and arrow.wrong_continent ~= true or nil)
+        end
     end
     local wps = to_list((ns_call("get_step_waypoints")))
     for i = 1, #wps do
@@ -782,6 +813,16 @@ function guide.mark_goal_done(step_num, index)
     snap.memo = {}            -- recompute the current goal
 end
 
+--- audit F7: did the bot finish this goal itself (guide.mark_goal_done)?
+--- RestedXP never marks those complete, so quest/diag must not count them as
+--- open goals. Index-and-goal, so diag needs nothing of this file's internals.
+function guide.goal_held(index, goal)
+    if type(goal) ~= "table" then return false end
+    local step = snap.step
+    if type(step) ~= "table" or done_step ~= step.num then return false end
+    return done_goals[tostring(step.num) .. "|" .. tostring(index)] == true
+end
+
 --- Were any goals of the current step finished by the bot, not by RestedXP?
 function guide.has_local_done()
     return done_step == guide.step_num() and next(done_goals) ~= nil
@@ -868,7 +909,12 @@ end
 --- The goal to work on now. The same table for the whole window, so callers
 --- can memoise against it.
 function guide.goal()
-    return memo("goal", compute_goal)
+    local g = memo("goal", compute_goal)
+    do                                   -- audit F7: goal transitions (log only)
+        local d = diag()
+        if d then pcall(d.goal, g) end
+    end
+    return g
 end
 
 --- Every goal of the current step, shaped, for the GUI.

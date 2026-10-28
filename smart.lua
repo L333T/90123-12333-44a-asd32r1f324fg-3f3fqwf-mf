@@ -1180,10 +1180,28 @@ end
 
 local function aoe_count(e)
     local def = e.def
+    local self_centred = def.center == "self" or def.self
     -- 2.248.0: the spell_prediction count first, the radius count without it
     local h = predicted(e)
-    if type(h) == "number" then return h end
-    if def.center == "self" or def.self then
+    if type(h) == "number" then
+        -- SELF-CENTRED AoE (Arcane Explosion, Blast Wave, Whirlwind,
+        -- Consecration, Holy Nova...): its circle is drawn ON the player, and
+        -- get_circle_list answers everything that geometry covers - spell_data
+        -- carries exception_player_included / exception_target_included, and
+        -- what the module does with them by default is in no stub, so the
+        -- count can include the player and the pet. That is 2 free "hits" at
+        -- the player's own feet, enough to fire a 3-enemy AoE at a single mob.
+        -- The bot's own pack count is the authority on how many ENEMIES are
+        -- inside the radius, so it caps the prediction. For a ground or
+        -- target-centred spell the circle is somewhere else and the prediction
+        -- stands on its own.
+        if self_centred then
+            local mine = c.near(def.r or 10)
+            if type(mine) == "number" and mine < h then return mine end
+        end
+        return h
+    end
+    if self_centred then
         return c.near(def.r or 10)
     end
     return c.near_target(def.r or 10)

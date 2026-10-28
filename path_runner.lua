@@ -368,7 +368,7 @@ local function run_action(player, act)
     return true
 end
 
---- 2.247.0: a waypoint inside an area the player died in 3 times.
+--- 2.247.0: a waypoint inside an area the player died in repeatedly.
 local function in_death_zone(wp)
     local ok, dz = pcall(require, "deathzones")
     if not ok or type(dz) ~= "table" or type(dz.pos_blocked) ~= "function" then return false end

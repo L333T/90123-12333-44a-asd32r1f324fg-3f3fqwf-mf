@@ -1675,7 +1675,7 @@ local function fightable(player, u)
         and st.is_unreachable(call(u.get_guid, u)) then
         return false
     end
-    -- Not in an area the player died in 3 times (deathzones.lua, 2.247.0).
+    -- Not in an area the player died in repeatedly (deathzones.lua, 2.247.0).
     local ok_t, tg = pcall(require, "targeting")
     if ok_t and type(tg) == "table" and type(tg.in_death_zone) == "function" and tg.in_death_zone(u) then
         return false

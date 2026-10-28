@@ -338,15 +338,13 @@ function TR.planned_flight(player, now)
         g_flight = nil
         g_fly_taken = 0
         g_fly_fails = 0
-        -- RELOAD ON LANDING (2.107.0): a UI reload after every flight, as
-        -- asked - it refreshes RestedXP's step state at the new position.
-        -- Not in the local API docs, so guarded; logged when missing.
-        if type(core.reload_game_ui) == "function" then
-            trail("act", "landed - reloading the game UI")
-            pcall(core.reload_game_ui)
-        else
-            trail("act", "landed - core.reload_game_ui is not available on this build")
-        end
+        -- RELOAD ON LANDING (2.107.0) - REMOVED (audit F1, 2026-10-28).
+        -- core.reload_game_ui is declared in no local stub (checked against
+        -- all nine .api copies under Documents, sylvanas_api and
+        -- BLIZZ_PROJECTS), so this never reloaded anything: every landing
+        -- took the "not available on this build" branch and logged it. The
+        -- step state refreshes on its own at the new position.
+        trail("act", "landed")
         return false
     end
     return true

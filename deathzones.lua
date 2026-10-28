@@ -1,6 +1,6 @@
 -- ============================================================================
 -- restedXP_questing
--- deathzones.lua - areas to avoid after dying there 3 times
+-- deathzones.lua - areas to avoid after dying there twice
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
 -- Version: 4.0.8
@@ -13,10 +13,21 @@
 --
 -- WHAT
 --   Every death is recorded: where the body fell, the killer's npc id and
---   name, and the map. When the player has died DEATHS_TO_AVOID (3) or more
---   times to the SAME enemy (npc id; an unknown killer matches any) within
---   JOIN_YARDS of each other inside DEATH_WINDOW, that area becomes a DEATH
---   ZONE:
+--   name, and the map. When the player has died DEATHS_TO_AVOID (2) or more
+--   times within JOIN_YARDS of each other inside DEATH_WINDOW, that area
+--   becomes a DEATH ZONE:
+--
+-- WHY (audit F5, 2026-10-28)
+--   Grouping used to need the SAME npc id as well as the same area, with 3
+--   deaths. A real session (2026-10-27, Zangarmarsh) died 6 times in 11
+--   minutes and never armed a zone: two deaths 27 yd apart in one camp were
+--   to different mobs (18089 / 18088) so they did not group, and two deaths
+--   to the same mob were 94 yd apart so they did not group either. Every one
+--   logged "death 1 in this area". A bot dying to a mixed camp or a patrol -
+--   the normal case - could never reach 3. Grouping is now by AREA ONLY; the
+--   killer npc is still recorded, for the zone's label and for KILLER_PAD.
+--   Two deaths in one area are enough. Against that log this arms at death 2
+--   and again at death 4, i.e. it breaks the loop both times.
 --     * centre = the average of those deaths, radius = their spread +
 --       RADIUS_PAD (RADIUS_MIN..RADIUS_MAX yards);
 --     * avoided for AVOID_BASE (10 min) + AVOID_EXTRA per further death
@@ -41,7 +52,7 @@ local izi = require("common/izi_sdk")
 
 local M = {}
 
-M.DEATHS_TO_AVOID = 3
+M.DEATHS_TO_AVOID = 2        -- audit F5: was 3, never reached in practice
 local JOIN_YARDS   = 60      -- deaths this close together are "the same area"
 local DEATH_WINDOW = 3600    -- s: deaths older than this no longer count
 local RADIUS_PAD   = 25
@@ -189,8 +200,10 @@ end
 local function zone_at(map, x, y, npc)
     for i = 1, #zones do
         local z = zones[i]
-        if (z.map == nil or map == nil or z.map == map) and d2(z.x, z.y, x, y) <= z.r + JOIN_YARDS * 0.5
-            and (npc == nil or z.npc == nil or z.npc == npc) then
+        -- audit F5: area only. npc is no longer part of the match, so repeat
+        -- deaths in one area extend the zone they are in instead of stacking
+        -- a second zone on top of it.
+        if (z.map == nil or map == nil or z.map == map) and d2(z.x, z.y, x, y) <= z.r + JOIN_YARDS * 0.5 then
             return z
         end
     end
@@ -219,12 +232,12 @@ function M.record_death(killer, pos)
     end
     deaths = keep
 
-    -- deaths in this area to this enemy (an unknown killer matches any)
+    -- deaths in this area (audit F5: AREA ONLY - the killer npc is kept for
+    -- the label and for KILLER_PAD, but a mixed camp or a patrol must group)
     local same = {}
     for i = 1, #deaths do
         local d = deaths[i]
-        if (d.map == nil or map == nil or d.map == map) and d2(d.x, d.y, pos.x, pos.y) <= JOIN_YARDS
-            and (npc == nil or d.npc == nil or d.npc == npc) then
+        if (d.map == nil or map == nil or d.map == map) and d2(d.x, d.y, pos.x, pos.y) <= JOIN_YARDS then
             same[#same + 1] = d
             if not name and d.name then name = d.name end
             if not npc and d.npc then npc = d.npc end

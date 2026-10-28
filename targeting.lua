@@ -385,7 +385,7 @@ local function enemy_units(player, pos, range)
     return {}
 end
 
---- 2.247.0: a mob in an area the player died in 3 times (deathzones.lua).
+--- 2.247.0: a mob in an area the player died in repeatedly (deathzones.lua).
 local dz_mod = nil
 function targeting.in_death_zone(u)
     if dz_mod == nil then

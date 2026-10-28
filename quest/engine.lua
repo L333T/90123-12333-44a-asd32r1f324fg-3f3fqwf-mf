@@ -1346,8 +1346,12 @@ end
 local g_giver_learned = nil   -- 2.185.0: { kind, qid, npc, text } when the giver came from a learned id
 
 -- 2.297.0: NPC BLACKLIST. An NPC whose interaction still failed after a
--- retry and a UI reload is left alone for BLACK_FOR seconds (by guid and npc
+-- retry and a pause is left alone for BLACK_FOR seconds (by guid and npc
 -- id). Kept in TK (engine.lua is at Lua's 200-local limit).
+-- audit F1 (2026-10-28): rung 2 used to be "reload the UI, wait, retry", but
+-- core.reload_game_ui is declared in no local stub, so the reload never
+-- happened and the rung spent itself doing nothing. It is now the wait and
+-- retry on its own, which is what it was always able to do.
 TK.black = {}                  -- "g:<guid>" / "id:<npc id>" -> until
 TK.RELOAD_WAIT = 30
 TK.BLACK_FOR = 1800
@@ -1690,10 +1694,11 @@ local function recover_stall(now, goal, label)
     end
     g_stall.recoveries = g_stall.recoveries + 1
     -- 2.297.0: THE LADDER for an NPC that was found: 1st stall - retry the
-    -- interaction; 2nd - reload the UI, wait TK.RELOAD_WAIT s, retry; 3rd -
-    -- blacklist the NPC for 30 minutes and move on.
+    -- interaction; 2nd - wait TK.RELOAD_WAIT s, then retry (audit F1: this
+    -- rung no longer claims a UI reload it could not do); 3rd - blacklist the
+    -- NPC for 30 minutes and move on.
     local gv = g_stall.giver
-    local step_txt = ({ "retrying the interaction", "reloading the UI, retry in 30 s", "blacklisting the NPC" })[g_stall.recoveries]
+    local step_txt = ({ "retrying the interaction", "pausing, retry in 30 s", "blacklisting the NPC" })[g_stall.recoveries]
     trail("act", "%s: no progress for %.0f s - recovery %d of %d%s", tostring(label),
         STALL_AFTER, g_stall.recoveries, STALL_MAX,
         (gv and step_txt) and (" (" .. tostring(gv.name) .. ": " .. step_txt .. ")") or "")
@@ -1713,8 +1718,9 @@ local function recover_stall(now, goal, label)
     g_stall.t, g_stall.best, g_stall.reach = now, nil, false
     if gv and g_stall.recoveries == 2 then
         local me = izi.me()
-        if me and safe(function() return me:is_in_combat() end) ~= true and type(core.reload_game_ui) == "function" then
-            pcall(core.reload_game_ui)
+        -- audit F1: the hold is set whether or not anything can reload the
+        -- UI, so rung 2 is a real pause-and-retry instead of a no-op.
+        if me and safe(function() return me:is_in_combat() end) ~= true then
             TK.reload_hold = now + TK.RELOAD_WAIT
         end
     elseif gv and g_stall.recoveries >= STALL_MAX then
@@ -1884,15 +1890,15 @@ local function dialog_goal(player, goal, kind, wps, label)
         return true
     end
 
-    -- 2.297.0: after the ladder's UI reload, wait before the retry
+    -- 2.297.0: the ladder's rung 2 - wait before the retry (audit F1)
     if TK.reload_hold then
         if now < TK.reload_hold then
             g_stall.t, g_stall.seen = now, now
-            state.set_note("Quest", string.format("Guide: UI reloaded - retrying %s in %.0f s", tostring(label), TK.reload_hold - now))
+            state.set_note("Quest", string.format("Guide: retrying %s in %.0f s", tostring(label), TK.reload_hold - now))
             return true
         end
         TK.reload_hold = nil
-        trail("act", "%s: UI reload wait over - retrying the interaction", tostring(label))
+        trail("act", "%s: the wait is over - retrying the interaction", tostring(label))
     end
 
     local unit, how = find_giver(player, goal, kind, wps, qid)

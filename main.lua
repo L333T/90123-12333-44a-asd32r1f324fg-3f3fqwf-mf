@@ -450,51 +450,18 @@ local BOT_TICK = 0.1
 local next_bot_tick = 0
 
 -- ============================================================================
--- PERIODIC UI RELOAD (2.189.0)
+-- PERIODIC UI RELOAD - REMOVED (audit F1, 2026-10-28)
 -- ============================================================================
--- While the bot is running, core.reload_game_ui() every RELOAD_EVERY seconds
--- - at a safe moment only: never in combat, casting, resting, looting, at a
--- vendor / trainer / NPC window, dead, on a flight, or with a live kill
--- target. The timer starts with Start and restarts after each reload; Stop
--- clears it. Guarded like the reload on landing (2.107.0).
-local RELOAD_EVERY = 1800
-local reload_since = nil
-
-local function reload_safe(player)
-    if type(core.reload_game_ui) ~= "function" then return false end
-    if safe(function() return player:is_in_combat() end) == true then return false end
-    if safe(function() return player:is_dead_or_ghost() end) == true then return false end
-    if safe(function() return player:is_channeling_or_casting() end) == true then return false end
-    if healing and type(healing.is_resting) == "function" and healing.is_resting() then return false end
-    if loot and type(loot.has_work) == "function" and loot.has_work(player) then return false end
-    if vendor and type(vendor.is_busy) == "function" and vendor.is_busy() then return false end
-    if vendor and type(vendor.merchant_open) == "function" and vendor.merchant_open() then return false end
-    if trainer and type(trainer.busy) == "function" and trainer.busy() then return false end
-    if safe(function() return core.quests.is_gossip_frame_shown() end) == true then return false end
-    local tgt = state and state.target and state.target.unit
-    if tgt and state.target.kind == "kill" and safe(function() return tgt:is_valid() end) == true
-        and safe(function() return tgt:is_dead() end) ~= true then
-        return false
-    end
-    return true
-end
-
---- True when it reloaded this tick.
-local function periodic_reload(player, now_t)
-    if reload_since == nil then
-        reload_since = now_t
-        return false
-    end
-    if (now_t - reload_since) < RELOAD_EVERY or not reload_safe(player) then
-        return false
-    end
-    reload_since = now_t
-    if errorlog and type(errorlog.info) == "function" then
-        pcall(errorlog.info, "Periodic UI reload (every %d min)", math.floor(RELOAD_EVERY / 60))
-    end
-    pcall(core.reload_game_ui)
-    return true
-end
+-- 2.189.0 reloaded the game UI every 30 minutes at a safe moment. The call it
+-- used, core.reload_game_ui, is declared in NO local stub: it is absent from
+-- all nine .api copies under Documents (2026-10-16 .. 2026-10-27), from
+-- sylvanas_api/.api and from BLIZZ_PROJECTS/.api, and so are
+-- core.reload_plugins and core.reload_scripts. Per AGENTS.md section 2 it does
+-- not exist, so the whole block - the 30-minute timer and the fifteen safety
+-- checks that guarded it - never did anything but cost a check per frame.
+-- Removed rather than left as a guarded call to a function that is nowhere.
+-- If a build ever declares a UI-reload API, add it back from this comment.
+-- ============================================================================
 
 local function on_update()
     if is_stale() then
@@ -631,7 +598,6 @@ local function on_update()
     end
 
     if not gui.is_started() then
-        reload_since = nil            -- 2.189.0: the reload timer starts with Start
         -- audit 4.29.0: the watchdog's travel / NPC clocks were never reset on Stop, so a
         -- restart near the old anchor could hearth at once on a stale 5-minute timer
         do
@@ -698,10 +664,6 @@ local function on_update()
     end
     if on_flight then
         state.set_note("Travel", "On a flight")
-        return
-    end
-    probe("u:reload")
-    if periodic_reload(player, now_t) then
         return
     end
     -- The 360-degree enemy scan (2.95.0): attack list + avoid list / danger map.

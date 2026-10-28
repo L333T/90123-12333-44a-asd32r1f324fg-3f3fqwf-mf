@@ -59,12 +59,39 @@
 -- retreat was simply being thrown away. A retreat is about where the PLAYER needs to
 -- be, not which unit is being hit, so it now outlives the switch and ends on its own
 -- RETREAT_TIME. The latch and band state still reset per target.
+-- 4.42.0: audit phase 1 - the death loop, and a UI reload that was never there.
+--   DEATH ZONES (audit F5, from session_2026-10-27_20-56-27.log: the character died
+--   6 times in 11 minutes in Zangarmarsh and a zone never armed once - every death
+--   logged "death 1 in this area ... 3 needed to avoid it"). A death joined a group
+--   only if it was BOTH within JOIN_YARDS (60) AND killed by the SAME npc id, and 3
+--   were needed. The log shows both halves failing: deaths 3 and 4 were 27 yd apart
+--   in one Bloodscale camp but to different mobs (18089 / 18088), and deaths 4 and 5
+--   were the same mob 94 yd apart. A bot dying to a mixed camp or a patrol - the
+--   normal case - could never reach 3, so the protection was dead code while the
+--   guide re-issued the identical waypoint five times and walked back in. Grouping is
+--   AREA ONLY now (the killer npc is still recorded, for the zone's label and for
+--   KILLER_PAD) and two deaths are enough. Against that log it arms at death 2 and
+--   again at death 4. A repeat death in an area extends the zone that is there
+--   instead of stacking a second one on it. tests/test_deathzones_group.lua replays
+--   all five real deaths; it fails 18 assertions on the old logic.
+--   PERIODIC UI RELOAD REMOVED (audit F1): core.reload_game_ui is declared in NO
+--   local stub - absent from all nine .api copies under Documents (2026-10-16 ..
+--   2026-10-27), from sylvanas_api/.api and from BLIZZ_PROJECTS/.api, and so are
+--   core.reload_plugins and core.reload_scripts. The 30-minute reload and the fifteen
+--   safety checks that guarded it therefore never did anything except cost a check
+--   per frame. Removed rather than left as a guarded call to a function that is
+--   nowhere; the comment in main.lua says how to put it back if a build ever
+--   declares one.
+--   The stall ladder's rung 2 was "reload the UI, wait 30 s, retry"; it is now the
+--   wait and the retry on their own, which is what it was always able to do.
+--   The reload on landing after a flight is gone for the same reason - it had been
+--   logging "core.reload_game_ui is not available on this build" every single time.
 return {
     name = "restedXP_questing",
     short_tag = "restedXP_questing",
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.41.0",
+    version = "4.42.0",
     folder = "restedXP_questing",
 }

@@ -159,7 +159,15 @@ function C.combat_engage(player, unit, yards)
     local guid = R.guid(unit)
     if guid == nil or guid ~= st.guid then
         st.guid, st.latched, st.best, st.best_t = guid, false, nil, t
-        st.retreat_until, st.kite_pending = 0, false
+        -- 2026-10-28 (user: "Sentinel Kiting is not being used in combat", found in
+        -- Zygor Questing 1.42.0 and ported here - this file is shared): the retreat
+        -- used to be thrown away here with the rest of the per-target state. It is not
+        -- per-target. The zygor 10-27 21:27 log: the kite walk starts at t=2124.20, an
+        -- attacker switch lands at t=2124.45, retreat_until goes to 0, and the
+        -- "range <= reach" branch below stops the walk at t=2125.20 - one second in,
+        -- every time, which in a multi-mob fight is continuously. A retreat is about
+        -- where the PLAYER needs to be, not about which unit is being hit, so it now
+        -- outlives the switch and ends on its own RETREAT_TIME. The band state resets.
     end
     st.unit, st.yards = unit, yards
 

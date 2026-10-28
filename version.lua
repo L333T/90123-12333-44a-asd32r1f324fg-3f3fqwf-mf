@@ -50,12 +50,21 @@
 -- The check runs while the walk is still MOVING, unlike the jump / wall checks which
 -- only look after a stall: the point is to be short before the doorway rather than to
 -- notice after being wedged in it. Sentinel is not stopped for it and keeps its path.
+-- 4.41.0: the Sentinel kite retreat survives a target switch (found in Zygor
+-- Questing 1.42.0; movement/combat.lua is shared, so the bug was here too).
+-- combat_engage's per-target reset zeroed st.retreat_until and st.kite_pending, so
+-- the hold above the "range <= reach" branch stopped applying and the kite walk was
+-- stopped as "in range" on the new attacker about a second after it started - which
+-- in a multi-mob fight is continuously. nav_client:kite was answering all along; the
+-- retreat was simply being thrown away. A retreat is about where the PLAYER needs to
+-- be, not which unit is being hit, so it now outlives the switch and ends on its own
+-- RETREAT_TIME. The latch and band state still reset per target.
 return {
     name = "restedXP_questing",
     short_tag = "restedXP_questing",
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.40.0",
+    version = "4.41.0",
     folder = "restedXP_questing",
 }

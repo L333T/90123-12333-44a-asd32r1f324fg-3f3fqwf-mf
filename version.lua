@@ -2,7 +2,9 @@
 -- restedXP_questing
 -- Identity — single source of truth for name / authors / version
 -- ============================================================================
--- Version: 4.44.0
+-- Version: 4.45.0
+-- 4.45.0: the ray self-check no longer condemns the client on ONE missing ray (ported from Auto BG 2.62.0; session log 2026-10-28, Warsong Gulch: "Ray helpers switched off for this session: self-check: a ray through the ground under the player did not hit" in both plugin loads, which left the local A* fallback off for the whole match). A trace_line that THROWS is a broken client and still switches rays off at once; a trace_line that ANSWERS FALSE only says that one segment hit nothing, and a miss is expected in the air after a jump or a knock-back, swimming, riding a lift or on a thin WMO edge. The SAMPLE must be trustworthy before its answer counts - not falling, not swimming, not flying (game_object is_falling / is_swimming / is_flying and core.character.is_swimming, all in the live stub) - it takes 5 misses from such positions 2 s apart to switch rays off, a budget or error answer (nil) is not counted as a miss, and the ground segment reaches +2 / -5 yd instead of +1.5 / -2. Test: tests/test_ray_selfcheck.lua, which asserts all five copies.
+--
 -- 4.44.0: the self-centred AoE count (Arcane Explosion, Blast Wave, Whirlwind, Consecration, Holy Nova...). smart.lua's aoe_count took the spell_prediction answer whole; a self-centred spell's circle is drawn ON the player and get_circle_list answers everything that geometry covers - spell_data carries exception_player_included / exception_target_included and what the module does with them by default is in no stub, so the player and the pet could make up 2 of a 3-enemy threshold and fire an area spell at a single mob. The bot's own pack count (c.near, enemies only) now caps a self-centred prediction; a ground or target-centred circle is somewhere else, so its prediction still stands alone. Ported from Zygor Questing 1.46.0. Test: tests/test_aoe_counts.lua
 --
 -- 4.43.0: the step automation diagnostics (audit F7), ported from Zygor Questing: quest/diag.lua logs step transitions with the goal ledger of the step being left (done / held / open and which goals were open), goal transitions, an arrow tally by type, corpse runs, and a summary line every 2 minutes while something is changing. A goal the bot finished itself (guide.mark_goal_done, which RestedXP never marks complete) is counted apart from an open goal. LOGGING ONLY - no decision consults it and every call site is in a pcall. Read a session with: grep diag <scripts_log>/MASTER_FARMER_ERRORS/session_*.log
@@ -95,6 +97,6 @@ return {
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.44.0",
+    version = "4.45.0",
     folder = "restedXP_questing",
 }

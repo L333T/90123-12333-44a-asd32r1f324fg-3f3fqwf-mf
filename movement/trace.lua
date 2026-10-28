@@ -78,7 +78,8 @@ T.FOOT_H = 2.0                   -- the on-foot body height until a real one is 
 
 local st = { off = false, why = nil, errors = 0, checked = false, frame_t = -1, frame_n = 0,
     pos = nil, pos_t = -1e9, look_t = -1e9, jump_t = -1e9, wall_t = -1e9, snag_t = -1e9, wall_pend = nil,
-    door_t = -1e9, foot_h = nil }
+    door_t = -1e9, foot_h = nil,
+    self_t = -1e9, self_n = 0 }        -- the self-check's own retry clock
 T._st = st
 T.stats = { rays = 0, jumps = 0, walls = 0, snags = 0, gaps = 0, doors = 0 }
 
@@ -148,18 +149,76 @@ function T.clear(a, b, which)
     return not h
 end
 
---- The self-check (once): a ray down through the ground under the player must hit.
+-- SELF-CHECK (auto_bg 2.62.0, session log 2026-10-28: "Ray helpers switched off
+-- for this session: self-check: a ray through the ground under the player did
+-- not hit", in BOTH plugin loads of one Warsong Gulch session - so the local A*
+-- fallback was off for the whole match).
+--
+-- A trace_line that THROWS is a broken client and still stops every ray user at
+-- once (that rule does not change). A trace_line that ANSWERS FALSE is a
+-- different thing: it says this one segment hit nothing. The check used to
+-- treat the very first such answer as proof the client could not trace, for the
+-- rest of the session.
+--
+-- A miss is expected from plenty of honest positions: in the air after a jump or
+-- a knock-back, swimming (the bed can be further down than the segment reached),
+-- riding a lift, standing on a thin WMO edge. So the SAMPLE has to be
+-- trustworthy before its answer counts - not falling, not swimming, not flying -
+-- and it takes SELF_TRIES misses from such positions, SELF_GAP s apart, to
+-- conclude the client cannot trace at all. A budget or error answer (nil) is not
+-- counted as a miss.
+--
+-- The segment is also deeper than it was (was +1.5 / -2.0, a 3.5 yd window
+-- centred on the feet): the question is only "is there anything under me", and a
+-- longer downward leg cannot turn a real hit into a miss.
+local SELF_TRIES, SELF_GAP = 5, 2.0
+local SELF_UP, SELF_DOWN = 2.0, 5.0
+
+--- Is the player somewhere a ground ray is a fair test? Every predicate is in
+--- the live stub (game_object.lua is_falling / is_swimming / is_flying,
+--- core.character.is_swimming).
+local function sample_ok(me)
+    if me == nil then return false end
+    local function yes(name)
+        local ok, v = pcall(function() return me[name](me) end)
+        return ok and v == true
+    end
+    if yes("is_falling") or yes("is_swimming") or yes("is_flying") then return false end
+    local oks, sw = pcall(function() return core.character.is_swimming() end)
+    if oks and sw == true then return false end
+    return true
+end
+T._sample_ok = sample_ok
+
+--- The self-check: a ray down through the ground under the player must hit.
+--- False until it has passed; it keeps trying rather than condemning the client
+--- on one miss.
 function T.ready()
     if not T.enabled() then return false end
     if st.checked then return true end
+    local now = R.now()
+    if now - (st.self_t or -1e9) < SELF_GAP then return false end
+    if not sample_ok(R.me()) then return false end
     local x, y, z = R.here()
     if not x then return false end
-    local h = T.hit({ x = x, y = y, z = z + 1.5 }, { x = x, y = y, z = z - 2.0 }, "GROUND")
-    if h == nil then return false end
-    if h ~= true then turn_off("self-check: a ray through the ground under the player did not hit") return false end
-    st.checked = true
-    R.trail("trace", "self-check passed (trace_line true = hit)")
-    return true
+    st.self_t = now
+    local h = T.hit({ x = x, y = y, z = z + SELF_UP }, { x = x, y = y, z = z - SELF_DOWN }, "GROUND")
+    if h == nil then return false end                     -- budget or error, not an answer
+    if h == true then
+        st.checked = true
+        R.trail("trace", "self-check passed (trace_line true = hit)%s",
+            (st.self_n or 0) > 0 and string.format(" after %d miss(es)", st.self_n) or "")
+        return true
+    end
+    st.self_n = (st.self_n or 0) + 1
+    R.trail("trace", "self-check miss %d of %d: a ray %.0f yd down at %.0f %.0f %.0f hit nothing",
+        st.self_n, SELF_TRIES, SELF_UP + SELF_DOWN, x, y, z)
+    if st.self_n >= SELF_TRIES then
+        turn_off(string.format(
+            "self-check: %d rays through the ground under the player did not hit (%d s apart, on foot each time)",
+            st.self_n, SELF_GAP))
+    end
+    return false
 end
 
 local function body(me)

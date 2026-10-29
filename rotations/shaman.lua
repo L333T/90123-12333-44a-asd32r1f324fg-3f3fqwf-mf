@@ -95,7 +95,9 @@ function shaman.combat_profile()
         melee_safe   = melee and 0 or 12,
         -- Enhancement wants to BE in melee, so it never retreats. Elemental has
         -- no snare worth the global, so kiting costs more cast time than it saves.
-        should_retreat = function() return false end,
+        -- 4.46.0: the retreat decision is this class's row in
+        -- engine/combat/registry.lua, not a closure here. Only
+        -- melee_danger / melee_safe are read from this table now.
     }
 end
 

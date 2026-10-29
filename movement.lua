@@ -3,7 +3,7 @@
 -- Movement - public facade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.29.0
+-- Version: 4.46.0
 -- Folder: restedXP_questing
 -- ============================================================================
 -- 3.0.0 RECODE ON THE AMEISENNAV 2.0.0 API (docs/API.md). AmeisenNav does
@@ -26,13 +26,13 @@
 local R  = require("movement/core")
 local Z  = require("movement/zones")
 local N  = require("movement/nav")
-local AS = require("movement/astar")   -- local A* + ray fallback for off-mesh targets (alongside Sentinel)
+local AS = require("movement/astar")   -- 4.46.0: the engine's planner, walked leg by leg through nav (off-mesh targets)
 local TR = require("movement/trace")   -- 2026-10-25: the ray walk assistant (trace_tick, halt)
 local Lk = require("movement/locks")
 local Rg = require("movement/range")
 local C  = require("movement/combat")
 local L  = require("movement/leash")
-local Pv = require("movement/pivot")   -- 3.2.0: stop and turn on sharp waypoint turns
+local Pv = require("movement/pivot")   -- 3.2.0: sharp waypoint turns (dormant: Pv.HOLD is false)
 local Mt = require("movement/mount")   -- 3.8.0: mount for travel (the 1-60 way)
 
 -- 3.8.0: Gathering uses its own "Use Mount" box; questing / grinding the
@@ -51,6 +51,13 @@ AS.enabled_fn = function()
 end
 
 -- 3.2.0: the GUI switch (Path tab, "Stop and Turn on Sharp Turns", on by default)
+-- 4.46.0: movement/pivot.lua is DORMANT, not gone. Pv.HOLD has been false since
+-- 4.2.1 - holding a Sentinel walk at a corner stopped Sentinel's own stuck
+-- recovery and cost a stop plus a new path request per corner - so no turn is
+-- ever started, and the engine's "nothing steers over a Sentinel walk" rule is
+-- not in conflict with it. It is kept because tests/test_sentinel_nav.lua
+-- section 9b still proves the hold works if it is ever switched back on.
+-- Retiring it is a cleanup of its own, not part of the engine port.
 Pv.set_enabled_fn(function()
     local ok, gui = pcall(require, "gui")
     if not ok or type(gui) ~= "table" or type(gui.is_on) ~= "function" then return true end
@@ -111,7 +118,8 @@ movement.set_approach_target = function(guid) hints.target = guid end
 function movement.halt()
     TR.reset()                                           -- 2026-10-25
     Pv.release("halt")
-    C.combat_release()
+    C.combat_release()                                   -- 4.46.0: releases the active verb too
+    AS.cancel("halt")                                    -- 4.46.0: and any plan in flight
     Lk.clear()
     N.stop("halt")
     N.release_driver_now()                               -- 4.0.4: unload puts the driver back
@@ -345,7 +353,8 @@ function movement.pulse()
     -- 2026-10-25: the ray assistant jumps only at a jumpable obstacle (and zones walls);
     -- the blind indoor jump stays as the fallback when the rays are off
     if TR.enabled() then trace_tick(t) else indoor_jump(t) end
-    Pv.tick(t)                 -- 3.2.0: sharp turn -> hold the walk, turn in place
+    Pv.tick(t)                 -- 3.2.0: sharp turn -> hold the walk, turn in place (dormant)
+    C.tick(t)                  -- 4.46.0: no verb keeps a key once combat ownership lapses
     Z.prune(t)
     if t - snap_t >= SNAP_EVERY then build_snapshot(t) end
 end

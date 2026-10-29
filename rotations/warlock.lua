@@ -59,11 +59,9 @@ function warlock.combat_profile()
         name         = "warlock",
         melee_danger = 8,
         melee_safe   = 12,
-        should_retreat = function(ctx)
-            if not ctx or not ctx.target then return false end
-            if ctx.melee_count < 1 then return false end
-            return not pets.alive(ctx.player)
-        end,
+        -- 4.46.0: the retreat decision is this class's row in
+        -- engine/combat/registry.lua, not a closure here. Only
+        -- melee_danger / melee_safe are read from this table now.
     }
 end
 

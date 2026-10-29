@@ -135,19 +135,9 @@ function priest.combat_profile()
         name         = "priest",
         melee_danger = 8,
         melee_safe   = 12,
-        should_retreat = function(ctx)
-            if not ctx or not ctx.target then
-                return false
-            end
-            if ctx.melee_count < 1 and ctx.distance > 8 then
-                return false
-            end
-            local player = ctx.player
-            if player and health_pct(player) < 35 then
-                return false        -- too low to kite; stand and fight or heal
-            end
-            return false            -- no snare available: kiting is a net loss
-        end,
+        -- 4.46.0: the retreat decision is this class's row in
+        -- engine/combat/registry.lua, not a closure here. Only
+        -- melee_danger / melee_safe are read from this table now.
     }
 end
 

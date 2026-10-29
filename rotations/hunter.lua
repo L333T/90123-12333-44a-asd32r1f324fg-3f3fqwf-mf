@@ -198,9 +198,9 @@ function hunter.combat_profile()
         melee_safe   = dz + 6,
         -- No backing out (2.222.0): inside the melee band the Hunter closes
         -- to 3 yd and fights in melee.
-        should_retreat = function(ctx)
-            return false
-        end,
+        -- 4.46.0: the retreat decision is this class's row in
+        -- engine/combat/registry.lua, not a closure here. Only
+        -- melee_danger / melee_safe are read from this table now.
     }
 end
 

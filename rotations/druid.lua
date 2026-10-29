@@ -139,18 +139,9 @@ function druid.combat_profile()
         name         = "druid",
         melee_danger = 8,
         melee_safe   = 14,
-        should_retreat = function(ctx)
-            if not ctx or not ctx.target then
-                return false
-            end
-            if ctx.melee_count < 1 and ctx.distance > 8 then
-                return false
-            end
-            -- Rooted: step out of reach. (This also required an "entangling"
-            -- GUI toggle that no longer exists - 2.151.0; the Spells tab
-            -- decides whether Roots is cast at all.)
-            return auras.debuff_up(ctx.target, ROOTS_IDS)
-        end,
+        -- 4.46.0: the retreat decision is this class's row in
+        -- engine/combat/registry.lua, not a closure here. Only
+        -- melee_danger / melee_safe are read from this table now.
     }
 end
 

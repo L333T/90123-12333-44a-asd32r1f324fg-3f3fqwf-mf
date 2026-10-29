@@ -3,7 +3,7 @@
 -- Main — update cascade
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.29.0
+-- Version: 4.46.0
 -- Folder: restedXP_questing
 -- Standalone IZI. movement.lua is a single-owner state machine: simple_movement
 -- drives all travel and combat repositioning, Sentinel is the navmesh fallback
@@ -44,7 +44,11 @@ local PLUGIN_MODULES = {
     "movement",
     -- 3.0.0: the movement layer modules (fresh code on a reload)
     "movement/core", "movement/zones", "movement/sentinel", "movement/mount", "movement/trace", "movement/nav", "movement/locks",
-    "movement/range", "movement/combat", "movement/leash", "movement/sight",
+    "movement/range", "movement/combat", "movement/leash", "movement/sight", "movement/astar",
+    -- 4.46.0: the movement engine. Each holds module state (the planner's
+    -- cluster cache, the registry's rows, a verb's key timers), so a reload
+    -- has to get fresh code here too.
+    "engine/astar", "engine/combat/verbs", "engine/combat/registry",
     "loot",
     "path_runner",
     "rotations/mage",

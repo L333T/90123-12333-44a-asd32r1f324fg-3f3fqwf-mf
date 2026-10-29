@@ -203,23 +203,9 @@ function mage.combat_profile()
         name         = "mage",
         melee_danger = 8,       -- inside this, a caster is in trouble
         melee_safe   = 12,      -- walk out to here, then stop (hysteresis)
-        should_retreat = function(ctx)
-            local target = ctx.target
-            if not target then return false end
-            -- nothing is actually on us: stand and cast
-            if ctx.melee_count < 1 and ctx.distance > 8 then return false end
-            -- the target is held: this is the window to walk out
-            if target_frozen(target) then return true end
-            -- 4.14.0 (improvement 10): a slowed / held enemy still walking at
-            -- us inside 8 yd - back off now, not once it is in melee
-            if ctx.approaching and ctx.slowed and not ctx.casting and (ctx.distance or 99) <= 8 then return true end
-            -- Cone of Cold just landed: the pack is snared, same window
-            if ctx.last_spell_age and ctx.last_spell_age <= 2.0 then
-                if id_in(COLD_IDS, ctx.last_spell_id) then return true end
-                if id_in(FROZEN_IDS, ctx.last_spell_id) then return true end
-            end
-            return false
-        end,
+        -- 4.46.0: the retreat decision is this class's row in
+        -- engine/combat/registry.lua, not a closure here. Only
+        -- melee_danger / melee_safe are read from this table now.
     }
 end
 

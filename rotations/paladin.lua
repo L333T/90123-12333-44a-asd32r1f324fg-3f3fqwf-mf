@@ -95,9 +95,9 @@ function paladin.combat_profile()
         name         = "paladin",
         melee_danger = 0,
         melee_safe   = 0,
-        should_retreat = function()
-            return false
-        end,
+        -- 4.46.0: the retreat decision is this class's row in
+        -- engine/combat/registry.lua, not a closure here. Only
+        -- melee_danger / melee_safe are read from this table now.
     }
 end
 

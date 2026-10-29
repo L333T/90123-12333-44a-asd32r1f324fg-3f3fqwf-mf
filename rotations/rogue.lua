@@ -87,13 +87,9 @@ end
 function rogue.combat_profile()
     return {
         name = "rogue", melee_danger = 0, melee_safe = 0,
-        should_retreat = function() return false end,
-        -- Stealth opener (2.228.0): step into the target's rear arc for Backstab.
-        want_behind = function(player, unit)
-            local ok, sm = pcall(require, "smart")
-            return ok and type(sm) == "table" and type(sm.rogue_wants_behind) == "function"
-                and sm.rogue_wants_behind(player, unit) == true
-        end,
+        -- 4.46.0: the retreat decision is this class's row in
+        -- engine/combat/registry.lua, not a closure here. Only
+        -- melee_danger / melee_safe are read from this table now.
     }
 end
 

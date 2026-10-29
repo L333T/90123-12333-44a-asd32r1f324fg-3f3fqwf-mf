@@ -97,6 +97,6 @@ return {
     description = "Intelligent fully AFK WoW leveling bot",
     authors = "BLIZZ - Anthonyk",
     author = "BLIZZ - Anthonyk",
-    version = "4.45.0",
+    version = "4.46.0",
     folder = "restedXP_questing",
 }

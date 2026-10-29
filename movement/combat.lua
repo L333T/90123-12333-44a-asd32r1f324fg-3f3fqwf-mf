@@ -3,68 +3,96 @@
 -- movement/combat.lua - closing on a target and standing in range
 -- ============================================================================
 -- Authors: BLIZZ - Anthonyk
--- Version: 4.29.0
+-- Version: 4.46.0
 -- ============================================================================
--- combat_engage(player, unit, yards) is called every tick of a fight.
---   * OWNERSHIP: each call holds travel off for COMBAT_HOLD s
---     (R.combat_until); combat_release() hands the player back at once.
---   * IN POSITION: in sight and within the band - melee (yards <= 5): the
---     GUI melee distance, held to +1 yd; ranged: CHASE_BAND inside the range,
---     held to the full range. The walk stops, the player faces the target,
---     and true is returned (the caller attacks).
---   * CLOSING: AmeisenNav walks to the target (seamless re-paths as it
---     moves; a unit standing on the goal is never an obstacle there), and
---     false is returned. Out of sight closes in until it is in sight.
---   * NO WAY CLOSER: no CHASE_GAIN yd of progress for CHASE_STALL s while
---     out of position - the target is marked unreachable
---     (state.mark_unreachable), which grind / quest check to drop it.
---   * RETREAT: a class profile's should_retreat(ctx) (mage, priest) sends
---     the player to AmeisenNav's kite point (client:kite) for RETREAT_TIME s.
---     4.14.0: ctx.approaching (izi is_moving_towards_me) and ctx.slowed /
---     ctx.casting go to the profile too, for an earlier back-off.
---   * FLEE (4.14.0, improvement 3 of the API-dump review): FLEE_HP % health
---     or less with FLEE_N+ enemies inside FLEE_YD yd -> Sentinel's flee path
---     (movement/nav N.flee - away from all of them) for FLEE_TIME s, at most
---     once per FLEE_GAP s; nothing is attacked while it runs.
+-- 4.46.0 (the Astar movement engine port, group A of docs/ASTAR_ENGINE_PORT_PLAN.md):
+-- this file no longer decides HOW a combat move is performed. It is the bridge
+-- between the product's pull API - combat_engage(player, unit, yards) asked
+-- once a tick by grind / quest - and the engine's push API in
+-- engine/combat/registry.lua, which picks one verb a frame out of
+-- engine/combat/verbs.lua.
+--
+-- WHAT MOVED OUT. The band and its hysteresis, the chase and its re-path gap,
+-- the stall that marks a target unreachable, the retreat, the flee, the strafe
+-- (strafe.lua) and the backpedal / blink are all verbs now. One verb owns the
+-- keys at a time, and a verb that stops releases whatever it started on that
+-- same frame. A class's rules are one registry.add row, not a should_retreat
+-- closure per rotation file.
+--
+-- WHAT STAYED HERE, because it is this product's and not the engine's:
+--   * OWNERSHIP: each call holds travel off for COMBAT_HOLD s (R.combat_until);
+--     combat_release() hands the player back at once.
+--   * the public names grind/engine.lua, loot.lua, movement.lua and the tests
+--     use: combat_engage, combat_release, in_combat_movement, combat_unit,
+--     in_position, set_combat_profile, clear_combat_profile.
+--   * state.mark_unreachable when the engine gives a target up.
+--   * the `yards` the caller worked out (GUI sliders, the hunter dead zone, the
+--     rogue throw range) OVERRIDES the engine's own spell-book range: the
+--     product knows about its sliders and the engine does not.
+--
+-- WHO OWNS WHAT NOW (the one-owner rule):
+--   * movement/nav.lua still owns every walk, its token and its stuck ladder.
+--     The engine is given nav's walk through set_walk_provider, so it decides
+--     WHERE to go and nav does the going. engine recovery is OFF here
+--     (set_recovery_enabled(false)) - two stuck recoveries on one walk is the
+--     thing to avoid, and nav's ladder is the one that feeds the nav memory.
+--   * movement/sentinel.lua stays the one adapter: the engine is handed
+--     N.client() and never looks the global up.
+--   * movement_handler keeps facing and the cast pause.
 -- ============================================================================
 
 local R = require("movement/core")
 local N = require("movement/nav")
 local Rg = require("movement/range")
 
+-- The engine's three modules are fetched on first use. movement.lua requires
+-- this file at load, and a load (or a test) that never reaches a fight should
+-- not have to carry them - nor stub the modules they require in turn.
+-- NOTE the names: Rg above is movement/range. The engine handles are ENG / VRB
+-- / REG so nothing here can shadow it.
+local ENG_mod, VRB_mod, REG_mod = nil, nil, nil
+
+local function ENG()
+    if ENG_mod == nil then
+        local ok, mod = pcall(require, "engine/astar")
+        ENG_mod = (ok and type(mod) == "table") and mod or false
+    end
+    return ENG_mod or nil
+end
+
+local function VRB()
+    if VRB_mod == nil then
+        local ok, mod = pcall(require, "engine/combat/verbs")
+        VRB_mod = (ok and type(mod) == "table") and mod or false
+    end
+    return VRB_mod or nil
+end
+
+local function REG()
+    if REG_mod == nil then
+        local ok, mod = pcall(require, "engine/combat/registry")
+        REG_mod = (ok and type(mod) == "table") and mod or false
+    end
+    return REG_mod or nil
+end
+
+--- True when all three loaded. Without them this file answers "not in
+--- position" and nothing moves, rather than throwing once a frame.
+local function ready()
+    return ENG() ~= nil and VRB() ~= nil and REG() ~= nil
+end
+
 local C = {}
 
 local COMBAT_HOLD = 1.0
 local MELEE_YARDS = 5
-local CHASE_BAND = 3
-local CHASE_GAIN, CHASE_STALL = 2.0, 10.0
--- 3.0.0.1: the chase re-paths only when the target moved CHASE_REPATH yd
--- from the walk's goal, at most every CHASE_GAP s. AmeisenNav's walker
--- driver restarts on every new path, and a re-path every 0.25 s made the
--- chase stutter and fall behind (log 01:44, 48 -> 53 yd while "Closing").
-local CHASE_REPATH, CHASE_GAP = 4.0, 0.75
-local RETREAT_TIME = 2.5
-local FLEE_HP, FLEE_N, FLEE_YD, FLEE_TIME, FLEE_GAP = 20, 3, 10, 5.0, 45.0
-C.FLEE_HP, C.FLEE_N = FLEE_HP, FLEE_N
-local DEFAULT_MELEE_DANGER = 8
-local PENDING_MAX = 3.0        -- audit 4.29.0: s a kite / flee answer is waited for (a lost callback held it forever)
+
+C.FLEE_HP, C.FLEE_N = 20, 3        -- engine/combat/verbs.lua's own numbers
 
 local st = {
     guid = nil, unit = nil, yards = nil,
-    latched = false,
-    best = nil, best_t = 0,
-    retreat_until = 0, kite_pending = false, kite_t = 0,
-    flee_until = 0, flee_t = -1e9, flee_pending = false,
-    profile = nil,
+    profile = nil, wired = false,
 }
-
-function C.set_combat_profile(p)
-    st.profile = type(p) == "table" and p or nil
-end
-
-function C.clear_combat_profile()
-    st.profile = nil
-end
 
 local function state_mod()
     local ok, s = pcall(require, "state")
@@ -72,81 +100,171 @@ local function state_mod()
     return nil
 end
 
-local function want_retreat(player, unit, range)
-    local p = st.profile
-    if not p or type(p.should_retreat) ~= "function" then return false end
-    local enemies = {}
-    local oke, list = pcall(player.get_enemies_in_range, player, tonumber(p.melee_danger) or DEFAULT_MELEE_DANGER, false)
-    if oke and type(list) == "table" then enemies = list end
-    local ck = nil
-    do
-        local okc, m = pcall(require, "combatcheck")
-        if okc and type(m) == "table" then ck = m end
+local gui_mod = nil
+local function get_gui()
+    if gui_mod == nil then
+        local ok, mod = pcall(require, "gui")
+        gui_mod = (ok and type(mod) == "table") and mod or false
     end
-    local ctx = {
-        player = player, target = unit, distance = range, melee_count = #enemies, enemies = enemies,
-        approaching = ck and ck.approaching(unit, player) == true or false,
-        slowed = ck and (ck.slowed(unit) == true or ck.held(unit) == true) or false,
-        casting = select(2, pcall(player.is_channeling_or_casting, player)) == true,
-        last_spell_id = R.last_spell_id, last_spell_target = R.last_spell_target,
-        last_spell_age = R.now() - (R.last_spell_t or 0),
-    }
-    local ok, v = pcall(p.should_retreat, ctx)
-    return ok and v == true
+    return gui_mod or nil
 end
 
-local function start_retreat(player, unit)
-    if st.kite_pending and (R.now() - st.kite_t) >= PENDING_MAX then st.kite_pending = false end   -- audit 4.29.0
-    if st.kite_pending then return end
-    -- 4.10.0: Sentinel's kite path (movement/nav N.kite - nav_client:kite, its last
-    -- point; the answer's shape is checked live, a wrong one switches kiting off)
-    local okp, pp = pcall(player.get_position, player)
-    local oku, up = pcall(unit.get_position, unit)
-    if not okp or not oku or not pp or not up then return end
-    st.kite_pending, st.kite_t = true, R.now()
-    local ok = N.kite(R.point(pp), R.point(up), function(point)
-        st.kite_pending = false
-        if point and N.nav_to(point, true, "combat") then
-            st.retreat_until = R.now() + RETREAT_TIME
-            R.trail("move", "retreat to the kite point (%.0f, %.0f)", point.x or 0, point.y or 0)
+local smart_mod = nil
+local function get_smart()
+    if smart_mod == nil then
+        local ok, mod = pcall(require, "smart")
+        smart_mod = (ok and type(mod) == "table") and mod or false
+    end
+    return smart_mod or nil
+end
+
+-- ----------------------------------------------------------------------------
+-- THE AWAY POINT: Sentinel's own kite / flee, with the engine's local scan as
+-- the fallback
+-- ----------------------------------------------------------------------------
+-- The engine asks for an away point synchronously (verbs.backoff / verbs.flee
+-- want one on the frame they start), and nav's N.kite / N.flee answer over the
+-- real navmesh but asynchronously. So the server answer is cached: a fresh one
+-- for roughly this spot is handed over at once, and a stale one kicks off the
+-- next request while this frame falls through to the engine's own arc scan
+-- (trace-weighted, cliff- and steep-aware). Both kill switches stay nav's.
+local AWAY_FRESH = 3.0         -- s an answer is good for
+local AWAY_MOVED = 6.0         -- yd of player movement that makes it stale
+local AWAY_WAIT = 3.0          -- s before a lost request is asked again
+local away = { t = -1e9, ask_t = -1e9, pending = false, point = nil, x = nil, y = nil }
+
+local function away_store(point)
+    away.pending = false
+    if type(point) ~= "table" then return end
+    local x, y, z = R.xyz(point)
+    if not x then return end
+    away.point, away.t = { x = x, y = y, z = z }, R.now()
+    local px, py = R.here()
+    away.x, away.y = px, py
+end
+
+local function away_provider(from, threats, distance, watch)
+    local t = R.now()
+    if away.point and (t - away.t) < AWAY_FRESH and away.x
+        and R.dist2(away.x, away.y, from.x, from.y) < AWAY_MOVED then
+        return away.point
+    end
+    if away.pending and (t - away.ask_t) < AWAY_WAIT then return nil end
+    local list = {}
+    if type(threats) == "table" then
+        for i = 1, #threats do list[#list + 1] = threats[i] end
+    end
+    away.ask_t = t
+    local asked = false
+    if #list >= C.FLEE_N then
+        asked = N.flee(from, list, away_store) == true
+    elseif list[1] then
+        asked = N.kite(from, list[1], away_store) == true
+    end
+    away.pending = asked
+    return nil                 -- this frame uses the engine's own scan
+end
+
+-- ----------------------------------------------------------------------------
+-- WIRING: done once, lazily, so load order does not matter
+-- ----------------------------------------------------------------------------
+local function wire()
+    if st.wired then return end
+    st.wired = true
+
+    local E, V, G = ENG(), VRB(), REG()
+    if not (E and V and G) then
+        st.wired = false
+        return
+    end
+
+    -- movement/sentinel.lua stays the one adapter
+    E.set_client_provider(function() return N.client() end)
+
+    -- nav owns every walk and its token. The engine's arrival callback is not
+    -- used here: nav does not take one, and no verb depends on it (they all
+    -- read engine.travel_moving(), which asks the real client).
+    E.set_walk_provider(function(kind, arg)
+        if R.resting or R.backpedal_until then return false end
+        if kind == "path" or kind == "route" then
+            return N.follow_route(arg, true) == true
+        end
+        return N.nav_to(arg, true, "combat") == true
+    end)
+    E.set_stop_provider(function(reason)
+        if N.mode() == "combat" and N.busy() then
+            N.stop(reason or "combat")
+        end
+        return true
+    end)
+
+    -- nav's stuck ladder is the only recovery (it feeds the nav memory)
+    E.set_recovery_enabled(false)
+
+    E.set_away_point_provider(away_provider)
+
+    -- RAY HEALTH IS SHARED (the rule that came out of the 2026-10-27 mid-match
+    -- native crash: two switches, not one). A throw inside the engine's own
+    -- traces is reported to movement/trace.lua, which is this product's switch.
+    E.set_ray_error_reporter(function(why)
+        local ok, TR = pcall(require, "movement/trace")
+        if not ok or type(TR) ~= "table" then return end
+        if type(TR.client_bad) == "function" then
+            pcall(TR.client_bad, why)
         end
     end)
-    if not ok then st.kite_pending = false end
-end
 
---- 4.14.0 FLEE: overwhelmed - low health and a crowd in melee - walk
---- Sentinel's flee path away from all of them. True while fleeing.
-local function flee_check(player, t)
-    -- audit 4.29.0: an unanswered flee request no longer blocks every attack for good
-    if st.flee_pending and (t - st.flee_t) >= PENDING_MAX then st.flee_pending = false end
-    if t < st.flee_until or st.flee_pending then return true end
-    if (t - st.flee_t) < FLEE_GAP then return false end
-    local okh, hp = pcall(player.get_health_percentage, player)
-    if not okh or type(hp) ~= "number" or hp > FLEE_HP then return false end
-    local oke, list = pcall(player.get_enemies_in_range, player, FLEE_YD, false)
-    if not oke or type(list) ~= "table" or #list < FLEE_N then return false end
-    local threats = {}
-    for i = 1, #list do
-        local okp, p = pcall(list[i].get_position, list[i])
-        if okp and p then threats[#threats + 1] = R.point(p) end
-    end
-    local okp, pp = pcall(player.get_position, player)
-    if not okp or not pp or #threats < FLEE_N then return false end
-    st.flee_t, st.flee_pending = t, true
-    local asked = N.flee(R.point(pp), threats, function(point)
-        st.flee_pending = false
-        if point and N.nav_to(point, true, "combat") then
-            st.flee_until = R.now() + FLEE_TIME
-            R.trail("move", "flee: %.0f%% health, %d enemies within %d yd - to (%.0f, %.0f)", hp, #threats, FLEE_YD,
-                point.x or 0, point.y or 0)
+    -- the caller's yards win over the engine's spell-book resolver
+    G.set_range_override(function() return st.yards end)
+    G.set_target_reader(function() return st.unit end)
+
+    G.set_settings_reader(function(name)
+        local gui = get_gui()
+        if gui and type(gui.is_on) == "function" then
+            local ok, v = pcall(gui.is_on, name)
+            if ok then return v == true end
         end
+        return false
     end)
-    if not asked then st.flee_pending = false return false end
-    return true
-end
-C._flee_check = flee_check
 
---- True when in position to attack `unit` from `yards`; false while closing.
+    G.set_wants_behind_reader(function(player, unit)
+        local sm = get_smart()
+        if sm and type(sm.rogue_wants_behind) == "function" then
+            local ok, v = pcall(sm.rogue_wants_behind, player, unit)
+            if ok then return v == true end
+        end
+        return false
+    end)
+end
+
+C.wire = wire
+
+-- ----------------------------------------------------------------------------
+-- the profile: data only now (the decisions are registry rows)
+-- ----------------------------------------------------------------------------
+--- A rotation's combat_profile. Only its melee_danger / melee_safe are read -
+--- the should_retreat decision lives in that class's registry row, so a
+--- profile that still carries one is ignored.
+function C.set_combat_profile(p)
+    st.profile = type(p) == "table" and p or nil
+    local G = REG()
+    if not G then return end
+    G.melee_danger = st.profile and tonumber(st.profile.melee_danger) or nil
+    G.melee_safe = st.profile and tonumber(st.profile.melee_safe) or nil
+end
+
+function C.clear_combat_profile()
+    st.profile = nil
+    local G = REG()
+    if not G then return end
+    G.melee_danger, G.melee_safe = nil, nil
+end
+
+-- ----------------------------------------------------------------------------
+-- the tick
+-- ----------------------------------------------------------------------------
+--- True when in position to attack `unit` from `yards`; false while closing,
+--- and false while a flee runs (nothing is attacked then).
 function C.combat_engage(player, unit, yards)
     if not player or not unit then return false end
     if R.resting or R.backpedal_until then return false end
@@ -157,72 +275,47 @@ function C.combat_engage(player, unit, yards)
     R.combat_until = t + COMBAT_HOLD
 
     local guid = R.guid(unit)
-    if guid == nil or guid ~= st.guid then
-        st.guid, st.latched, st.best, st.best_t = guid, false, nil, t
-        -- 2026-10-28 (user: "Sentinel Kiting is not being used in combat", found in
-        -- Zygor Questing 1.42.0 and ported here - this file is shared): the retreat
-        -- used to be thrown away here with the rest of the per-target state. It is not
-        -- per-target. The zygor 10-27 21:27 log: the kite walk starts at t=2124.20, an
-        -- attacker switch lands at t=2124.45, retreat_until goes to 0, and the
-        -- "range <= reach" branch below stops the walk at t=2125.20 - one second in,
-        -- every time, which in a multi-mob fight is continuously. A retreat is about
-        -- where the PLAYER needs to be, not about which unit is being hit, so it now
-        -- outlives the switch and ends on its own RETREAT_TIME. The band state resets.
-    end
-    st.unit, st.yards = unit, yards
+    st.guid, st.unit, st.yards = guid, unit, yards
 
-    local okd, range = pcall(player.distance_to, player, unit)
-    if not okd or type(range) ~= "number" then return false end
-    local los = Rg.has_los(player, unit)
-    local melee = yards <= MELEE_YARDS
-    local reach = melee and yards or math.max(MELEE_YARDS, yards - CHASE_BAND)
-    local hold = melee and (yards + 1) or yards
-    local ready = los and range <= hold
-
-    -- 4.14.0: fleeing - the flee walk runs, nothing is attacked
-    if flee_check(player, t) then return false end
-    -- retreating: the kite walk runs, the caller casts what it can
-    if t < st.retreat_until then return ready end
-    if want_retreat(player, unit, range) then
-        start_retreat(player, unit)
-        if t < st.retreat_until or st.kite_pending then return ready end
-    end
-
-    if los and (range <= reach or (st.latched and range <= hold)) then
-        -- 3.0.0.1: ANY running walk stops here, not only the chase - the
-        -- route walk kept going through a fight and carried the player out
-        -- of range, unable to face the target (log 01:44, 14 -> 48 yd)
-        if N.busy() then N.stop("in range") end
-        st.latched = true
-        st.best, st.best_t = range, t
-        Rg.face(unit)
-        return true
-    end
-    st.latched = false
-
-    -- closing
-    if st.best == nil or range < st.best - CHASE_GAIN then
-        st.best, st.best_t = range, t
-    elseif (t - st.best_t) >= CHASE_STALL then
-        local s = state_mod()
-        if s and guid and type(s.mark_unreachable) == "function" then s.mark_unreachable(guid) end
-        R.trail("move", "no way closer to %s for %.0f s (%.0f yd%s) - marked unreachable",
-            tostring(select(2, pcall(unit.get_name, unit))), t - st.best_t, range, los and "" or ", out of sight")
-        st.best, st.best_t = range, t
+    if not ready() then return false end
+    wire()
+    if not st.wired then return false end
+    local G, V = REG(), VRB()
+    G.start()
+    local ok = pcall(G.tick)
+    if not ok then
+        -- a verb that threw must not hold the keys
+        pcall(G.release)
         return false
     end
-    local okp, pos = pcall(unit.get_position, unit)
-    if okp and pos then
-        local tx, ty = R.xyz(pos)
-        local gx, gy = N.destination()
-        local chasing = N.mode() == "combat" and N.busy()
-        local moved = (not gx or not tx) or R.dist2(gx, gy, tx, ty) > CHASE_REPATH
-        if not chasing or (moved and (t - (st.chase_t or 0)) >= CHASE_GAP) then
-            st.chase_t = t
-            N.nav_to(pos, true, "combat")
+
+    -- the engine gave this target up (no CHASE_GAIN yd for CHASE_STALL s):
+    -- grind / quest drop it on state.mark_unreachable, as they always have
+    if V.close_unreachable(unit) and guid then
+        local s = state_mod()
+        if s and type(s.mark_unreachable) == "function" then
+            s.mark_unreachable(guid)
+            R.trail("move", "no way closer to %s - marked unreachable",
+                tostring(select(2, pcall(unit.get_name, unit))))
         end
     end
-    return false
+
+    if V.fleeing() then return false end
+    local ctx = G.ctx()
+    return ctx ~= nil and ctx.in_position == true
+end
+
+--- Per frame from movement.pulse: when combat ownership has lapsed without a
+--- combat_release (the fight ended elsewhere, the bot stopped), no verb may
+--- keep a key or a walk.
+function C.tick(t)
+    if not st.wired then return end
+    if C.in_combat_movement() then return end
+    local G = REG()
+    if G and G.is_running() then
+        pcall(G.stop)
+        st.unit, st.guid, st.yards = nil, nil, nil
+    end
 end
 
 function C.in_combat_movement()
@@ -235,19 +328,46 @@ function C.combat_unit()
     return nil
 end
 
---- Latched in position against a live target while combat is asked for.
+--- In the band against a live target while combat is asked for. The band is a
+--- plain question (engine in_band), so it is right on the frame a verb other
+--- than close owns the keys.
 function C.in_position()
-    if not st.latched or not C.in_combat_movement() then return false end
-    if R.resting or R.backpedal_until or R.now() < st.retreat_until or R.now() < st.flee_until then return false end
-    return C.combat_unit() ~= nil
+    if not C.in_combat_movement() then return false end
+    if R.resting or R.backpedal_until then return false end
+    if not st.wired then return false end
+    local V, G = VRB(), REG()
+    if not (V and G) then return false end
+    if V.fleeing() then return false end
+    if C.combat_unit() == nil then return false end
+    local ctx = G.ctx()
+    return ctx ~= nil and ctx.in_position == true
 end
 
 --- Give the player back (loot, quest approach, fight over).
 function C.combat_release()
     R.combat_until = 0
-    st.latched = false
-    st.retreat_until, st.flee_until = 0, 0
+    if st.wired then
+        local G = REG()
+        if G then pcall(G.stop) end      -- releases the active verb's keys / walk
+    end
+    st.unit, st.guid, st.yards = nil, nil, nil
+    away.point, away.pending = nil, false
     if N.mode() == "combat" then N.stop("combat over") end
 end
+
+--- 4.46.0: kept for the callers and tests that asked the old internal.
+function C._flee_check()
+    local V = VRB()
+    return V ~= nil and V.fleeing() == true
+end
+
+--- What the engine is doing, for the debug snapshot.
+function C.verb()
+    local G = REG()
+    if not G then return nil end
+    return G.active_id()
+end
+
+C.face = Rg.face
 
 return C
